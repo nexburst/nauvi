@@ -3,17 +3,22 @@
 // Checks (#19): with the API server paused, the header says
 // "Reconnecting…"; after the unpause the Pods table goes Live again.
 //
-// Pauses the shared kind cluster for up to ~45 s. Skipped without docker
-// access to the kind node, or with QA_NO_PAUSE=1.
+// A paused API server accepts connections but never answers, so the app only
+// notices when a watch request times out: up to about 5 minutes (kube's
+// default watch and read timeouts). The pause lasts at most QA_PAUSE_MAX_MS:
+// 45 s by default, since the local cluster is shared (too short to see
+// "Reconnecting…" then); qa.yml, with its own cluster, sets 6 minutes.
+// Skipped without docker access to the kind node, or with QA_NO_PAUSE=1.
 
 import { describe, it } from "node:test";
 import { cannotPause, withControlPlanePaused } from "../lib/control-plane.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 
-const T = { timeout: 180_000 };
+const MAX_PAUSE = Number(process.env.QA_PAUSE_MAX_MS || 45_000);
+const T = { timeout: MAX_PAUSE + 180_000 };
 const skip = cannotPause() || false;
 
-describe("reconnecting after the control plane pauses", { timeout: 10 * 60_000, skip }, () => {
+describe("reconnecting after the control plane pauses", { timeout: MAX_PAUSE + 5 * 60_000, skip }, () => {
   const s = appSession("reconnect");
 
   it("shows Reconnecting… while paused and goes Live after", T, async () => {
@@ -24,12 +29,12 @@ describe("reconnecting after the control plane pauses", { timeout: 10 * 60_000, 
       async () => {
         // Watches notice a dead connection on their next request or timeout.
         await app.waitFor(async () => (await app.statusText()).startsWith("Reconnecting"), {
-          timeout: 40_000,
+          timeout: MAX_PAUSE - 5_000,
           message: 'header status "Reconnecting…"',
         });
         await app.shot("paused");
       },
-      { maxMs: 45_000 },
+      { maxMs: MAX_PAUSE },
     );
     await waitLive(app, 90_000);
   });

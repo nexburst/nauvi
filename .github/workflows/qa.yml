@@ -30,6 +30,9 @@ jobs:
       TAURI_DRIVER_VERSION: 2.1.0
       KUBELOUPE_LIMITED_KUBECONFIG: /home/runner/.kube/kubeloupe-limited.yaml
       QA_PROMETHEUS: "1"
+      # Its own cluster: the reconnect scenario may pause it long enough for
+      # the app's watches to time out.
+      QA_PAUSE_MAX_MS: "360000"
     steps:
       - uses: actions/checkout@v4.2.2
 

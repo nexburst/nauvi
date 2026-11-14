@@ -119,8 +119,9 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
   with a second cluster, helm, the limited user and a small Prometheus
   (`scripts/test-cluster/prometheus.yaml`). Don't apply that file to the
   shared local cluster: the cluster tests expect no Prometheus there.
-- The `reconnect` scenario pauses the shared control plane (`docker pause`,
-  at most 60 s, always unpaused); it skips without access to Docker.
+- The `reconnect` scenario pauses the control plane (`docker pause`, always
+  unpaused; at most 45 s locally, `QA_PAUSE_MAX_MS`); it skips without
+  access to Docker.
 
 ## Cluster tests
 
