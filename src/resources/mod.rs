@@ -16,7 +16,9 @@
 //! - `pod_detail`: the pod section of the detail panel (containers, probes, ...)
 //! - `detail_watch`: live updates of one object's detail
 //! - `related`: related objects and a per-kind summary (`related_local`,
-//!   `related_summary` hold the pure per-kind parts)
+//!   `related_summary`, `related_crd` hold the pure per-kind parts)
+//! - `rbac`: what Roles, bindings and ServiceAccounts say (cells, rules,
+//!   which bindings point at a role or an account)
 //! - `table`: `kubectl get`-style table output for the CLI
 
 mod apply;
@@ -28,7 +30,9 @@ mod jsonpath;
 mod manifests;
 mod ops;
 mod pod_detail;
+mod rbac;
 mod related;
+mod related_crd;
 mod related_local;
 mod related_summary;
 mod table;
@@ -113,9 +117,11 @@ pub enum Category {
     Config,
     Storage,
     Cluster,
-    /// CRDs, grouped by API group.
+    /// RBAC: ServiceAccounts, Roles, ClusterRoles and their bindings.
+    Access,
+    /// CRDs, grouped by API group; the CRDs themselves are "Definitions".
     Custom,
-    /// Anything else the server serves (leases, apiservices, ...).
+    /// Anything else the server serves (apiservices, flowschemas, ...).
     Other,
 }
 

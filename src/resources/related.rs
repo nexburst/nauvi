@@ -6,6 +6,8 @@
 //! list of [`Rel`]ations. Every request is scoped by a namespace or a
 //! selector; nothing scans the whole cluster.
 
+use super::rbac;
+use super::related_crd as crd;
 use super::related_local::{self as local, RefKind};
 use super::related_summary as summary;
 use super::{get_resource, ops::dyn_api, ResourceRef};
@@ -304,6 +306,35 @@ const SERVICES: Listed = Listed {
     sort: by_name,
 };
 
+const ROLE_BINDINGS: Listed = Listed {
+    title: "Role bindings",
+    group: "rbac.authorization.k8s.io",
+    version: "v1",
+    kind: "RoleBinding",
+    plural: "rolebindings",
+    columns: &["Name", "Role", "Subjects"],
+    cells: rbac::binding_cells,
+    sort: by_name,
+};
+
+/// Role bindings from every namespace (those granting a ClusterRole).
+const ALL_ROLE_BINDINGS: Listed = Listed {
+    columns: &["Name", "Namespace", "Role", "Subjects"],
+    cells: |v| {
+        let mut cells = rbac::binding_cells(v);
+        cells.insert(1, local::str_at(v, "/metadata/namespace"));
+        cells
+    },
+    ..ROLE_BINDINGS
+};
+
+const CLUSTER_ROLE_BINDINGS: Listed = Listed {
+    title: "Cluster role bindings",
+    kind: "ClusterRoleBinding",
+    plural: "clusterrolebindings",
+    ..ROLE_BINDINGS
+};
+
 /// How to find one group of related objects.
 pub(super) enum Rel {
     /// Groups computed from the object alone (ports, rules, taints, links).
@@ -325,6 +356,14 @@ pub(super) enum Rel {
     PodsUsing(RefKind),
     /// Services in the namespace whose selector matches this pod.
     ServicesSelecting,
+    /// The bindings that grant this Role (in its namespace) or ClusterRole
+    /// (ClusterRoleBindings, and RoleBindings in every namespace).
+    BindingsGranting,
+    /// RoleBindings in the namespace and ClusterRoleBindings that have this
+    /// ServiceAccount as a subject.
+    AccountBindings,
+    /// Pods in the namespace that run as this ServiceAccount.
+    AccountPods,
 }
 
 /// What the panel shows for one kind.
@@ -461,6 +500,59 @@ const KINDS: &[KindRelated] = &[
         facts: no_facts,
         rels: &[Rel::ServicesSelecting, Rel::Local(local::pod_mounts)],
     },
+    KindRelated {
+        group: "policy",
+        kind: "PodDisruptionBudget",
+        summary: summary::pdb,
+        facts: summary::pdb_facts,
+        rels: &[Rel::Pods("/spec/selector")],
+    },
+    KindRelated {
+        group: "",
+        kind: "ServiceAccount",
+        summary: no_summary,
+        facts: no_facts,
+        rels: &[
+            Rel::Local(rbac::account_secrets),
+            Rel::AccountBindings,
+            Rel::AccountPods,
+        ],
+    },
+    KindRelated {
+        group: "rbac.authorization.k8s.io",
+        kind: "Role",
+        summary: summary::role,
+        facts: no_facts,
+        rels: &[Rel::Local(rbac::rules), Rel::BindingsGranting],
+    },
+    KindRelated {
+        group: "rbac.authorization.k8s.io",
+        kind: "ClusterRole",
+        summary: summary::role,
+        facts: no_facts,
+        rels: &[Rel::Local(rbac::rules), Rel::BindingsGranting],
+    },
+    KindRelated {
+        group: "rbac.authorization.k8s.io",
+        kind: "RoleBinding",
+        summary: summary::binding,
+        facts: no_facts,
+        rels: &[Rel::Local(rbac::binding_refs)],
+    },
+    KindRelated {
+        group: "rbac.authorization.k8s.io",
+        kind: "ClusterRoleBinding",
+        summary: summary::binding,
+        facts: no_facts,
+        rels: &[Rel::Local(rbac::binding_refs)],
+    },
+    KindRelated {
+        group: "apiextensions.k8s.io",
+        kind: "CustomResourceDefinition",
+        summary: crd::summary,
+        facts: crd::facts,
+        rels: &[Rel::Local(crd::groups)],
+    },
 ];
 
 fn spec_of(r: &ResourceRef) -> Option<&'static KindRelated> {
@@ -494,6 +586,7 @@ pub async fn related_objects(client: &Client, r: &ResourceRef, obj: &DynamicObje
     let v = serde_json::to_value(obj).unwrap_or(Value::Null);
     let ctx = Ctx {
         client,
+        kind: &r.kind,
         v: &v,
         namespace: obj.metadata.namespace.clone().unwrap_or_default(),
         name: obj.metadata.name.clone().unwrap_or_default(),
@@ -513,6 +606,7 @@ pub async fn related_objects(client: &Client, r: &ResourceRef, obj: &DynamicObje
 
 struct Ctx<'a> {
     client: &'a Client,
+    kind: &'a str,
     v: &'a Value,
     namespace: String,
     name: String,
@@ -543,6 +637,20 @@ impl Ctx<'_> {
         keep: impl Fn(&Value) -> bool,
     ) -> RelatedGroup {
         match self.list(what, Some(&self.namespace), lp).await {
+            Ok(objs) => what.group(what.title, objs.into_iter().filter(keep).collect()),
+            Err(e) => what.failed(what.title, e),
+        }
+    }
+
+    /// Objects of `what` in `namespace` (every namespace, or cluster-scoped
+    /// objects, for `None`) that `keep` accepts, as a group.
+    async fn matching(
+        &self,
+        what: &Listed,
+        namespace: Option<&str>,
+        keep: impl Fn(&Value) -> bool,
+    ) -> RelatedGroup {
+        match self.list(what, namespace, ListParams::default()).await {
             Ok(objs) => what.group(what.title, objs.into_iter().filter(keep).collect()),
             Err(e) => what.failed(what.title, e),
         }
@@ -623,6 +731,34 @@ impl Ctx<'_> {
                         local::selects(s.pointer("/spec/selector"), labels.as_ref())
                     })
                     .await,
+                ]
+            }
+            Rel::BindingsGranting => {
+                let (kind, name) = (self.kind, self.name.as_str());
+                let grants = |b: &Value| rbac::binds_role(b, kind, name);
+                if kind == "Role" {
+                    return vec![self.matching(&ROLE_BINDINGS, Some(ns), grants).await];
+                }
+                let (cluster, namespaced) = futures::join!(
+                    self.matching(&CLUSTER_ROLE_BINDINGS, None, grants),
+                    self.matching(&ALL_ROLE_BINDINGS, None, grants),
+                );
+                vec![cluster, namespaced]
+            }
+            Rel::AccountBindings => {
+                let name = self.name.as_str();
+                let binds = |b: &Value| rbac::binds_account(b, ns, name);
+                let (namespaced, cluster) = futures::join!(
+                    self.matching(&ROLE_BINDINGS, Some(ns), binds),
+                    self.matching(&CLUSTER_ROLE_BINDINGS, None, binds),
+                );
+                vec![namespaced, cluster]
+            }
+            Rel::AccountPods => {
+                let name = self.name.as_str();
+                vec![
+                    self.matching(&PODS, Some(ns), |p| rbac::pod_account(p) == name)
+                        .await,
                 ]
             }
         }

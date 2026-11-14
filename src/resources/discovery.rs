@@ -258,6 +258,11 @@ const ALIASES: &[(&str, &str)] = &[
     ("ns", "namespaces"),
     ("ev", "events"),
     ("ep", "endpoints"),
+    ("sa", "serviceaccounts"),
+    ("pdb", "poddisruptionbudgets"),
+    ("pc", "priorityclasses"),
+    ("crd", "customresourcedefinitions"),
+    ("crds", "customresourcedefinitions"),
 ];
 
 fn alias_of(name: &str) -> &str {
@@ -327,6 +332,8 @@ mod tests {
         );
         assert!(short_names_with_aliases("widgets", vec![]).is_empty());
         assert_eq!(alias_of("svc"), "services");
+        assert_eq!(alias_of("crds"), "customresourcedefinitions");
+        assert_eq!(alias_of("sa"), "serviceaccounts");
         assert_eq!(alias_of("widgets"), "widgets");
     }
 }
