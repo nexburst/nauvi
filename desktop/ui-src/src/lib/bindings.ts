@@ -393,9 +393,11 @@ export type Capacity = {
 
 /**  Where a kind appears in the sidebar. */
 export type Category = "workloads" | "network" | "config" | "storage" | "cluster" | 
-/**  CRDs, grouped by API group. */
+/**  RBAC: ServiceAccounts, Roles, ClusterRoles and their bindings. */
+"access" | 
+/**  CRDs, grouped by API group; the CRDs themselves are "Definitions". */
 "custom" | 
-/**  Anything else the server serves (leases, apiservices, ...). */
+/**  Anything else the server serves (apiservices, flowschemas, ...). */
 "other";
 
 /**  A table column as the UI sees it. */

@@ -11,6 +11,8 @@
   import ServicePorts from "./ServicePorts.svelte";
   import UsageCharts from "./UsageCharts.svelte";
   import { isWorkloadResource } from "../dock";
+  import { crdInstancesKind, isCrdDefinitions } from "../crd";
+  import { kinds, setView } from "../stores/app.svelte";
   import { closeDetail } from "../stores/detail.svelte";
   import { openDockTab } from "../stores/dock.svelte";
   import { registerTabs } from "../stores/keyboard.svelte";
@@ -39,6 +41,8 @@
 
   /** Workloads get a Logs button: their pods' logs, merged, in a dock tab. */
   const isWorkload = $derived(isWorkloadResource(target.resource));
+  /** A CRD gets a button to the table of its instances. */
+  const instances = $derived(isCrdDefinitions(target.resource) ? crdInstancesKind(kinds.all, target.name) : undefined);
   const workload = $derived({ kind: target.resource.kind, namespace: target.namespace, name: target.name });
   const tabs = $derived([
     { id: "overview", label: "Overview" },
@@ -85,6 +89,15 @@
         class="btn dock-logs"
         title="Opens the merged logs of its pods in the dock below"
         onclick={() => openDockTab({ type: "workloadLogs", workload })}>Logs</button
+      >
+    {/if}
+    {#if instances}
+      {@const to = instances}
+      <button
+        type="button"
+        class="btn instances"
+        title={`Opens the table of ${to.label}`}
+        onclick={() => setView(to.id)}>View instances</button
       >
     {/if}
   </div>
@@ -180,7 +193,8 @@
     color: var(--text);
     border-bottom-color: var(--accent);
   }
-  .tabs .dock-logs {
+  .tabs .dock-logs,
+  .tabs .instances {
     margin: 4px 0 4px auto;
     align-self: center;
   }

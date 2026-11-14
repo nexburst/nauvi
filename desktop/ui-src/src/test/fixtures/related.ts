@@ -18,7 +18,14 @@ export function objects(
   return { title, api_version: apiVersion, kind, columns, name_column: 0, items, error: "" };
 }
 
+/** A group of plain rows (not objects). */
+export function plain(title: string, columns: string[], rows: string[][]): RelatedGroup {
+  const items: RelatedItem[] = rows.map((cells) => ({ namespace: "", name: "", cells }));
+  return { title, api_version: "", kind: "", columns, name_column: 0, items, error: "" };
+}
+
 const POD_COLUMNS = ["Name", "Ready", "Status", "Restarts", "Age"];
+const RBAC = "rbac.authorization.k8s.io/v1";
 
 export function relatedFixtures(): Record<string, Related> {
   return {
@@ -73,6 +80,72 @@ export function relatedFixtures(): Record<string, Related> {
           ...objects("Used by pods", "v1", "Pod", ["Name", "Ready", "Status", "Used as"], []),
           error: "pods is forbidden: User cannot list pods in the namespace demo",
         },
+      ],
+    },
+    "rbac.authorization.k8s.io/v1/roles|demo/pod-reader": {
+      summary: ["2 rules"],
+      facts: [],
+      groups: [
+        plain(
+          "Rules",
+          ["API groups", "Resources", "Resource names", "Verbs"],
+          [
+            ["core", "pods, pods/log", "all", "get, list"],
+            ["apps", "deployments", "web", "patch"],
+          ],
+        ),
+        objects(
+          "Role bindings",
+          RBAC,
+          "RoleBinding",
+          ["Name", "Role", "Subjects"],
+          [{ namespace: "demo", cells: ["web-reads-pods", "Role/pod-reader", "ServiceAccount:demo/web,User:alice"] }],
+        ),
+      ],
+    },
+    "rbac.authorization.k8s.io/v1/rolebindings|demo/web-reads-pods": {
+      summary: ["Role/pod-reader", "2 subjects"],
+      facts: [],
+      groups: [
+        objects("Role", RBAC, "Role", ["Name", "Kind"], [{ namespace: "demo", cells: ["pod-reader", "Role"] }]),
+        objects("Service accounts", "v1", "ServiceAccount", ["Name", "Namespace"], [{ namespace: "demo", cells: ["web", "demo"] }]),
+        plain("Users and groups", ["Kind", "Name"], [["User", "alice"]]),
+      ],
+    },
+    "v1/serviceaccounts|demo/web": {
+      summary: [],
+      facts: [],
+      groups: [
+        objects("Role bindings", RBAC, "RoleBinding", ["Name", "Role", "Subjects"], [
+          { namespace: "demo", cells: ["web-reads-pods", "Role/pod-reader", "ServiceAccount:demo/web,User:alice"] },
+        ]),
+        objects("Cluster role bindings", RBAC, "ClusterRoleBinding", ["Name", "Role", "Subjects"], []),
+        objects("Pods", "v1", "Pod", POD_COLUMNS, [{ namespace: "demo", cells: ["web-1", "1/1", "Running", "0", "1h"] }]),
+      ],
+    },
+    "policy/v1/poddisruptionbudgets|demo/web": {
+      summary: ["1 disruption allowed", "2/1 healthy"],
+      facts: [
+        { label: "Min available", value: "1" },
+        { label: "Expected pods", value: "2" },
+      ],
+      groups: [
+        objects("Pods", "v1", "Pod", POD_COLUMNS, [
+          { namespace: "demo", cells: ["web-1", "1/1", "Running", "0", "1h"] },
+          { namespace: "demo", cells: ["web-2", "1/1", "Running", "3", "1h"] },
+        ]),
+      ],
+    },
+    "apiextensions.k8s.io/v1/customresourcedefinitions|widgets.example.com": {
+      summary: ["Widget", "Namespaced", "1 version"],
+      facts: [
+        { label: "Group", value: "example.com" },
+        { label: "Plural", value: "widgets" },
+        { label: "Storage version", value: "v1" },
+      ],
+      groups: [
+        plain("Versions", ["Name", "Served", "Storage", "Deprecated"], [["v1", "yes", "yes", "no"]]),
+        plain("Printer columns", ["Version", "Name", "Type", "JSON path", "Priority"], []),
       ],
     },
     "v1/pods|demo/web-1": {

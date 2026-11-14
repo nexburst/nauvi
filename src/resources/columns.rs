@@ -5,6 +5,7 @@ use super::jsonpath::{
     ratio, Seg,
 };
 use super::*;
+use super::{rbac, related_crd};
 use crate::created_secs;
 use kube::api::DynamicObject;
 use serde_json::Value;
@@ -94,7 +95,7 @@ pub(super) struct KindSpec {
     columns: &'static [Col],
 }
 
-use Category::{Cluster, Config, Network, Storage, Workloads};
+use Category::{Access, Cluster, Config, Custom, Network, Storage, Workloads};
 
 /// The column registry. Order here is the sidebar order. To add columns for
 /// another built-in kind, add one entry (a path into the object, or a small
@@ -243,6 +244,33 @@ pub(super) const KINDS: &[KindSpec] = &[
         ],
     },
     KindSpec {
+        group: "networking.k8s.io",
+        kind: "IngressClass",
+        label: "Ingress Classes",
+        category: Network,
+        columns: &[
+            NAME,
+            text("controller", "Controller", ".spec.controller"),
+            func("parameters", "Parameters", |v| {
+                let name = path_str(v, ".spec.parameters.name");
+                if name.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}/{name}", path_str(v, ".spec.parameters.kind"))
+                }
+            }),
+            func("default", "Default", |v| {
+                yes_no(
+                    path_str(
+                        v,
+                        ".metadata.annotations['ingressclass.kubernetes.io/is-default-class']",
+                    ) == "true",
+                )
+            }),
+            AGE,
+        ],
+    },
+    KindSpec {
         group: "",
         kind: "Endpoints",
         label: "Endpoints",
@@ -343,6 +371,84 @@ pub(super) const KINDS: &[KindSpec] = &[
         label: "Limit Ranges",
         category: Config,
         columns: &[NAME, NAMESPACE, AGE],
+    },
+    KindSpec {
+        group: "policy",
+        kind: "PodDisruptionBudget",
+        label: "Pod Disruption Budgets",
+        category: Config,
+        columns: &[
+            NAME,
+            NAMESPACE,
+            func("minavailable", "Min Available", |v| {
+                or_na(path_str(v, ".spec.minAvailable"))
+            }),
+            func("maxunavailable", "Max Unavailable", |v| {
+                or_na(path_str(v, ".spec.maxUnavailable"))
+            }),
+            number(
+                "allowed",
+                "Allowed Disruptions",
+                ".status.disruptionsAllowed",
+            ),
+            number("current", "Current Healthy", ".status.currentHealthy"),
+            number("desired", "Desired Healthy", ".status.desiredHealthy"),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "scheduling.k8s.io",
+        kind: "PriorityClass",
+        label: "Priority Classes",
+        category: Config,
+        columns: &[
+            NAME,
+            number("value", "Value", ".value"),
+            func("globaldefault", "Global Default", |v| {
+                yes_no(v.get("globalDefault") == Some(&Value::Bool(true)))
+            }),
+            func("preemption", "Preemption", |v| {
+                first_of(&[
+                    path_str(v, ".preemptionPolicy"),
+                    "PreemptLowerPriority".into(),
+                ])
+            }),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "node.k8s.io",
+        kind: "RuntimeClass",
+        label: "Runtime Classes",
+        category: Config,
+        columns: &[NAME, text("handler", "Handler", ".handler"), AGE],
+    },
+    KindSpec {
+        group: "coordination.k8s.io",
+        kind: "Lease",
+        label: "Leases",
+        category: Config,
+        columns: &[
+            NAME,
+            NAMESPACE,
+            text("holder", "Holder", ".spec.holderIdentity"),
+            text("renewed", "Renewed", ".spec.renewTime"),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "admissionregistration.k8s.io",
+        kind: "MutatingWebhookConfiguration",
+        label: "Mutating Webhook Configs",
+        category: Config,
+        columns: &[NAME, func("webhooks", "Webhooks", webhook_names), AGE],
+    },
+    KindSpec {
+        group: "admissionregistration.k8s.io",
+        kind: "ValidatingWebhookConfiguration",
+        label: "Validating Webhook Configs",
+        category: Config,
+        columns: &[NAME, func("webhooks", "Webhooks", webhook_names), AGE],
     },
     KindSpec {
         group: "",
@@ -448,6 +554,76 @@ pub(super) const KINDS: &[KindSpec] = &[
             text("message", "Message", ".message"),
             number("count", "Count", ".count"),
             NAMESPACE,
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "",
+        kind: "ServiceAccount",
+        label: "Service Accounts",
+        category: Access,
+        columns: &[
+            NAME,
+            NAMESPACE,
+            func("secrets", "Secrets", |v| count_at(v, ".secrets")),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "rbac.authorization.k8s.io",
+        kind: "ClusterRole",
+        label: "Cluster Roles",
+        category: Access,
+        columns: &[NAME, func("rules", "Rules", |v| count_at(v, ".rules")), AGE],
+    },
+    KindSpec {
+        group: "rbac.authorization.k8s.io",
+        kind: "Role",
+        label: "Roles",
+        category: Access,
+        columns: &[
+            NAME,
+            NAMESPACE,
+            func("rules", "Rules", |v| count_at(v, ".rules")),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "rbac.authorization.k8s.io",
+        kind: "ClusterRoleBinding",
+        label: "Cluster Role Bindings",
+        category: Access,
+        columns: &[
+            NAME,
+            func("role", "Role", rbac::role_ref),
+            func("subjects", "Subjects", rbac::subjects),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "rbac.authorization.k8s.io",
+        kind: "RoleBinding",
+        label: "Role Bindings",
+        category: Access,
+        columns: &[
+            NAME,
+            NAMESPACE,
+            func("role", "Role", rbac::role_ref),
+            func("subjects", "Subjects", rbac::subjects),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "apiextensions.k8s.io",
+        kind: "CustomResourceDefinition",
+        label: "Definitions",
+        category: Custom,
+        columns: &[
+            NAME,
+            text("kind", "Kind", ".spec.names.kind"),
+            text("group", "Group", ".spec.group"),
+            func("version", "Version", related_crd::served_versions),
+            text("scope", "Scope", ".spec.scope"),
             AGE,
         ],
     },
@@ -637,6 +813,30 @@ fn slice_endpoints(v: &Value) -> String {
     )
 }
 
+fn yes_no(b: bool) -> String {
+    if b { "Yes" } else { "No" }.into()
+}
+
+/// Lens shows an unset PDB bound as "N/A".
+fn or_na(s: String) -> String {
+    if s.is_empty() {
+        "N/A".into()
+    } else {
+        s
+    }
+}
+
+/// How many webhooks a webhook configuration has, and their names.
+fn webhook_names(v: &Value) -> String {
+    let names: Vec<String> = array_at(v, "/webhooks")
+        .map(|w| path_str(w, ".name"))
+        .collect();
+    if names.is_empty() {
+        return "0".into();
+    }
+    format!("{} ({})", names.len(), abbreviate(names))
+}
+
 fn selector_str(sel: Option<&Value>) -> String {
     let labels = sel
         .and_then(|s| s.get("matchLabels"))
@@ -801,6 +1001,163 @@ mod tests {
         for k in KINDS {
             assert!(seen.insert((k.group, k.kind)), "duplicate {}", k.kind);
         }
-        assert_eq!(KINDS.len(), 23);
+        assert_eq!(KINDS.len(), 36);
+    }
+
+    /// The cells of `obj` (an object of `group`/`kind`) by column key.
+    fn cells(group: &str, kind: &str, namespaced: bool, obj: Value) -> Vec<(String, String)> {
+        let r = rref(group, kind, "x", namespaced);
+        let cols = columns_for(&r, &[]);
+        let obj: DynamicObject = serde_json::from_value(obj).unwrap();
+        let row = make_row(&r, &cols, &obj);
+        cols.into_iter().map(|c| c.key).zip(row.cells).collect()
+    }
+
+    fn cell(cells: &[(String, String)], key: &str) -> String {
+        cells
+            .iter()
+            .find(|(k, _)| k == key)
+            .unwrap_or_else(|| panic!("no column {key} in {cells:?}"))
+            .1
+            .clone()
+    }
+
+    fn meta(name: &str) -> Value {
+        json!({ "name": name, "namespace": "demo" })
+    }
+
+    #[test]
+    fn access_control_columns() {
+        let rb = cells(
+            "rbac.authorization.k8s.io",
+            "RoleBinding",
+            true,
+            json!({
+                "apiVersion": "rbac.authorization.k8s.io/v1", "kind": "RoleBinding",
+                "metadata": meta("read"),
+                "roleRef": { "kind": "Role", "name": "reader" },
+                "subjects": [{ "kind": "ServiceAccount", "name": "web" }, { "kind": "User", "name": "alice" }]
+            }),
+        );
+        assert_eq!(cell(&rb, "role"), "Role/reader");
+        assert_eq!(cell(&rb, "subjects"), "ServiceAccount:demo/web,User:alice");
+        let role = cells(
+            "rbac.authorization.k8s.io",
+            "ClusterRole",
+            false,
+            json!({
+                "apiVersion": "rbac.authorization.k8s.io/v1", "kind": "ClusterRole",
+                "metadata": { "name": "view" }, "rules": [{}, {}]
+            }),
+        );
+        assert_eq!(cell(&role, "rules"), "2");
+        assert!(!role.iter().any(|(k, _)| k == "namespace"));
+        let sa = cells(
+            "",
+            "ServiceAccount",
+            true,
+            json!({ "apiVersion": "v1", "kind": "ServiceAccount", "metadata": meta("web") }),
+        );
+        assert_eq!(cell(&sa, "secrets"), "0");
+    }
+
+    #[test]
+    fn config_kind_columns() {
+        let pdb = cells(
+            "policy",
+            "PodDisruptionBudget",
+            true,
+            json!({
+                "apiVersion": "policy/v1", "kind": "PodDisruptionBudget", "metadata": meta("web"),
+                "spec": { "minAvailable": "50%" },
+                "status": { "disruptionsAllowed": 1, "currentHealthy": 2, "desiredHealthy": 1 }
+            }),
+        );
+        assert_eq!(cell(&pdb, "minavailable"), "50%");
+        assert_eq!(cell(&pdb, "maxunavailable"), "N/A");
+        assert_eq!(cell(&pdb, "allowed"), "1");
+        assert_eq!(cell(&pdb, "current"), "2");
+        assert_eq!(cell(&pdb, "desired"), "1");
+
+        let pc = cells(
+            "scheduling.k8s.io",
+            "PriorityClass",
+            false,
+            json!({
+                "apiVersion": "scheduling.k8s.io/v1", "kind": "PriorityClass",
+                "metadata": { "name": "high" }, "value": 1000, "globalDefault": true
+            }),
+        );
+        assert_eq!(cell(&pc, "value"), "1000");
+        assert_eq!(cell(&pc, "globaldefault"), "Yes");
+        assert_eq!(cell(&pc, "preemption"), "PreemptLowerPriority");
+
+        let rc = cells(
+            "node.k8s.io",
+            "RuntimeClass",
+            false,
+            json!({ "apiVersion": "node.k8s.io/v1", "kind": "RuntimeClass", "metadata": { "name": "gvisor" }, "handler": "runsc" }),
+        );
+        assert_eq!(cell(&rc, "handler"), "runsc");
+
+        let lease = cells(
+            "coordination.k8s.io",
+            "Lease",
+            true,
+            json!({
+                "apiVersion": "coordination.k8s.io/v1", "kind": "Lease", "metadata": meta("lock"),
+                "spec": { "holderIdentity": "node-1", "renewTime": "2020-01-01T00:00:00.000000Z" }
+            }),
+        );
+        assert_eq!(cell(&lease, "holder"), "node-1");
+        // A timestamp shows as an age.
+        assert!(cell(&lease, "renewed").ends_with('d'), "{lease:?}");
+
+        let hooks = cells(
+            "admissionregistration.k8s.io",
+            "ValidatingWebhookConfiguration",
+            false,
+            json!({
+                "apiVersion": "admissionregistration.k8s.io/v1", "kind": "ValidatingWebhookConfiguration",
+                "metadata": { "name": "policy" },
+                "webhooks": [{ "name": "a.example.com" }, { "name": "b.example.com" }]
+            }),
+        );
+        assert_eq!(cell(&hooks, "webhooks"), "2 (a.example.com,b.example.com)");
+
+        let class = cells(
+            "networking.k8s.io",
+            "IngressClass",
+            false,
+            json!({
+                "apiVersion": "networking.k8s.io/v1", "kind": "IngressClass",
+                "metadata": { "name": "nginx", "annotations": { "ingressclass.kubernetes.io/is-default-class": "true" } },
+                "spec": { "controller": "k8s.io/ingress-nginx", "parameters": { "kind": "IngressParameters", "name": "p" } }
+            }),
+        );
+        assert_eq!(cell(&class, "controller"), "k8s.io/ingress-nginx");
+        assert_eq!(cell(&class, "parameters"), "IngressParameters/p");
+        assert_eq!(cell(&class, "default"), "Yes");
+    }
+
+    #[test]
+    fn crd_definition_columns() {
+        let crd = cells(
+            "apiextensions.k8s.io",
+            "CustomResourceDefinition",
+            false,
+            json!({
+                "apiVersion": "apiextensions.k8s.io/v1", "kind": "CustomResourceDefinition",
+                "metadata": { "name": "widgets.example.com" },
+                "spec": { "group": "example.com", "scope": "Namespaced", "names": { "kind": "Widget" },
+                          "versions": [{ "name": "v1", "served": true }, { "name": "v1beta1", "served": true }] }
+            }),
+        );
+        assert_eq!(cell(&crd, "kind"), "Widget");
+        assert_eq!(cell(&crd, "group"), "example.com");
+        assert_eq!(cell(&crd, "version"), "v1,v1beta1");
+        assert_eq!(cell(&crd, "scope"), "Namespaced");
+        let spec = spec_for("apiextensions.k8s.io", "CustomResourceDefinition").unwrap();
+        assert_eq!(spec.category, Category::Custom);
     }
 }

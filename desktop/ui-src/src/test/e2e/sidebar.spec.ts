@@ -11,6 +11,7 @@ test("the sidebar is built from discovery", async ({ page }) => {
     "Config",
     "Storage",
     "Cluster",
+    "Access Control",
     "Helm",
     "Custom Resources",
     "Other",
@@ -31,14 +32,11 @@ test("the sidebar is built from discovery", async ({ page }) => {
 test("denied kinds are greyed out and do not open", async ({ page }) => {
   const fake = await openApp(page);
   const nav = page.getByRole("navigation");
-  const rbac = nav.locator("details", { has: page.locator("summary", { hasText: "rbac.authorization.k8s.io" }) });
-  await rbac.locator("summary").click();
-
-  const denied = rbac.getByRole("button", { name: "Clusterroles", exact: true });
+  const denied = nav.getByRole("button", { name: "Cluster Roles", exact: true });
   await expect(denied).toBeDisabled();
   await expect(denied).toHaveClass(/denied/);
-  await expect(denied).toHaveAttribute("title", "You are not allowed to list Clusterroles");
-  await expect(rbac.getByRole("button", { name: "Roles", exact: true })).toHaveAttribute("aria-disabled", "false");
+  await expect(denied).toHaveAttribute("title", "You are not allowed to list Cluster Roles");
+  await expect(nav.getByRole("button", { name: "Roles", exact: true })).toHaveAttribute("aria-disabled", "false");
 
   // aria-disabled: Playwright would wait for it to become enabled.
   await denied.click({ force: true });
