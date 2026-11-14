@@ -32,6 +32,13 @@ export const commands = {
 	 */
 	cmdStreamWorkloadLogs: (kind: string, namespace: string, name: string, options: WorkloadLogOptions_Deserialize, streamId: number, _options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_workload_logs", { kind, namespace, name, options, streamId }, _options),
 	/**
+	 *  Follow every container of one pod at once, merged and tagged by container
+	 *  like a workload stream (same events as [`cmd_stream_workload_logs`]).
+	 *  `options.container` narrows it to one container; previous logs are not
+	 *  offered (they are per container).
+	 */
+	cmdStreamPodAllLogs: (namespace: string, name: string, options: WorkloadLogOptions_Deserialize, streamId: number, _options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_pod_all_logs", { namespace, name, options, streamId }, _options),
+	/**
 	 *  Save log text to the user's Downloads folder and return the path. A
 	 *  webview Blob download is not reliable across the platforms Tauri targets
 	 *  and there is no file dialog without an extra plugin, so we write directly.
@@ -97,6 +104,13 @@ export const commands = {
 	 *  arrives as `exec-output` events, `exec-closed` when the shell exits.
 	 */
 	cmdExecStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { namespace, name, container, cols, rows }, options),
+	/**
+	 *  Attach to the main process of a pod's container (`container`: `None` for
+	 *  the default one). Returns the session id; the session works like a shell's
+	 *  (`exec-*` events). Closing it detaches and leaves the process running.
+	 *  Fails, in plain words, when the container has no stdin or is not running.
+	 */
+	cmdAttachStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_attach_start", { namespace, name, container, cols, rows }, options),
 	cmdExecInput: (session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_input", { session, data }, options),
 	cmdExecResize: (session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_resize", { session, cols, rows }, options),
 	cmdExecClose: (session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_close", { session }, options),
@@ -284,7 +298,12 @@ export type ActionId = "delete" | "forceDelete" | "scale" | "restart" | "cordon"
  *  A root shell on a node through a privileged pod. Interactive
  *  ([`crate::node_shell`]).
  */
-"nodeShell";
+"nodeShell" | 
+/**
+ *  Attach to a container's main process (`kubectl attach -it`).
+ *  Interactive ([`crate::attach`]).
+ */
+"attach";
 
 /**  An extra value the action needs before it can run. */
 export type ActionInput = 
@@ -1049,7 +1068,7 @@ export type ProbeInfo = {
 };
 
 /**
- *  A pod worth looking at: a waiting error (CrashLoopBackOff, ...),
+ *  A pod worth looking at: a waiting error (CrashLoopBackOff, ...), failed,
  *  running but not ready, or pending for more than five minutes.
  */
 export type ProblemPod = {
@@ -1204,6 +1223,11 @@ export type ResourceRow = {
 	/**  Creation time (unix seconds). */
 	created: number,
 	cells: string[],
+	/**
+	 *  Why the object needs attention (`CrashLoopBackOff`, `1 of 3 ready`);
+	 *  empty if it is fine ([`problems::row_problem`]).
+	 */
+	problem: string,
 };
 
 export type SecretKey = {

@@ -5,6 +5,8 @@
   import { PORT_FORWARDS_VIEW } from "../forwards";
   import { forwards, refreshForwards } from "../stores/forwards.svelte";
   import { untrack } from "svelte";
+  import { badgeTitle } from "../problems";
+  import { problems } from "../stores/problems.svelte";
 
   // The count beside Port Forwards: refreshed on start, on Refresh and on a
   // context switch (which stops every forward).
@@ -60,7 +62,13 @@
     title={denied ? deniedReason(kind) : kind.resource.kind}
     onclick={() => open(kind)}
   >
-    {kind.label}
+    {kind.label}{#if problems.byKind[kind.id]}{@const b = problems.byKind[kind.id]}<span
+        class="problems"
+        class:stale={!b.live}
+        data-testid="problem-badge"
+        title={badgeTitle(b, kind.label, Date.now())}
+        aria-hidden="true">{b.count}</span
+      >{/if}
   </button>
 {/snippet}
 
@@ -177,6 +185,23 @@
     border-radius: 8px;
     background: var(--bg-hover);
     font-size: 11px;
+  }
+  /* Objects that need attention, counted from watches already running. */
+  .problems {
+    margin-left: 6px;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: var(--red);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  /* The count of a watch that has stopped: shown, but not current. */
+  .problems.stale {
+    background: transparent;
+    color: var(--error-text);
+    box-shadow: inset 0 0 0 1px var(--red);
+    opacity: 0.7;
   }
   button.denied {
     opacity: 0.4;

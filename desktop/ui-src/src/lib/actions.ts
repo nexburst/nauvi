@@ -49,6 +49,7 @@ const VERB: Record<ActionId, string> = {
   portForward: "Port forward",
   debug: "Debug",
   nodeShell: "Shell",
+  attach: "Attach",
 };
 
 export interface Copy {

@@ -12,6 +12,8 @@
   import { clusterError } from "../clusterError";
   import { formatAge } from "../format";
   import { capacityBars, eventKind, overviewCount, podCards } from "../overview";
+  import { NODE_KIND_ID, POD_KIND_ID, overviewBadges } from "../problems";
+  import { reportProblems, staleProblems } from "../stores/problems.svelte";
 
   /** Retry a failed start after this long. */
   const RETRY_MS = 5_000;
@@ -31,6 +33,10 @@
       if (e.payload.id !== feed) return;
       overview = e.payload.overview;
       app.count = overviewCount(overview.pods, overview.nodes);
+      // The sidebar's Pods and Nodes badges, from the same watches.
+      for (const b of overviewBadges(overview.pods, overview.nodes)) {
+        reportProblems(b.kindId, b.count, b.scope, "overview");
+      }
       stamp();
     }),
     events.overviewState(thisWindow()).listen((e) => {
@@ -110,6 +116,8 @@
   onDestroy(() => {
     clearInterval(ageTimer);
     stop();
+    staleProblems(POD_KIND_ID, "overview");
+    staleProblems(NODE_KIND_ID, "overview");
     listening.then((uns) => uns.forEach((un) => un()));
   });
 

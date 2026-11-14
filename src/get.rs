@@ -148,7 +148,7 @@ pub fn render_objects(
         OutputFormat::Table => {
             let rows: Vec<_> = objects
                 .iter()
-                .map(|o| resources::make_row(&kind.columns, o))
+                .map(|o| resources::make_row(&kind.resource, &kind.columns, o))
                 .collect();
             resources::render_table(kind, &rows)
         }
@@ -207,7 +207,7 @@ fn render_wide(kind: &ResourceKind, objects: &[DynamicObject]) -> String {
     header.push("LABELS".into());
     let mut table = vec![header];
     for obj in objects {
-        let row = resources::make_row(&kind.columns, obj);
+        let row = resources::make_row(&kind.resource, &kind.columns, obj);
         let mut cells = resources::table_cells(kind, &row);
         if let Some((_, f)) = ip {
             let value = serde_json::to_value(obj).unwrap_or(Value::Null);

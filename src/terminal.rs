@@ -1,7 +1,8 @@
-//! Interactive sessions on the CLI: `kubeloupe debug` and `kubeloupe
-//! node-shell`. Connects the local terminal (raw mode, window size) or plain
-//! pipes to an attached or exec'd process.
+//! Interactive sessions on the CLI: `kubeloupe attach`, `kubeloupe debug`
+//! and `kubeloupe node-shell`. Connects the local terminal (raw mode, window
+//! size) or plain pipes to an attached or exec'd process.
 
+use crate::attach::{attach_note, attach_target, describe_attach_error};
 use crate::debug::{add_debug_container, attach_container, describe_debug_error, EPHEMERAL_NOTE};
 use crate::node_shell::{
     create_node_shell, delete_node_shell, describe_node_shell_error, exec_node_shell,
@@ -97,8 +98,22 @@ fn stdin_channel() -> tokio::sync::mpsc::Receiver<Vec<u8>> {
     rx
 }
 
-/// Connect the local terminal to `process` until it exits.
-pub async fn run_attached(mut process: AttachedProcess, tty: bool) -> Result<()> {
+/// Ctrl-P Ctrl-Q, like `docker attach` and `kubectl attach`.
+const DETACH_KEYS: [u8; 2] = [0x10, 0x11];
+
+/// Whether `bytes`, typed after `prev` (the last byte of the previous read),
+/// complete the detach sequence. Pure.
+pub fn detach_typed(prev: Option<u8>, bytes: &[u8]) -> bool {
+    prev.into_iter()
+        .chain(bytes.iter().copied())
+        .collect::<Vec<_>>()
+        .windows(2)
+        .any(|w| w == DETACH_KEYS)
+}
+
+/// Connect the local terminal to `process` until it exits. With `detach`,
+/// Ctrl-P Ctrl-Q ends the session and leaves the process running.
+pub async fn run_attached(mut process: AttachedProcess, tty: bool, detach: bool) -> Result<()> {
     let _raw = tty.then(RawMode::enable);
     if let Some(mut tx) = process.terminal_size() {
         if let Some(size) = local_size() {
@@ -125,15 +140,20 @@ pub async fn run_attached(mut process: AttachedProcess, tty: bool) -> Result<()>
     let stderr_reader = process.stderr();
     let stdin_pump = async move {
         if let Some(mut w) = stdin_writer {
+            let mut prev = None;
             while let Some(bytes) = stdin_rx.recv().await {
+                if detach && detach_typed(prev, &bytes) {
+                    return true;
+                }
+                prev = bytes.last().copied();
                 if w.write_all(&bytes).await.is_err() {
-                    return;
+                    return false;
                 }
             }
             // Stdin ended (piped input): let the remote shell see EOF.
             let _ = w.shutdown().await;
         }
-        std::future::pending::<()>().await
+        std::future::pending::<bool>().await
     };
     let stdout_pump = async move {
         if let Some(mut r) = stdout_reader {
@@ -160,11 +180,15 @@ pub async fn run_attached(mut process: AttachedProcess, tty: bool) -> Result<()>
         }
     };
     let status = process.take_status();
-    tokio::select! {
-        () = async { tokio::join!(stdout_pump, stderr_pump); } => {},
-        () = stdin_pump => {},
-    }
+    let detached = tokio::select! {
+        () = async { tokio::join!(stdout_pump, stderr_pump); } => false,
+        d = stdin_pump => d,
+    };
     drop(_raw);
+    if detached {
+        eprintln!("\r\nDetached; the process keeps running.");
+        return Ok(());
+    }
     if let Some(status) = status {
         if let Some(s) = status.await {
             // A non-zero exit of the shell is the user's business.
@@ -206,7 +230,38 @@ pub async fn cli_debug(
     let process = attach_container(client, namespace, pod, &name, tty)
         .await
         .map_err(|e| anyhow!("pod/{namespace}/{pod}: {}", describe_debug_error(&e)))?;
-    run_attached(process, tty).await
+    run_attached(process, tty, false).await
+}
+
+/// `kubeloupe attach <pod> [-c container]`. A TTY is used when the container
+/// has one and the local terminal is one too.
+pub async fn cli_attach(
+    client: &Client,
+    namespace: &str,
+    pod: &str,
+    container: Option<&str>,
+) -> Result<()> {
+    let describe =
+        |e: anyhow::Error| anyhow!("pod/{namespace}/{pod}: {}", describe_attach_error(&e));
+    let p: kube::Api<k8s_openapi::api::core::v1::Pod> =
+        kube::Api::namespaced(client.clone(), namespace);
+    let found = p.get(pod).await.map_err(|e| describe(e.into()))?;
+    let target = attach_target(&found, container).map_err(describe)?;
+    let tty = target.tty && use_tty();
+    let detach = if tty {
+        "Press Ctrl-P Ctrl-Q to detach."
+    } else {
+        "Press Ctrl-P Ctrl-Q or Ctrl-C to detach."
+    };
+    eprintln!("{}", attach_note(pod, &target, detach));
+    let process = attach_container(client, namespace, pod, &target.container, tty)
+        .await
+        .map_err(describe)?;
+    let session = run_attached(process, tty, true);
+    tokio::select! {
+        r = session => r,
+        () = interrupted() => Ok(()),
+    }
 }
 
 /// `kubeloupe node-shell <node>`: the pod is deleted however the session ends
@@ -231,7 +286,7 @@ pub async fn cli_node_shell(
         let process = exec_node_shell(client, namespace, &pod, tty)
             .await
             .map_err(describe)?;
-        run_attached(process, tty).await
+        run_attached(process, tty, false).await
     };
     let result = tokio::select! {
         r = session => r,
@@ -258,4 +313,19 @@ async fn interrupted() {
     }
     #[cfg(not(unix))]
     let _ = tokio::signal::ctrl_c().await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::detach_typed;
+
+    #[test]
+    fn ctrl_p_ctrl_q_detaches_even_across_reads() {
+        assert!(detach_typed(None, b"\x10\x11"));
+        assert!(detach_typed(Some(b'a'), b"ls\x10\x11"));
+        assert!(detach_typed(Some(0x10), b"\x11"));
+        assert!(!detach_typed(None, b"\x10"));
+        assert!(!detach_typed(Some(0x11), b"\x10"));
+        assert!(!detach_typed(None, b"echo hi\r"));
+    }
 }

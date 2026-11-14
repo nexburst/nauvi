@@ -10,7 +10,7 @@ mod live;
 mod summary;
 
 pub use live::{watch_overview, OverviewUpdate};
-pub use summary::{pod_status, PENDING_TOO_LONG_SECS};
+pub use summary::{pod_problem, pod_status, PENDING_TOO_LONG_SECS};
 
 use anyhow::{bail, Result};
 use futures::StreamExt;
@@ -39,7 +39,7 @@ pub struct EventInfo {
     pub count: i32,
 }
 
-/// A pod worth looking at: a waiting error (CrashLoopBackOff, ...),
+/// A pod worth looking at: a waiting error (CrashLoopBackOff, ...), failed,
 /// running but not ready, or pending for more than five minutes.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

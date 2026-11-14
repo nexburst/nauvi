@@ -6,6 +6,8 @@
   import { app } from "../stores/app.svelte";
   import { detail, openDetail, targetKey } from "../stores/detail.svelte";
   import { live } from "../stores/live.svelte";
+  import { countProblems, scopeText } from "../problems";
+  import { reportProblems, staleProblems } from "../stores/problems.svelte";
 
   let { kind }: { kind: ResourceKind } = $props();
 
@@ -22,7 +24,18 @@
     untrack(() => live.setNamespaces(namespaces));
   });
 
-  onDestroy(() => live.stop());
+  // The sidebar badge of this kind, from the rows already watched.
+  $effect(() => {
+    if (!live.synced) return;
+    const count = countProblems(live.store.entries);
+    const scope = scopeText(kind.resource.namespaced, app.selectedNamespaces);
+    untrack(() => reportProblems(kind.id, count, scope, "table"));
+  });
+
+  onDestroy(() => {
+    live.stop();
+    staleProblems(kind.id, "table");
+  });
 
   const selectedKey = $derived(detail.target ? targetKey(detail.target) : null);
 
