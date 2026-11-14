@@ -228,6 +228,18 @@ export const commands = {
 	 *  does not touch them.
 	 */
 	cmdOpenWindow: (context: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_open_window", { context }, options),
+	/**
+	 *  Check for a newer release. `startup`: the check on start, which the
+	 *  "Check for updates on start" setting turns off. Debug builds only check
+	 *  when `KUBELOUPE_UPDATE_ENDPOINT` points them at a test `latest.json`.
+	 */
+	cmdUpdateCheck: (startup: boolean, options?: InvokeOptions) => __TAURI_INVOKE<UpdateCheck>("cmd_update_check", { startup }, options),
+	/**
+	 *  Download the update found by the last check, verify its signature,
+	 *  install it and restart. Progress arrives as `UpdateProgress` events.
+	 *  Only runs when the user clicks Install.
+	 */
+	cmdUpdateInstall: (options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_update_install", undefined, options),
 };
 
 /** Events */
@@ -242,6 +254,7 @@ export const events = {
 	podLog: makeEvent<PodLog, PodLog>("pod-log"),
 	podLogDone: makeEvent<PodLogDone, PodLogDone>("pod-log-done"),
 	podLogError: makeEvent<PodLogError, PodLogError>("pod-log-error"),
+	updateProgress: makeEvent<UpdateProgress, UpdateProgress>("update-progress"),
 	watchBatch: makeEvent<WatchBatch, WatchBatch>("watch-batch"),
 	watchState: makeEvent<WatchStateChanged, WatchStateChanged>("watch-state"),
 	workloadLog: makeEvent<WorkloadLog, WorkloadLog>("workload-log"),
@@ -1342,6 +1355,40 @@ export type TaggedLine = {
 export type Theme = 
 /**  Follow the system's light or dark preference. */
 "system" | "dark" | "light";
+
+/**  What a check found. Fields that do not apply are empty. */
+export type UpdateCheck = {
+	status: UpdateStatus,
+	/**  The version running now. */
+	current_version: string,
+	/**  The version offered (when `available`). */
+	version: string,
+	/**  The release notes from `latest.json`. */
+	notes: string,
+	/**  The release page, for the notes and for installing by hand. */
+	release_url: string,
+	/**  Whether Install works here (see `updater::install_support`). */
+	can_install: boolean,
+	/**  Why the check was skipped, or why Install is not offered. */
+	note: string,
+};
+
+export type UpdatePhase = "downloading" | 
+/**  Downloaded and verified; installing, then restarting. */
+"installing";
+
+/**  Progress of `cmd_update_install`, sent to the window that started it. */
+export type UpdateProgress = {
+	phase: UpdatePhase,
+	/**  Bytes downloaded so far. */
+	downloaded: number,
+	/**  The download's size in bytes (`0`: not known). */
+	total: number,
+};
+
+export type UpdateStatus = 
+/**  No check ran: see `note`. */
+"skipped" | "up_to_date" | "available";
 
 export type UsageHistoryView = {
 	history: SeriesView,

@@ -53,6 +53,7 @@ import { defaultCluster, detail, makeRow, NO_POD } from "./fixtures/cluster";
 import { NO_RELATED } from "./fixtures/related";
 import { helmGet, helmList, helmRollback, helmUninstall } from "./fixtures/helm";
 import { NO_REFERENCE, prometheusFixture } from "./fixtures/usage";
+import { available } from "./fixtures/updates";
 import type { FakeCluster } from "./fixtures/cluster";
 
 type Commands = typeof commands;
@@ -107,6 +108,12 @@ export interface FakeApi {
   opened(): string[];
   /** Give the cluster a Prometheus with series for demo/web-1 and node-1 (`fixtures/usage.ts`). */
   installPrometheus(): void;
+  /** Make the update check find `version` (`fixtures/updates.ts`). */
+  offerUpdate(version: string, canInstall?: boolean, note?: string): void;
+  /** `cmd_update_install` stops half way through the download until this is called. */
+  finishUpdateDownload(): void;
+  /** Whether `cmd_update_install` finished (the real app restarts then). */
+  restarted(): boolean;
 }
 
 declare global {
@@ -152,6 +159,9 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
   /** Running overview feeds, and the id of the latest one. */
   const overviewFeeds = new Set<number>();
   let lastOverview: number | null = null;
+  /** Releases a `cmd_update_install` waiting half way through its download. */
+  let finishDownload: (() => void) | null = null;
+  let restarted = false;
   try {
     const saved = sessionStorage.getItem(SETTINGS_KEY);
     if (saved) cluster.settings = JSON.parse(saved) as FakeCluster["settings"];
@@ -583,6 +593,32 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(cluster.settings));
       return copy(cluster.settings);
     },
+    cmdUpdateCheck: (startup) => {
+      const u = cluster.update.check;
+      if (startup && !cluster.settings.check_updates) {
+        return {
+          ...copy(u),
+          status: "skipped",
+          version: "",
+          can_install: false,
+          note: "The update check on start is turned off in Settings.",
+        };
+      }
+      return copy(u);
+    },
+    cmdUpdateInstall: async () => {
+      const { check, size } = cluster.update;
+      if (check.status !== "available") throw "There is no update to install. Check for updates first.";
+      if (!check.can_install) {
+        throw `This copy of kubeloupe cannot install updates itself. Download ${check.version} from ${check.release_url}.`;
+      }
+      await events.updateProgress.emit({ phase: "downloading", downloaded: 0, total: size });
+      await events.updateProgress.emit({ phase: "downloading", downloaded: Math.round(size * 0.45), total: size });
+      await new Promise<void>((resolve) => (finishDownload = resolve));
+      await events.updateProgress.emit({ phase: "installing", downloaded: size, total: size });
+      restarted = true;
+      return null;
+    },
     cmdOpenWindow: (context) => {
       // The real backend opens a window; here it only remembers it, as the
       // backend does in the settings.
@@ -652,6 +688,14 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     installPrometheus: () => {
       cluster.prometheus = prometheusFixture();
     },
+    offerUpdate: (version, canInstall = true, note = "") => {
+      cluster.update = available(version, canInstall, note);
+    },
+    finishUpdateDownload: () => {
+      finishDownload?.();
+      finishDownload = null;
+    },
+    restarted: () => restarted,
     emitLogEnd: async (error, done = true, id) => {
       const sid = id ?? streamId ?? -1;
       if (error) await events.podLogError.emit({ streamId: sid, data: error });

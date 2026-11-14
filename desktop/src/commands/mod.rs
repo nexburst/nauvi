@@ -13,6 +13,7 @@ pub(crate) mod portforward;
 pub(crate) mod prometheus;
 pub(crate) mod resources;
 pub(crate) mod settings;
+pub(crate) mod updater;
 pub(crate) mod usage;
 pub(crate) mod watch;
 pub(crate) mod window;
