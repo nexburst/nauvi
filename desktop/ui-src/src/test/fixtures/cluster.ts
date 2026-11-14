@@ -9,6 +9,7 @@ import type {
   ForwardInfo,
   MetricsSnapshot,
   NamespaceInfo,
+  NodeShellPod,
   Overview_Serialize,
   ContainerDetail,
   PodExtras,
@@ -68,6 +69,12 @@ export interface FakeCluster {
   forwards: ForwardInfo[];
   /** `cmd_service_ports`, by `namespace/name`. */
   servicePorts: Record<string, ServicePortInfo[]>;
+  /** `cmd_debug_start` fails with this after its first progress line. */
+  debugError: string;
+  /** `cmd_node_shell_start` fails with this after its first progress line. */
+  nodeShellError: string;
+  /** Node shell pods `cmd_node_shell_leftovers` finds. */
+  nodeShellLeftovers: NodeShellPod[];
   overview: Overview_Serialize;
   metrics: MetricsSnapshot;
   /** Helm releases (`cmd_helm_*`). */
@@ -259,6 +266,9 @@ export function defaultCluster(): FakeCluster {
     related: relatedFixtures(),
     applyErrors: {},
     forwards: [],
+    debugError: "",
+    nodeShellError: "",
+    nodeShellLeftovers: [],
     servicePorts: {
       "demo/api": [
         { name: "http", port: 80, protocol: "TCP", target_port: "web" },
