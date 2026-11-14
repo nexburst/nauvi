@@ -7,6 +7,10 @@ name: QA
 
 on:
   workflow_dispatch:
+  # TEMPORARY, removed before merge: workflow_dispatch only finds workflows
+  # on the default branch, so this runs the new workflow on its branch.
+  push:
+    branches: [issue-82-qa-harness]
   schedule:
     - cron: "17 3 * * *"
 
