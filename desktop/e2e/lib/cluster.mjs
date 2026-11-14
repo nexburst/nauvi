@@ -84,3 +84,89 @@ export function deleteFixture(fx) {
     console.error(`could not delete namespace ${fx.namespace}: ${e.message}`);
   }
 }
+
+/**
+ * A temporary namespace `<prefix>-<suffix>` holding `yaml` (objects without
+ * a namespace land in it). Delete it with `deleteNamespace`.
+ */
+export function tempNamespace(prefix, yaml = "") {
+  const namespace = `${prefix}-${Date.now().toString(36)}${process.pid.toString(36)}`;
+  kubectl(
+    ["apply", "-f", "-"],
+    `apiVersion: v1\nkind: Namespace\nmetadata:\n  name: ${namespace}\n  labels:\n    kubeloupe-e2e: "true"\n`,
+  );
+  if (yaml) kubectl(["-n", namespace, "apply", "-f", "-"], yaml);
+  return namespace;
+}
+
+export function deleteNamespace(namespace) {
+  if (!namespace) return;
+  try {
+    kubectl(["delete", "namespace", namespace, "--wait=false"]);
+  } catch (e) {
+    console.error(`could not delete namespace ${namespace}: ${e.message}`);
+  }
+}
+
+/** A busybox pod serving `text` over HTTP on `port`. */
+export function httpPodYaml(name, port = 8080, text = "hello from kubeloupe qa") {
+  return `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${name}
+  labels:
+    app: ${name}
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: web
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "mkdir -p /www && echo '${text}' > /www/index.html && exec httpd -f -p ${port} -h /www"]
+      ports:
+        - containerPort: ${port}
+      readinessProbe:
+        tcpSocket:
+          port: ${port}
+        periodSeconds: 1
+`;
+}
+
+/** A busybox pod that logs a numbered line every `seconds`. */
+export function loggerPodYaml(name, seconds = 1) {
+  return `
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ${name}
+  labels:
+    app: ${name}
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: app
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "i=0; while true; do echo qa line $i; i=$((i+1)); sleep ${seconds}; done"]
+`;
+}
+
+export function waitPodReady(namespace, name, timeout = "180s") {
+  kubectl(["-n", namespace, "wait", "--for=condition=Ready", `pod/${name}`, `--timeout=${timeout}`]);
+}
+
+/** Context names in the developer's kubeconfig. */
+export function contexts() {
+  try {
+    return execFileSync("kubectl", ["config", "get-contexts", "-o", "name"], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}

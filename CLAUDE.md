@@ -16,10 +16,12 @@ User-facing docs are in `README.md`; the plan is the roadmap issue #24.
 - `desktop/ui-src/`: the Svelte 5 + Vite + TypeScript UI.
   `src/lib/bindings.ts` is generated; `src/test/` is the fake backend and the
   Playwright tests.
+- `desktop/e2e/`: the real app on WebKitGTK (tauri-driver): the smoke suite,
+  the QA scenarios in `qa/`, their helpers in `lib/` and `qa.sh`.
 - `tests/cluster.rs`: integration tests against the kind cluster.
 - `scripts/test-cluster/`: `setup.sh` (kind cluster, metrics-server),
-  `demo.yaml` (the demo workload) and `limited-user.sh` (a namespace-scoped
-  user, opt-in).
+  `demo.yaml` (the demo workload), `limited-user.sh` (a namespace-scoped
+  user, opt-in) and `prometheus.yaml` (CI only, see below).
 
 ## Rules
 
@@ -94,6 +96,31 @@ In `desktop/ui-src`:
 - `PW_CHANNEL=chrome npx playwright test` uses an installed Google Chrome if
   the Playwright browser download is blocked.
 - `test.html` must never end up in `dist/`; CI checks this.
+
+## Real-app QA (WebKitGTK)
+
+The UI tests above run Chromium against a fake backend. To check something
+in the real app (real IPC, the WebKitGTK webview, the cluster), use the QA
+harness; `desktop/e2e/README.md` has the details and the helper list.
+
+- `desktop/e2e/qa.sh <scenario>` builds the app and runs
+  `desktop/e2e/qa/<scenario>.test.mjs` (none: all of them;
+  `smoke.test.mjs`: the smoke suite). No sudo: WebKitWebDriver, Xvfb,
+  tauri-driver and helm come from the system or are fetched once into
+  `~/.cache/kubeloupe-qa`. `--no-build` reuses the built app.
+- Output: `desktop/e2e/artifacts/qa-<time>/` (or `--out`): a screenshot and
+  the page text per test, app logs and `report.md`. Look at the screenshots.
+- Each app gets its own `HOME` (settings, Downloads, an `xdg-open` that only
+  records URLs) and Xvfb display, and everything is stopped on exit.
+- New checks go in `desktop/e2e/qa/<area>.test.mjs`, one area per file, with
+  their objects in a temp namespace. Skip (with the reason) what needs
+  something the cluster may not have.
+- `qa.yml` runs them nightly and on `gh workflow run qa.yml --ref <branch>`,
+  with a second cluster, helm, the limited user and a small Prometheus
+  (`scripts/test-cluster/prometheus.yaml`). Don't apply that file to the
+  shared local cluster: the cluster tests expect no Prometheus there.
+- The `reconnect` scenario pauses the shared control plane (`docker pause`,
+  at most 60 s, always unpaused); it skips without access to Docker.
 
 ## Cluster tests
 

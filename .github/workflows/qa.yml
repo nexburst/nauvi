@@ -1,0 +1,127 @@
+name: QA
+
+# The real app on WebKitGTK through every QA scenario (desktop/e2e/qa/) plus
+# the smoke suite, against kind with metrics-server, the limited user, helm,
+# a small Prometheus and a second cluster. Too slow for every PR: nightly and
+# on demand (`gh workflow run qa.yml --ref <branch>`). See desktop/e2e/README.md.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * *"
+
+concurrency:
+  group: qa-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  qa:
+    name: QA scenarios (WebKitGTK, kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TAURI_DRIVER_VERSION: 2.1.0
+      KUBELOUPE_LIMITED_KUBECONFIG: /home/runner/.kube/kubeloupe-limited.yaml
+      QA_PROMETHEUS: "1"
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      # Both clusters (kubeloupe-test with metrics-server and the demo
+      # workload, and the empty kubeloupe-staging for the multi-window
+      # scenario), then Prometheus so it has scraped a while before the
+      # scenarios look at its charts. Runs while the app builds.
+      - name: Create kind clusters and Prometheus (background)
+        run: |
+          mkdir -p "$RUNNER_TEMP/cluster"
+          ( ( set -e
+              bash scripts/test-cluster/setup.sh --staging
+              kubectl --context kind-kubeloupe-test apply -f scripts/test-cluster/prometheus.yaml
+            ) > "$RUNNER_TEMP/cluster/setup.log" 2>&1
+            echo $? > "$RUNNER_TEMP/cluster/rc" ) &
+
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri, WebKitWebDriver, Xvfb and xclip
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev xvfb xclip
+          # The package was renamed in newer Ubuntu releases.
+          sudo apt-get install -y webkitgtk-webdriver || sudo apt-get install -y webkit2gtk-driver
+          driver="$(command -v WebKitWebDriver || find /usr -name WebKitWebDriver -type f -perm -u+x 2>/dev/null | head -n 1)"
+          echo "WEBKIT_DRIVER=$driver" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2.7.8
+        with:
+          # Same build as the e2e job in integration.yml.
+          shared-key: qa
+      - uses: actions/cache@v4.2.3
+        id: tauri-driver-cache
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: tauri-driver-${{ runner.os }}-${{ env.TAURI_DRIVER_VERSION }}
+      - name: Install tauri-driver
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
+      - uses: azure/setup-helm@v4.3.0
+        with:
+          version: v3.16.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: desktop/ui-src/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            desktop/ui-src/package-lock.json
+            desktop/e2e/package-lock.json
+      - name: Install npm dependencies
+        run: |
+          npm --prefix desktop/ui-src ci
+          npm --prefix desktop/e2e ci
+
+      - name: Build the app
+        run: |
+          npm --prefix desktop/ui-src run build
+          cargo build -p kubeloupe-desktop --locked --features tauri/custom-protocol
+
+      - name: Wait for the clusters
+        run: |
+          for _ in $(seq 1 600); do [ -f "$RUNNER_TEMP/cluster/rc" ] && break; sleep 1; done
+          cat "$RUNNER_TEMP/cluster/setup.log"
+          [ "$(cat "$RUNNER_TEMP/cluster/rc" 2>/dev/null)" = 0 ]
+          kubectl --context kind-kubeloupe-test -n demo wait --for=condition=Ready pod/multi --timeout=180s
+          kubectl --context kind-kubeloupe-test -n monitoring rollout status deploy/prometheus-server --timeout=180s
+
+      - name: Create limited user
+        run: bash scripts/test-cluster/limited-user.sh "$KUBELOUPE_LIMITED_KUBECONFIG"
+
+      - name: QA scenarios and smoke suite
+        working-directory: desktop/e2e
+        run: ./qa.sh --no-build --out artifacts/qa smoke.test.mjs qa/*.test.mjs
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f desktop/e2e/artifacts/qa/report.md ]; then
+            cat desktop/e2e/artifacts/qa/report.md >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "Screenshots, page text and app logs: the \`qa-artifacts\` artifact (\`gh run download ${{ github.run_id }} -n qa-artifacts\`)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No QA report: the run stopped before the scenarios." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload screenshots, page text, logs and the report
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: qa-artifacts
+          path: desktop/e2e/artifacts/qa/
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Debug info
+        if: failure()
+        run: |
+          kubectl --context kind-kubeloupe-test get pods -A -o wide || true
+          kubectl --context kind-kubeloupe-test get events -A --sort-by=.lastTimestamp | tail -50 || true
+          kubectl --context kind-kubeloupe-test -n monitoring logs deploy/prometheus-server --tail=50 || true
