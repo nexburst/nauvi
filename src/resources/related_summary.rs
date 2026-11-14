@@ -445,6 +445,64 @@ pub(super) fn hpa_facts(v: &Value) -> Vec<Fact> {
     )]
 }
 
+// --- Policy and access ----------------------------------------------------------
+
+/// `1 disruption allowed`, `2/3 healthy`.
+pub(super) fn pdb(v: &Value) -> Vec<String> {
+    let allowed = path_i64(v, ".status.disruptionsAllowed");
+    vec![
+        format!(
+            "{allowed} disruption{} allowed",
+            if allowed == 1 { "" } else { "s" }
+        ),
+        format!(
+            "{}/{} healthy",
+            path_i64(v, ".status.currentHealthy"),
+            path_i64(v, ".status.desiredHealthy")
+        ),
+    ]
+}
+
+pub(super) fn pdb_facts(v: &Value) -> Vec<Fact> {
+    let mut out = Vec::new();
+    for (label, path) in [
+        ("Min available", ".spec.minAvailable"),
+        ("Max unavailable", ".spec.maxUnavailable"),
+    ] {
+        let value = path_str(v, path);
+        if !value.is_empty() {
+            out.push(Fact::new(label, value));
+        }
+    }
+    out.push(Fact::new(
+        "Expected pods",
+        path_i64(v, ".status.expectedPods").to_string(),
+    ));
+    out.push(Fact::new(
+        "Unhealthy pod eviction",
+        first_of(&[
+            path_str(v, ".spec.unhealthyPodEvictionPolicy"),
+            "IfHealthyBudget".into(),
+        ]),
+    ));
+    out
+}
+
+pub(super) fn role(v: &Value) -> Vec<String> {
+    let mut out = vec![plural(array_at(v, "/rules").count(), "rule")];
+    if v.pointer("/aggregationRule").is_some() {
+        out.push("aggregated".into());
+    }
+    out
+}
+
+pub(super) fn binding(v: &Value) -> Vec<String> {
+    vec![
+        super::rbac::role_ref(v),
+        plural(array_at(v, "/subjects").count(), "subject"),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,5 +621,31 @@ mod tests {
             "status": { "phase": "Pending" }
         });
         assert_eq!(pvc(&claim), ["Pending", "1Gi", "ReadWriteOnce", "standard"]);
+    }
+
+    #[test]
+    fn pdb_and_rbac_summaries() {
+        let p = json!({
+            "spec": { "minAvailable": 2, "selector": { "matchLabels": { "app": "web" } } },
+            "status": { "disruptionsAllowed": 1, "currentHealthy": 3, "desiredHealthy": 2, "expectedPods": 3 }
+        });
+        assert_eq!(pdb(&p), ["1 disruption allowed", "3/2 healthy"]);
+        let facts = pdb_facts(&p);
+        assert_eq!(facts[0], Fact::new("Min available", "2"));
+        assert_eq!(facts[1], Fact::new("Expected pods", "3"));
+        assert_eq!(
+            facts[2],
+            Fact::new("Unhealthy pod eviction", "IfHealthyBudget")
+        );
+        assert_eq!(pdb(&json!({}))[0], "0 disruptions allowed");
+
+        assert_eq!(role(&json!({ "rules": [{}] })), ["1 rule"]);
+        assert_eq!(
+            role(&json!({ "aggregationRule": {}, "rules": [] })),
+            ["0 rules", "aggregated"]
+        );
+        let b =
+            json!({ "roleRef": { "kind": "ClusterRole", "name": "view" }, "subjects": [{}, {}] });
+        assert_eq!(binding(&b), ["ClusterRole/view", "2 subjects"]);
     }
 }

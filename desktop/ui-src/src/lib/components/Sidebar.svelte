@@ -2,6 +2,7 @@
   import type { Category, ResourceKind } from "../bindings";
   import { app, canOpenDenied, deniedReason, kinds, setView } from "../stores/app.svelte";
   import { HELM_VIEW } from "../helm";
+  import { isCrdDefinitions } from "../crd";
   import { PORT_FORWARDS_VIEW } from "../forwards";
   import { forwards, refreshForwards } from "../stores/forwards.svelte";
   import { untrack } from "svelte";
@@ -19,6 +20,7 @@
     { category: "config", title: "Config" },
     { category: "storage", title: "Storage" },
     { category: "cluster", title: "Cluster" },
+    { category: "access", title: "Access Control" },
   ];
 
   const byCategory = $derived.by(() => {
@@ -35,6 +37,7 @@
   function byGroup(category: Category): [string, ResourceKind[]][] {
     const groups = new Map<string, ResourceKind[]>();
     for (const k of byCategory.get(category) ?? []) {
+      if (isCrdDefinitions(k.resource)) continue;
       const list = groups.get(k.resource.group) ?? [];
       list.push(k);
       groups.set(k.resource.group, list);
@@ -43,6 +46,8 @@
   }
 
   const custom = $derived(byGroup("custom"));
+  /** The CRDs themselves, first under Custom Resources. */
+  const definitions = $derived((byCategory.get("custom") ?? []).filter((k) => isCrdDefinitions(k.resource)));
   const other = $derived(byGroup("other"));
 
   function open(kind: ResourceKind) {
@@ -64,9 +69,12 @@
   </button>
 {/snippet}
 
-{#snippet groups(title: string, list: [string, ResourceKind[]][])}
-  {#if list.length > 0}
+{#snippet groups(title: string, list: [string, ResourceKind[]][], first: ResourceKind[] = [])}
+  {#if list.length > 0 || first.length > 0}
     <h4>{title}</h4>
+    {#each first as kind (kind.id)}
+      {@render item(kind)}
+    {/each}
     {#each list as [group, items] (group)}
       <details open={items.some((k) => k.id === app.view)}>
         <summary title={group}>{group || "core"}</summary>
@@ -108,7 +116,7 @@
     <button type="button" class:active={app.view === HELM_VIEW} onclick={() => setView(HELM_VIEW)}>Releases</button>
   {/if}
 
-  {@render groups("Custom Resources", custom)}
+  {@render groups("Custom Resources", custom, definitions)}
   {@render groups("Other", other)}
 
   {#if !kinds.loaded}
