@@ -53,9 +53,16 @@ export const commands = {
 	/**
 	 *  Usage for what is on screen: pod metrics in `namespace` (`null` = all
 	 *  namespaces), or node metrics (`namespace` is ignored). The other list
-	 *  is empty.
+	 *  is empty. Each call also records the usage history (#47).
 	 */
 	cmdGetMetrics: (namespace: string | null, what: MetricsKind, options?: InvokeOptions) => __TAURI_INVOKE<MetricsSnapshot>("cmd_get_metrics", { namespace, what }, options),
+	/**
+	 *  The usage history of one pod (`namespace` set) or node, for the charts in
+	 *  its detail panel, with its requests and limits or allocatable. Polled
+	 *  while the panel is open: when no table has sampled the object lately, it
+	 *  samples it itself, so history keeps growing with only the panel open.
+	 */
+	cmdUsageHistory: (what: MetricsKind, namespace: string | null, name: string, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_usage_history", { what, namespace, name }, options),
 	/**
 	 *  Start watching a kind (in `namespace`, if it is namespaced). Returns the
 	 *  watch id carried by the `watch-batch` / `watch-state` events.
@@ -146,6 +153,27 @@ export const commands = {
 	 *  stays cordoned.
 	 */
 	cmdCancelDrain: (drainId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cancel_drain", { drainId }, options),
+	/**
+	 *  The releases in `namespaces` (empty = all), from labels only. Namespaces
+	 *  whose Secrets may not be listed come back as `warnings`.
+	 */
+	cmdHelmList: (namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<HelmReleaseList>("cmd_helm_list", { namespaces }, options),
+	/**
+	 *  The chart of each given revision (a few payloads downloaded at a time),
+	 *  for the list's chart columns. Errors are per release.
+	 */
+	cmdHelmCharts: (keys: HelmRevisionKey[], options?: InvokeOptions) => __TAURI_INVOKE<HelmChartInfo[]>("cmd_helm_charts", { keys }, options),
+	/**
+	 *  One revision decoded (`revision` 0 = the newest). Secret values in the
+	 *  manifest are hidden unless `reveal`.
+	 */
+	cmdHelmGet: (namespace: string, name: string, revision: number, reveal: boolean, options?: InvokeOptions) => __TAURI_INVOKE<HelmRelease>("cmd_helm_get", { namespace, name, revision, reveal }, options),
+	/**  The installed helm's version; an error says how to install it. */
+	cmdHelmVersion: (options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_version", undefined, options),
+	/**  `helm rollback <name> <revision>`; returns a short summary. */
+	cmdHelmRollback: (namespace: string, name: string, revision: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_rollback", { namespace, name, revision }, options),
+	/**  `helm uninstall <name>`; returns a short summary. */
+	cmdHelmUninstall: (namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_uninstall", { namespace, name }, options),
 	/**  The settings, as loaded on start and changed since. */
 	cmdGetSettings: (options?: InvokeOptions) => __TAURI_INVOKE<Settings_Serialize>("cmd_get_settings", undefined, options),
 	/**
@@ -337,6 +365,18 @@ export type ContainerDetail = {
 
 export type ContainerKind = "init" | "regular" | "ephemeral";
 
+/**  One container's samples (pods only). */
+export type ContainerSeries = {
+	name: string,
+	samples: UsageSample[],
+};
+
+export type ContainerUsage = {
+	name: string,
+	cpu_millicores: number,
+	memory_bytes: number,
+};
+
 export type ContextInfo = ContextInfo_Serialize | ContextInfo_Deserialize;
 
 export type ContextInfo_Deserialize = {
@@ -521,6 +561,106 @@ export type ForwardTarget = {
 	name: string,
 };
 
+/**  The chart of one revision, for the list's chart columns. */
+export type HelmChartInfo = {
+	namespace: string,
+	name: string,
+	revision: number,
+	chart: string,
+	chart_version: string,
+	app_version: string,
+	/**  Why the payload could not be read; empty on success. */
+	error: string,
+};
+
+/**  One revision of a release, decoded. */
+export type HelmRelease = {
+	name: string,
+	namespace: string,
+	revision: number,
+	status: string,
+	storage: HelmStorage,
+	chart: string,
+	chart_version: string,
+	app_version: string,
+	description: string,
+	notes: string,
+	/**  As Helm stores them (RFC 3339); empty if unknown. */
+	first_deployed: string,
+	last_deployed: string,
+	/**  The user-supplied values as YAML; empty if there are none. */
+	values: string,
+	/**  The chart defaults with the user values on top, as YAML. */
+	computed_values: string,
+	/**  The rendered manifest; Secret values hidden unless revealed. */
+	manifest: string,
+	/**  Whether `manifest` has hidden Secret values. */
+	secrets_hidden: boolean,
+	resources: HelmResource[],
+	/**  Every stored revision, newest first. */
+	history: HelmRevision[],
+};
+
+/**
+ *  The releases in the asked namespaces, and the namespaces that could not
+ *  be read, in plain words.
+ */
+export type HelmReleaseList = {
+	/**  Sorted by namespace, then name. */
+	releases: HelmReleaseRow[],
+	warnings: string[],
+};
+
+/**  A release in a list: its newest revision and all revisions' labels. */
+export type HelmReleaseRow = {
+	name: string,
+	namespace: string,
+	revision: number,
+	status: string,
+	updated: number,
+	storage: HelmStorage,
+	/**  Every stored revision, newest first. */
+	history: HelmRevision[],
+};
+
+/**  One object of a release's manifest. */
+export type HelmResource = {
+	api_version: string,
+	kind: string,
+	/**
+	 *  As in the manifest, else the release's namespace (also for
+	 *  cluster-scoped kinds: callers that know the kind ignore it).
+	 */
+	namespace: string,
+	name: string,
+};
+
+/**  One revision, from its labels. */
+export type HelmRevision = {
+	revision: number,
+	/**  `deployed`, `superseded`, `failed`, `pending-upgrade`, ... */
+	status: string,
+	/**
+	 *  Unix seconds of the last change (the `modifiedAt` label, else the
+	 *  object's creation); 0 if unknown.
+	 */
+	updated: number,
+};
+
+/**  Which revision to fetch for [`release_charts`]. */
+export type HelmRevisionKey = {
+	namespace: string,
+	name: string,
+	revision: number,
+	storage: HelmStorage,
+};
+
+/**
+ *  Where a release is stored: Helm's default Secret driver or the
+ *  ConfigMap one.
+ */
+export type HelmStorage = "secret" | "configmap";
+
 /**  What is remembered per kind (by kind id). */
 export type KindSettings = KindSettings_Serialize | KindSettings_Deserialize;
 
@@ -584,6 +724,13 @@ export type MetricsSnapshot = {
 	available: boolean,
 	pods: PodUsage[],
 	nodes: NodeUsage[],
+	/**
+	 *  Sparklines of the pods or nodes above, keyed like the table rows
+	 *  (`namespace/name`, or the node name).
+	 */
+	sparks: { [key in string]: Spark },
+	/**  Epoch ms of their oldest recorded sample (0 = none yet). */
+	since: number,
 };
 
 export type MountInfo = {
@@ -808,6 +955,8 @@ export type PodUsage = {
 	name: string,
 	cpu_millicores: number,
 	memory_bytes: number,
+	/**  Per-container usage; the pod's numbers are their sum. */
+	containers: ContainerUsage[],
 };
 
 export type PortInfo = {
@@ -977,6 +1126,14 @@ export type SecretKey = {
 	bytes: number,
 };
 
+/**  The full history of one pod or node, oldest sample first. */
+export type SeriesView = {
+	/**  Epoch ms of the oldest sample still kept (0 = none yet). */
+	since: number,
+	samples: UsageSample[],
+	containers: ContainerSeries[],
+};
+
 /**  One port of a Service, for the UI's per-port Forward buttons. */
 export type ServicePortInfo = {
 	/**  Empty when the port has no name. */
@@ -1057,6 +1214,12 @@ export type Settings_Serialize = {
 	kinds: { [key in string]: KindSettings_Serialize },
 };
 
+/**  A downsampled series for a table cell's sparkline. */
+export type Spark = {
+	cpu: number[],
+	memory: number[],
+};
+
 /**  A container state (current or last). `state` is empty when there is none. */
 export type StateInfo = {
 	/**  `running`, `waiting`, `terminated`, or empty. */
@@ -1079,6 +1242,31 @@ export type TaggedLine = {
 export type Theme = 
 /**  Follow the system's light or dark preference. */
 "system" | "dark" | "light";
+
+export type UsageHistoryView = {
+	history: SeriesView,
+	reference: UsageReference,
+};
+
+/**
+ *  What usage is compared against. 0 = not set (no request, no limit, or
+ *  not a pod / node).
+ */
+export type UsageReference = {
+	cpu_request: number,
+	cpu_limit: number,
+	memory_request: number,
+	memory_limit: number,
+	cpu_allocatable: number,
+	memory_allocatable: number,
+};
+
+/**  One sample: epoch milliseconds, millicores and bytes. */
+export type UsageSample = {
+	t: number,
+	cpu_millicores: number,
+	memory_bytes: number,
+};
 
 /**
  *  One coalesced set of table rows for the watch `id`: the first batch is a

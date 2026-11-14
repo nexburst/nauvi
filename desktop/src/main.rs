@@ -31,6 +31,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::overview::cmd_overview_stop,
             commands::cluster::cmd_default_namespace,
             commands::cluster::cmd_get_metrics,
+            commands::usage::cmd_usage_history,
             commands::watch::cmd_watch_start,
             commands::watch::cmd_watch_stop,
             commands::watch::cmd_detail_watch,
@@ -58,6 +59,12 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::actions::cmd_bulk_delete,
             commands::actions::cmd_drain_node,
             commands::actions::cmd_cancel_drain,
+            commands::helm::cmd_helm_list,
+            commands::helm::cmd_helm_charts,
+            commands::helm::cmd_helm_get,
+            commands::helm::cmd_helm_version,
+            commands::helm::cmd_helm_rollback,
+            commands::helm::cmd_helm_uninstall,
             commands::settings::cmd_get_settings,
             commands::settings::cmd_update_settings
         ])
@@ -110,6 +117,7 @@ fn main() {
             watches: Mutex::new(HashMap::new()),
             kinds: Mutex::new(Vec::new()),
             drains: Mutex::new(HashMap::new()),
+            usage: Default::default(),
         })
         // Opens forwarded URLs in the browser; the capability limits it to
         // http://127.0.0.1 and http://localhost.
