@@ -17,8 +17,9 @@ Svelte) and a CLI, both built on the same Rust core.
 
 - **Every resource type**, built-in or custom, found through API discovery
   and grouped in a Lens-style sidebar (workloads, network, config, storage,
-  cluster, custom resources). Kinds you aren't allowed to list are
-  greyed out.
+  cluster, access control, custom resources with their definitions). Kinds
+  you aren't allowed to list are greyed out. Roles and bindings show their
+  rules, the role they grant and their subjects, as links.
 - **Live tables**: lists are kept up to date by Kubernetes watches, not by
   polling, and stay smooth with thousands of rows. Show one namespace, several
   at once (up to 10, one watch each) or all of them, and filter by text.
