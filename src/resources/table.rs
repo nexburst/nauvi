@@ -88,6 +88,7 @@ mod tests {
             name: name.into(),
             namespace: "ns".into(),
             created: 0,
+            problem: String::new(),
             cells: vec![
                 name.into(),
                 "ns".into(),

@@ -299,6 +299,8 @@
             class:selected={entry.key === selectedKey}
             class:checked={selected.has(entry.key)}
             class:focused={i === focusedIndex}
+            class:problem={!!entry.row.problem}
+            data-problem={entry.row.problem || undefined}
             role="row"
             aria-rowindex={i + 2}
             aria-selected={selected.has(entry.key)}
@@ -309,7 +311,7 @@
             }}
             oncontextmenu={(e) => openMenu(e, entry.row)}
           >
-            <div class="td check" role="gridcell">
+            <div class="td check" role="gridcell" title={entry.row.problem || undefined}>
               <input
                 type="checkbox"
                 aria-label="Select {entry.row.name}"
@@ -421,6 +423,19 @@
   }
   .tr.checked {
     background: rgba(79, 156, 247, 0.12);
+  }
+  /* Needs attention (the backend's `problem`): a red edge and a faint tint. */
+  .tr.problem {
+    box-shadow: inset 3px 0 0 var(--red);
+  }
+  .tr.problem:not(.selected, .checked) {
+    background: rgba(229, 72, 77, 0.07);
+  }
+  .tr.problem:not(.selected, .checked):hover {
+    background: rgba(229, 72, 77, 0.12);
+  }
+  .tr.problem.focused {
+    box-shadow: inset 3px 0 0 var(--accent);
   }
   .check {
     display: flex;

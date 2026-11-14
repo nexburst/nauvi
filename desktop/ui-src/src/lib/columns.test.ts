@@ -24,6 +24,7 @@ const row = (cells: string[], extra: Partial<ResourceRow> = {}): ResourceRow => 
   created: 0,
   cells,
   ...extra,
+  problem: extra.problem ?? "",
 });
 
 const metrics: Metrics = {

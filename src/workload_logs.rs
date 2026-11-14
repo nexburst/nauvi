@@ -7,7 +7,7 @@
 //! when a pod changes) live in the pure [`Tracker`]; [`stream_workload_logs`]
 //! only executes them.
 
-use crate::watch::{watch_pods_selected, Update};
+use crate::watch::{watch_pod_named, watch_pods_selected, Update};
 use crate::{batch_lines, get_pod_logs, stream_pod_logs_follow, LogOptions};
 use anyhow::{bail, Context, Result};
 use futures::StreamExt;
@@ -554,7 +554,7 @@ pub async fn stream_workload_logs_limited<F>(
     name: &str,
     opts: &LogOptions,
     limit: usize,
-    mut on_event: F,
+    on_event: F,
 ) -> Result<()>
 where
     F: FnMut(WorkloadEvent) + Send,
@@ -564,8 +564,55 @@ where
         "previous logs are not available for workload streams"
     );
     let selector = workload_selector(client, kind, namespace, name).await?;
-    let (store, mut updates) = watch_pods_selected(client, namespace, &selector);
+    let (store, updates) = watch_pods_selected(client, namespace, &selector);
+    follow_pods(client, namespace, store, updates, opts, limit, on_event).await
+}
 
+/// Follow every container of one pod (regular containers, or only
+/// `opts.container`), merged like a workload's logs: each line is tagged
+/// with its container, and a restarted container is followed again. The
+/// pod is watched by name, so it may also be recreated (a StatefulSet pod).
+pub async fn stream_pod_containers_logs<F>(
+    client: &Client,
+    namespace: &str,
+    pod: &str,
+    opts: &LogOptions,
+    on_event: F,
+) -> Result<()>
+where
+    F: FnMut(WorkloadEvent) + Send,
+{
+    anyhow::ensure!(
+        !opts.previous,
+        "previous logs are only available for one container at a time"
+    );
+    let (store, updates) = watch_pod_named(client, namespace, pod);
+    follow_pods(
+        client,
+        namespace,
+        store,
+        updates,
+        opts,
+        MAX_WORKLOAD_STREAMS,
+        on_event,
+    )
+    .await
+}
+
+/// The shared runtime of the workload and all-container streams: carries out
+/// the [`Tracker`]'s decisions for the pods `updates` reports.
+async fn follow_pods<F>(
+    client: &Client,
+    namespace: &str,
+    store: Store<Pod>,
+    mut updates: futures::stream::BoxStream<'static, Update<crate::PodInfo>>,
+    opts: &LogOptions,
+    limit: usize,
+    mut on_event: F,
+) -> Result<()>
+where
+    F: FnMut(WorkloadEvent) + Send,
+{
     let (line_tx, line_rx) = tokio::sync::mpsc::unbounded_channel::<TaggedLine>();
     let (batch_tx, mut batch_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<TaggedLine>>();
     let _batcher = AbortOnDrop(tokio::spawn(batch_lines(

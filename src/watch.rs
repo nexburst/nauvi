@@ -425,8 +425,9 @@ pub fn watch_resource(
 ) {
     let api = crate::resources::dyn_api(client, &kind.resource, namespace);
     let columns = Arc::new(kind.columns.clone());
+    let resource = kind.resource.clone();
     watch_with(api, kind.resource.api_resource(), move |o| {
-        make_row(&columns, o)
+        make_row(&resource, &columns, o)
     })
 }
 
@@ -452,6 +453,22 @@ pub fn watch_pods_selected(
         api,
         (),
         watcher::Config::default().labels(selector),
+        pod_info,
+    )
+}
+
+/// Watch one pod by name (a field selector, so it is seen again if it is
+/// recreated with the same name).
+pub fn watch_pod_named(
+    client: &Client,
+    namespace: &str,
+    name: &str,
+) -> (Store<Pod>, BoxStream<'static, Update<PodInfo>>) {
+    let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    watch_with_config(
+        api,
+        (),
+        watcher::Config::default().fields(&format!("metadata.name={name}")),
         pod_info,
     )
 }

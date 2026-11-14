@@ -3,6 +3,7 @@
 use crate::state::{next_session, Cluster, ExecSession, SessionCleanup, WindowEmitter};
 use futures::SinkExt;
 use kube::api::{AttachedProcess, TerminalSize};
+use kubeloupe::attach::{attach_note, attach_pod, describe_attach_error};
 use kubeloupe::exec_pod;
 use serde::Serialize;
 use specta::Type;
@@ -49,6 +50,35 @@ pub(crate) async fn cmd_exec_start(
         .await
         .map_err(|e| e.to_string())?;
     let session = next_session("exec");
+    start_session(&cluster, session.clone(), attached, cols, rows, None).await;
+    Ok(session)
+}
+
+/// Attach to the main process of a pod's container (`container`: `None` for
+/// the default one). Returns the session id; the session works like a shell's
+/// (`exec-*` events). Closing it detaches and leaves the process running.
+/// Fails, in plain words, when the container has no stdin or is not running.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_attach_start(
+    cluster: Cluster,
+    namespace: String,
+    name: String,
+    container: Option<String>,
+    cols: u16,
+    rows: u16,
+) -> Result<String, String> {
+    let client = cluster.client().await?;
+    let (target, attached) = attach_pod(&client, &namespace, &name, container.as_deref())
+        .await
+        .map_err(|e| describe_attach_error(&e))?;
+    let session = next_session("attach");
+    // Arrives before the UI knows the id; the terminal keeps it until then.
+    emit_note(
+        &cluster.emitter(),
+        &session,
+        &attach_note(&name, &target, "Closing this tab detaches."),
+    );
     start_session(&cluster, session.clone(), attached, cols, rows, None).await;
     Ok(session)
 }

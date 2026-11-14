@@ -7,6 +7,8 @@
   export type TerminalTarget =
     /** `container`: `null` lets the API server pick. */
     | { kind: "pod"; pod: PodRef; container: string | null }
+    /** The container's main process (`null`: the pod's default container). */
+    | { kind: "attach"; pod: PodRef; container: string | null }
     | { kind: "local"; namespace: string }
     /** Adds a container running `image` that shares `target`'s processes, then attaches. */
     | { kind: "debug"; pod: PodRef; target: string; image: string }
@@ -48,10 +50,11 @@
         close: commands.cmdExecClose,
       };
     }
-    if (t.kind === "pod") {
+    if (t.kind === "pod" || t.kind === "attach") {
+      const start = t.kind === "pod" ? commands.cmdExecStart : commands.cmdAttachStart;
       return {
         start: async (cols, rows) => ({
-          id: await commands.cmdExecStart(t.pod.namespace, t.pod.name, t.container, cols, rows),
+          id: await start(t.pod.namespace, t.pod.name, t.container, cols, rows),
           intro: "",
         }),
         input: commands.cmdExecInput,

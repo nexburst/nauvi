@@ -266,6 +266,19 @@ async fn run(cli: Cli) -> Result<()> {
             )
             .await?
         }
+        Commands::Attach {
+            pod,
+            namespace,
+            container,
+        } => {
+            kubeloupe::terminal::cli_attach(
+                &client,
+                namespace.as_deref().unwrap_or("default"),
+                &pod,
+                container.as_deref(),
+            )
+            .await?
+        }
         Commands::NodeShell {
             node,
             namespace,

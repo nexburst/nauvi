@@ -71,6 +71,7 @@
       name,
       namespace,
       cells: [name, namespace, "1/1", phase, String(i % 7), `node-${i % 50}`, "", "", ""],
+      problem: phase === "Failed" ? "Failed" : "",
     };
   }
 
