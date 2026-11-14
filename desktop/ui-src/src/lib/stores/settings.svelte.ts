@@ -29,19 +29,23 @@ export async function loadSettings() {
   applyAppearance();
 }
 
-export function updateSettings(patch: SettingsPatch) {
+/** Resolves once the backend has the change (or failed to take it). */
+export function updateSettings(patch: SettingsPatch): Promise<void> {
   settings.current = applyPatch(settings.current, patch);
-  commands.cmdUpdateSettings(patch).catch(() => {
-    // Not saved: the change still holds for this session.
-  });
+  return commands.cmdUpdateSettings(patch).then(
+    () => {},
+    () => {
+      // Not saved: the change still holds for this session.
+    },
+  );
 }
 
 export function contextSettings(context: string): ContextSettings {
   return settings.current.contexts[context] ?? EMPTY_CONTEXT;
 }
 
-export function updateContext(context: string, change: Partial<ContextSettings>) {
-  updateSettings({ contexts: { [context]: { ...contextSettings(context), ...change } } });
+export function updateContext(context: string, change: Partial<ContextSettings>): Promise<void> {
+  return updateSettings({ contexts: { [context]: { ...contextSettings(context), ...change } } });
 }
 
 export function kindSettings(kindId: string): KindSettings {

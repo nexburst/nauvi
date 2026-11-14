@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { UsageReference } from "./bindings";
-import { clockTime, frameFor, linePoints, niceMax, niceMaxBytes, refLines, sparkPoints, yOf } from "./usage";
+import type { UsageHistoryView, UsageReference } from "./bindings";
+import {
+  clockTime,
+  fallbackNote,
+  frameFor,
+  linePoints,
+  niceMax,
+  niceMaxBytes,
+  refLines,
+  sparkPoints,
+  usageSourceText,
+  yOf,
+} from "./usage";
 
 const NO_REF: UsageReference = {
   cpu_request: 0,
@@ -87,4 +98,29 @@ describe("chart frame", () => {
 it("clockTime is local hours and minutes", () => {
   const d = new Date(2026, 0, 2, 9, 5);
   expect(clockTime(d.getTime())).toBe("09:05");
+});
+
+describe("usage source (#47 phase 2)", () => {
+  const view = (change: Partial<UsageHistoryView>): UsageHistoryView => ({
+    history: { since: new Date(2026, 0, 1, 10, 42).getTime(), samples: [], containers: [] },
+    reference: NO_REF,
+    source: "metrics_server",
+    range: "live",
+    prometheus: "",
+    note: "",
+    ...change,
+  });
+
+  it("names Prometheus and the range, or when collecting started", () => {
+    const prom = view({ source: "prometheus", range: "6h", prometheus: "monitoring/prometheus-k8s:web" });
+    expect(usageSourceText(prom)).toBe("From Prometheus (monitoring/prometheus-k8s:web), last 6h.");
+    expect(usageSourceText(view({}))).toMatch(/^Collecting since 10:42\. /);
+  });
+
+  it("says why Prometheus was not used", () => {
+    expect(fallbackNote(view({}))).toBe("");
+    expect(fallbackNote(view({ note: "Not allowed to reach Prometheus." }))).toBe(
+      "Not allowed to reach Prometheus. Showing the metrics-server history instead.",
+    );
+  });
 });

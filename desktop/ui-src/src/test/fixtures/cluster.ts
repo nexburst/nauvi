@@ -19,7 +19,6 @@ import type {
   ResourceRow,
   ServicePortInfo,
   StateInfo,
-  UsageHistoryView,
 } from "../../lib/bindings";
 import { defaultSettings } from "../../lib/settings";
 import type { Settings } from "../../lib/settings";
@@ -27,7 +26,8 @@ import { DISCOVERED } from "./discover";
 import { relatedFixtures } from "./related";
 import { defaultHelm } from "./helm";
 import type { FakeHelm } from "./helm";
-import { sparkFixtures, usageFixtures } from "./usage";
+import { NO_PROMETHEUS, sparkFixtures, usageFixtures } from "./usage";
+import type { FakePrometheus, UsageFixture } from "./usage";
 
 export interface FakeCluster {
   contexts: ContextInfo_Serialize[];
@@ -84,8 +84,10 @@ export interface FakeCluster {
    * sessionStorage, so they survive a page reload (an app restart).
    */
   settings: Settings;
-  /** What `cmd_usage_history` returns, by `pods|namespace/name` or `nodes|name` (default: no history). */
-  usage: Record<string, UsageHistoryView>;
+  /** The metrics-server history `cmd_usage_history` returns, by `pods|namespace/name` or `nodes|name` (default: no history). */
+  usage: Record<string, UsageFixture>;
+  /** The context's Prometheus (#47 phase 2); none by default. */
+  prometheus: FakePrometheus;
 }
 
 /** Unix seconds, a fixed distance in the past so ages are stable. */
@@ -350,6 +352,7 @@ export function defaultCluster(): FakeCluster {
       notes: [],
     },
     usage: usageFixtures(),
+    prometheus: structuredClone(NO_PROMETHEUS),
     metrics: {
       available: true,
       sparks: sparkFixtures(),

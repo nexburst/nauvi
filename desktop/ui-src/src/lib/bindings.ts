@@ -61,8 +61,17 @@ export const commands = {
 	 *  its detail panel, with its requests and limits or allocatable. Polled
 	 *  while the panel is open: when no table has sampled the object lately, it
 	 *  samples it itself, so history keeps growing with only the panel open.
+	 * 
+	 *  A `range` other than `live` asks Prometheus (#47 phase 2). Without one,
+	 *  or when the query fails, it is the metrics-server history with a `note`
+	 *  saying why.
 	 */
-	cmdUsageHistory: (what: MetricsKind, namespace: string | null, name: string, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_usage_history", { what, namespace, name }, options),
+	cmdUsageHistory: (what: MetricsKind, namespace: string | null, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_usage_history", { what, namespace, name, range }, options),
+	/**
+	 *  Which Prometheus the usage charts use for the selected context, or why
+	 *  there is none. `redetect` looks again instead of using the cached answer.
+	 */
+	cmdPrometheusStatus: (redetect: boolean, options?: InvokeOptions) => __TAURI_INVOKE<PrometheusStatus>("cmd_prometheus_status", { redetect }, options),
 	/**
 	 *  Start watching a kind (in `namespace`, if it is namespaced). Returns the
 	 *  watch id carried by the `watch-batch` / `watch-state` events.
@@ -441,6 +450,11 @@ export type ContextSettings_Deserialize = {
 	namespaces?: string[],
 	/**  Namespaces typed in by a user who may not list them. */
 	typed_namespaces?: string[],
+	/**
+	 *  The Prometheus Service for usage charts (#47): `""` detects one,
+	 *  `"off"` turns it off, else `namespace/service:port`.
+	 */
+	prometheus?: string,
 };
 
 /**  What is remembered per kubeconfig context. */
@@ -451,6 +465,11 @@ export type ContextSettings_Serialize = {
 	namespaces: string[],
 	/**  Namespaces typed in by a user who may not list them. */
 	typed_namespaces: string[],
+	/**
+	 *  The Prometheus Service for usage charts (#47): `""` detects one,
+	 *  `"off"` turns it off, else `namespace/service:port`.
+	 */
+	prometheus: string,
 };
 
 /**  What a detail watch reports. */
@@ -1032,6 +1051,16 @@ export type ProblemPod = {
 	created: number,
 };
 
+/**  What the app shows about Prometheus in Settings. */
+export type PrometheusStatus = {
+	/**  `namespace/service:port`, or "" when there is none. */
+	target: string,
+	/**  The target was set in Settings rather than detected. */
+	from_settings: boolean,
+	/**  Why there is no Prometheus ("" when there is one). */
+	note: string,
+};
+
 /**  Warning events, across the cluster or in one namespace. */
 export type RecentEvents = RecentEvents_Serialize | RecentEvents_Deserialize;
 
@@ -1290,7 +1319,22 @@ export type Theme =
 export type UsageHistoryView = {
 	history: SeriesView,
 	reference: UsageReference,
+	source: UsageSource,
+	/**  The range shown: the one asked for, or `live` after a fallback. */
+	range: UsageRange,
+	/**  The Prometheus of this context (`namespace/service:port`), or "". */
+	prometheus: string,
+	/**
+	 *  Why Prometheus was not used for a range that asked for it ("" when it
+	 *  was, or for `live`).
+	 */
+	note: string,
 };
+
+/**  How far back a chart goes. */
+export type UsageRange = 
+/**  The metrics-server history the app collects (30 minutes). */
+"live" | "1h" | "6h" | "24h";
 
 /**
  *  What usage is compared against. 0 = not set (no request, no limit, or
@@ -1311,6 +1355,11 @@ export type UsageSample = {
 	cpu_millicores: number,
 	memory_bytes: number,
 };
+
+/**  Where a chart's samples come from. */
+export type UsageSource = 
+/**  The history the app collects from metrics-server. */
+"metrics_server" | "prometheus";
 
 /**
  *  One coalesced set of table rows for the watch `id`: the first batch is a

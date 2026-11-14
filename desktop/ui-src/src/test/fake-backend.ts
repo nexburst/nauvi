@@ -41,13 +41,15 @@ import type {
   ResourceKind,
   ResourceRef,
   ResourceRow,
+  PrometheusStatus,
+  UsageHistoryView,
   WatchBatch,
   WatchState,
 } from "../lib/bindings";
 import { defaultCluster, detail, makeRow, NO_POD } from "./fixtures/cluster";
 import { NO_RELATED } from "./fixtures/related";
 import { helmGet, helmList, helmRollback, helmUninstall } from "./fixtures/helm";
-import { NO_REFERENCE } from "./fixtures/usage";
+import { NO_REFERENCE, prometheusFixture } from "./fixtures/usage";
 import type { FakeCluster } from "./fixtures/cluster";
 
 type Commands = typeof commands;
@@ -100,6 +102,8 @@ export interface FakeApi {
   emitLogEnd(error: string, done?: boolean, streamId?: number): Promise<void>;
   /** URLs the app asked `tauri-plugin-opener` to open. */
   opened(): string[];
+  /** Give the cluster a Prometheus with series for demo/web-1 and node-1 (`fixtures/usage.ts`). */
+  installPrometheus(): void;
 }
 
 declare global {
@@ -284,6 +288,21 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     return yaml.replace(/^(metadata:\n {2}name: .*\n(?: {2}namespace: .*\n)?)/m, `$1${line}`);
   }
 
+  /** Like `cmd_prometheus_status`: the current context's setting, else what was detected. */
+  function prometheusStatus(): PrometheusStatus {
+    const ctx = cluster.contexts.find((c) => c.current)?.name ?? "";
+    const setting = (cluster.settings.contexts[ctx]?.prometheus ?? "").trim();
+    if (setting.toLowerCase() === "off") {
+      return { target: "", from_settings: false, note: "Prometheus is turned off for this context in Settings." };
+    }
+    if (setting) {
+      const target = setting.includes(":") ? setting : `${setting}:9090`;
+      return { target, from_settings: true, note: "" };
+    }
+    const p = cluster.prometheus;
+    return { target: p.detected, from_settings: false, note: p.detected ? "" : p.note };
+  }
+
   const HANDLERS: Handlers = {
     cmdListContexts: () => cluster.contexts,
     cmdSetContext: (name) => {
@@ -326,12 +345,33 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       const sparks = Object.fromEntries(keys.filter((k) => k in m.sparks).map((k) => [k, m.sparks[k]]));
       return { available: m.available, pods, nodes, sparks, since: keys.some((k) => k in m.sparks) ? m.since : 0 };
     },
-    cmdUsageHistory: (what, namespace, name) => {
+    cmdUsageHistory: (what, namespace, name, range) => {
       const key = what === "pods" ? `pods|${namespace}/${name}` : `nodes|${name}`;
-      return (
-        cluster.usage[key] ?? { history: { since: 0, samples: [], containers: [] }, reference: copy(NO_REFERENCE) }
-      );
+      const base = cluster.usage[key] ?? {
+        history: { since: 0, samples: [], containers: [] },
+        reference: copy(NO_REFERENCE),
+      };
+      const status = prometheusStatus();
+      const live: UsageHistoryView = {
+        ...copy(base),
+        source: "metrics_server",
+        range: "live",
+        prometheus: status.target,
+        note: "",
+      };
+      // Like the backend: a Prometheus range, else the live history and why.
+      if (range === "live") return live;
+      if (!status.target) return { ...live, note: status.note };
+      if (cluster.prometheus.failure) return { ...live, note: cluster.prometheus.failure };
+      const history = cluster.prometheus.series[`${key}|${range}`];
+      if (!history?.samples.length) {
+        const kind = what === "pods" ? "pod" : "node";
+        const note = `Prometheus at ${status.target} has no CPU and memory samples for this ${kind} in the last ${range}.`;
+        return { ...live, note };
+      }
+      return { ...live, history: copy(history), source: "prometheus", range };
     },
+    cmdPrometheusStatus: () => prometheusStatus(),
 
     cmdWatchStart: (resource, namespace) => {
       const kind = kindOf(resource);
@@ -598,6 +638,9 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     emitOverviewState: (s) => events.overviewState.emit({ ...s, id: s.id ?? lastOverview ?? -1 }),
     emitLogLines: (lines, id) => events.podLog.emit({ streamId: id ?? streamId ?? -1, data: lines }),
     opened: () => [...opened],
+    installPrometheus: () => {
+      cluster.prometheus = prometheusFixture();
+    },
     emitLogEnd: async (error, done = true, id) => {
       const sid = id ?? streamId ?? -1;
       if (error) await events.podLogError.emit({ streamId: sid, data: error });

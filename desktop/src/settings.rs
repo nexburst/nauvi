@@ -62,6 +62,9 @@ pub(crate) struct ContextSettings {
     pub(crate) namespaces: Vec<String>,
     /// Namespaces typed in by a user who may not list them.
     pub(crate) typed_namespaces: Vec<String>,
+    /// The Prometheus Service for usage charts (#47): `""` detects one,
+    /// `"off"` turns it off, else `namespace/service:port`.
+    pub(crate) prometheus: String,
 }
 
 /// What is remembered per kind (by kind id).
@@ -395,6 +398,7 @@ mod tests {
                     view: "apps/v1/deployments".into(),
                     namespaces: vec!["demo".into()],
                     typed_namespaces: vec!["team-a".into()],
+                    prometheus: "monitoring/prometheus-k8s:web".into(),
                 },
             )])),
             ..Default::default()
