@@ -4,7 +4,7 @@
 
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -40,12 +40,15 @@ export class Profile {
 
   /** The environment the app gets for this profile. */
   env(basePath = process.env.PATH ?? "") {
+    // Windows keeps settings under the Known Folders (not HOME) and opens
+    // URLs without xdg-open: only the Linux parts apply there.
+    if (process.platform === "win32") return {};
     return {
       HOME: this.home,
       XDG_CONFIG_HOME: join(this.home, ".config"),
       XDG_DATA_HOME: join(this.home, ".local", "share"),
       XDG_CACHE_HOME: join(this.home, ".cache"),
-      PATH: `${this.bin}:${basePath}`,
+      PATH: `${this.bin}${delimiter}${basePath}`,
       BROWSER: join(this.bin, "qa-browser"),
     };
   }

@@ -6,6 +6,7 @@
 //   KUBELOUPE_APP   path to the built app (default: <target>/debug/kubeloupe-desktop)
 //   TAURI_DRIVER    path to tauri-driver (default: on PATH)
 //   WEBKIT_DRIVER   path to WebKitWebDriver (default: tauri-driver's lookup on PATH)
+//   NATIVE_DRIVER   same, for any platform (Windows: msedgedriver.exe)
 //   E2E_CONTEXT     kube context to test against (default: kind-kubeloupe-test)
 //   E2E_ARTIFACTS   where screenshots and logs go (default: desktop/e2e/artifacts)
 //   E2E_DRIVER_PORT port for tauri-driver (default: 4444; the native driver gets +1)
@@ -65,14 +66,20 @@ function testKubeconfig(contexts = [CONTEXT]) {
  * exits. qa.sh also gets them through $QA_RUN_DIR, for a `kill -9` of node.
  */
 const groups = new Set();
-process.once("exit", () => {
-  for (const pgid of groups) {
-    try {
-      process.kill(-pgid, "SIGKILL");
-    } catch {
-      /* already gone */
-    }
+const WINDOWS = process.platform === "win32";
+
+/** Kill tauri-driver and everything under it (the native driver, the app). */
+function killTree(pid) {
+  try {
+    if (WINDOWS) execFileSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+    else process.kill(-pid, "SIGKILL");
+  } catch {
+    /* already gone */
   }
+}
+
+process.once("exit", () => {
+  for (const pgid of groups) killTree(pgid);
 });
 
 function trackGroup(pgid) {
@@ -142,7 +149,8 @@ async function startSession(name, opts) {
   mkdirSync(ARTIFACTS, { recursive: true });
   const port = Number(process.env.E2E_DRIVER_PORT || 4444);
   const args = ["--port", String(port), "--native-port", String(port + 1)];
-  if (process.env.WEBKIT_DRIVER) args.push("--native-driver", process.env.WEBKIT_DRIVER);
+  const native = process.env.NATIVE_DRIVER || process.env.WEBKIT_DRIVER;
+  if (native) args.push("--native-driver", native);
 
   // The app inherits this environment through tauri-driver and WebKitWebDriver.
   const kubeconfig = opts.kubeconfig ? null : testKubeconfig(opts.contexts);
@@ -159,18 +167,15 @@ async function startSession(name, opts) {
   const driverProc = spawn(process.env.TAURI_DRIVER || "tauri-driver", args, {
     env,
     stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
+    // (On Windows, `detached` would open a console; taskkill /T stops the tree.)
+    detached: !WINDOWS,
   });
   trackGroup(driverProc.pid);
   driverProc.stdout.pipe(log);
   driverProc.stderr.pipe(log);
   driverProc.once("error", (e) => log.write(`tauri-driver: ${e}\n`));
   const stop = async () => {
-    try {
-      process.kill(-driverProc.pid, "SIGKILL");
-    } catch {
-      /* already gone */
-    }
+    killTree(driverProc.pid);
     untrackGroup(driverProc.pid);
     driverProc.stdout.destroy();
     driverProc.stderr.destroy();

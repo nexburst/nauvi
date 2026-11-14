@@ -132,3 +132,85 @@ jobs:
           kubectl --context kind-kubeloupe-test get pods -A -o wide || true
           kubectl --context kind-kubeloupe-test get events -A --sort-by=.lastTimestamp | tail -50 || true
           kubectl --context kind-kubeloupe-test -n monitoring logs deploy/prometheus-server --tail=50 || true
+
+  # Some real coverage for Windows (WebView2 through tauri-driver and
+  # msedgedriver): start-up with an unreachable cluster, Settings and the
+  # theme. No cluster here; macOS has no WebDriver at all.
+  windows:
+    name: QA start-up (Windows, WebView2)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      TAURI_DRIVER_VERSION: 2.1.0
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.7.8
+        with:
+          shared-key: qa-windows
+      - uses: actions/cache@v4.2.3
+        id: tauri-driver-cache
+        with:
+          path: ~/.cargo/bin/tauri-driver.exe
+          key: tauri-driver-${{ runner.os }}-${{ env.TAURI_DRIVER_VERSION }}
+      - name: Install tauri-driver
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
+
+      # msedgedriver must match the WebView2 runtime the app uses.
+      - name: Fetch msedgedriver for the WebView2 runtime
+        shell: pwsh
+        run: |
+          $key = "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+          $version = (Get-ItemProperty -Path $key -ErrorAction SilentlyContinue).pv
+          if (-not $version) { $version = (Get-Item "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe").VersionInfo.ProductVersion }
+          Write-Host "WebView2 runtime: $version"
+          $dir = "$env:RUNNER_TEMP\msedgedriver"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Invoke-WebRequest "https://msedgedriver.microsoft.com/$version/edgedriver_win64.zip" -OutFile "$dir\driver.zip"
+          Expand-Archive "$dir\driver.zip" -DestinationPath $dir -Force
+          "NATIVE_DRIVER=$dir\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: desktop/ui-src/.nvmrc
+          cache: npm
+          cache-dependency-path: |
+            desktop/ui-src/package-lock.json
+            desktop/e2e/package-lock.json
+      - name: Install npm dependencies
+        run: |
+          npm --prefix desktop/ui-src ci
+          npm --prefix desktop/e2e ci
+      - name: Build the app
+        run: |
+          npm --prefix desktop/ui-src run build
+          cargo build -p kubeloupe-desktop --locked --features tauri/custom-protocol
+
+      - name: Start-up scenario
+        working-directory: desktop/e2e
+        env:
+          E2E_ARTIFACTS: artifacts/qa-windows
+        run: |
+          mkdir -p artifacts/qa-windows
+          set +e
+          node --test --test-concurrency=1 \
+            --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=./lib/qa-reporter.mjs --test-reporter-destination=artifacts/qa-windows/results.jsonl \
+            qa/startup.test.mjs
+          rc=$?
+          node lib/qa-report.mjs artifacts/qa-windows > artifacts/qa-windows/report.md
+          { echo "## Windows"; tail -n +2 artifacts/qa-windows/report.md; } >> "$GITHUB_STEP_SUMMARY"
+          exit $rc
+
+      - name: Upload screenshots, page text and logs
+        if: always()
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: qa-artifacts-windows
+          path: desktop/e2e/artifacts/qa-windows/
+          retention-days: 14
+          if-no-files-found: warn
