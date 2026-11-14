@@ -91,6 +91,10 @@ pub(crate) struct Settings {
     pub(crate) dock_height: u32,
     pub(crate) contexts: BTreeMap<String, ContextSettings>,
     pub(crate) kinds: BTreeMap<String, KindSettings>,
+    /// The contexts of the extra windows (besides the main one) open when
+    /// the app quit, reopened on start (`""`: the kubeconfig's
+    /// current-context). Kept up to date by the backend.
+    pub(crate) windows: Vec<String>,
 }
 
 impl Default for Settings {
@@ -105,6 +109,7 @@ impl Default for Settings {
             dock_height: 0,
             contexts: BTreeMap::new(),
             kinds: BTreeMap::new(),
+            windows: Vec::new(),
         }
     }
 }
@@ -129,6 +134,8 @@ pub(crate) struct SettingsPatch {
     pub(crate) contexts: Option<BTreeMap<String, ContextSettings>>,
     #[specta(optional)]
     pub(crate) kinds: Option<BTreeMap<String, KindSettings>>,
+    #[specta(optional)]
+    pub(crate) windows: Option<Vec<String>>,
 }
 
 impl Settings {
@@ -150,6 +157,9 @@ impl Settings {
         }
         if let Some(v) = patch.dock_height {
             self.dock_height = v;
+        }
+        if let Some(v) = patch.windows {
+            self.windows = v;
         }
         self.contexts.extend(patch.contexts.unwrap_or_default());
         self.kinds.extend(patch.kinds.unwrap_or_default());

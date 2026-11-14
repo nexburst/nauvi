@@ -6,6 +6,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import VirtualList from "./VirtualList.svelte";
   import { commands, events } from "../bindings";
+  import { thisWindow } from "../window";
   import type { LogContainer, WorkloadNotice } from "../bindings";
   import { LogBuffer, LOG_BUFFER_MAX, linePrefix, logMatches, podColor, splitHighlights } from "../logs";
   import type { TaggedText, WorkloadRef } from "../logs";
@@ -387,11 +388,11 @@
   let destroyed = false;
   onMount(async () => {
     const un = await Promise.all([
-      events.podLog.listen((e) => e.payload.streamId === streamId && onBatch(e.payload.data)),
-      events.workloadLog.listen((e) => e.payload.streamId === streamId && onTaggedBatch(e.payload.data)),
-      events.workloadNotice.listen((e) => e.payload.streamId === streamId && onNotice(e.payload)),
-      events.podLogDone.listen((e) => e.payload.streamId === streamId && appendLog("[stream ended]", "muted")),
-      events.podLogError.listen((e) => e.payload.streamId === streamId && appendLog(e.payload.data, "error-text")),
+      events.podLog(thisWindow()).listen((e) => e.payload.streamId === streamId && onBatch(e.payload.data)),
+      events.workloadLog(thisWindow()).listen((e) => e.payload.streamId === streamId && onTaggedBatch(e.payload.data)),
+      events.workloadNotice(thisWindow()).listen((e) => e.payload.streamId === streamId && onNotice(e.payload)),
+      events.podLogDone(thisWindow()).listen((e) => e.payload.streamId === streamId && appendLog("[stream ended]", "muted")),
+      events.podLogError(thisWindow()).listen((e) => e.payload.streamId === streamId && appendLog(e.payload.data, "error-text")),
     ]);
     if (destroyed) un.forEach((f) => f());
     else unlisteners = un;

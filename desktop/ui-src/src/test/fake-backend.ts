@@ -3,8 +3,11 @@
  *
  * `installFakeBackend()` routes every `invoke` through `mockIPC` from
  * `@tauri-apps/api/mocks` with `shouldMockEvents`, so the app's
- * `events.*.listen` calls work and the fake can emit events. Commands are
- * served from an in-memory cluster (`fixtures/cluster.ts`).
+ * `events.*(thisWindow()).listen` calls work and the fake can emit events.
+ * Commands are served from an in-memory cluster (`fixtures/cluster.ts`).
+ * The page is the main window; `test.html?window=cluster-1` makes it a window
+ * opened for a context (the mock ignores event targets, so every event
+ * reaches the page either way).
  *
  * Tests drive it from Playwright through `window.__fake` (see `FakeApi`):
  *
@@ -29,7 +32,7 @@
  * add an `emit…` helper to `FakeApi` if tests need to send it themselves.
  */
 
-import { mockIPC } from "@tauri-apps/api/mocks";
+import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { applyPatch } from "../lib/settings";
 import type { SettingsPatch } from "../lib/settings";
 import { commands, events } from "../lib/bindings";
@@ -540,6 +543,13 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(cluster.settings));
       return copy(cluster.settings);
     },
+    cmdOpenWindow: (context) => {
+      // The real backend opens a window; here it only remembers it, as the
+      // backend does in the settings.
+      cluster.settings = applyPatch(cluster.settings, { windows: [...cluster.settings.windows, context] });
+      sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(cluster.settings));
+      return null;
+    },
   };
 
   const opened: string[] = [];
@@ -565,6 +575,7 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
   }
 
   mockIPC((cmd, args) => handle(cmd, args as CallArgs | undefined), { shouldMockEvents: true });
+  mockWindows(new URLSearchParams(location.search).get("window") ?? "main");
 
   const api: FakeApi = {
     cluster,

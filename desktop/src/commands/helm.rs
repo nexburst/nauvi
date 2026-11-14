@@ -1,22 +1,21 @@
 //! Helm releases: native listing and decoding, rollback and uninstall
 //! through the `helm` CLI.
 
-use crate::state::{client, selected_context, AppState};
+use crate::state::{Cluster, ClusterSession};
 use kubeloupe::actions::describe_error;
 use kubeloupe::helm::{
     self, HelmChartInfo, HelmRelease, HelmReleaseList, HelmRevisionKey, HelmTarget,
 };
-use tauri::State;
 
 /// The releases in `namespaces` (empty = all), from labels only. Namespaces
 /// whose Secrets may not be listed come back as `warnings`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_list(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     namespaces: Vec<String>,
 ) -> Result<HelmReleaseList, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     helm::list_helm_releases(&client, &namespaces)
         .await
         .map_err(|e| describe_error(&e))
@@ -27,10 +26,10 @@ pub(crate) async fn cmd_helm_list(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_charts(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     keys: Vec<HelmRevisionKey>,
 ) -> Result<Vec<HelmChartInfo>, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     Ok(helm::release_charts(&client, &keys).await)
 }
 
@@ -39,13 +38,13 @@ pub(crate) async fn cmd_helm_charts(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_get(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     namespace: String,
     name: String,
     revision: u32,
     reveal: bool,
 ) -> Result<HelmRelease, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     let revision = (revision > 0).then_some(revision);
     helm::get_helm_release(&client, &namespace, &name, revision, reveal)
         .await
@@ -62,8 +61,8 @@ pub(crate) async fn cmd_helm_version() -> Result<String, String> {
 /// Helm talks to the app's context. Without a selection, name the
 /// kubeconfig's current context explicitly, so helm cannot drift to another
 /// one if the file changes meanwhile.
-fn target(state: &State<'_, AppState>) -> HelmTarget {
-    let context = selected_context(state).or_else(|| {
+fn target(state: &ClusterSession) -> HelmTarget {
+    let context = state.selected_context().or_else(|| {
         kube::config::Kubeconfig::read()
             .ok()
             .and_then(|k| k.current_context)
@@ -78,12 +77,12 @@ fn target(state: &State<'_, AppState>) -> HelmTarget {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_rollback(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     namespace: String,
     name: String,
     revision: u32,
 ) -> Result<String, String> {
-    helm::helm_rollback(&target(&state), &namespace, &name, revision)
+    helm::helm_rollback(&target(&cluster), &namespace, &name, revision)
         .await
         .map_err(|e| format!("{e:#}"))
 }
@@ -92,11 +91,11 @@ pub(crate) async fn cmd_helm_rollback(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_uninstall(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     namespace: String,
     name: String,
 ) -> Result<String, String> {
-    helm::helm_uninstall(&target(&state), &namespace, &name)
+    helm::helm_uninstall(&target(&cluster), &namespace, &name)
         .await
         .map_err(|e| format!("{e:#}"))
 }

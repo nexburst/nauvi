@@ -1,20 +1,19 @@
 //! Resource details, YAML get / apply, delete.
 
-use crate::state::{client, AppState};
+use crate::state::Cluster;
 use kubeloupe::actions::{self};
 use kubeloupe::resources::{self, ResourceDetail, ResourceRef};
-use tauri::State;
 
 /// Detail of any object; pods include their `pod` section.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_get_resource_detail(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     resource: ResourceRef,
     namespace: String,
     name: String,
 ) -> Result<ResourceDetail, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     resources::get_resource_detail(&client, &resource, &namespace, &name)
         .await
         .map_err(|e| e.to_string())
@@ -25,12 +24,12 @@ pub(crate) async fn cmd_get_resource_detail(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_get_related(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     resource: ResourceRef,
     namespace: String,
     name: String,
 ) -> Result<resources::Related, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     resources::get_related(&client, &resource, &namespace, &name)
         .await
         .map_err(|e| actions::describe_error(&e))
@@ -40,13 +39,13 @@ pub(crate) async fn cmd_get_related(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_get_resource_yaml(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     resource: ResourceRef,
     namespace: String,
     name: String,
     reveal: bool,
 ) -> Result<String, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     resources::get_resource_yaml(&client, &resource, &namespace, &name, reveal)
         .await
         .map_err(|e| e.to_string())
@@ -59,7 +58,7 @@ pub(crate) async fn cmd_get_resource_yaml(
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn cmd_apply_resource_yaml(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     resource: ResourceRef,
     namespace: String,
     name: String,
@@ -67,7 +66,7 @@ pub(crate) async fn cmd_apply_resource_yaml(
     resource_version: String,
     dry_run: bool,
 ) -> Result<resources::ApplyOutcome, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     let opts = resources::ApplyOptions {
         dry_run,
         resource_version: Some(resource_version).filter(|v| !v.is_empty()),
@@ -81,12 +80,12 @@ pub(crate) async fn cmd_apply_resource_yaml(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_delete_resource(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     resource: ResourceRef,
     namespace: String,
     name: String,
 ) -> Result<(), String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     resources::delete_resource(&client, &resource, &namespace, &name)
         .await
         .map_err(|e| actions::describe_error(&e))
@@ -99,14 +98,14 @@ pub(crate) async fn cmd_delete_resource(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_apply_manifests(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     yaml: String,
     namespace: String,
     dry_run: bool,
     skip_invalid: bool,
 ) -> Result<Vec<resources::ApplyResult>, String> {
-    let client = client(&state).await?;
-    let mut kinds = state.kinds.lock().unwrap().clone();
+    let client = cluster.client().await?;
+    let mut kinds = cluster.kinds.lock().unwrap().clone();
     if kinds.is_empty() {
         kinds = resources::discover(&client)
             .await

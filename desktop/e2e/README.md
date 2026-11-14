@@ -8,7 +8,8 @@ with a fake backend are in `desktop/ui-src/src/test/`. Both suites use the same
 
 - `smoke.test.mjs` is the smoke suite (`node:test` + `selenium-webdriver`). It
   covers the Overview, the Pods list, a live delete and replace, pod logs, the
-  terminal, saving YAML, workload logs and scaling from the context menu. It
+  terminal, saving YAML, workload logs, scaling from the context menu and a
+  second window on the same context (#45). It
   reads the shared demo objects but never changes them. The objects it changes
   live in a temporary `e2e-*` namespace, which it deletes when it finishes.
 - `bench.mjs` is the 10k-row table benchmark (`ui-src/bench.html`) running in

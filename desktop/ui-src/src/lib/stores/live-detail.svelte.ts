@@ -1,4 +1,5 @@
 import { commands, events } from "../bindings";
+import { thisWindow } from "../window";
 import type { DetailWatchEvent, ResourceDetail } from "../bindings";
 import type { Target } from "./detail.svelte";
 
@@ -33,7 +34,7 @@ export class LiveDetail {
 
   async start() {
     const t = this.#target;
-    const un = await events.detailWatch.listen((e) => this.#onEvent(e.payload));
+    const un = await events.detailWatch(thisWindow()).listen((e) => this.#onEvent(e.payload));
     if (this.#stopped) return un();
     this.#unlisten = un;
 

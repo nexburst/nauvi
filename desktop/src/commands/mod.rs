@@ -14,3 +14,4 @@ pub(crate) mod resources;
 pub(crate) mod settings;
 pub(crate) mod usage;
 pub(crate) mod watch;
+pub(crate) mod window;

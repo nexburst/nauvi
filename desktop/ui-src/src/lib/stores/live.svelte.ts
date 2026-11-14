@@ -1,4 +1,5 @@
 import { commands, events } from "../bindings";
+import { thisWindow } from "../window";
 import type { WatchBatch, WatchStateChanged } from "../bindings";
 import type { MetricsKind, MetricsSnapshot, ResourceKind } from "../bindings";
 import { EMPTY_METRICS, isNode, isPod } from "../columns";
@@ -54,8 +55,8 @@ export class LiveTable {
   /** Subscribe to the backend events; returns a cleanup function. */
   async listen(): Promise<() => void> {
     const unlisteners = await Promise.all([
-      events.watchBatch.listen((e) => this.#onEvent({ kind: "batch", payload: e.payload })),
-      events.watchState.listen((e) => this.#onEvent({ kind: "state", payload: e.payload })),
+      events.watchBatch(thisWindow()).listen((e) => this.#onEvent({ kind: "batch", payload: e.payload })),
+      events.watchState(thisWindow()).listen((e) => this.#onEvent({ kind: "state", payload: e.payload })),
     ]);
     return () => unlisteners.forEach((un) => un());
   }

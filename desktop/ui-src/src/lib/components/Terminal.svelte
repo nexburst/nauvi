@@ -82,6 +82,7 @@
   import { FitAddon } from "@xterm/addon-fit";
   import "@xterm/xterm/css/xterm.css";
   import { events } from "../bindings";
+  import { thisWindow } from "../window";
 
   interface Props {
     target: TerminalTarget;
@@ -144,13 +145,13 @@
     // Output can arrive before the start command resolves and `session` is set:
     // keep it by session until we know which one is ours.
     const un = await Promise.all([
-      events.execOutput.listen((e) => {
+      events.execOutput(thisWindow()).listen((e) => {
         const { session: id, data } = e.payload;
         if (!term) return;
         if (id === session || (id === backend?.pending && !session)) term.write(data);
         else if (!session) early.set(id, [...(early.get(id) ?? []), data]);
       }),
-      events.execClosed.listen((e) => {
+      events.execClosed(thisWindow()).listen((e) => {
         if (!term) return;
         // Keep `session`: a failure message can arrive just after the close,
         // and the output handler drops messages for a session it no longer

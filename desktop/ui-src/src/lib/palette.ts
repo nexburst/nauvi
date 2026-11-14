@@ -4,7 +4,7 @@
 
 import { bestScore } from "./fuzzy";
 
-export type PaletteGroup = "Recent" | "Command" | "Action" | "Kind" | "Namespace" | "Context" | "Object";
+export type PaletteGroup = "Recent" | "Command" | "Action" | "Kind" | "Namespace" | "Context" | "Window" | "Object";
 
 export interface PaletteItem {
   /** Stable across openings (recent items are remembered by it). */
@@ -18,15 +18,23 @@ export interface PaletteItem {
   run: () => void;
 }
 
-export type Scope = "all" | "actions" | "namespaces" | "contexts";
+export type Scope = "all" | "actions" | "namespaces" | "contexts" | "windows";
 
-/** `>` limits the palette to actions, `ns ` to namespaces, `ctx ` to contexts. */
+/** The prefix that lists the contexts to open in a new window. */
+export const WINDOW_PREFIX = "win ";
+
+const PREFIXES: Record<string, Scope> = { ns: "namespaces", ctx: "contexts", win: "windows" };
+
+/**
+ * `>` limits the palette to actions, `ns ` to namespaces, `ctx ` to contexts,
+ * `win ` to opening a context in a new window.
+ */
 export function parseQuery(raw: string): { scope: Scope; text: string } {
   const q = raw.trimStart();
   if (q.startsWith(">")) return { scope: "actions", text: q.slice(1).trim() };
-  const m = /^(ns|ctx)(\s+|$)(.*)$/i.exec(q);
+  const m = /^(ns|ctx|win)(\s+|$)(.*)$/i.exec(q);
   // "ns" alone is also the Namespaces kind's alias: only a space makes it a prefix.
-  if (m && m[2]) return { scope: m[1].toLowerCase() === "ns" ? "namespaces" : "contexts", text: m[3].trim() };
+  if (m && m[2]) return { scope: PREFIXES[m[1].toLowerCase()], text: m[3].trim() };
   return { scope: "all", text: q.trim() };
 }
 
@@ -35,10 +43,14 @@ const IN_SCOPE: Record<Scope, PaletteItem["group"][] | null> = {
   actions: ["Action", "Command"],
   namespaces: ["Namespace"],
   contexts: ["Context"],
+  windows: ["Window"],
 };
 
-/** Objects only show up once something is typed: a table can be huge. */
-const NEEDS_QUERY: PaletteItem["group"][] = ["Object"];
+/**
+ * Objects only show up once something is typed: a table can be huge. The
+ * "open in new window" entries would repeat every context.
+ */
+const NEEDS_QUERY: PaletteItem["group"][] = ["Object", "Window"];
 
 export const MAX_RESULTS = 50;
 const RECENT_BONUS = 40;

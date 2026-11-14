@@ -6,6 +6,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import { commands, events } from "../bindings";
+  import { thisWindow } from "../window";
   import type { EventInfo, Overview_Serialize, OverviewStateChanged } from "../bindings";
   import { app, kinds, openObject, primaryNamespace, setStatus, showError, stamp } from "../stores/app.svelte";
   import { clusterError } from "../clusterError";
@@ -26,13 +27,13 @@
   // The backend pushes a new summary when something changes (watches, not
   // polling), and a state when the connection changes.
   const listening = Promise.all([
-    events.overviewUpdate.listen((e) => {
+    events.overviewUpdate(thisWindow()).listen((e) => {
       if (e.payload.id !== feed) return;
       overview = e.payload.overview;
       app.count = overviewCount(overview.pods, overview.nodes);
       stamp();
     }),
-    events.overviewState.listen((e) => {
+    events.overviewState(thisWindow()).listen((e) => {
       if (e.payload.id === feed) onState(e.payload);
     }),
   ]);

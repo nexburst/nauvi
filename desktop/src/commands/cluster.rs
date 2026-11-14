@@ -1,10 +1,8 @@
 //! Contexts, namespaces, metrics, discovery and access checks.
 
 use crate::commands::usage;
-use crate::state::{
-    client, selected_context, stop_all_exec, stop_all_forwards, stop_all_local_shells,
-    stop_all_watches, AppState,
-};
+use crate::state::{spawn_cleanups, Cluster};
+use crate::windows;
 use kubeloupe::resources::{self, AccessResult, ResourceKind, ResourceRef};
 use kubeloupe::{
     default_namespace, get_node_metrics, get_pod_metrics, list_contexts,
@@ -13,16 +11,15 @@ use kubeloupe::{
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
-use tauri::State;
 
 #[tauri::command]
 #[specta::specta]
 /// The cluster's namespaces, or `null` if the user may not list them (the
 /// UI then lets them type one).
 pub(crate) async fn cmd_list_namespaces(
-    state: State<'_, AppState>,
+    cluster: Cluster,
 ) -> Result<Option<Vec<NamespaceInfo>>, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     list_namespaces_if_allowed(&client)
         .await
         .map_err(|e| e.to_string())
@@ -33,10 +30,8 @@ pub(crate) async fn cmd_list_namespaces(
 /// they can access.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_default_namespace(
-    state: State<'_, AppState>,
-) -> Result<Option<String>, String> {
-    let client = client(&state).await?;
+pub(crate) async fn cmd_default_namespace(cluster: Cluster) -> Result<Option<String>, String> {
+    let client = cluster.client().await?;
     Ok(default_namespace(&client).await)
 }
 
@@ -66,12 +61,12 @@ pub(crate) enum MetricsKind {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_get_metrics(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     namespace: Option<String>,
     what: MetricsKind,
 ) -> Result<MetricsSnapshot, String> {
-    let ctx = selected_context(&state);
-    let client = client(&state).await?;
+    let ctx = cluster.selected_context();
+    let client = cluster.client().await?;
     let (pods, nodes) = match what {
         MetricsKind::Pods => (get_pod_metrics(&client, namespace.as_deref()).await, None),
         MetricsKind::Nodes => (Ok(None), Some(get_node_metrics(&client).await)),
@@ -80,7 +75,7 @@ pub(crate) async fn cmd_get_metrics(
     let nodes = nodes.transpose().map_err(|e| e.to_string())?.flatten();
     let available = pods.is_some() || nodes.is_some();
     let (pods, nodes) = (pods.unwrap_or_default(), nodes.unwrap_or_default());
-    let (sparks, since) = usage::record(&state, &ctx, &pods, &nodes);
+    let (sparks, since) = usage::record(&cluster, &ctx, &pods, &nodes);
     Ok(MetricsSnapshot {
         available,
         pods,
@@ -93,12 +88,12 @@ pub(crate) async fn cmd_get_metrics(
 /// Discover every kind the cluster serves (including CRDs) with its columns.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_discover(state: State<'_, AppState>) -> Result<Vec<ResourceKind>, String> {
-    let client = client(&state).await?;
+pub(crate) async fn cmd_discover(cluster: Cluster) -> Result<Vec<ResourceKind>, String> {
+    let client = cluster.client().await?;
     let kinds = resources::discover(&client)
         .await
         .map_err(|e| e.to_string())?;
-    *state.kinds.lock().unwrap() = kinds.clone();
+    *cluster.kinds.lock().unwrap() = kinds.clone();
     Ok(kinds)
 }
 
@@ -107,21 +102,19 @@ pub(crate) async fn cmd_discover(state: State<'_, AppState>) -> Result<Vec<Resou
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_check_access(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     kinds: Vec<ResourceRef>,
     namespace: Option<String>,
 ) -> Result<Vec<AccessResult>, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     Ok(resources::check_access(&client, &kinds, namespace.as_deref()).await)
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_list_contexts(
-    state: State<'_, AppState>,
-) -> Result<Vec<ContextInfo>, String> {
+pub(crate) async fn cmd_list_contexts(cluster: Cluster) -> Result<Vec<ContextInfo>, String> {
     let mut contexts = list_contexts().await.map_err(|e| e.to_string())?;
-    if let Some(selected) = selected_context(&state) {
+    if let Some(selected) = cluster.selected_context() {
         for ctx in &mut contexts {
             ctx.current = ctx.name == selected;
         }
@@ -129,20 +122,13 @@ pub(crate) async fn cmd_list_contexts(
     Ok(contexts)
 }
 
+/// Switch the calling window to context `name` (`null`: the kubeconfig's
+/// current-context). Everything that window started is stopped first;
+/// other windows are not affected.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_set_context(
-    state: State<'_, AppState>,
-    name: Option<String>,
-) -> Result<(), String> {
-    state.log_streams.stop_all();
-    stop_all_exec(&state);
-    stop_all_local_shells(&state);
-    stop_all_forwards(&state);
-    stop_all_watches(&state);
-    state.kinds.lock().unwrap().clear();
-    state.usage.lock().unwrap().clear();
-    *state.context.lock().unwrap() = name;
-    *state.client.lock().await = None;
+pub(crate) async fn cmd_set_context(cluster: Cluster, name: Option<String>) -> Result<(), String> {
+    spawn_cleanups(cluster.set_context(name.clone()).await);
+    windows::context_changed(cluster.app(), cluster.label(), name.as_deref());
     Ok(())
 }

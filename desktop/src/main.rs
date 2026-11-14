@@ -2,8 +2,7 @@
 
 use crate::settings::SettingsStore;
 use crate::state::AppState;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tauri::Manager;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
@@ -14,6 +13,7 @@ mod settings;
 #[cfg(unix)]
 mod shell_env;
 mod state;
+mod windows;
 
 /// The typed command and event registry. Also used to generate
 /// `ui-src/src/lib/bindings.ts`.
@@ -70,7 +70,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::helm::cmd_helm_rollback,
             commands::helm::cmd_helm_uninstall,
             commands::settings::cmd_get_settings,
-            commands::settings::cmd_update_settings
+            commands::settings::cmd_update_settings,
+            commands::window::cmd_open_window
         ])
         .events(collect_events![
             commands::watch::WatchBatch,
@@ -111,18 +112,7 @@ fn main() {
     export_bindings(&builder);
 
     tauri::Builder::default()
-        .manage(AppState {
-            context: Mutex::new(None),
-            client: tokio::sync::Mutex::new(None),
-            log_streams: Default::default(),
-            exec_sessions: Mutex::new(HashMap::new()),
-            local_shells: Mutex::new(HashMap::new()),
-            forwards: Mutex::new(HashMap::new()),
-            watches: Mutex::new(HashMap::new()),
-            kinds: Mutex::new(Vec::new()),
-            drains: Mutex::new(HashMap::new()),
-            usage: Default::default(),
-        })
+        .manage(AppState::default())
         // Opens forwarded URLs in the browser; the capability limits it to
         // http://127.0.0.1 and http://localhost.
         .plugin(tauri_plugin_opener::init())
@@ -135,7 +125,14 @@ fn main() {
                 .ok()
                 .map(|d| d.join("settings.json"));
             app.manage(SettingsStore::open(path));
+            windows::restore_windows(app.handle());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Closing a window stops everything it started.
+            if let tauri::WindowEvent::Destroyed = event {
+                windows::window_destroyed(window.app_handle(), window.label());
+            }
         })
         .build(tauri::generate_context!())
         .expect("error while building kubeloupe")
@@ -145,26 +142,11 @@ fn main() {
                 if let Some(store) = app.try_state::<Arc<SettingsStore>>() {
                     store.flush();
                 }
-                // Kill the local shells and delete their temp kubeconfigs.
-                state::stop_all_local_shells(&app.state::<AppState>());
-                delete_session_pods(app);
+                // Stop what windows still have open: kill the local shells,
+                // delete their temp kubeconfigs and the node shell pods.
+                windows::run_cleanups_now(app.state::<AppState>().close_all());
             }
         });
-}
-
-/// On quit, delete the pods node shells created (bounded, so a dead cluster
-/// cannot keep the app from exiting).
-fn delete_session_pods(app: &tauri::AppHandle) {
-    use tauri::Manager;
-    let state = app.state::<AppState>();
-    let cleanups = state::take_all_exec(&state.exec_sessions);
-    if cleanups.is_empty() {
-        return;
-    }
-    tauri::async_runtime::block_on(async {
-        let all = futures::future::join_all(cleanups.into_iter().map(|c| c.run()));
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(5), all).await;
-    });
 }
 
 #[cfg(test)]

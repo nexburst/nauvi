@@ -2,17 +2,17 @@
 //! `exec-*` events and commands drive them once started).
 
 use crate::commands::exec::{emit_note, start_session};
-use crate::state::{client, AppState, SessionCleanup};
+use crate::state::{AppState, Cluster, ClusterSession, SessionCleanup};
 use kubeloupe::debug::{add_debug_container, attach_container, describe_debug_error};
 use kubeloupe::node_shell::{
     create_node_shell, delete_node_shell, describe_node_shell_error, exec_node_shell,
     leftover_node_shells, new_node_shell_name, NodeShellPod, NODE_SHELL_IMAGE,
 };
-use tauri::{AppHandle, State};
+use tauri::Manager;
 
 /// The session id the UI chose (`ui-…`, so it cannot collide with the
 /// backend's own), unless it is already taken.
-fn claim_session(state: &State<'_, AppState>, session: String) -> Result<String, String> {
+fn claim_session(state: &ClusterSession, session: String) -> Result<String, String> {
     if !session.starts_with("ui-") || state.exec_sessions.lock().unwrap().contains_key(&session) {
         return Err(format!("invalid terminal session id {session}"));
     }
@@ -27,8 +27,7 @@ fn claim_session(state: &State<'_, AppState>, session: String) -> Result<String,
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn cmd_debug_start(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    cluster: Cluster,
     session: String,
     namespace: String,
     name: String,
@@ -37,10 +36,11 @@ pub(crate) async fn cmd_debug_start(
     cols: u16,
     rows: u16,
 ) -> Result<String, String> {
-    let session = claim_session(&state, session)?;
-    let client = client(&state).await?;
+    let session = claim_session(&cluster, session)?;
+    let client = cluster.client().await?;
+    let out = cluster.emitter();
     emit_note(
-        &app,
+        &out,
         &session,
         &format!("Adding a debug container ({image})…"),
     );
@@ -51,7 +51,7 @@ pub(crate) async fn cmd_debug_start(
         &target,
         &image,
         true,
-        |reason| emit_note(&app, &session, &format!("Debug container: {reason}")),
+        |reason| emit_note(&out, &session, &format!("Debug container: {reason}")),
     )
     .await
     .map_err(|e| describe_debug_error(&e))?;
@@ -59,39 +59,39 @@ pub(crate) async fn cmd_debug_start(
         .await
         .map_err(|e| describe_debug_error(&e))?;
     emit_note(
-        &app,
+        &out,
         &session,
         &format!("Attached to {container}. If you don't see a prompt, press Enter."),
     );
-    start_session(&app, &state, session.clone(), attached, cols, rows, None).await;
+    start_session(&cluster, session.clone(), attached, cols, rows, None).await;
     Ok(session)
 }
 
 /// Open a root shell on `node` through a privileged pod in `namespace`, as
 /// terminal session `session` (see [`cmd_debug_start`]). The pod is deleted
-/// when the session closes or ends, on a context switch and when the app
-/// quits.
+/// when the session closes or ends, on a context switch, when its window
+/// closes and when the app quits.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_node_shell_start(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    cluster: Cluster,
     session: String,
     node: String,
     namespace: String,
     cols: u16,
     rows: u16,
 ) -> Result<String, String> {
-    let session = claim_session(&state, session)?;
-    let client = client(&state).await?;
+    let session = claim_session(&cluster, session)?;
+    let client = cluster.client().await?;
+    let out = cluster.emitter();
     let pod = new_node_shell_name(&node);
     emit_note(
-        &app,
+        &out,
         &session,
         &format!("Starting pod {namespace}/{pod} on {node}…"),
     );
     let started = create_node_shell(&client, &node, &namespace, &pod, NODE_SHELL_IMAGE, |r| {
-        emit_note(&app, &session, &format!("Node shell pod: {r}"))
+        emit_note(&out, &session, &format!("Node shell pod: {r}"))
     })
     .await;
     if let Err(e) = started {
@@ -105,7 +105,7 @@ pub(crate) async fn cmd_node_shell_start(
         }
     };
     emit_note(
-        &app,
+        &out,
         &session,
         &format!("Shell on {node}. The pod is deleted when this tab closes."),
     );
@@ -115,8 +115,7 @@ pub(crate) async fn cmd_node_shell_start(
         pod,
     };
     start_session(
-        &app,
-        &state,
+        &cluster,
         session.clone(),
         attached,
         cols,
@@ -127,16 +126,16 @@ pub(crate) async fn cmd_node_shell_start(
     Ok(session)
 }
 
-/// Node shell pods in the cluster that no session of this window owns:
-/// left behind by a crash (or open in another window). Empty when the
+/// Node shell pods in the cluster that no window of this app owns: left
+/// behind by a crash or by another copy of the app. Empty when the
 /// user may not list pods across namespaces.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_node_shell_leftovers(
-    state: State<'_, AppState>,
+    cluster: Cluster,
 ) -> Result<Vec<NodeShellPod>, String> {
-    let client = client(&state).await?;
-    match leftovers(&state, &client).await {
+    let client = cluster.client().await?;
+    match leftovers(cluster.app(), &client).await {
         Ok(p) => Ok(p),
         Err(e) if kubeloupe::is_forbidden(&e) => Ok(Vec::new()),
         Err(e) => Err(e.to_string()),
@@ -144,18 +143,12 @@ pub(crate) async fn cmd_node_shell_leftovers(
 }
 
 async fn leftovers(
-    state: &State<'_, AppState>,
+    app: &tauri::AppHandle,
     client: &kube::Client,
 ) -> anyhow::Result<Vec<NodeShellPod>> {
     let mut pods = leftover_node_shells(client).await?;
-    let ours: Vec<(String, String)> = state
-        .exec_sessions
-        .lock()
-        .unwrap()
-        .values()
-        .filter_map(|s| s.cleanup.as_ref())
-        .map(|c| (c.namespace.clone(), c.pod.clone()))
-        .collect();
+    // Another window may have a shell open on the same cluster.
+    let ours = app.state::<AppState>().node_shell_pods();
     pods.retain(|p| !ours.contains(&(p.namespace.clone(), p.name.clone())));
     Ok(pods)
 }
@@ -164,9 +157,9 @@ async fn leftovers(
 /// how many were deleted; fails with the first error after trying them all.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_node_shell_cleanup(state: State<'_, AppState>) -> Result<u32, String> {
-    let client = client(&state).await?;
-    let pods = leftovers(&state, &client)
+pub(crate) async fn cmd_node_shell_cleanup(cluster: Cluster) -> Result<u32, String> {
+    let client = cluster.client().await?;
+    let pods = leftovers(cluster.app(), &client)
         .await
         .map_err(|e| kubeloupe::actions::describe_error(&e))?;
     let mut deleted = 0;

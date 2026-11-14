@@ -27,7 +27,8 @@ export const commands = {
 	/**
 	 *  Follow the logs of all pods of a Deployment, StatefulSet, DaemonSet, Job
 	 *  or ReplicaSet (`kind` is case-insensitive). Runs next to the other log
-	 *  streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs` or a context switch.
+	 *  streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs`, a context switch or
+	 *  its window closes.
 	 */
 	cmdStreamWorkloadLogs: (kind: string, namespace: string, name: string, options: WorkloadLogOptions_Deserialize, streamId: number, _options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_workload_logs", { kind, namespace, name, options, streamId }, _options),
 	/**
@@ -76,6 +77,11 @@ export const commands = {
 	 */
 	cmdDetailWatch: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_detail_watch", { resource, namespace, name }, options),
 	cmdListContexts: (options?: InvokeOptions) => __TAURI_INVOKE<ContextInfo_Serialize[]>("cmd_list_contexts", undefined, options),
+	/**
+	 *  Switch the calling window to context `name` (`null`: the kubeconfig's
+	 *  current-context). Everything that window started is stopped first;
+	 *  other windows are not affected.
+	 */
 	cmdSetContext: (name: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_set_context", { name }, options),
 	/**
 	 *  Open an interactive shell in a pod. Returns the session id; output
@@ -163,13 +169,13 @@ export const commands = {
 	/**
 	 *  Open a root shell on `node` through a privileged pod in `namespace`, as
 	 *  terminal session `session` (see [`cmd_debug_start`]). The pod is deleted
-	 *  when the session closes or ends, on a context switch and when the app
-	 *  quits.
+	 *  when the session closes or ends, on a context switch, when its window
+	 *  closes and when the app quits.
 	 */
 	cmdNodeShellStart: (session: string, node: string, namespace: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_node_shell_start", { session, node, namespace, cols, rows }, options),
 	/**
-	 *  Node shell pods in the cluster that no session of this window owns:
-	 *  left behind by a crash (or open in another window). Empty when the
+	 *  Node shell pods in the cluster that no window of this app owns: left
+	 *  behind by a crash or by another copy of the app. Empty when the
 	 *  user may not list pods across namespaces.
 	 */
 	cmdNodeShellLeftovers: (options?: InvokeOptions) => __TAURI_INVOKE<NodeShellPod[]>("cmd_node_shell_leftovers", undefined, options),
@@ -206,6 +212,13 @@ export const commands = {
 	 *  The file is written shortly after, once changes stop.
 	 */
 	cmdUpdateSettings: (patch: SettingsPatch_Deserialize, options?: InvokeOptions) => __TAURI_INVOKE<Settings_Serialize>("cmd_update_settings", { patch }, options),
+	/**
+	 *  Open a new window connected to `context` (`""`: the kubeconfig's
+	 *  current-context), with the context's name as its title. Its streams,
+	 *  terminals and forwards are its own: switching or closing another window
+	 *  does not touch them.
+	 */
+	cmdOpenWindow: (context: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_open_window", { context }, options),
 };
 
 /** Events */
@@ -1209,6 +1222,7 @@ export type SettingsPatch_Deserialize = {
 	dock_height?: number | null,
 	contexts?: { [key in string]: ContextSettings_Deserialize } | null,
 	kinds?: { [key in string]: KindSettings_Deserialize } | null,
+	windows?: string[] | null,
 };
 
 /**
@@ -1224,6 +1238,7 @@ export type SettingsPatch_Serialize = {
 	dock_height?: number | null,
 	contexts?: { [key in string]: ContextSettings_Serialize } | null,
 	kinds?: { [key in string]: KindSettings_Serialize } | null,
+	windows?: string[] | null,
 };
 
 export type Settings_Deserialize = {
@@ -1240,6 +1255,12 @@ export type Settings_Deserialize = {
 	dock_height?: number,
 	contexts?: { [key in string]: ContextSettings_Deserialize },
 	kinds?: { [key in string]: KindSettings_Deserialize },
+	/**
+	 *  The contexts of the extra windows (besides the main one) open when
+	 *  the app quit, reopened on start (`""`: the kubeconfig's
+	 *  current-context). Kept up to date by the backend.
+	 */
+	windows?: string[],
 };
 
 export type Settings_Serialize = {
@@ -1256,6 +1277,12 @@ export type Settings_Serialize = {
 	dock_height: number,
 	contexts: { [key in string]: ContextSettings_Serialize },
 	kinds: { [key in string]: KindSettings_Serialize },
+	/**
+	 *  The contexts of the extra windows (besides the main one) open when
+	 *  the app quit, reopened on start (`""`: the kubeconfig's
+	 *  current-context). Kept up to date by the backend.
+	 */
+	windows: string[],
 };
 
 /**  A downsampled series for a table cell's sparkline. */
