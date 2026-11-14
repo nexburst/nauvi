@@ -1,7 +1,7 @@
 // Usage history (#47): geometry for the table sparklines and the detail
 // panel charts. Plain SVG, no chart library.
 
-import type { UsageReference, UsageSample } from "./bindings";
+import type { UsageHistoryView, UsageRange, UsageReference, UsageSample } from "./bindings";
 
 /**
  * `points` for an SVG polyline of `values` in a `w`×`h` box: left to right,
@@ -126,4 +126,24 @@ export function linePoints(frame: ChartFrame, samples: readonly UsageSample[], r
 export function clockTime(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** The ranges a chart offers when the context has a Prometheus. */
+export const USAGE_RANGES: { value: UsageRange; label: string }[] = [
+  { value: "live", label: "Live" },
+  { value: "1h", label: "1h" },
+  { value: "6h", label: "6h" },
+  { value: "24h", label: "24h" },
+];
+
+/** Where the charts' samples come from, for the line above them. */
+export function usageSourceText(view: UsageHistoryView): string {
+  if (view.source === "prometheus") return `From Prometheus (${view.prometheus}), last ${view.range}.`;
+  return `Collecting since ${clockTime(view.history.since)}. History starts when a view with metrics opens and keeps 30 minutes.`;
+}
+
+/** Why Prometheus was not used, when a range asked for it ("" otherwise). */
+export function fallbackNote(view: UsageHistoryView): string {
+  if (!view.note) return "";
+  return `${view.note} Showing the metrics-server history instead.`;
 }

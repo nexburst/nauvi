@@ -53,7 +53,7 @@ test("the pod panel charts usage per container against requests and limits", asy
   await expect(mem.getByTestId("ref-limit")).toHaveText("limit 128Mi");
   // The last memory sample: app 95Mi + sidecar 8Mi.
   await expect(mem.locator("figcaption")).toContainText("now 103Mi");
-  expect(await fake.calls("cmdUsageHistory")).toEqual([{ what: "pods", namespace: "demo", name: "web-1" }]);
+  expect(await fake.calls("cmdUsageHistory")).toEqual([{ what: "pods", namespace: "demo", name: "web-1", range: "1h" }]);
 });
 
 test("a pod without history says so, and the panel stops polling when it closes", async ({ page }) => {
@@ -79,5 +79,5 @@ test("the node panel charts usage against allocatable", async ({ page }) => {
   await expect(charts.getByTestId("usage-chart-cpu").getByTestId("ref-allocatable")).toHaveText("allocatable 3.8");
   await expect(charts.getByTestId("usage-chart-memory").getByTestId("ref-allocatable")).toHaveText("allocatable 7Gi");
   await expect(charts.locator('polyline[data-series="node"]')).toHaveCount(2);
-  expect(await fake.calls("cmdUsageHistory")).toEqual([{ what: "nodes", namespace: null, name: "node-1" }]);
+  expect(await fake.calls("cmdUsageHistory")).toEqual([{ what: "nodes", namespace: null, name: "node-1", range: "1h" }]);
 });

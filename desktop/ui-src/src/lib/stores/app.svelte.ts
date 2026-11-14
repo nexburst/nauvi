@@ -180,7 +180,7 @@ export async function loadContexts() {
   }
 }
 
-function currentContextName(): string {
+export function currentContextName(): string {
   return app.contexts.find((c) => c.current)?.name ?? "";
 }
 

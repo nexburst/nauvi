@@ -1,9 +1,12 @@
 <script lang="ts">
-  import type { Theme } from "../bindings";
-  import { DEFAULT_DETAIL_WIDTH, TAIL_OPTIONS } from "../settings";
+  import { onMount } from "svelte";
+  import { commands } from "../bindings";
+  import type { PrometheusStatus, Theme } from "../bindings";
+  import { DEFAULT_DETAIL_WIDTH, prometheusSettingError, TAIL_OPTIONS } from "../settings";
   import type { LogDefaults } from "../settings";
+  import { currentContextName } from "../stores/app.svelte";
   import { closeSettings } from "../stores/keyboard.svelte";
-  import { applyAppearance, settings, updateSettings } from "../stores/settings.svelte";
+  import { applyAppearance, contextSettings, settings, updateContext, updateSettings } from "../stores/settings.svelte";
 
   /** The Settings page (gear in the header, Mod+, or the palette). Every
    *  change applies and is saved at once. */
@@ -30,6 +33,37 @@
   }
 
   const tailLabel = (t: string) => (t === "all" ? "All lines" : `${t} lines`);
+
+  // Prometheus (#47) is set per context: the current one.
+  const context = currentContextName();
+  // svelte-ignore state_referenced_locally
+  let promValue = $state(contextSettings(context).prometheus ?? "");
+  const promError = $derived(prometheusSettingError(promValue));
+  let promStatus = $state<PrometheusStatus | null>(null);
+  let promStatusError = $state("");
+  let promChecking = $state(false);
+
+  async function checkPrometheus(redetect: boolean) {
+    promChecking = true;
+    try {
+      promStatus = await commands.cmdPrometheusStatus(redetect);
+      promStatusError = "";
+    } catch (e) {
+      promStatusError = String(e);
+    } finally {
+      promChecking = false;
+    }
+  }
+
+  async function savePrometheus() {
+    const value = promValue.trim();
+    if (promError || value === (contextSettings(context).prometheus ?? "")) return;
+    // The backend detects again once it has the new value.
+    await updateContext(context, { prometheus: value });
+    await checkPrometheus(false);
+  }
+
+  onMount(() => void checkPrometheus(false));
 
   function focus(node: HTMLElement) {
     node.focus();
@@ -90,6 +124,45 @@
         <input type="checkbox" checked={current.logs.wrap} onchange={(e) => setLogs({ wrap: e.currentTarget.checked })} />
         Wrap long lines
       </label>
+    </fieldset>
+
+    <fieldset data-testid="prometheus-settings">
+      <legend>Prometheus</legend>
+      <label class="row">
+        <span>Service{context ? ` for ${context}` : ""}</span>
+        <input
+          class="input prom"
+          aria-label="Prometheus Service"
+          placeholder="Detect automatically"
+          spellcheck="false"
+          bind:value={promValue}
+          onchange={savePrometheus}
+          onkeydown={(e) => e.key === "Enter" && savePrometheus()}
+        />
+      </label>
+      {#if promError}
+        <p class="hint error" data-testid="prometheus-error">{promError}</p>
+      {/if}
+      <div class="row">
+        <span class="muted status" data-testid="prometheus-status">
+          {#if promStatusError}
+            Could not check: {promStatusError}
+          {:else if !promStatus}
+            Checking…
+          {:else if promStatus.target}
+            Using {promStatus.target}{promStatus.from_settings ? " (from Settings)" : " (detected)"}.
+          {:else}
+            {promStatus.note}
+          {/if}
+        </span>
+        <button type="button" class="btn" disabled={promChecking} onclick={() => checkPrometheus(true)}
+          >Detect again</button
+        >
+      </div>
+      <p class="muted hint">
+        Usage charts show 1h, 6h and 24h from Prometheus, through the API server's service proxy. Leave empty to detect
+        it, type namespace/service:port to choose one, or off to use only metrics-server.
+      </p>
     </fieldset>
 
     <fieldset>
@@ -169,6 +242,15 @@
   }
   .hint {
     margin: 0;
+    font-size: 12px;
+  }
+  .hint.error {
+    color: var(--red);
+  }
+  .input.prom {
+    width: 260px;
+  }
+  .status {
     font-size: 12px;
   }
 </style>

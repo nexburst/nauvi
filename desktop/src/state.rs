@@ -85,6 +85,9 @@ pub(crate) struct ClusterSession {
     pub(crate) drains: Mutex<HashMap<String, JoinHandle<()>>>,
     /// Usage history of the selected context (#47), cleared when it changes.
     pub(crate) usage: Mutex<UsageHistory>,
+    /// The Prometheus found for the selected context (#47), cleared when it
+    /// changes.
+    pub(crate) prometheus: Mutex<Option<crate::commands::prometheus::PromCache>>,
     /// Set once the window is gone: whatever a command still in flight
     /// adds afterwards is stopped right away instead of leaking.
     closed: AtomicBool,
@@ -130,12 +133,13 @@ impl ClusterSession {
     }
 
     /// Switch to `context`: stop everything of the old one and forget its
-    /// client, kinds and usage history. Returns the node shell pods still
+    /// client, kinds, usage history and Prometheus. Returns the node shell pods still
     /// to delete.
     pub(crate) async fn set_context(&self, context: Option<String>) -> Vec<SessionCleanup> {
         let cleanups = self.stop_all();
         self.kinds.lock().unwrap().clear();
         self.usage.lock().unwrap().clear();
+        *self.prometheus.lock().unwrap() = None;
         *self.context.lock().unwrap() = context;
         *self.client.lock().await = None;
         cleanups

@@ -2,15 +2,19 @@
 //! `cmd_get_metrics` and by the detail panels through `cmd_usage_history`.
 
 use crate::commands::cluster::MetricsKind;
+use crate::commands::prometheus::prometheus_for;
+use crate::settings::SettingsStore;
 use crate::state::{Cluster, ClusterSession};
 use kubeloupe::{
-    get_one_node_metrics, get_one_pod_metrics, get_usage_reference, pod_key, NodeUsage, PodUsage,
-    SeriesView, Spark, UsageReference, MIN_SPACING_MS,
+    get_one_node_metrics, get_one_pod_metrics, get_usage_reference, pod_key, prometheus_usage,
+    NodeUsage, PodUsage, SeriesView, Spark, UsageRange, UsageReference, MIN_SPACING_MS,
 };
 use serde::Serialize;
 use specta::Type;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::State;
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -51,23 +55,46 @@ pub(crate) fn record(
     }
 }
 
+/// Where a chart's samples come from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum UsageSource {
+    /// The history the app collects from metrics-server.
+    MetricsServer,
+    Prometheus,
+}
+
 #[derive(Debug, Clone, Serialize, Type)]
 pub(crate) struct UsageHistoryView {
     history: SeriesView,
     reference: UsageReference,
+    source: UsageSource,
+    /// The range shown: the one asked for, or `live` after a fallback.
+    range: UsageRange,
+    /// The Prometheus of this context (`namespace/service:port`), or "".
+    prometheus: String,
+    /// Why Prometheus was not used for a range that asked for it ("" when it
+    /// was, or for `live`).
+    note: String,
 }
 
 /// The usage history of one pod (`namespace` set) or node, for the charts in
 /// its detail panel, with its requests and limits or allocatable. Polled
 /// while the panel is open: when no table has sampled the object lately, it
 /// samples it itself, so history keeps growing with only the panel open.
+///
+/// A `range` other than `live` asks Prometheus (#47 phase 2). Without one,
+/// or when the query fails, it is the metrics-server history with a `note`
+/// saying why.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_usage_history(
     cluster: Cluster,
+    settings: State<'_, Arc<SettingsStore>>,
     what: MetricsKind,
     namespace: Option<String>,
     name: String,
+    range: UsageRange,
 ) -> Result<UsageHistoryView, String> {
     let ctx = cluster.selected_context();
     let client = cluster.client().await?;
@@ -100,6 +127,44 @@ pub(crate) async fn cmd_usage_history(
     let reference = get_usage_reference(&client, ns, &name)
         .await
         .unwrap_or_default();
+    let prom = prometheus_for(&cluster, &settings, &client, false).await;
+    let prometheus = prom.target.as_ref().map(|t| t.label()).unwrap_or_default();
+    let mut note = String::new();
+    if range != UsageRange::Live {
+        match &prom.target {
+            None => note = prom.note.clone(),
+            Some(target) => {
+                let now = now_ms() / 1000;
+                match prometheus_usage(&client, target, ns, &name, range, now).await {
+                    Ok(history) if !history.samples.is_empty() => {
+                        return Ok(UsageHistoryView {
+                            history,
+                            reference,
+                            source: UsageSource::Prometheus,
+                            range,
+                            prometheus,
+                            note,
+                        });
+                    }
+                    Ok(_) => {
+                        note = format!(
+                            "Prometheus at {prometheus} has no CPU and memory samples for this {} in the last {}.",
+                            if pod { "pod" } else { "node" },
+                            range.label()
+                        )
+                    }
+                    Err(e) => note = format!("{e:#}"),
+                }
+            }
+        }
+    }
     let history = cluster.usage.lock().unwrap().view(pod, &key);
-    Ok(UsageHistoryView { history, reference })
+    Ok(UsageHistoryView {
+        history,
+        reference,
+        source: UsageSource::MetricsServer,
+        range: UsageRange::Live,
+        prometheus,
+        note,
+    })
 }

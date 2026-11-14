@@ -57,8 +57,17 @@ export const MAX_DETAIL_SHARE = 0.75;
 /** The log viewer's tail options; a remembered value outside them falls back. */
 export const TAIL_OPTIONS = ["100", "200", "1000", "5000", "all"];
 
-export const EMPTY_CONTEXT: ContextSettings = { view: "", namespaces: [], typed_namespaces: [] };
+export const EMPTY_CONTEXT: ContextSettings = { view: "", namespaces: [], typed_namespaces: [], prometheus: "" };
 export const EMPTY_KIND: KindSettings = { sort_key: "", sort_desc: false, hidden: [] };
+
+/** What is wrong with a Prometheus Service typed in Settings ("" if nothing):
+ *  empty (detect), `off`, or `namespace/service[:port]`. */
+export function prometheusSettingError(value: string): string {
+  const v = value.trim();
+  if (v === "" || v.toLowerCase() === "off") return "";
+  if (/^[A-Za-z0-9.-]+\/[A-Za-z0-9.-]+(:[A-Za-z0-9.-]+)?$/.test(v)) return "";
+  return "Use namespace/service:port, for example monitoring/prometheus-k8s:web.";
+}
 
 /** `settings` with `patch` applied, the way the backend applies it. */
 export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {

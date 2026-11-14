@@ -26,7 +26,12 @@ Svelte) and a CLI, both built on the same Rust core.
   with a small trend line of the last 30 minutes. The pod and node detail
   panels chart CPU and memory (pods per container too) against requests and
   limits, or allocatable. metrics-server keeps no history, so the trend starts when a
-  view that shows metrics opens.
+  view that shows metrics opens. When the cluster has a Prometheus (found by
+  its usual Service names or the `app.kubernetes.io/name=prometheus` label, or
+  set per context in Settings), the charts show the last 1h, 6h or 24h from
+  it, queried through the API server's service proxy (needs `get` on
+  `services/proxy` in its namespace). Otherwise they say why and show the
+  metrics-server history.
 - **Overview**: pod counts (crash-looping pods count as errors, not as
   running), problem pods, CPU/memory/pod capacity against requests and usage,
   and the newest warning events, each linking to its object. Kept live by

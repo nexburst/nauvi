@@ -9,6 +9,7 @@ import {
   namespacesToRestore,
   sortOf,
   themeAttribute,
+  prometheusSettingError,
   toggleHidden,
   withSort,
 } from "./settings";
@@ -34,7 +35,7 @@ describe("applyPatch", () => {
 
   it("does not change the settings it was given", () => {
     const before = defaultSettings();
-    applyPatch(before, { contexts: { x: { view: "v1/pods", namespaces: [], typed_namespaces: [] } } });
+    applyPatch(before, { contexts: { x: { view: "v1/pods", namespaces: [], typed_namespaces: [], prometheus: "" } } });
     expect(before.contexts).toEqual({});
   });
 });
@@ -97,4 +98,15 @@ it("themeAttribute: System leaves it to the media query", () => {
   expect(themeAttribute("system")).toBeNull();
   expect(themeAttribute("light")).toBe("light");
   expect(themeAttribute("dark")).toBe("dark");
+});
+
+describe("prometheusSettingError", () => {
+  it("takes empty, off and namespace/service[:port]", () => {
+    for (const ok of ["", "  ", "off", "OFF", "monitoring/prometheus-k8s:web", "obs/prom", "obs/prom:9090"]) {
+      expect(prometheusSettingError(ok), ok).toBe("");
+    }
+    for (const bad of ["prom", "obs/", "/prom", "obs/prom:", "obs/prom:9090/x", "a b/c"]) {
+      expect(prometheusSettingError(bad), bad).toMatch(/^Use namespace\/service:port/);
+    }
+  });
 });

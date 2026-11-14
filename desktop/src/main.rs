@@ -32,6 +32,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::cluster::cmd_default_namespace,
             commands::cluster::cmd_get_metrics,
             commands::usage::cmd_usage_history,
+            commands::prometheus::cmd_prometheus_status,
             commands::watch::cmd_watch_start,
             commands::watch::cmd_watch_stop,
             commands::watch::cmd_detail_watch,

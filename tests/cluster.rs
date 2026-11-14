@@ -2322,3 +2322,224 @@ async fn usage_history_accumulates_for_a_demo_pod() -> Result<()> {
     ensure!(n.memory_bytes > 0 && n.cpu_capacity_millicores > 0, "{n:?}");
     Ok(())
 }
+
+// ---------------------------------------------------------------------------
+// Prometheus (#47 phase 2). The shared cluster has none, so a stand-in
+// serves canned `query_range` JSON (busybox httpd, a ConfigMap as the
+// response). That proves detection and the API server's service proxy path,
+// not the PromQL itself (unit tests cover that on recorded responses).
+// ---------------------------------------------------------------------------
+
+const FAKE_QUERY_RANGE: &str = r#"{"status":"success","data":{"resultType":"matrix","result":[
+  {"metric":{"container":"app"},"values":[[1700000000,"0.25"],[1700000030,"0.5"]]}]}}"#;
+
+/// The fake Prometheus: a ConfigMap with the response, a pod serving it at
+/// `/api/v1/query_range` and a Service labelled like Prometheus.
+async fn create_fake_prometheus(client: &Client, ns: &str) -> Result<()> {
+    use k8s_openapi::api::core::v1::Service;
+    let pp = PostParams::default();
+    let cm: ConfigMap = serde_json::from_value(serde_json::json!({
+        "apiVersion": "v1", "kind": "ConfigMap",
+        "metadata": { "name": "prom-response" },
+        "data": { "query_range": FAKE_QUERY_RANGE }
+    }))?;
+    Api::<ConfigMap>::namespaced(client.clone(), ns)
+        .create(&pp, &cm)
+        .await?;
+    let pod: Pod = serde_json::from_value(serde_json::json!({
+        "apiVersion": "v1", "kind": "Pod",
+        "metadata": { "name": "fake-prometheus", "labels": { "app": "fake-prometheus" } },
+        "spec": {
+            "terminationGracePeriodSeconds": 0,
+            "containers": [{
+                "name": "httpd", "image": "busybox:1.36",
+                "command": ["httpd", "-f", "-p", "9090", "-h", "/www"],
+                "ports": [{ "containerPort": 9090 }],
+                "readinessProbe": { "tcpSocket": { "port": 9090 }, "periodSeconds": 1 },
+                "resources": { "limits": { "memory": "16Mi", "cpu": "50m" } },
+                "volumeMounts": [{ "name": "www", "mountPath": "/www" }]
+            }],
+            "volumes": [{ "name": "www", "configMap": {
+                "name": "prom-response",
+                "items": [{ "key": "query_range", "path": "api/v1/query_range" }]
+            }}]
+        }
+    }))?;
+    Api::<Pod>::namespaced(client.clone(), ns)
+        .create(&pp, &pod)
+        .await?;
+    let svc = |name: &str, selector: &str, labels: serde_json::Value| -> Result<Service> {
+        Ok(serde_json::from_value(serde_json::json!({
+            "apiVersion": "v1", "kind": "Service",
+            "metadata": { "name": name, "labels": labels },
+            "spec": {
+                "selector": { "app": selector },
+                "ports": [{ "name": "web", "port": 9090, "targetPort": 9090 }]
+            }
+        }))?)
+    };
+    let services = Api::<Service>::namespaced(client.clone(), ns);
+    services
+        .create(
+            &pp,
+            &svc(
+                "my-prometheus",
+                "fake-prometheus",
+                serde_json::json!({ "app.kubernetes.io/name": "prometheus" }),
+            )?,
+        )
+        .await?;
+    // A Service with no pod behind it.
+    services
+        .create(&pp, &svc("no-pods", "nothing", serde_json::json!({}))?)
+        .await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn prometheus_is_detected_and_queried_through_the_service_proxy() -> Result<()> {
+    use kubeloupe::{
+        detect_prometheus, prometheus_usage, query_range, resolve_prometheus, PrometheusTarget,
+        UsageRange,
+    };
+    in_temp_ns("it-prom", |client, ns| async move {
+        create_fake_prometheus(&client, &ns).await?;
+        // Found by its label (the shared cluster has no other Prometheus).
+        let found = detect_prometheus(&client).await;
+        let target = found.target.clone().context(found.note.clone())?;
+        ensure!(
+            target.label() == format!("{ns}/my-prometheus:web"),
+            "{target:?}"
+        );
+        ensure!(!found.from_settings);
+
+        eventually("fake Prometheus ready", TIMEOUT, || async {
+            let api: Api<Pod> = Api::namespaced(client.clone(), &ns);
+            let pod = api.get("fake-prometheus").await?;
+            let ready = pod
+                .status
+                .and_then(|s| s.conditions)
+                .unwrap_or_default()
+                .iter()
+                .any(|c| c.type_ == "Ready" && c.status == "True");
+            Ok(ready.then_some(()))
+        })
+        .await?;
+
+        // The raw query, then a pod's chart, through the proxy.
+        let series = query_range(&client, &target, "up", 1_700_000_000, 1_700_000_030, 30).await?;
+        ensure!(
+            series.len() == 1 && series[0].points.len() == 2,
+            "{series:?}"
+        );
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_secs();
+        let view = prometheus_usage(
+            &client,
+            &target,
+            Some(&ns),
+            "fake-prometheus",
+            UsageRange::Hour,
+            now,
+        )
+        .await?;
+        ensure!(view.samples.len() == 2, "{view:?}");
+        ensure!(view.samples[1].cpu_millicores == 500, "{view:?}");
+        ensure!(view.containers.len() == 1 && view.containers[0].name == "app");
+
+        // Set in Settings: used as given.
+        let set = resolve_prometheus(&client, &format!("{ns}/my-prometheus:9090")).await;
+        ensure!(set.from_settings);
+        let by_number = set.target.context("no target")?;
+        ensure!(
+            query_range(&client, &by_number, "up", 0, 30, 30)
+                .await?
+                .len()
+                == 1
+        );
+
+        // Failures say why.
+        let no_pods = PrometheusTarget::parse(&format!("{ns}/no-pods:web")).unwrap();
+        let e = query_range(&client, &no_pods, "up", 0, 30, 30)
+            .await
+            .unwrap_err()
+            .to_string();
+        ensure!(e.contains("has no ready pod"), "{e}");
+        let missing = PrometheusTarget::parse(&format!("{ns}/missing:web")).unwrap();
+        let e = query_range(&client, &missing, "up", 0, 30, 30)
+            .await
+            .unwrap_err()
+            .to_string();
+        // The API server answers 503 for a missing Service too.
+        ensure!(e.contains("is missing") && e.contains("missing:web"), "{e}");
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore]
+async fn limited_user_prometheus_detection_says_why() -> Result<()> {
+    let Some(client) = connect_limited().await? else {
+        return Ok(());
+    };
+    let found = kubeloupe::detect_prometheus(&client).await;
+    ensure!(found.target.is_none(), "{found:?}");
+    ensure!(
+        found.note.contains("Not allowed to list Services"),
+        "{}",
+        found.note
+    );
+    // No services/proxy outside team-a: the proxy is refused before the
+    // Service is even looked up.
+    let target = kubeloupe::PrometheusTarget::parse("monitoring/prometheus-k8s:web").unwrap();
+    let e = kubeloupe::query_range(&client, &target, "up", 0, 30, 30)
+        .await
+        .unwrap_err()
+        .to_string();
+    ensure!(
+        e.contains("Not allowed") && e.contains("services/proxy in monitoring"),
+        "{e}"
+    );
+    Ok(())
+}
+
+/// The real queries against a real Prometheus that scrapes the kubelets'
+/// cAdvisor, named by `KUBELOUPE_TEST_PROMETHEUS` (`namespace/service:port`).
+/// Skips when it is not set: the shared cluster has no Prometheus.
+#[tokio::test]
+#[ignore]
+async fn real_prometheus_has_pod_and_node_usage() -> Result<()> {
+    use kubeloupe::{prometheus_usage, PrometheusTarget, UsageRange};
+    let Ok(setting) = std::env::var("KUBELOUPE_TEST_PROMETHEUS") else {
+        eprintln!("KUBELOUPE_TEST_PROMETHEUS not set; skipping");
+        return Ok(());
+    };
+    let target = PrometheusTarget::parse(&setting).context("not namespace/service:port")?;
+    let client = connect().await?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    // The shared demo pod with two containers; only read here.
+    let pod = prometheus_usage(
+        &client,
+        &target,
+        Some("demo"),
+        "multi",
+        UsageRange::Hour,
+        now,
+    )
+    .await?;
+    ensure!(!pod.samples.is_empty(), "no samples for demo/multi");
+    ensure!(pod.samples.iter().all(|s| s.memory_bytes > 0), "{pod:?}");
+    let names: Vec<&str> = pod.containers.iter().map(|c| c.name.as_str()).collect();
+    ensure!(names == ["app", "sidecar"], "{names:?}");
+    let node = get_nodes(&client).await?.remove(0).name;
+    let n = prometheus_usage(&client, &target, None, &node, UsageRange::Day, now).await?;
+    ensure!(!n.samples.is_empty(), "no samples for node {node}");
+    let last = n.samples.last().unwrap();
+    ensure!(last.cpu_millicores > 0 && last.memory_bytes > 0, "{last:?}");
+    Ok(())
+}

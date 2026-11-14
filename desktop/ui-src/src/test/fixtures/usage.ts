@@ -1,7 +1,32 @@
 // Usage history (#47) of the fake cluster: what `cmd_usage_history` returns
 // and the sparklines `cmd_get_metrics` sends.
 
-import type { Spark, UsageHistoryView, UsageReference, UsageSample } from "../../lib/bindings";
+import type { SeriesView, Spark, UsageReference, UsageSample } from "../../lib/bindings";
+
+/** One object's metrics-server history and reference lines. */
+export interface UsageFixture {
+  history: SeriesView;
+  reference: UsageReference;
+}
+
+/** The fake cluster's Prometheus. */
+export interface FakePrometheus {
+  /** `namespace/service:port` as detected ("" = none found). */
+  detected: string;
+  /** Why none was found, when `detected` is "". */
+  note: string;
+  /** Make every query fail with this reason ("" = they work). */
+  failure: string;
+  /** Series by `pods|namespace/name|range` or `nodes|name|range`. */
+  series: Record<string, SeriesView>;
+}
+
+export const NO_PROMETHEUS: FakePrometheus = {
+  detected: "",
+  note: "No Prometheus Service found (looked for prometheus-k8s, kube-prometheus-stack-prometheus, prometheus-operated, prometheus-server and the label app.kubernetes.io/name=prometheus).",
+  failure: "",
+  series: {},
+};
 
 const MI = 1024 * 1024;
 const STEP_MS = 20_000;
@@ -34,7 +59,7 @@ function sum(a: UsageSample[], b: UsageSample[]): UsageSample[] {
 }
 
 /** By `pods|namespace/name` or `nodes|name`; others have no history. */
-export function usageFixtures(): Record<string, UsageHistoryView> {
+export function usageFixtures(): Record<string, UsageFixture> {
   // web-1: memory climbing towards its 128Mi limit.
   const app = series(
     12,
@@ -87,5 +112,48 @@ export function sparkFixtures(): Record<string, Spark> {
   return {
     "demo/web-1": spark(u["pods|demo/web-1"].history.samples),
     "node-1": spark(u["nodes|node-1"].history.samples),
+  };
+}
+
+/** A Prometheus with 1h series (120 points, 30 s apart) for demo/web-1 and node-1. */
+export function prometheusFixture(): FakePrometheus {
+  const at = (s: UsageSample[]) => s.map((x, i) => ({ ...x, t: Date.now() - (s.length - 1 - i) * 30_000 }));
+  const app = at(
+    series(
+      120,
+      (i) => 60 + (i % 10),
+      (i) => (30 + i / 4) * MI,
+    ),
+  );
+  const sidecar = at(
+    series(
+      120,
+      () => 4,
+      () => 6 * MI,
+    ),
+  );
+  const node = at(
+    series(
+      120,
+      (i) => 600 + i,
+      () => 2 * 1024 * MI,
+    ),
+  );
+  const total = sum(app, sidecar);
+  return {
+    detected: "monitoring/prometheus-k8s:web",
+    note: "",
+    failure: "",
+    series: {
+      "pods|demo/web-1|1h": {
+        since: total[0].t,
+        samples: total,
+        containers: [
+          { name: "app", samples: app },
+          { name: "sidecar", samples: sidecar },
+        ],
+      },
+      "nodes|node-1|1h": { since: node[0].t, samples: node, containers: [] },
+    },
   };
 }
