@@ -2430,6 +2430,7 @@ dependencies = [
  "flate2",
  "futures",
  "home",
+ "http",
  "k8s-openapi",
  "kube",
  "libc",

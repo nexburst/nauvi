@@ -1,5 +1,5 @@
 import { commands } from "../bindings";
-import type { MetricsKind, UsageHistoryView } from "../bindings";
+import type { MetricsKind, UsageHistoryView, UsageRange } from "../bindings";
 
 /** Same pace as the table's metrics poll (stores/live.svelte.ts). */
 export const USAGE_INTERVAL_MS = 20_000;
@@ -9,10 +9,15 @@ export const USAGE_INTERVAL_MS = 20_000;
  * in its detail panel. Polled while the panel is open; the backend samples
  * the object itself when no table did lately, so history keeps growing.
  * The panel calls `stop()` in `onDestroy`.
+ *
+ * `range` is what the user picked: a Prometheus range (the default, 1h)
+ * or `live`. Without a Prometheus the backend answers with the live
+ * history and a note saying why.
  */
 export class UsageFeed {
   data = $state.raw<UsageHistoryView | null>(null);
   error = $state("");
+  range = $state<UsageRange>("1h");
 
   #what: MetricsKind;
   #namespace: string | null;
@@ -33,13 +38,21 @@ export class UsageFeed {
 
   async load() {
     try {
-      const data = await commands.cmdUsageHistory(this.#what, this.#namespace, this.#name);
-      if (this.#stopped) return;
+      const range = this.range;
+      const data = await commands.cmdUsageHistory(this.#what, this.#namespace, this.#name, range);
+      // A reply to an older range is dropped; the newer request follows.
+      if (this.#stopped || range !== this.range) return;
       this.data = data;
       this.error = "";
     } catch (e) {
       if (!this.#stopped) this.error = String(e);
     }
+  }
+
+  setRange(range: UsageRange) {
+    if (range === this.range) return;
+    this.range = range;
+    void this.load();
   }
 
   stop() {

@@ -32,6 +32,7 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::cluster::cmd_default_namespace,
             commands::cluster::cmd_get_metrics,
             commands::usage::cmd_usage_history,
+            commands::prometheus::cmd_prometheus_status,
             commands::watch::cmd_watch_start,
             commands::watch::cmd_watch_stop,
             commands::watch::cmd_detail_watch,
@@ -118,6 +119,7 @@ fn main() {
             kinds: Mutex::new(Vec::new()),
             drains: Mutex::new(HashMap::new()),
             usage: Default::default(),
+            prometheus: Default::default(),
         })
         // Opens forwarded URLs in the browser; the capability limits it to
         // http://127.0.0.1 and http://localhost.

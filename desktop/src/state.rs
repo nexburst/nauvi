@@ -59,6 +59,9 @@ pub(crate) struct AppState {
     pub(crate) drains: Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>,
     /// Usage history of the selected context (#47), cleared when it changes.
     pub(crate) usage: Mutex<UsageHistory>,
+    /// The Prometheus found for the selected context (#47), cleared when it
+    /// changes.
+    pub(crate) prometheus: Mutex<Option<crate::commands::prometheus::PromCache>>,
 }
 
 pub(crate) fn selected_context(state: &State<'_, AppState>) -> Option<String> {

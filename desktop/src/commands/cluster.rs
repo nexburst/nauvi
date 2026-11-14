@@ -142,6 +142,7 @@ pub(crate) async fn cmd_set_context(
     stop_all_watches(&state);
     state.kinds.lock().unwrap().clear();
     state.usage.lock().unwrap().clear();
+    *state.prometheus.lock().unwrap() = None;
     *state.context.lock().unwrap() = name;
     *state.client.lock().await = None;
     Ok(())

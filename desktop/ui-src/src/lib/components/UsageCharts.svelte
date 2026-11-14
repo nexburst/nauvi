@@ -4,11 +4,12 @@
   import type { MetricsKind } from "../bindings";
   import { formatCpu, formatMemory } from "../format";
   import { UsageFeed } from "../stores/usage.svelte";
-  import { clockTime, refLines } from "../usage";
+  import { fallbackNote, refLines, USAGE_RANGES, usageSourceText } from "../usage";
   import type { ChartLine } from "../usage";
 
   /** CPU and memory charts of a pod or node (#47), from the usage history the
-   *  backend keeps while metrics are on screen. Pods also show each
+   *  backend keeps while metrics are on screen, or from Prometheus over
+   *  1h, 6h or 24h when the context has one. Pods also show each
    *  container, nodes their allocatable. */
   let { what, namespace, name }: { what: MetricsKind; namespace: string | null; name: string } = $props();
 
@@ -19,6 +20,7 @@
   onDestroy(() => feed.stop());
 
   const data = $derived(feed.data);
+  const note = $derived(data ? fallbackNote(data) : "");
   const lines = $derived.by((): ChartLine[] => {
     const h = data?.history;
     if (!h) return [];
@@ -29,7 +31,25 @@
 </script>
 
 <section class="usage" data-testid="usage-charts">
-  <h3>Usage</h3>
+  <div class="head">
+    <h3>Usage</h3>
+    {#if data?.prometheus}
+      <div class="ranges" role="group" aria-label="Usage range">
+        {#each USAGE_RANGES as r (r.value)}
+          <button
+            type="button"
+            class="range"
+            class:active={feed.range === r.value}
+            aria-pressed={feed.range === r.value}
+            onclick={() => feed.setRange(r.value)}>{r.label}</button
+          >
+        {/each}
+      </div>
+    {/if}
+  </div>
+  {#if note}
+    <p class="muted small" data-testid="usage-note">{note}</p>
+  {/if}
   {#if !data}
     <p class="muted small">{feed.error ? `Could not load usage: ${feed.error}` : "Loading…"}</p>
   {:else if data.history.samples.length === 0}
@@ -37,9 +57,8 @@
       No usage yet. metrics-server has no sample for this {what === "pods" ? "pod" : "node"}, or is not installed.
     </p>
   {:else}
-    <p class="muted small" data-testid="usage-since">
-      Collecting since {clockTime(data.history.since)}. History starts when a view with metrics opens and keeps 30
-      minutes.
+    <p class="muted small" data-testid={data.source === "prometheus" ? "usage-source" : "usage-since"}>
+      {usageSourceText(data)}
     </p>
     <UsageChart title="CPU" resource="cpu" {lines} refs={refLines(data.reference, "cpu")} format={formatCpu} />
     <UsageChart
@@ -53,9 +72,32 @@
 </section>
 
 <style>
+  .head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
   h3 {
     margin: 14px 0 8px;
     font-size: 13px;
+  }
+  .ranges {
+    display: flex;
+    gap: 2px;
+  }
+  .range {
+    font-size: 11px;
+    padding: 1px 7px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .range.active {
+    color: var(--text);
+    border-color: var(--accent);
   }
   .small {
     font-size: 12px;

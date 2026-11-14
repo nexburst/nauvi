@@ -83,6 +83,7 @@ test("what no longer exists falls back safely", async ({ page }) => {
       view: "example.org/v1/vanished",
       namespaces: ["gone"],
       typed_namespaces: [],
+      prometheus: "",
     };
   });
   // No switch to a context that is gone, the overview instead of a kind
