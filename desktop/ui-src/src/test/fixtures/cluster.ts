@@ -246,6 +246,36 @@ export function defaultCluster(): FakeCluster {
       "v1/configmaps": [row("v1/configmaps", "demo", "settings", { data: "2" })],
       "v1/services": [row("v1/services", "demo", "api", { type: "ClusterIP" })],
       "example.com/v1/widgets": [row("example.com/v1/widgets", "demo", "gizmo")],
+      "apiextensions.k8s.io/v1/customresourcedefinitions": [
+        row("apiextensions.k8s.io/v1/customresourcedefinitions", "", "widgets.example.com", {
+          kind: "Widget",
+          group: "example.com",
+          version: "v1",
+          scope: "Namespaced",
+        }),
+      ],
+      "v1/serviceaccounts": [
+        row("v1/serviceaccounts", "demo", "default", { secrets: "0" }),
+        row("v1/serviceaccounts", "demo", "web", { secrets: "1" }),
+      ],
+      "rbac.authorization.k8s.io/v1/roles": [
+        row("rbac.authorization.k8s.io/v1/roles", "demo", "pod-reader", { rules: "2" }),
+      ],
+      "rbac.authorization.k8s.io/v1/rolebindings": [
+        row("rbac.authorization.k8s.io/v1/rolebindings", "demo", "web-reads-pods", {
+          role: "Role/pod-reader",
+          subjects: "ServiceAccount:demo/web,User:alice",
+        }),
+      ],
+      "policy/v1/poddisruptionbudgets": [
+        row("policy/v1/poddisruptionbudgets", "demo", "web", {
+          minavailable: "1",
+          maxunavailable: "N/A",
+          allowed: "1",
+          current: "2",
+          desired: "1",
+        }),
+      ],
     },
     details: podDetails(kinds),
     yaml: {},
