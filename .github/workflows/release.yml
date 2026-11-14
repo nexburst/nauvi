@@ -425,18 +425,9 @@ jobs:
       # the app would refuse the update.
       - name: Verify the update signatures
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq minisign
-          python3 -c "import json;print(json.load(open('desktop/tauri.conf.json'))['plugins']['updater']['pubkey'])" \
-            | base64 -d > "$RUNNER_TEMP/updater.pub"
-          cat "$RUNNER_TEMP/updater.pub"
-          n=0
-          for sig in assets/*.sig; do
-            base64 -d "$sig" > "$RUNNER_TEMP/check.minisig"
-            minisign -V -q -p "$RUNNER_TEMP/updater.pub" -x "$RUNNER_TEMP/check.minisig" -m "${sig%.sig}" \
-              || { echo "::error::$sig does not verify with the updater public key"; exit 1; }
-            echo "ok: $sig"; n=$((n + 1))
-          done
-          [ "$n" -gt 0 ] || { echo "::error::no .sig files"; exit 1; }
+          # Ubuntu 22.04 has no minisign package; the script checks the same.
+          python3 -m pip install --quiet "cryptography==44.0.2"
+          python3 scripts/release/verify_sigs.py --pubkey-config desktop/tauri.conf.json --assets assets
 
       - name: Write latest.json and SHA256SUMS
         env:
