@@ -5,6 +5,7 @@ import { clampHeight } from "../dock";
 import { PORT_FORWARDS_VIEW } from "../forwards";
 import { HELM_VIEW } from "../helm";
 import { contextToRestore, namespacesToRestore } from "../settings";
+import { isMainWindow } from "../window";
 import { closeDetail, detail, openDetail } from "./detail.svelte";
 import { checkLeftovers } from "./debug.svelte";
 import { contextSettings, loadSettings, settings, updateContext, updateSettings } from "./settings.svelte";
@@ -254,7 +255,8 @@ export async function startApp() {
   const docked = settings.current.dock_height;
   if (docked > 0) dock.height = clampHeight(docked, window.innerHeight - 160);
   await loadContexts();
-  const remembered = contextToRestore(settings.current.last_context, app.contexts);
+  // A window opened for a context is already connected to it.
+  const remembered = isMainWindow() ? contextToRestore(settings.current.last_context, app.contexts) : null;
   if (remembered) {
     try {
       await commands.cmdSetContext(remembered);
@@ -292,17 +294,32 @@ export async function switchContext(name: string) {
     showError("Could not switch context: " + e);
     return;
   }
-  // The backend has stopped every stream and session of the old context.
+  // The backend has stopped every stream and session this window started
+  // in the old context; other windows keep theirs.
   closeAllDockTabs();
   closeDetail();
   app.selectedNamespaces = [];
   app.view = "overview";
-  updateSettings({ last_context: name });
+  // The other windows' contexts are remembered by the backend.
+  if (isMainWindow()) updateSettings({ last_context: name });
   await loadContexts();
   await loadNamespaces();
   await restoreScope();
   refresh();
   void checkLeftovers();
+}
+
+/**
+ * Open a new window connected to `name` (`""`: the kubeconfig's
+ * current-context). This window stays as it is.
+ */
+export async function openContextWindow(name: string) {
+  try {
+    await commands.cmdOpenWindow(name);
+  } catch (e) {
+    // The backend says what failed.
+    showError(String(e));
+  }
 }
 
 /**

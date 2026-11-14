@@ -3,6 +3,7 @@
 //! connection to the API server, so there is a cap.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::async_runtime::JoinHandle;
 
@@ -12,6 +13,8 @@ pub(crate) const MAX_LOG_STREAMS: usize = 10;
 #[derive(Default)]
 pub(crate) struct LogStreams {
     tasks: Mutex<HashMap<u64, JoinHandle<()>>>,
+    /// Set when the window is gone: no stream starts any more.
+    closed: AtomicBool,
 }
 
 impl LogStreams {
@@ -25,6 +28,9 @@ impl LogStreams {
         spawn: impl FnOnce() -> JoinHandle<()>,
     ) -> Result<(), String> {
         let mut tasks = self.tasks.lock().unwrap();
+        if self.closed.load(Ordering::SeqCst) {
+            return Err("This window is closing; the log stream was not started.".into());
+        }
         // Streams that ended on their own (pod gone, container exited) no
         // longer count.
         tasks.retain(|_, t| !t.inner().is_finished());
@@ -53,8 +59,14 @@ impl LogStreams {
         }
     }
 
+    /// Stop every stream and refuse new ones.
+    pub(crate) fn close(&self) {
+        self.closed.store(true, Ordering::SeqCst);
+        self.stop_all();
+    }
+
     #[cfg(test)]
-    fn running(&self) -> usize {
+    pub(crate) fn running(&self) -> usize {
         let mut tasks = self.tasks.lock().unwrap();
         tasks.retain(|_, t| !t.inner().is_finished());
         tasks.len()

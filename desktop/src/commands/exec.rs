@@ -1,12 +1,11 @@
 //! Interactive terminal sessions in pods.
 
-use crate::state::{client, next_session, AppState, ExecSession, SessionCleanup};
+use crate::state::{next_session, Cluster, ExecSession, SessionCleanup, WindowEmitter};
 use futures::SinkExt;
 use kube::api::{AttachedProcess, TerminalSize};
 use kubeloupe::exec_pod;
 use serde::Serialize;
 use specta::Type;
-use tauri::{AppHandle, State};
 use tauri_specta::Event;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -38,31 +37,29 @@ impl ExecOutput {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_exec_start(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    cluster: Cluster,
     namespace: String,
     name: String,
     container: Option<String>,
     cols: u16,
     rows: u16,
 ) -> Result<String, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     let attached = exec_pod(&client, &namespace, &name, container.as_deref())
         .await
         .map_err(|e| e.to_string())?;
     let session = next_session("exec");
-    start_session(&app, &state, session.clone(), attached, cols, rows, None).await;
+    start_session(&cluster, session.clone(), attached, cols, rows, None).await;
     Ok(session)
 }
 
 /// Write a line of text into a terminal session (progress, notes).
-pub(crate) fn emit_note(app: &AppHandle, session: &str, text: &str) {
-    let _ = ExecOutput {
+pub(crate) fn emit_note(out: &WindowEmitter, session: &str, text: &str) {
+    out.emit(ExecOutput {
         session: session.to_string(),
         stream: "stderr".to_string(),
         data: format!("\x1b[90m{text}\x1b[0m\r\n"),
-    }
-    .emit(app);
+    });
 }
 
 /// Pump an attached or exec'd process to `exec-output` events and register
@@ -70,15 +67,14 @@ pub(crate) fn emit_note(app: &AppHandle, session: &str, text: &str) {
 /// `cmd_exec_close` drive it. `cleanup` runs when the session ends or is
 /// closed.
 pub(crate) async fn start_session(
-    app: &AppHandle,
-    state: &State<'_, AppState>,
+    cluster: &Cluster,
     session: String,
     mut attached: AttachedProcess,
     cols: u16,
     rows: u16,
     cleanup: Option<SessionCleanup>,
 ) {
-    let app = app.clone();
+    let app = cluster.emitter();
     let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
     let mut stdin_writer = attached.stdin();
     let mut stdout_reader = attached.stdout();
@@ -103,12 +99,11 @@ pub(crate) async fn start_session(
             if let Some(status) = status_fut.await {
                 if status.status.as_deref() == Some("Failure") {
                     if let Some(msg) = status.message {
-                        let _ = ExecOutput {
+                        app_status.emit(ExecOutput {
                             session: session_status,
                             stream: "stderr".to_string(),
                             data: format!("\r\n{msg}\r\n"),
-                        }
-                        .emit(&app_status);
+                        });
                     }
                 }
             }
@@ -133,12 +128,11 @@ pub(crate) async fn start_session(
                     match r.read(&mut buf).await {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            let _ = ExecOutput {
+                            app_out.emit(ExecOutput {
                                 session: session_id.clone(),
                                 stream: "stdout".to_string(),
                                 data: String::from_utf8_lossy(&buf[..n]).into_owned(),
-                            }
-                            .emit(&app_out);
+                            });
                         }
                     }
                 }
@@ -151,12 +145,11 @@ pub(crate) async fn start_session(
                     match r.read(&mut buf).await {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
-                            let _ = ExecOutput {
+                            app_out.emit(ExecOutput {
                                 session: session_id.clone(),
                                 stream: "stderr".to_string(),
                                 data: String::from_utf8_lossy(&buf[..n]).into_owned(),
-                            }
-                            .emit(&app_out);
+                            });
                         }
                     }
                 }
@@ -171,10 +164,10 @@ pub(crate) async fn start_session(
         if let Some(c) = task_cleanup {
             c.run().await;
         }
-        let _ = ExecClosed(session_id).emit(&app);
+        app.emit(ExecClosed(session_id));
     });
-    state.exec_sessions.lock().unwrap().insert(
-        session.clone(),
+    let stopped = cluster.add_exec(
+        session,
         ExecSession {
             stdin_tx,
             size_tx,
@@ -182,19 +175,22 @@ pub(crate) async fn start_session(
             cleanup,
         },
     );
+    if let Some(c) = stopped {
+        c.run().await;
+    }
 }
 
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_exec_input(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     session: String,
     data: String,
 ) -> Result<(), String> {
     // Clone the sender under the lock, then await outside it: holding a
     // std MutexGuard across an await would make this future non-Send.
     let tx = {
-        let sessions = state.exec_sessions.lock().unwrap();
+        let sessions = cluster.exec_sessions.lock().unwrap();
         sessions.get(&session).map(|entry| entry.stdin_tx.clone())
     };
     let Some(tx) = tx else {
@@ -208,13 +204,13 @@ pub(crate) async fn cmd_exec_input(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_exec_resize(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     session: String,
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
     let tx = {
-        let sessions = state.exec_sessions.lock().unwrap();
+        let sessions = cluster.exec_sessions.lock().unwrap();
         sessions
             .get(&session)
             .and_then(|entry| entry.size_tx.clone())
@@ -232,11 +228,8 @@ pub(crate) async fn cmd_exec_resize(
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_exec_close(
-    state: State<'_, AppState>,
-    session: String,
-) -> Result<(), String> {
-    let entry = state.exec_sessions.lock().unwrap().remove(&session);
+pub(crate) async fn cmd_exec_close(cluster: Cluster, session: String) -> Result<(), String> {
+    let entry = cluster.exec_sessions.lock().unwrap().remove(&session);
     if let Some(entry) = entry {
         entry.task.abort();
         if let Some(c) = entry.cleanup {

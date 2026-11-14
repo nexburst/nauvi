@@ -1,12 +1,11 @@
 //! The live overview, pushed to the webview as events while it is open.
 
-use crate::state::{client, AppState};
+use crate::state::Cluster;
 use futures::StreamExt;
 use kubeloupe::watch::WatchState;
 use kubeloupe::{watch_overview, Overview, OverviewUpdate};
 use serde::Serialize;
 use specta::Type;
-use tauri::{AppHandle, State};
 use tauri_specta::Event;
 
 /// A new overview for the overview feed `id` (sent when it changed, at
@@ -27,7 +26,7 @@ pub(crate) struct OverviewStateChanged {
     state: WatchState,
 }
 
-/// The feed's key in `AppState::watches`, so a context switch stops it
+/// The feed's key in `ClusterSession::watches`, so a context switch stops it
 /// with the other watches.
 fn key(id: u32) -> String {
     format!("overview-{id}")
@@ -40,35 +39,32 @@ fn key(id: u32) -> String {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_overview_start(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    cluster: Cluster,
     id: u32,
     namespace: Option<String>,
 ) -> Result<(), String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
+    let out = cluster.emitter();
     let mut updates = watch_overview(&client, namespace.as_deref());
     let task = tauri::async_runtime::spawn(async move {
         while let Some(update) = updates.next().await {
-            let _ = match update {
-                OverviewUpdate::Summary(overview) => OverviewChanged {
+            match update {
+                OverviewUpdate::Summary(overview) => out.emit(OverviewChanged {
                     id,
                     overview: *overview,
-                }
-                .emit(&app),
-                OverviewUpdate::State(state) => OverviewStateChanged { id, state }.emit(&app),
-            };
+                }),
+                OverviewUpdate::State(state) => out.emit(OverviewStateChanged { id, state }),
+            }
         }
     });
-    if let Some(old) = state.watches.lock().unwrap().insert(key(id), task) {
-        old.abort();
-    }
+    cluster.add_watch(key(id), task);
     Ok(())
 }
 
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_overview_stop(state: State<'_, AppState>, id: u32) -> Result<(), String> {
-    if let Some(task) = state.watches.lock().unwrap().remove(&key(id)) {
+pub(crate) async fn cmd_overview_stop(cluster: Cluster, id: u32) -> Result<(), String> {
+    if let Some(task) = cluster.watches.lock().unwrap().remove(&key(id)) {
         task.abort();
     }
     Ok(())

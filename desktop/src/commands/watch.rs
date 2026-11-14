@@ -1,12 +1,11 @@
 //! Live watches of a kind, forwarded to the webview as batched events.
 
-use crate::state::{client, next_session, AppState};
+use crate::state::{next_session, Cluster, ClusterSession, WindowEmitter};
 use kube::Client;
 use kubeloupe::resources::{self, ResourceKind, ResourceRef, ResourceRow};
 use kubeloupe::watch;
 use serde::Serialize;
 use specta::Type;
-use tauri::{AppHandle, State};
 use tauri_specta::Event;
 
 /// One coalesced set of table rows for the watch `id`: the first batch is a
@@ -40,26 +39,24 @@ pub(crate) struct WatchStateChanged {
 
 /// Forward a watch to the webview: state changes as `watch-state`, rows as
 /// coalesced `watch-batch` events.
-async fn pump_watch<S>(app: AppHandle, id: String, updates: S)
+async fn pump_watch<S>(win: WindowEmitter, id: String, updates: S)
 where
     S: futures::Stream<Item = watch::Update<ResourceRow>> + Unpin,
 {
     watch::run_batched(updates, watch::DEFAULT_FLUSH, |out| match out {
         watch::Output::Batch(batch) => {
-            let _ = WatchBatch {
+            win.emit(WatchBatch {
                 id: id.clone(),
                 snapshot: batch.snapshot,
                 applied: batch.applied,
                 deleted: batch.deleted,
-            }
-            .emit(&app);
+            });
         }
         watch::Output::State(state) => {
-            let _ = WatchStateChanged {
+            win.emit(WatchStateChanged {
                 id: id.clone(),
                 state,
-            }
-            .emit(&app);
+            });
         }
     })
     .await;
@@ -67,7 +64,7 @@ where
 
 /// The discovered kind for `resource`, discovering first if needed.
 async fn kind_of(
-    state: &State<'_, AppState>,
+    state: &ClusterSession,
     client: &Client,
     resource: &ResourceRef,
 ) -> Result<ResourceKind, String> {
@@ -88,17 +85,16 @@ async fn kind_of(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_watch_start(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    cluster: Cluster,
     resource: ResourceRef,
     namespace: Option<String>,
 ) -> Result<String, String> {
-    let client = client(&state).await?;
-    let kind = kind_of(&state, &client, &resource).await?;
+    let client = cluster.client().await?;
+    let kind = kind_of(&cluster, &client, &resource).await?;
     let id = next_session("watch");
     let (_store, updates) = watch::watch_resource(&client, &kind, namespace.as_deref());
-    let task = tauri::async_runtime::spawn(pump_watch(app, id.clone(), updates));
-    state.watches.lock().unwrap().insert(id.clone(), task);
+    let task = tauri::async_runtime::spawn(pump_watch(cluster.emitter(), id.clone(), updates));
+    cluster.add_watch(id.clone(), task);
     Ok(id)
 }
 
@@ -107,15 +103,15 @@ pub(crate) async fn cmd_watch_start(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_detail_watch(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    cluster: Cluster,
     resource: ResourceRef,
     namespace: String,
     name: String,
 ) -> Result<String, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     let id = next_session("detail");
     let watch_id = id.clone();
+    let out = cluster.emitter();
     let task = tauri::async_runtime::spawn(resources::run_detail_watch(
         client,
         resource,
@@ -123,22 +119,21 @@ pub(crate) async fn cmd_detail_watch(
         name,
         resources::DETAIL_FLUSH,
         move |state| {
-            let _ = DetailWatchEvent {
+            out.emit(DetailWatchEvent {
                 id: watch_id.clone(),
                 state,
-            }
-            .emit(&app);
+            });
         },
     ));
-    state.watches.lock().unwrap().insert(id.clone(), task);
+    cluster.add_watch(id.clone(), task);
     Ok(id)
 }
 
 /// Stop a table watch or a detail watch.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_watch_stop(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    if let Some(task) = state.watches.lock().unwrap().remove(&id) {
+pub(crate) async fn cmd_watch_stop(cluster: Cluster, id: String) -> Result<(), String> {
+    if let Some(task) = cluster.watches.lock().unwrap().remove(&id) {
         task.abort();
     }
     Ok(())

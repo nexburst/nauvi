@@ -1,4 +1,5 @@
 import { commands, events } from "../bindings";
+import { thisWindow } from "../window";
 import type { ActionDef, BulkItemResult, DrainSummary, ResourceKind, ResourceRef } from "../bindings";
 import { drainLine, needsDialog, sameResource, targetLabel } from "../actions";
 import type { ActionTarget } from "../actions";
@@ -188,7 +189,7 @@ async function startDrain(node: string) {
 /** Subscribe to drain events; returns a cleanup function. */
 export async function listenDrain(): Promise<() => void> {
   const un = await Promise.all([
-    events.drainProgress.listen((e) => {
+    events.drainProgress(thisWindow()).listen((e) => {
       const d = actionUi.drain;
       // The id is only known once cmd_drain_node answers, and the first event
       // may come before. Only one drain runs from the dialog at a time.
@@ -196,7 +197,7 @@ export async function listenDrain(): Promise<() => void> {
       d.id ??= e.payload.drainId;
       d.lines.push(drainLine(e.payload.event));
     }),
-    events.drainFinished.listen((e) => {
+    events.drainFinished(thisWindow()).listen((e) => {
       const d = actionUi.drain;
       if (!d || (d.id && d.id !== e.payload.drainId)) return;
       d.id ??= e.payload.drainId;

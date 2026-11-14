@@ -1,7 +1,8 @@
 //! Port-forwards. They live here in the backend, independent of the panel
-//! that started them, until stopped or until the context changes.
+//! that started them, until stopped, until the context changes or until their window
+//! closes.
 
-use crate::state::{client, next_session, AppState, ForwardSession};
+use crate::state::{next_session, Cluster, ForwardSession};
 use kubeloupe::{
     service_ports, ForwardStatus, ForwardTarget, LocalPort, PortForward, RemotePort,
     ServicePortInfo,
@@ -9,7 +10,6 @@ use kubeloupe::{
 use serde::Serialize;
 use specta::Type;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::State;
 
 /// One running forward, with its live status.
 #[derive(Debug, Clone, Serialize, Type)]
@@ -50,14 +50,14 @@ fn info(id: &str, s: &ForwardSession) -> ForwardInfo {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_portforward_start(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     target: ForwardTarget,
     remote_port: String,
     local_port: Option<u16>,
 ) -> Result<ForwardInfo, String> {
     let remote = RemotePort::parse(&remote_port).map_err(|e| e.to_string())?;
     if local_port.is_none() {
-        let forwards = state.forwards.lock().unwrap();
+        let forwards = cluster.forwards.lock().unwrap();
         if let Some((id, s)) = forwards
             .iter()
             .find(|(_, s)| s.forward.target == target && s.forward.remote == remote)
@@ -65,7 +65,7 @@ pub(crate) async fn cmd_portforward_start(
             return Ok(info(id, s));
         }
     }
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     let forward = PortForward::start(&client, target, remote, LocalPort::from_option(local_port))
         .await
         .map_err(|e| format!("{e:#}"))?;
@@ -79,19 +79,16 @@ pub(crate) async fn cmd_portforward_start(
         started_at,
     };
     let out = info(&id, &session);
-    state.forwards.lock().unwrap().insert(id, session);
+    cluster.add_forward(id, session);
     Ok(out)
 }
 
 /// Stop a forward. Stopping one that is already gone is not an error.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_portforward_stop(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), String> {
+pub(crate) async fn cmd_portforward_stop(cluster: Cluster, id: String) -> Result<(), String> {
     // Dropping the forward stops it.
-    let removed = state.forwards.lock().unwrap().remove(&id);
+    let removed = cluster.forwards.lock().unwrap().remove(&id);
     drop(removed);
     Ok(())
 }
@@ -99,10 +96,8 @@ pub(crate) async fn cmd_portforward_stop(
 /// Every running forward, oldest first.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_portforward_list(
-    state: State<'_, AppState>,
-) -> Result<Vec<ForwardInfo>, String> {
-    let forwards = state.forwards.lock().unwrap();
+pub(crate) async fn cmd_portforward_list(cluster: Cluster) -> Result<Vec<ForwardInfo>, String> {
+    let forwards = cluster.forwards.lock().unwrap();
     let mut out: Vec<ForwardInfo> = forwards.iter().map(|(id, s)| info(id, s)).collect();
     out.sort_by(|a, b| (a.started_at, &a.id).cmp(&(b.started_at, &b.id)));
     Ok(out)
@@ -112,11 +107,11 @@ pub(crate) async fn cmd_portforward_list(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_service_ports(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     namespace: String,
     name: String,
 ) -> Result<Vec<ServicePortInfo>, String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
     service_ports(&client, &namespace, &name)
         .await
         .map_err(|e| format!("{e:#}"))

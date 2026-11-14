@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { app, refresh, switchContext } from "../stores/app.svelte";
+  import { app, openContextWindow, refresh, switchContext } from "../stores/app.svelte";
   import { live } from "../stores/live.svelte";
   import { openSettings } from "../stores/keyboard.svelte";
   import { confirmDiscard } from "../stores/unsaved.svelte";
@@ -40,6 +40,23 @@
       <option value={ctx.name}>{ctx.name}</option>
     {/each}
   </select>
+  {#if app.contexts.length > 0}
+    <button
+      class="new-window"
+      type="button"
+      title="Open this context in a new window"
+      aria-label="Open in new window"
+      data-testid="open-in-new-window"
+      onclick={() => openContextWindow(current)}
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M14 3h7v7h-2V6.41l-8.29 8.3-1.42-1.42 8.3-8.29H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"
+        />
+      </svg>
+    </button>
+  {/if}
   <button class="refresh" type="button" onclick={refresh}>Refresh</button>
   <button class="gear" type="button" aria-label="Settings" title="Settings" onclick={openSettings}>
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -87,6 +104,20 @@
   }
   .invisible {
     visibility: hidden;
+  }
+  .new-window {
+    display: flex;
+    align-items: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    padding: 5px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .new-window:hover {
+    color: var(--text);
+    background: var(--bg-hover);
   }
   .refresh {
     margin-left: auto;

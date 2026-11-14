@@ -1,5 +1,8 @@
-//! Per-window state shared by the commands: the selected context, its
-//! client, and the running streams, sessions and watches.
+//! What the commands share. Each window is connected to one cluster and has
+//! its own [`ClusterSession`]: the selected context, its client, and the
+//! streams, terminals, forwards and watches started from that window.
+//! [`AppState`] holds the sessions by window label; commands get the
+//! calling window's session through the [`Cluster`] argument.
 
 use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
@@ -8,10 +11,13 @@ use kube::Client;
 use kubeloupe::client_for_context_with;
 use kubeloupe::resources::ResourceKind;
 use kubeloupe::UsageHistory;
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
-use tauri::State;
+use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
+use tauri::async_runtime::JoinHandle;
+use tauri::ipc::{CommandArg, CommandItem, InvokeError};
+use tauri::{AppHandle, EventTarget, Manager};
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
@@ -26,13 +32,13 @@ pub(crate) fn next_session(prefix: &str) -> String {
 pub(crate) struct ExecSession {
     pub(crate) stdin_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     pub(crate) size_tx: Option<futures::channel::mpsc::Sender<TerminalSize>>,
-    pub(crate) task: tauri::async_runtime::JoinHandle<()>,
+    pub(crate) task: JoinHandle<()>,
     /// What to remove when the session ends (a node shell's pod).
     pub(crate) cleanup: Option<SessionCleanup>,
 }
 
 /// A pod a terminal session created and must delete when it ends: closed,
-/// shell exited, context switched or app quit.
+/// shell exited, context switched, window closed or app quit.
 #[derive(Clone)]
 pub(crate) struct SessionCleanup {
     pub(crate) client: Client,
@@ -54,12 +60,14 @@ pub(crate) struct ForwardSession {
     pub(crate) started_at: u64,
 }
 
-pub(crate) struct AppState {
+/// One window's connection to a cluster, and everything started from it.
+#[derive(Default)]
+pub(crate) struct ClusterSession {
     /// Selected context (`None` = the kubeconfig's current-context).
     pub(crate) context: Mutex<Option<String>>,
     /// Client for the selected context, built lazily and dropped when the
     /// context changes. `Client` is cheap to clone.
-    pub(crate) client: tokio::sync::Mutex<Option<Client>>,
+    client: tokio::sync::Mutex<Option<Client>>,
     /// Running log streams (pod and workload), by stream id.
     pub(crate) log_streams: LogStreams,
     /// Open terminal sessions, by session id.
@@ -69,74 +77,398 @@ pub(crate) struct AppState {
     pub(crate) local_shells: Mutex<HashMap<String, LocalShell>>,
     /// Active port-forwards, by session id.
     pub(crate) forwards: Mutex<HashMap<String, ForwardSession>>,
-    /// Running resource watchers, by watch id.
-    pub(crate) watches: Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>,
+    /// Running resource watchers (and overview feeds), by watch id.
+    pub(crate) watches: Mutex<HashMap<String, JoinHandle<()>>>,
     /// What the last discovery found, so watches can look up their columns.
     pub(crate) kinds: Mutex<Vec<ResourceKind>>,
     /// Running node drains, by drain id.
-    pub(crate) drains: Mutex<HashMap<String, tauri::async_runtime::JoinHandle<()>>>,
+    pub(crate) drains: Mutex<HashMap<String, JoinHandle<()>>>,
     /// Usage history of the selected context (#47), cleared when it changes.
     pub(crate) usage: Mutex<UsageHistory>,
     /// The Prometheus found for the selected context (#47), cleared when it
     /// changes.
     pub(crate) prometheus: Mutex<Option<crate::commands::prometheus::PromCache>>,
+    /// Set once the window is gone: whatever a command still in flight
+    /// adds afterwards is stopped right away instead of leaking.
+    closed: AtomicBool,
 }
 
-pub(crate) fn selected_context(state: &State<'_, AppState>) -> Option<String> {
-    state.context.lock().unwrap().clone()
-}
-
-/// The cached client for the selected context, building it on first use.
-pub(crate) async fn client(state: &State<'_, AppState>) -> Result<Client, String> {
-    let mut slot = state.client.lock().await;
-    if let Some(c) = slot.as_ref() {
-        return Ok(c.clone());
+impl ClusterSession {
+    pub(crate) fn new(context: Option<String>) -> Self {
+        Self {
+            context: Mutex::new(context),
+            ..Default::default()
+        }
     }
-    let ctx = selected_context(state);
-    // A GUI can't answer an exec plugin's prompts.
-    let c = client_for_context_with(ctx.as_deref(), false)
-        .await
-        .map_err(|e| e.to_string())?;
-    *slot = Some(c.clone());
-    Ok(c)
+
+    /// A session that is already closed (for a window that is gone).
+    fn closed() -> Self {
+        let s = Self::default();
+        s.closed.store(true, Ordering::SeqCst);
+        s.log_streams.close();
+        s
+    }
+
+    pub(crate) fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn selected_context(&self) -> Option<String> {
+        self.context.lock().unwrap().clone()
+    }
+
+    /// The cached client for the selected context, building it on first use.
+    pub(crate) async fn client(&self) -> Result<Client, String> {
+        let mut slot = self.client.lock().await;
+        if let Some(c) = slot.as_ref() {
+            return Ok(c.clone());
+        }
+        let ctx = self.selected_context();
+        // A GUI can't answer an exec plugin's prompts.
+        let c = client_for_context_with(ctx.as_deref(), false)
+            .await
+            .map_err(|e| e.to_string())?;
+        *slot = Some(c.clone());
+        Ok(c)
+    }
+
+    /// Switch to `context`: stop everything of the old one and forget its
+    /// client, kinds, usage history and Prometheus. Returns the node shell pods still
+    /// to delete.
+    pub(crate) async fn set_context(&self, context: Option<String>) -> Vec<SessionCleanup> {
+        let cleanups = self.stop_all();
+        self.kinds.lock().unwrap().clear();
+        self.usage.lock().unwrap().clear();
+        *self.prometheus.lock().unwrap() = None;
+        *self.context.lock().unwrap() = context;
+        *self.client.lock().await = None;
+        cleanups
+    }
+
+    /// Stop every stream, terminal, local shell, forward and watch.
+    /// Returns the node shell pods still to delete.
+    pub(crate) fn stop_all(&self) -> Vec<SessionCleanup> {
+        self.log_streams.stop_all();
+        let cleanups = take_all(&self.exec_sessions)
+            .into_values()
+            .filter_map(|s| {
+                s.task.abort();
+                s.cleanup
+            })
+            .collect();
+        // Dropping a local shell kills it and deletes its temp kubeconfig.
+        drop(take_all(&self.local_shells));
+        // Dropping a forward stops it.
+        drop(take_all(&self.forwards));
+        for task in take_all(&self.watches).into_values() {
+            task.abort();
+        }
+        cleanups
+    }
+
+    /// Mark the session closed and stop everything in it for good, drains
+    /// included (they outlive a context switch, not their window).
+    pub(crate) fn close(&self) -> Vec<SessionCleanup> {
+        self.closed.store(true, Ordering::SeqCst);
+        self.log_streams.close();
+        for task in take_all(&self.drains).into_values() {
+            task.abort();
+        }
+        self.stop_all()
+    }
+
+    /// `(namespace, pod)` of the node shells this session has open.
+    pub(crate) fn node_shell_pods(&self) -> Vec<(String, String)> {
+        self.exec_sessions
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|s| s.cleanup.as_ref())
+            .map(|c| (c.namespace.clone(), c.pod.clone()))
+            .collect()
+    }
+
+    pub(crate) fn add_watch(&self, id: String, task: JoinHandle<()>) {
+        if let Some(old) = self.insert(&self.watches, id, task) {
+            old.abort();
+        }
+    }
+
+    pub(crate) fn add_drain(&self, id: String, task: JoinHandle<()>) {
+        if let Some(old) = self.insert(&self.drains, id, task) {
+            old.abort();
+        }
+    }
+
+    pub(crate) fn add_forward(&self, id: String, forward: ForwardSession) {
+        drop(self.insert(&self.forwards, id, forward));
+    }
+
+    pub(crate) fn add_local_shell(&self, id: String, shell: LocalShell) {
+        drop(self.insert(&self.local_shells, id, shell));
+    }
+
+    /// Register a terminal session. On a closed session it is stopped at
+    /// once and its cleanup returned for the caller to run.
+    pub(crate) fn add_exec(&self, id: String, session: ExecSession) -> Option<SessionCleanup> {
+        let old = self.insert(&self.exec_sessions, id, session)?;
+        old.task.abort();
+        old.cleanup
+    }
+
+    /// Insert under the map's lock, unless the session is closed. Returns
+    /// what has to be stopped: the replaced value, or `value` itself when
+    /// the session is closed.
+    fn insert<T>(&self, map: &Mutex<HashMap<String, T>>, id: String, value: T) -> Option<T> {
+        let mut map = map.lock().unwrap();
+        // Checked under the lock: `close` sets the flag before it drains
+        // the maps, so nothing slips in after the drain.
+        if self.is_closed() {
+            return Some(value);
+        }
+        map.insert(id, value)
+    }
 }
 
-pub(crate) fn stop_all_exec(state: &State<'_, AppState>) {
-    for c in take_all_exec(&state.exec_sessions) {
+fn take_all<T>(map: &Mutex<HashMap<String, T>>) -> HashMap<String, T> {
+    std::mem::take(&mut *map.lock().unwrap())
+}
+
+/// The window opened from `tauri.conf.json`.
+pub(crate) const MAIN_WINDOW: &str = "main";
+
+/// The sessions of the open windows, by window label.
+#[derive(Default)]
+pub(crate) struct AppState {
+    sessions: Mutex<HashMap<String, Arc<ClusterSession>>>,
+    /// Labels of windows that were closed. Labels are never reused, so a
+    /// late command from one gets a closed session, not a new live one.
+    gone: Mutex<HashSet<String>>,
+}
+
+impl AppState {
+    /// The session of window `label`, created on its first command.
+    pub(crate) fn session(&self, label: &str) -> Arc<ClusterSession> {
+        if self.gone.lock().unwrap().contains(label) {
+            return Arc::new(ClusterSession::closed());
+        }
+        self.sessions
+            .lock()
+            .unwrap()
+            .entry(label.to_string())
+            .or_insert_with(|| Arc::new(ClusterSession::default()))
+            .clone()
+    }
+
+    /// Create the session of a new window, connected to `context`.
+    pub(crate) fn open(&self, label: &str, context: Option<String>) {
+        self.sessions
+            .lock()
+            .unwrap()
+            .insert(label.to_string(), Arc::new(ClusterSession::new(context)));
+    }
+
+    /// The window `label` is gone: close its session. Returns the node
+    /// shell pods still to delete.
+    pub(crate) fn close(&self, label: &str) -> Vec<SessionCleanup> {
+        self.gone.lock().unwrap().insert(label.to_string());
+        let session = self.sessions.lock().unwrap().remove(label);
+        session.map(|s| s.close()).unwrap_or_default()
+    }
+
+    /// Close every session (the app is quitting).
+    pub(crate) fn close_all(&self) -> Vec<SessionCleanup> {
+        let labels: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
+        labels.iter().flat_map(|l| self.close(l)).collect()
+    }
+
+    /// `(namespace, pod)` of the node shells open in any window.
+    pub(crate) fn node_shell_pods(&self) -> Vec<(String, String)> {
+        let sessions: Vec<Arc<ClusterSession>> =
+            self.sessions.lock().unwrap().values().cloned().collect();
+        sessions.iter().flat_map(|s| s.node_shell_pods()).collect()
+    }
+
+    /// The context of every open window other than `except`, by label.
+    pub(crate) fn contexts(&self, except: &str) -> Vec<(String, Option<String>)> {
+        let sessions = self.sessions.lock().unwrap();
+        let mut out: Vec<(String, Option<String>)> = sessions
+            .iter()
+            .filter(|(label, _)| label.as_str() != except)
+            .map(|(label, s)| (label.clone(), s.selected_context()))
+            .collect();
+        out.sort();
+        out
+    }
+}
+
+/// Run node shell cleanups in the background.
+pub(crate) fn spawn_cleanups(cleanups: Vec<SessionCleanup>) {
+    for c in cleanups {
         tauri::async_runtime::spawn(c.run());
     }
 }
 
-/// Stop every terminal session; returns the cleanups still to run.
-pub(crate) fn take_all_exec(sessions: &Mutex<HashMap<String, ExecSession>>) -> Vec<SessionCleanup> {
-    let mut sessions = sessions.lock().unwrap();
-    sessions
-        .drain()
-        .filter_map(|(_, session)| {
-            session.task.abort();
-            session.cleanup
-        })
-        .collect()
+/// Sends events to one window only.
+#[derive(Clone)]
+pub(crate) struct WindowEmitter {
+    app: AppHandle,
+    label: String,
 }
 
-/// Kill every local shell and delete their temp kubeconfigs.
-pub(crate) fn stop_all_local_shells(state: &AppState) {
-    let shells: Vec<LocalShell> = {
-        let mut map = state.local_shells.lock().unwrap();
-        map.drain().map(|(_, s)| s).collect()
-    };
-    drop(shells);
-}
+impl WindowEmitter {
+    pub(crate) fn new(app: AppHandle, label: String) -> Self {
+        Self { app, label }
+    }
 
-pub(crate) fn stop_all_watches(state: &State<'_, AppState>) {
-    let mut watches = state.watches.lock().unwrap();
-    for (_, task) in watches.drain() {
-        task.abort();
+    pub(crate) fn emit<E>(&self, event: E)
+    where
+        E: tauri_specta::Event + serde::Serialize + Clone,
+    {
+        // A closed window has no listeners left; nothing to report.
+        let _ = event.emit_to(
+            &self.app,
+            EventTarget::WebviewWindow {
+                label: self.label.clone(),
+            },
+        );
     }
 }
 
-pub(crate) fn stop_all_forwards(state: &State<'_, AppState>) {
-    let mut forwards = state.forwards.lock().unwrap();
-    // Dropping a forward stops it.
-    forwards.clear();
+/// The calling window's session, injected into commands like `State`. It
+/// derefs to the [`ClusterSession`]; [`Cluster::emitter`] sends events back
+/// to that window only. Not part of the TypeScript signatures.
+pub(crate) struct Cluster {
+    session: Arc<ClusterSession>,
+    label: String,
+    app: AppHandle,
+}
+
+impl Cluster {
+    pub(crate) fn label(&self) -> &str {
+        &self.label
+    }
+
+    pub(crate) fn app(&self) -> &AppHandle {
+        &self.app
+    }
+
+    pub(crate) fn emitter(&self) -> WindowEmitter {
+        WindowEmitter::new(self.app.clone(), self.label.clone())
+    }
+
+    /// The session itself, for tasks that outlive the command.
+    pub(crate) fn session(&self) -> Arc<ClusterSession> {
+        self.session.clone()
+    }
+}
+
+impl Deref for Cluster {
+    type Target = ClusterSession;
+    fn deref(&self) -> &ClusterSession {
+        &self.session
+    }
+}
+
+impl<'de> CommandArg<'de, tauri::Wry> for Cluster {
+    fn from_command(command: CommandItem<'de, tauri::Wry>) -> Result<Self, InvokeError> {
+        let webview = command.message.webview();
+        let label = webview.label().to_string();
+        let app = webview.app_handle().clone();
+        let session = app.state::<AppState>().session(&label);
+        Ok(Cluster {
+            session,
+            label,
+            app,
+        })
+    }
+}
+
+/// Injected, like `State`: leave it out of the generated bindings.
+impl specta::function::FunctionArg for Cluster {
+    fn to_datatype(_: &mut specta::Types) -> Option<specta::datatype::DataType> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn forever() -> JoinHandle<()> {
+        tauri::async_runtime::spawn(std::future::pending())
+    }
+
+    #[test]
+    fn each_window_gets_its_own_session() {
+        let state = AppState::default();
+        let main = state.session(MAIN_WINDOW);
+        assert!(Arc::ptr_eq(&main, &state.session(MAIN_WINDOW)));
+        state.open("cluster-1", Some("staging".into()));
+        let other = state.session("cluster-1");
+        assert!(!Arc::ptr_eq(&main, &other));
+        assert_eq!(other.selected_context().as_deref(), Some("staging"));
+        assert_eq!(main.selected_context(), None);
+        assert_eq!(
+            state.contexts(MAIN_WINDOW),
+            vec![("cluster-1".to_string(), Some("staging".to_string()))]
+        );
+    }
+
+    #[test]
+    fn closing_a_window_stops_only_its_session() {
+        let state = AppState::default();
+        let a = state.session(MAIN_WINDOW);
+        state.open("cluster-1", None);
+        let b = state.session("cluster-1");
+        let (wa, wb) = (forever(), forever());
+        a.add_watch("w1".into(), wa);
+        b.add_watch("w2".into(), wb);
+        b.add_drain("d1".into(), forever());
+        b.log_streams.start(1, forever).unwrap();
+
+        state.close("cluster-1");
+        assert!(b.is_closed());
+        assert!(b.watches.lock().unwrap().is_empty());
+        assert!(b.drains.lock().unwrap().is_empty());
+        assert_eq!(b.log_streams.running(), 0);
+        assert_eq!(a.watches.lock().unwrap().len(), 1);
+        assert!(!a.is_closed());
+        assert_eq!(state.contexts(""), vec![(MAIN_WINDOW.to_string(), None)]);
+    }
+
+    #[test]
+    fn a_closed_window_never_gets_a_live_session_again() {
+        let state = AppState::default();
+        state.open("cluster-2", None);
+        state.close("cluster-2");
+        let late = state.session("cluster-2");
+        assert!(late.is_closed());
+        // What a command still in flight adds is stopped, not kept.
+        late.add_watch("w".into(), forever());
+        assert!(late.watches.lock().unwrap().is_empty());
+        assert!(late.log_streams.start(1, forever).is_err());
+        assert!(state.contexts("").is_empty());
+    }
+
+    #[test]
+    fn adding_to_a_closing_session_is_stopped() {
+        let session = ClusterSession::default();
+        let cleanups = session.close();
+        assert!(cleanups.is_empty());
+        session.add_drain("d".into(), forever());
+        assert!(session.drains.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn switching_context_stops_everything_and_forgets_the_cluster() {
+        let session = ClusterSession::new(Some("a".into()));
+        session.add_watch("w".into(), forever());
+        tauri::async_runtime::block_on(session.set_context(Some("b".into())));
+        assert!(session.watches.lock().unwrap().is_empty());
+        assert!(session.usage.lock().unwrap().is_empty());
+        assert!(session.kinds.lock().unwrap().is_empty());
+        assert_eq!(session.selected_context().as_deref(), Some("b"));
+        assert!(!session.is_closed());
+    }
 }

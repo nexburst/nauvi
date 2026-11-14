@@ -1,10 +1,10 @@
-//! Usage history (#47): the ring buffers in `AppState::usage`, fed by
+//! Usage history (#47): the ring buffers in `ClusterSession::usage`, fed by
 //! `cmd_get_metrics` and by the detail panels through `cmd_usage_history`.
 
 use crate::commands::cluster::MetricsKind;
 use crate::commands::prometheus::prometheus_for;
 use crate::settings::SettingsStore;
-use crate::state::{client, selected_context, AppState};
+use crate::state::{Cluster, ClusterSession};
 use kubeloupe::{
     get_one_node_metrics, get_one_pod_metrics, get_usage_reference, pod_key, prometheus_usage,
     NodeUsage, PodUsage, SeriesView, Spark, UsageRange, UsageReference, MIN_SPACING_MS,
@@ -28,7 +28,7 @@ fn now_ms() -> u64 {
 /// context they were fetched from: if it changed meanwhile, nothing is
 /// recorded, so one cluster's pods never land in another's history.
 pub(crate) fn record(
-    state: &AppState,
+    state: &ClusterSession,
     ctx: &Option<String>,
     pods: &[PodUsage],
     nodes: &[NodeUsage],
@@ -89,15 +89,15 @@ pub(crate) struct UsageHistoryView {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_usage_history(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     settings: State<'_, Arc<SettingsStore>>,
     what: MetricsKind,
     namespace: Option<String>,
     name: String,
     range: UsageRange,
 ) -> Result<UsageHistoryView, String> {
-    let ctx = selected_context(&state);
-    let client = client(&state).await?;
+    let ctx = cluster.selected_context();
+    let client = cluster.client().await?;
     let pod = matches!(what, MetricsKind::Pods);
     let ns = if pod { namespace.as_deref() } else { None };
     if pod && ns.is_none() {
@@ -107,18 +107,18 @@ pub(crate) async fn cmd_usage_history(
         Some(ns) => pod_key(ns, &name),
         None => name.clone(),
     };
-    let last = state.usage.lock().unwrap().last_sample(pod, &key);
+    let last = cluster.usage.lock().unwrap().last_sample(pod, &key);
     if last.is_none_or(|t| now_ms() >= t + MIN_SPACING_MS) {
         // Best effort, like the table metrics: no sample yet is fine.
         match ns {
             Some(ns) => {
                 if let Ok(Some(u)) = get_one_pod_metrics(&client, ns, &name).await {
-                    record(&state, &ctx, &[u], &[]);
+                    record(&cluster, &ctx, &[u], &[]);
                 }
             }
             None => {
                 if let Ok(Some(u)) = get_one_node_metrics(&client, &name).await {
-                    record(&state, &ctx, &[], &[u]);
+                    record(&cluster, &ctx, &[], &[u]);
                 }
             }
         }
@@ -127,7 +127,7 @@ pub(crate) async fn cmd_usage_history(
     let reference = get_usage_reference(&client, ns, &name)
         .await
         .unwrap_or_default();
-    let prom = prometheus_for(&state, &settings, &client, false).await;
+    let prom = prometheus_for(&cluster, &settings, &client, false).await;
     let prometheus = prom.target.as_ref().map(|t| t.label()).unwrap_or_default();
     let mut note = String::new();
     if range != UsageRange::Live {
@@ -158,7 +158,7 @@ pub(crate) async fn cmd_usage_history(
             }
         }
     }
-    let history = state.usage.lock().unwrap().view(pod, &key);
+    let history = cluster.usage.lock().unwrap().view(pod, &key);
     Ok(UsageHistoryView {
         history,
         reference,

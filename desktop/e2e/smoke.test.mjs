@@ -194,4 +194,43 @@ describe("kubeloupe on WebKitGTK against kind", { timeout: 15 * 60_000 }, () => 
       message: "the dialog to close",
     });
   });
+
+  // #45. On the same context: CI has a single kind cluster. Last, since it
+  // leaves the driver on whichever window is still open if it fails.
+  it("opens a second window with its own session, and closing it leaves the first live", { timeout: TEST_TIMEOUT }, async () => {
+    const { driver } = app;
+    const main = await driver.getWindowHandle();
+    const before = await driver.getAllWindowHandles();
+    await (await app.find(byTestId("open-in-new-window"))).click();
+    const handles = await app.waitFor(
+      async () => {
+        const all = await driver.getAllWindowHandles();
+        return all.length > before.length ? all : null;
+      },
+      { message: "a second window" },
+    );
+    const second = handles.find((h) => !before.includes(h));
+    await driver.switchTo().window(second);
+    // Its own watches: the Pods list goes Live and lists the demo pods.
+    await app.nav("Pods");
+    await app.waitFor(async () => (await app.statusText()) === "Live", { timeout: 60_000, message: 'second window "Live"' });
+    await app.filter("web-");
+    await app.waitFor(async () => (await app.rows()).some(([n, ns]) => ns === "demo" && n.startsWith("web-")), {
+      message: "demo/web pods in the second window",
+    });
+    await app.shot("second-window");
+
+    // Closing it stops its session; the first window's watches keep going.
+    await driver.close();
+    await driver.switchTo().window(main);
+    await app.waitFor(async () => (await driver.getAllWindowHandles()).length === before.length, {
+      message: "the second window to close",
+    });
+    await app.nav("Pods");
+    await app.filter("logger-");
+    await app.waitFor(async () => (await app.rows()).some(([n, ns]) => ns === "demo" && n.startsWith("logger-")), {
+      message: "demo/logger pods in the first window",
+    });
+    assert.equal(await app.statusText(), "Live");
+  });
 });

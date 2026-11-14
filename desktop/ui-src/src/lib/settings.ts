@@ -29,6 +29,8 @@ export interface SettingsPatch {
   contexts?: Record<string, ContextSettings>;
   /** Replaces just these kinds' entries. */
   kinds?: Record<string, KindSettings>;
+  /** The extra windows' contexts (the backend keeps them up to date). */
+  windows?: string[];
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -43,6 +45,7 @@ export function defaultSettings(): Settings {
     dock_height: 0,
     contexts: {},
     kinds: {},
+    windows: [],
   };
 }
 
@@ -77,6 +80,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.dock_height != null) next.dock_height = patch.dock_height;
   if (patch.contexts != null) next.contexts = { ...settings.contexts, ...patch.contexts };
   if (patch.kinds != null) next.kinds = { ...settings.kinds, ...patch.kinds };
+  if (patch.windows != null) next.windows = patch.windows;
   return next;
 }
 

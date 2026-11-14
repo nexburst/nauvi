@@ -17,6 +17,8 @@ import { unsaved } from "./unsaved.svelte";
 
 export const keyboard = $state({
   palette: false,
+  /** What the palette's search starts with when it opens. */
+  paletteQuery: "",
   help: false,
   settings: false,
   /** Context menus open (they handle their own keys meanwhile). */
@@ -69,8 +71,9 @@ export function registerTabs(handle: TabsHandle): () => void {
   };
 }
 
-export function openPalette() {
+export function openPalette(query = "") {
   keyboard.help = false;
+  keyboard.paletteQuery = query;
   keyboard.palette = true;
 }
 

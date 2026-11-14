@@ -12,12 +12,12 @@ import type { FakeCluster } from "../fixtures/cluster";
 export async function openApp(
   page: Page,
   init?: (cluster: FakeCluster, fake: FakeApi) => void,
-  { waitForKinds = true } = {},
+  { waitForKinds = true, url = "/test.html" } = {},
 ): Promise<Fake> {
   if (init) await page.addInitScript(`window.__fakeInit = ${init.toString()};`);
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
-  await page.goto("/test.html");
+  await page.goto(url);
   if (waitForKinds) {
     await expect(page.getByRole("navigation").getByRole("button", { name: "Pods", exact: true })).toBeVisible();
   }

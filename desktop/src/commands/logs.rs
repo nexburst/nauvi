@@ -1,6 +1,6 @@
 //! Pod and workload log streams, and saving logs.
 
-use crate::state::{client, AppState};
+use crate::state::Cluster;
 use kubeloupe::{
     batch_lines, stream_pod_logs, stream_workload_logs, LogOptions, StopReason, TaggedLine,
     WorkloadEvent, WorkloadKind,
@@ -8,7 +8,6 @@ use kubeloupe::{
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::time::Duration;
-use tauri::{AppHandle, State};
 use tauri_specta::Event;
 
 /// A batch of log lines. Log events carry the id of the stream that produced
@@ -44,8 +43,7 @@ const LOG_BATCH_INTERVAL: Duration = Duration::from_millis(50);
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn cmd_stream_pod_logs(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    cluster: Cluster,
     namespace: String,
     name: String,
     container: Option<String>,
@@ -55,7 +53,8 @@ pub(crate) async fn cmd_stream_pod_logs(
     timestamps: Option<bool>,
     stream_id: u64,
 ) -> Result<(), String> {
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
+    let out = cluster.emitter();
     let opts = LogOptions {
         container,
         previous: previous.unwrap_or(false),
@@ -63,20 +62,19 @@ pub(crate) async fn cmd_stream_pod_logs(
         since_seconds,
         timestamps: timestamps.unwrap_or(false),
     };
-    state.log_streams.start(stream_id, move || {
+    cluster.log_streams.start(stream_id, move || {
         tauri::async_runtime::spawn(async move {
             let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
-            let emitter = app.clone();
+            let emitter = out.clone();
             let batcher = tauri::async_runtime::spawn(batch_lines(
                 rx,
                 LOG_BATCH_LINES,
                 LOG_BATCH_INTERVAL,
                 move |batch| {
-                    let _ = PodLog {
+                    emitter.emit(PodLog {
                         stream_id,
                         data: batch,
-                    }
-                    .emit(&emitter);
+                    });
                 },
             ));
             let result = stream_pod_logs(&client, &namespace, &name, &opts, move |line| {
@@ -87,13 +85,12 @@ pub(crate) async fn cmd_stream_pod_logs(
             let _ = batcher.await;
             if let Err(e) = result {
                 let msg = format!("Log stream ended with an error: {e}");
-                let _ = PodLogError {
+                out.emit(PodLogError {
                     stream_id,
                     data: msg,
-                }
-                .emit(&app);
+                });
             }
-            let _ = PodLogDone { stream_id }.emit(&app);
+            out.emit(PodLogDone { stream_id });
         })
     })
 }
@@ -195,12 +192,12 @@ fn workload_notice(stream_id: u64, ev: WorkloadEvent) -> Option<WorkloadNotice> 
 
 /// Follow the logs of all pods of a Deployment, StatefulSet, DaemonSet, Job
 /// or ReplicaSet (`kind` is case-insensitive). Runs next to the other log
-/// streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs` or a context switch.
+/// streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs`, a context switch or
+/// its window closes.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_stream_workload_logs(
-    app: AppHandle,
-    state: State<'_, AppState>,
+    cluster: Cluster,
     kind: String,
     namespace: String,
     name: String,
@@ -208,7 +205,8 @@ pub(crate) async fn cmd_stream_workload_logs(
     stream_id: u64,
 ) -> Result<(), String> {
     let kind = kind.parse::<WorkloadKind>().map_err(|e| e.to_string())?;
-    let client = client(&state).await?;
+    let client = cluster.client().await?;
+    let out = cluster.emitter();
     let opts = LogOptions {
         container: options.container,
         previous: false,
@@ -216,9 +214,9 @@ pub(crate) async fn cmd_stream_workload_logs(
         since_seconds: options.since_seconds,
         timestamps: options.timestamps.unwrap_or(false),
     };
-    state.log_streams.start(stream_id, move || {
+    cluster.log_streams.start(stream_id, move || {
         tauri::async_runtime::spawn(async move {
-            let emitter = app.clone();
+            let emitter = out.clone();
             let result =
                 stream_workload_logs(
                     &client,
@@ -228,24 +226,23 @@ pub(crate) async fn cmd_stream_workload_logs(
                     &opts,
                     move |ev| match ev {
                         WorkloadEvent::Lines(data) => {
-                            let _ = WorkloadLog { stream_id, data }.emit(&emitter);
+                            emitter.emit(WorkloadLog { stream_id, data });
                         }
                         ev => {
                             if let Some(n) = workload_notice(stream_id, ev) {
-                                let _ = n.emit(&emitter);
+                                emitter.emit(n);
                             }
                         }
                     },
                 )
                 .await;
             if let Err(e) = result {
-                let _ = PodLogError {
+                out.emit(PodLogError {
                     stream_id,
                     data: format!("Log stream ended with an error: {e}"),
-                }
-                .emit(&app);
+                });
             }
-            let _ = PodLogDone { stream_id }.emit(&app);
+            out.emit(PodLogDone { stream_id });
         })
     })
 }
@@ -285,10 +282,7 @@ pub(crate) async fn cmd_save_logs(filename: String, content: String) -> Result<S
 /// Other streams keep running.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_stop_logs(
-    state: State<'_, AppState>,
-    stream_id: u64,
-) -> Result<(), String> {
-    state.log_streams.stop(stream_id);
+pub(crate) async fn cmd_stop_logs(cluster: Cluster, stream_id: u64) -> Result<(), String> {
+    cluster.log_streams.stop(stream_id);
     Ok(())
 }

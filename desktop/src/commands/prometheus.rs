@@ -3,7 +3,7 @@
 //! after a while, and at once when the setting changes.
 
 use crate::settings::SettingsStore;
-use crate::state::{client, selected_context, AppState};
+use crate::state::{Cluster, ClusterSession};
 use kube::Client;
 use kubeloupe::{resolve_prometheus, PrometheusDetection, PrometheusStatus};
 use std::sync::Arc;
@@ -50,12 +50,12 @@ fn context_name(ctx: &Option<String>) -> String {
 /// The Prometheus for the selected context, from the cache when it is still
 /// fresh. `redetect` ignores the cache.
 pub(crate) async fn prometheus_for(
-    state: &State<'_, AppState>,
+    state: &ClusterSession,
     settings: &SettingsStore,
     client: &Client,
     redetect: bool,
 ) -> PrometheusDetection {
-    let ctx = selected_context(state);
+    let ctx = state.selected_context();
     let name = context_name(&ctx);
     let setting = settings
         .get()
@@ -72,7 +72,7 @@ pub(crate) async fn prometheus_for(
     }
     let detection = resolve_prometheus(client, &setting).await;
     // Not cached if the context changed while detecting.
-    if selected_context(state) == ctx {
+    if state.selected_context() == ctx {
         *state.prometheus.lock().unwrap() = Some(PromCache {
             ctx,
             setting,
@@ -88,12 +88,12 @@ pub(crate) async fn prometheus_for(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_prometheus_status(
-    state: State<'_, AppState>,
+    cluster: Cluster,
     settings: State<'_, Arc<SettingsStore>>,
     redetect: bool,
 ) -> Result<PrometheusStatus, String> {
-    let client = client(&state).await?;
-    Ok(prometheus_for(&state, &settings, &client, redetect)
+    let client = cluster.client().await?;
+    Ok(prometheus_for(&cluster, &settings, &client, redetect)
         .await
         .status())
 }

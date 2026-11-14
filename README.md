@@ -42,7 +42,8 @@ Svelte) and a CLI, both built on the same Rust core.
   local port. A Service forward picks a ready pod for each connection, so it
   keeps working when pods restart. Network → Port Forwards lists them with
   their current pod and status, and opens them in the browser. They keep
-  running when you close panels; switching context stops them.
+  running when you close panels; switching that window's context or closing
+  the window stops them.
 - **Workload logs**: follow every pod of a Deployment, StatefulSet, DaemonSet
   or Job in one stream, including pods that a rollout replaces.
 - **Dock**: logs and terminals open in tabs at the bottom of the window, so
@@ -77,7 +78,8 @@ Svelte) and a CLI, both built on the same Rust core.
   in `kube-system`, deleted when the tab closes or the app quits.
 - **Keyboard first**: a command palette (Ctrl+K / Cmd+K) jumps to any kind
   (`deploy`, `svc`, `cm` work), namespace, context or object and runs
-  actions (`>`); `ns ` and `ctx ` narrow it to namespaces or contexts.
+  actions (`>`); `ns ` and `ctx ` narrow it to namespaces or contexts, and
+  `win ` ("Open context in new window…") opens a context in a new window.
   Arrow keys or j/k move through the table, Enter opens, Space selects,
   Delete deletes, Shift+F10 opens the row menu, `/` focuses the filter and
   `?` lists every shortcut.
@@ -89,7 +91,12 @@ Svelte) and a CLI, both built on the same Rust core.
   diff of any two revisions, and the objects the release created. Rollback
   and uninstall run the `helm` CLI (on `PATH`) against the same context, after
   a confirmation.
-- **Multi-cluster**: switch between your kubeconfig contexts from the header.
+- **Multi-cluster**: switch between your kubeconfig contexts from the header,
+  or open a context in its own window (the button next to the context
+  selector, or the palette). Each window is connected to one cluster, titled
+  with its context, and has its own watches, logs, terminals and port
+  forwards: switching or closing one window leaves the others alone. The
+  windows open when you quit are reopened on the next start.
 - **Remembers where you were**: the last context, and per context the view
   and namespaces; per kind the table sort and hidden columns (Columns
   button); the detail panel width (drag its left edge). The Settings page

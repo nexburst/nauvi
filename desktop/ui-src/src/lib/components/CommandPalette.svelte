@@ -2,14 +2,15 @@
   import { onMount } from "svelte";
   import { rankItems } from "../palette";
   import type { Ranked } from "../palette";
-  import { activeTable, closePalette } from "../stores/keyboard.svelte";
+  import { activeTable, closePalette, keyboard } from "../stores/keyboard.svelte";
   import { paletteItems, recentIds, rememberPick } from "../stores/palette.svelte";
 
   /** Ctrl/Cmd+K: fuzzy search over kinds, namespaces, contexts, objects and actions. */
 
   // Built once per opening: the palette is remounted every time.
   const items = paletteItems();
-  let query = $state("");
+  // svelte-ignore state_referenced_locally
+  let query = $state(keyboard.paletteQuery);
   let active = $state(0);
   let input = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement | null>(null);

@@ -8,6 +8,8 @@ describe("parseQuery", () => {
     expect(parseQuery(">del")).toEqual({ scope: "actions", text: "del" });
     expect(parseQuery("ns demo")).toEqual({ scope: "namespaces", text: "demo" });
     expect(parseQuery("ctx kind")).toEqual({ scope: "contexts", text: "kind" });
+    expect(parseQuery("win stag")).toEqual({ scope: "windows", text: "stag" });
+    expect(parseQuery("win ")).toEqual({ scope: "windows", text: "" });
     expect(parseQuery("ns ")).toEqual({ scope: "namespaces", text: "" });
   });
 

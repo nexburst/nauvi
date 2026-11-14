@@ -5,15 +5,24 @@
 import { replicasFromRow, targetLabel } from "../actions";
 import type { PaletteItem } from "../palette";
 import { HELM_VIEW } from "../helm";
-import { pushRecent } from "../palette";
+import { pushRecent, WINDOW_PREFIX } from "../palette";
 import { PORT_FORWARDS_VIEW } from "../forwards";
-import { app, canOpenDenied, kinds, refresh, setView, switchContext, switchNamespace } from "./app.svelte";
+import {
+  app,
+  canOpenDenied,
+  kinds,
+  openContextWindow,
+  refresh,
+  setView,
+  switchContext,
+  switchNamespace,
+} from "./app.svelte";
 import { requestAction } from "./actions.svelte";
 import { openCreate } from "./create.svelte";
 import { openDetail } from "./detail.svelte";
 import { dockMenuFor } from "../dock";
 import { dock, openDockTab, toggleDock } from "./dock.svelte";
-import { activeTable, openHelp, openSettings } from "./keyboard.svelte";
+import { activeTable, openHelp, openPalette, openSettings } from "./keyboard.svelte";
 import { openLocalShell } from "./localShell";
 import { whenDiscarded } from "./unsaved.svelte";
 
@@ -58,6 +67,16 @@ export function paletteItems(): PaletteItem[] {
       run: openLocalShell,
     },
   ];
+  if (app.contexts.length > 0) {
+    items.push({
+      id: "cmd:new-window",
+      group: "Command",
+      label: "Open context in new window…",
+      terms: ["window", "cluster", "context"],
+      // After this palette has closed, open it again on the contexts.
+      run: () => setTimeout(() => openPalette(WINDOW_PREFIX)),
+    });
+  }
   if (dock.tabs.length > 0) {
     items.push({
       id: "cmd:dock",
@@ -146,6 +165,13 @@ export function paletteItems(): PaletteItem[] {
       label: c.name,
       detail: c.current ? "current" : undefined,
       run: () => whenDiscarded(() => void switchContext(c.name)),
+    });
+    items.push({
+      id: `win:${c.name}`,
+      group: "Window",
+      label: `Open ${c.name} in new window`,
+      terms: [c.name],
+      run: () => void openContextWindow(c.name),
     });
   }
 
