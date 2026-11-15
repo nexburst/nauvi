@@ -26,7 +26,7 @@ function text(n, alphabet, seed) {
   let out = "";
   for (let i = 0; i < n; i++) {
     x = (x * 1103515245 + 12345) % 2 ** 31;
-    out += alphabet[x % alphabet.length];
+    out += alphabet[(x >>> 16) % alphabet.length];
   }
   return out;
 }
@@ -44,12 +44,18 @@ const LONG = text(500, WORD, 89);
 // 4095-byte limit of a terminal's canonical mode (cat reads it line by line).
 const PASTE = Array.from({ length: 64 }, (_, i) => `${text(63, PRINTABLE, 1000 + i)}\n`).join("");
 
-/** Type a long command in one burst; the shell hashes and counts what it got. */
+// A swap is a race, so one burst can get lucky: without the ordered queue,
+// about one burst in three came out wrong.
+const BURSTS = 5;
+
+/** Type a long command in one burst, BURSTS times; the shell hashes and counts what it got. */
 async function typedBurst(term, file) {
-  const got = await term.run(`printf %s '${LONG}' > ${file}; md5sum ${file}; wc -c < ${file}`);
-  const [hash, , count] = got.split(/\s+/);
-  assert.equal(Number(count), LONG.length, `the shell got ${count} of ${LONG.length} characters`);
-  assert.equal(hash, md5(LONG), "the typed command reached the shell unchanged");
+  for (let i = 1; i <= BURSTS; i++) {
+    const got = await term.run(`printf %s '${LONG}' > ${file}; md5sum ${file}; wc -c < ${file}`);
+    const [hash, , count] = got.split(/\s+/);
+    assert.equal(Number(count), LONG.length, `burst ${i}: the shell got ${count} of ${LONG.length} characters`);
+    assert.equal(hash, md5(LONG), `burst ${i}: the typed command reached the shell unchanged`);
+  }
 }
 
 /** Paste ~4 KB into `cat > file`; the shell hashes and counts the file. */
