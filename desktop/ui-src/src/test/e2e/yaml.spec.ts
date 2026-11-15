@@ -292,3 +292,44 @@ test("a failed load leaves nothing to review", async ({ page }) => {
   await expect(page.locator("aside").getByText('Could not load YAML: deployments.apps "web" not found')).toBeVisible();
   await expect(button(page, "Review")).toBeDisabled();
 });
+
+test("the editor follows the theme; its cursor and active line number stay visible", async ({ page }) => {
+  await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+Home");
+  const colours = () =>
+    page.evaluate(() => {
+      const css = (sel: string, prop: string) =>
+        getComputedStyle(document.querySelector(`aside ${sel}`) as Element).getPropertyValue(prop);
+      return {
+        background: css(".cm-editor", "background-color"),
+        gutter: css(".cm-gutters", "background-color"),
+        activeNumber: css(".cm-lineNumbers .cm-activeLineGutter", "color"),
+        caret: css(".cm-content", "caret-color"),
+        cursor: css(".cm-cursor", "border-left-color"),
+        key: css(".cm-line span", "color"),
+      };
+    });
+
+  // Dark (the default): light text on the dark editor.
+  expect(await colours()).toEqual({
+    background: "rgb(13, 16, 19)",
+    gutter: "rgb(13, 16, 19)",
+    activeNumber: "rgb(214, 218, 224)",
+    caret: "rgb(214, 218, 224)",
+    cursor: "rgb(214, 218, 224)",
+    key: "rgb(124, 183, 255)",
+  });
+
+  // Light: what Settings → Theme → Light sets. Dark text on a light editor.
+  await page.evaluate(() => (document.documentElement.dataset.theme = "light"));
+  expect(await colours()).toEqual({
+    background: "rgb(255, 255, 255)",
+    gutter: "rgb(255, 255, 255)",
+    activeNumber: "rgb(26, 30, 37)",
+    caret: "rgb(26, 30, 37)",
+    cursor: "rgb(26, 30, 37)",
+    key: "rgb(11, 92, 173)",
+  });
+});
