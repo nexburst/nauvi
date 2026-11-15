@@ -4,30 +4,52 @@
   import ColumnChooser from "./ColumnChooser.svelte";
   import { openCreate } from "../stores/create.svelte";
   import { HELM_VIEW } from "../helm";
+  import { WORKLOADS_VIEW } from "../workloads";
 
   const kind = $derived(currentKind());
   // Only namespaced kinds (and Helm releases) can be narrowed to a namespace.
-  const namespaced = $derived(app.view === HELM_VIEW || (kind?.resource.namespaced ?? false));
+  const namespaced = $derived(
+    app.view === HELM_VIEW || app.view === WORKLOADS_VIEW || (kind?.resource.namespaced ?? false),
+  );
+  /** The Workloads overview has nothing to filter or create. */
+  const overview = $derived(app.view === WORKLOADS_VIEW);
 </script>
 
 <div class="toolbar">
   <div class="namespaces" class:invisible={!namespaced}>
     <NamespacePicker />
   </div>
-  <input
-    id="table-filter"
-    class="input search"
-    type="search"
-    placeholder="Filter…"
-    aria-label="Filter"
-    bind:value={app.search}
-  />
+  {#if !overview}
+    <input
+      id="table-filter"
+      class="input search"
+      type="search"
+      placeholder="Filter…"
+      aria-label="Filter"
+      bind:value={app.search}
+    />
+  {/if}
+  {#if app.statusFilter && kind}
+    <!-- Set by a count in the Workloads overview. -->
+    <span class="status-filter" data-testid="status-filter">
+      Status: {app.statusFilter}
+      <button
+        type="button"
+        class="clear"
+        aria-label="Show every status"
+        title="Show every status"
+        onclick={() => (app.statusFilter = "")}>✕</button
+      >
+    </span>
+  {/if}
   {#if kind}
     <ColumnChooser {kind} />
   {/if}
-  <button type="button" class="btn primary create" title="Create resources from YAML" onclick={openCreate}
-    >+ Create</button
-  >
+  {#if !overview}
+    <button type="button" class="btn primary create" title="Create resources from YAML" onclick={openCreate}
+      >+ Create</button
+    >
+  {/if}
 </div>
 
 <style>
@@ -49,5 +71,25 @@
   }
   .create {
     margin-left: auto;
+  }
+  .status-filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px 2px 10px;
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .clear {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0 4px;
+  }
+  .clear:hover {
+    color: var(--text);
   }
 </style>

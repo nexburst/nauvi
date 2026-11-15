@@ -47,12 +47,15 @@ import type {
   PrometheusStatus,
   TaggedLine,
   UsageHistoryView,
+  UsageRange,
   WatchBatch,
   WatchState,
 } from "../lib/bindings";
 import { defaultCluster, detail, makeRow, NO_POD } from "./fixtures/cluster";
+import { workloadsOverview } from "./fixtures/workloads";
 import { NO_RELATED } from "./fixtures/related";
 import { helmGet, helmList, helmRollback, helmUninstall } from "./fixtures/helm";
+import { chartVersions, deploy, repoAdd, repoRemove, repoUpdate, search, show } from "./fixtures/helmCharts";
 import { NO_REFERENCE, prometheusFixture } from "./fixtures/usage";
 import { available } from "./fixtures/updates";
 import type { FakeCluster } from "./fixtures/cluster";
@@ -101,6 +104,10 @@ export interface FakeApi {
   emitOverview(change: Partial<Overview_Serialize>, id?: number): Promise<void>;
   /** Send an `overview-state`; `id` defaults to the latest feed. */
   emitOverviewState(state: WatchState & { id?: number }): Promise<void>;
+  /** The Workloads overview feeds started and not stopped, with their namespaces. */
+  workloadsFeeds(): { id: number; namespaces: string[] }[];
+  /** Recompute the Workloads overview of the latest feed from `cluster.rows` and send it. */
+  emitWorkloads(): Promise<void>;
   /** Send `pod-log` lines; `streamId` defaults to the latest stream. */
   emitLogLines(lines: string[], streamId?: number): Promise<void>;
   /** Send `workload-log` lines (merged streams: workloads, all containers of a pod). */
@@ -161,6 +168,9 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
   };
   /** Running overview feeds, and the id of the latest one. */
   const overviewFeeds = new Set<number>();
+  /** Workloads overview feeds by id, with their namespaces. */
+  const workloadsFeeds = new Map<number, string[]>();
+  let lastWorkloads: number | null = null;
   let lastOverview: number | null = null;
   /** Releases a `cmd_update_install` waiting half way through its download. */
   let finishDownload: (() => void) | null = null;
@@ -319,6 +329,37 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     return { target: p.detected, from_settings: false, note: p.detected ? "" : p.note };
   }
 
+  /** The namespaces that exist, for installs (`--create-namespace`). */
+  const namespaceNames = () => [
+    ...(cluster.namespaces ?? []).map((n) => n.name),
+    ...cluster.helm.revisions.map((r) => r.namespace),
+  ];
+
+  /** Like `cmd_usage_history`: a Prometheus range, else the live history and why. */
+  function usageHistory(key: string, subject: string, range: UsageRange): UsageHistoryView {
+    const base = cluster.usage[key] ?? {
+      history: { since: 0, samples: [], containers: [] },
+      reference: copy(NO_REFERENCE),
+    };
+    const status = prometheusStatus();
+    const live: UsageHistoryView = {
+      ...copy(base),
+      source: "metrics_server",
+      range: "live",
+      prometheus: status.target,
+      note: "",
+    };
+    if (range === "live") return live;
+    if (!status.target) return { ...live, note: status.note };
+    if (cluster.prometheus.failure) return { ...live, note: cluster.prometheus.failure };
+    const history = cluster.prometheus.series[`${key}|${range}`];
+    if (!history?.samples.length) {
+      const note = `Prometheus at ${status.target} has no CPU and memory samples for ${subject} in the last ${range}.`;
+      return { ...live, note };
+    }
+    return { ...live, history: copy(history), source: "prometheus", range };
+  }
+
   const HANDLERS: Handlers = {
     cmdListContexts: () => cluster.contexts,
     cmdSetContext: (name) => {
@@ -352,6 +393,21 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       overviewFeeds.delete(id);
       return null;
     },
+    cmdWorkloadsStart: (id, namespaces) => {
+      workloadsFeeds.set(id, [...namespaces]);
+      lastWorkloads = id;
+      // Like the backend: the first summary, then "live".
+      setTimeout(() => {
+        if (!workloadsFeeds.has(id)) return;
+        void events.workloadsUpdate.emit({ id, overview: workloadsOverview(cluster, namespaces) });
+        void events.workloadsState.emit({ id, state: "live" });
+      }, 0);
+      return null;
+    },
+    cmdWorkloadsStop: (id) => {
+      workloadsFeeds.delete(id);
+      return null;
+    },
     cmdGetMetrics: (namespace, what) => {
       const m = cluster.metrics;
       const pods = what === "pods" ? m.pods.filter((p) => !namespace || p.namespace === namespace) : [];
@@ -361,31 +417,11 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       const sparks = Object.fromEntries(keys.filter((k) => k in m.sparks).map((k) => [k, m.sparks[k]]));
       return { available: m.available, pods, nodes, sparks, since: keys.some((k) => k in m.sparks) ? m.since : 0 };
     },
+    cmdWorkloadUsageHistory: (kind, namespace, name, range) =>
+      usageHistory(`workloads|${kind}|${namespace}/${name}`, `the pods of this ${kind}`, range),
     cmdUsageHistory: (what, namespace, name, range) => {
       const key = what === "pods" ? `pods|${namespace}/${name}` : `nodes|${name}`;
-      const base = cluster.usage[key] ?? {
-        history: { since: 0, samples: [], containers: [] },
-        reference: copy(NO_REFERENCE),
-      };
-      const status = prometheusStatus();
-      const live: UsageHistoryView = {
-        ...copy(base),
-        source: "metrics_server",
-        range: "live",
-        prometheus: status.target,
-        note: "",
-      };
-      // Like the backend: a Prometheus range, else the live history and why.
-      if (range === "live") return live;
-      if (!status.target) return { ...live, note: status.note };
-      if (cluster.prometheus.failure) return { ...live, note: cluster.prometheus.failure };
-      const history = cluster.prometheus.series[`${key}|${range}`];
-      if (!history?.samples.length) {
-        const kind = what === "pods" ? "pod" : "node";
-        const note = `Prometheus at ${status.target} has no CPU and memory samples for this ${kind} in the last ${range}.`;
-        return { ...live, note };
-      }
-      return { ...live, history: copy(history), source: "prometheus", range };
+      return usageHistory(key, what === "pods" ? "this pod" : "this node", range);
     },
     cmdPrometheusStatus: () => prometheusStatus(),
 
@@ -595,12 +631,21 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     cmdHelmGet: (namespace, name, revision, reveal) => helmGet(cluster.helm, namespace, name, revision, reveal),
     cmdHelmVersion: () => {
       if (!cluster.helm.version) {
-        throw "helm is not installed or not on PATH. Install it (https://helm.sh/docs/intro/install/) to roll back or uninstall releases.";
+        throw "helm is not installed or not on PATH. Install it (https://helm.sh/docs/intro/install/) to install, upgrade, roll back or uninstall releases and to browse charts.";
       }
       return cluster.helm.version;
     },
     cmdHelmRollback: (namespace, name, revision) => helmRollback(cluster.helm, namespace, name, revision),
     cmdHelmUninstall: (namespace, name) => helmUninstall(cluster.helm, namespace, name),
+    cmdHelmRepoList: () => copy(cluster.helm.charts.repos),
+    cmdHelmRepoAdd: (name, url) => repoAdd(cluster.helm.charts, name.trim(), url.trim()),
+    cmdHelmRepoRemove: (name) => repoRemove(cluster.helm.charts, name),
+    cmdHelmRepoUpdate: (names) => repoUpdate(cluster.helm.charts, names),
+    cmdHelmSearch: (query, allVersions) => search(cluster.helm.charts, query, allVersions),
+    cmdHelmChartVersions: (chart) => chartVersions(cluster.helm.charts, chart),
+    cmdHelmChartShow: (chart, version) => show(cluster.helm.charts, chart, version),
+    cmdHelmInstall: (request) => deploy(cluster.helm, namespaceNames(), "install", request),
+    cmdHelmUpgrade: (request) => deploy(cluster.helm, namespaceNames(), "upgrade", request),
     cmdGetSettings: () => copy(cluster.settings),
     cmdUpdateSettings: (patch) => {
       // The app sends whole values (`SettingsPatch`), like the backend expects.
@@ -698,6 +743,11 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       return events.overviewUpdate.emit({ id: id ?? lastOverview ?? -1, overview: copy(cluster.overview) });
     },
     emitOverviewState: (s) => events.overviewState.emit({ ...s, id: s.id ?? lastOverview ?? -1 }),
+    workloadsFeeds: () => [...workloadsFeeds].map(([id, namespaces]) => ({ id, namespaces })),
+    emitWorkloads: () => {
+      const id = lastWorkloads ?? -1;
+      return events.workloadsUpdate.emit({ id, overview: workloadsOverview(cluster, workloadsFeeds.get(id) ?? []) });
+    },
     emitLogLines: (lines, id) => events.podLog.emit({ streamId: id ?? streamId ?? -1, data: lines }),
     emitTaggedLines: (lines, id) => events.workloadLog.emit({ streamId: id ?? streamId ?? -1, data: lines }),
     opened: () => [...opened],

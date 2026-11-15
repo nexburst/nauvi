@@ -17,7 +17,7 @@ export interface FakePrometheus {
   note: string;
   /** Make every query fail with this reason ("" = they work). */
   failure: string;
-  /** Series by `pods|namespace/name|range` or `nodes|name|range`. */
+  /** Series by `pods|namespace/name|range`, `nodes|name|range` or `workloads|Kind|namespace/name|range`. */
   series: Record<string, SeriesView>;
 }
 
@@ -58,7 +58,7 @@ function sum(a: UsageSample[], b: UsageSample[]): UsageSample[] {
   }));
 }
 
-/** By `pods|namespace/name` or `nodes|name`; others have no history. */
+/** By `pods|namespace/name`, `nodes|name` or `workloads|Kind|namespace/name`; others have no history. */
 export function usageFixtures(): Record<string, UsageFixture> {
   // web-1: memory climbing towards its 128Mi limit.
   const app = series(
@@ -90,6 +90,11 @@ export function usageFixtures(): Record<string, UsageFixture> {
       // The pod's requests and limits, from its spec: app has 100m/64Mi
       // requests and a 128Mi memory limit; the sidecar has none.
       reference: { ...NO_REFERENCE, cpu_request: 100, memory_request: 64 * MI },
+    },
+    // The Deployment demo/web: its pods web-1 and web-2, summed.
+    "workloads|Deployment|demo/web": {
+      history: { since: web1[0].t, samples: sum(web1, web1), containers: [] },
+      reference: { ...NO_REFERENCE, cpu_request: 200, memory_request: 128 * MI, memory_limit: 256 * MI },
     },
     "nodes|node-1": {
       history: { since: node[0].t, samples: node, containers: [] },
@@ -154,6 +159,7 @@ export function prometheusFixture(): FakePrometheus {
         ],
       },
       "nodes|node-1|1h": { since: node[0].t, samples: node, containers: [] },
+      "workloads|Deployment|demo/web|1h": { since: total[0].t, samples: sum(total, total), containers: [] },
     },
   };
 }

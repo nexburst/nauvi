@@ -5,6 +5,8 @@
 import { replicasFromRow, targetLabel } from "../actions";
 import type { PaletteItem } from "../palette";
 import { HELM_VIEW } from "../helm";
+import { HELM_CHARTS_VIEW } from "../helmCharts";
+import { WORKLOADS_VIEW } from "../workloads";
 import { pushRecent, WINDOW_PREFIX } from "../palette";
 import { PORT_FORWARDS_VIEW } from "../forwards";
 import {
@@ -42,7 +44,21 @@ export function paletteItems(): PaletteItem[] {
   const items: PaletteItem[] = [
     { id: "cmd:create", group: "Command", label: "Create resource…", terms: ["new", "apply", "yaml"], run: openCreate },
     { id: "cmd:overview", group: "Command", label: "Go to Overview", run: () => setView("overview") },
-    { id: "cmd:helm", group: "Command", label: "Go to Helm releases", terms: ["charts"], run: () => setView(HELM_VIEW) },
+    {
+      id: "cmd:workloads",
+      group: "Command",
+      label: "Go to Workloads overview",
+      terms: ["status", "deployments", "problems"],
+      run: () => setView(WORKLOADS_VIEW),
+    },
+    { id: "cmd:helm", group: "Command", label: "Go to Helm releases", run: () => setView(HELM_VIEW) },
+    {
+      id: "cmd:helm-charts",
+      group: "Command",
+      label: "Go to Helm charts",
+      terms: ["install", "repositories", "repo"],
+      run: () => setView(HELM_CHARTS_VIEW),
+    },
     {
       id: "cmd:port-forwards",
       group: "Command",
