@@ -66,23 +66,31 @@ export class Terminal {
   }
 
   /**
-   * Type `text` key by key (through xterm, like real typing), then Enter
-   * unless `enter: false`. Each key is a separate IPC call; `delay` (ms)
-   * between keys keeps them from racing. With `delay: 0` the whole text goes
-   * in one WebDriver call, which on the local shell has been seen to swap
-   * characters (#83).
+   * Type `text` key by key (through xterm, like real typing) in one burst,
+   * then Enter unless `enter: false`. Each key is its own input event; the
+   * terminal sends them to the shell in order (#89).
    */
-  async type(text, { enter = true, delay = 15 } = {}) {
+  async type(text, { enter = true } = {}) {
     const input = await this.#input();
-    if (delay <= 0) {
-      await input.sendKeys(text, ...(enter ? [Key.ENTER] : []));
-      return;
-    }
-    for (const ch of text) {
-      await input.sendKeys(ch);
-      await new Promise((r) => setTimeout(r, delay));
-    }
-    if (enter) await input.sendKeys(Key.ENTER);
+    await input.sendKeys(text, ...(enter ? [Key.ENTER] : []));
+  }
+
+  /**
+   * Paste `text` the way a clipboard paste does: a `paste` event on xterm's
+   * textarea, which xterm sends to the shell in one piece (newlines become
+   * CR, bracketed if the shell asked for that).
+   */
+  async paste(text) {
+    const input = await this.#input();
+    await this.app.js(
+      `const [ta, text] = arguments;
+       ta.focus();
+       const ev = new Event("paste", { bubbles: true, cancelable: true });
+       Object.defineProperty(ev, "clipboardData", { value: { getData: () => text } });
+       ta.dispatchEvent(ev);`,
+      input,
+      text,
+    );
   }
 
   /**

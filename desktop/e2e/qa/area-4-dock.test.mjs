@@ -173,7 +173,7 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     await app.waitFor(() => app.js(`return !document.querySelector('[data-testid="dock"]').classList.contains('collapsed')`), {
       message: "the dock to expand",
     });
-    await pod.type("zz", { delay: 30 });
+    await pod.type("zz");
     const screen = await pod.waitFor(/^zz\s*$/m, { message: "cat -v echoing zz" });
     assert.ok(!/\^@/.test(screen), "no NUL (^@) reached the shell");
     // End cat (Ctrl+C reaches the shell).

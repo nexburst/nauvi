@@ -71,7 +71,7 @@ changed, and no browser opens. The login shell environment import is off
 | --- | --- | --- |
 | start the app with a kubeconfig, contexts or env | `launch(name, { kubeconfig, contexts, env, profile, shellEnv })` (`lib/app.mjs`) | `limited-user` (KUBECONFIG), `local-shell` (SHELL, HOME) |
 | one app per suite, a screenshot after each test | `appSession(name, opts)`, `waitLive(app)` (`lib/qa.mjs`) | all |
-| type into xterm, read its screen, `stty size` | `terminal(app).type()`, `.screen()`, `.waitFor()`, `.run(cmd)`, `.size()` (`lib/terminal.mjs`) | `terminal`, `local-shell` |
+| type or paste into xterm, read its screen, `stty size` | `terminal(app).type()`, `.paste()`, `.screen()`, `.waitFor()`, `.run(cmd)`, `.size()` (`lib/terminal.mjs`) | `terminal`, `local-shell`, `terminal-input` |
 | resize the window | `resizeWindow(app, w, h)` (`lib/window.mjs`) | `terminal` |
 | several windows | `openNewWindow`, `switchTo`, `windowHandles`, `windowTitles`, `selectContext` (`lib/window.mjs`) | `multi-window` |
 | close the app like a user (WM_DELETE_WINDOW, so its exit path runs; WebDriver's Close Window kills it) | `closeLikeUser(pid)` (`lib/window.mjs`, `lib/wm-close.py`), `appPid(home)` (`lib/dock.mjs`) | `area-4-node-shell` |
@@ -112,9 +112,10 @@ the fix lands.
 
 Known quirks of WebKitWebDriver: `getText()` sometimes returns nothing for
 elements inside tables, so read `innerText` with `app.js(...)`; clicks need
-the element fully in view (`app.nav` scrolls first); key events sent in one
-WebDriver call reach the shell as separate IPC calls that can arrive out of
-order, so `terminal().type()` sends one key at a time.
+the element fully in view (`app.nav` scrolls first). `terminal().type()`
+sends the whole text in one WebDriver call and `.paste()` fires a clipboard
+paste; the terminal keeps that input in order (#89, checked by
+`terminal-input`).
 
 ### Nightly in CI: `qa.yml`
 
