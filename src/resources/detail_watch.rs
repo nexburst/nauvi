@@ -1,17 +1,19 @@
 //! Live updates of one object's detail: a watcher on that object (by
 //! `metadata.name`) plus one on the events about it, coalesced so the panel
 //! gets at most one new detail per interval, and a `deleted` state when the
-//! object goes away.
+//! object goes away. Both watchers run under a [`crate::liveness`] guard,
+//! so an API server that stops answering shows as an error within seconds.
 
 use super::detail::{detail_of, summarize_events};
 use super::ops::dyn_api;
 use super::{ResourceDetail, ResourceRef};
+use crate::liveness::Guarded;
+use crate::watch::guarded_watcher;
 use futures::StreamExt;
 use k8s_openapi::api::core::v1::Event as CoreEvent;
 use kube::api::{Api, DynamicObject};
 use kube::runtime::reflector::{self, Store};
 use kube::runtime::watcher::{self, Event};
-use kube::runtime::WatchStreamExt;
 use kube::Client;
 use serde::Serialize;
 use std::time::Duration;
@@ -65,6 +67,18 @@ impl DetailTracker {
                 self.dirty = true;
             }
         }
+    }
+
+    /// The watch failed: the error to send, unless it was just sent.
+    pub(crate) fn failed(&mut self, error: String) -> Option<DetailState> {
+        let error = DetailState::Error { error };
+        if self.last.as_ref() == Some(&error) {
+            return None;
+        }
+        self.last = Some(error.clone());
+        // Send the detail again once the watch recovers.
+        self.dirty = true;
+        Some(error)
     }
 
     /// Something about the object's events changed.
@@ -131,7 +145,7 @@ pub async fn run_detail_watch<F>(
 {
     let api = dyn_api(&client, &r, Some(&namespace));
     let by_name = watcher::Config::default().fields(&format!("metadata.name={name}"));
-    let mut objects = watcher::watcher(api, by_name).default_backoff().boxed();
+    let mut objects = guarded_watcher(api, by_name);
 
     // Events of cluster-scoped objects are filed in some namespace.
     let events_api: Api<CoreEvent> = if namespace.is_empty() || !r.namespaced {
@@ -143,13 +157,9 @@ pub async fn run_detail_watch<F>(
         "involvedObject.name={name},involvedObject.kind={}",
         r.kind
     ));
-    let writer = reflector::store::Writer::<CoreEvent>::default();
+    let mut writer = reflector::store::Writer::<CoreEvent>::default();
     let store = writer.as_reader();
-    let mut events = reflector::reflector(
-        writer,
-        watcher::watcher(events_api, about).default_backoff(),
-    )
-    .boxed();
+    let mut events = guarded_watcher(events_api, about);
 
     let mut tracker = DetailTracker::default();
     let mut tick = tokio::time::interval(interval);
@@ -158,22 +168,26 @@ pub async fn run_detail_watch<F>(
         tokio::select! {
             ev = objects.next() => match ev {
                 None => break,
-                Some(Ok(ev)) => tracker.object(ev),
-                Some(Err(e)) => {
-                    let error = DetailState::Error { error: e.to_string() };
-                    if tracker.last.as_ref() != Some(&error) {
-                        tracker.last = Some(error.clone());
-                        // Send the detail again once the watch recovers.
-                        tracker.dirty = true;
-                        sink(error);
+                Some(Guarded::Item(Ok(ev))) => tracker.object(ev),
+                Some(Guarded::Item(Err(e))) => {
+                    if let Some(state) = tracker.failed(e.to_string()) {
+                        sink(state);
+                    }
+                }
+                Some(Guarded::Lost(error)) => {
+                    if let Some(state) = tracker.failed(error) {
+                        sink(state);
                     }
                 }
             },
             ev = events.next() => match ev {
                 None => break,
-                Some(Ok(_)) => tracker.events_changed(),
+                Some(Guarded::Item(Ok(ev))) => {
+                    writer.apply_watcher_event(&ev);
+                    tracker.events_changed();
+                }
                 // Without access to events the panel shows none.
-                Some(Err(_)) => {}
+                Some(_) => {}
             },
             _ = tick.tick() => {
                 if let Some(state) = tracker.flush(&r, |uid| events_of(&store, uid)) {

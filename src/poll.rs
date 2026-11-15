@@ -7,11 +7,16 @@
 //! changed (the batcher drops rows that look the same). The state is
 //! [`WatchState::Polling`] rather than `Live`, so the UI can say the table is
 //! not live.
+//!
+//! The lists run under a [`crate::liveness`] guard like the watches, so a
+//! list that hangs on an API server that stopped answering shows as
+//! Reconnecting too.
 
+use crate::liveness::{guard_client, Guarded};
 use crate::watch::{Keyed, Update, WatchState};
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
-use kube::api::ListParams;
+use kube::api::{ListParams, ObjectList};
 use kube::runtime::reflector::{self, Store};
 use kube::runtime::watcher::Event;
 use kube::{Api, Resource};
@@ -58,16 +63,7 @@ impl<T: Keyed + Clone> Poller<T> {
                 }));
                 return out;
             }
-            Err(e) => {
-                if !self.failing {
-                    self.failing = true;
-                    self.announced = false;
-                    out.push(Update::State(WatchState::Reconnecting {
-                        error: crate::errors::chain_text(&e),
-                    }));
-                }
-                return out;
-            }
+            Err(e) => return self.lost(crate::errors::chain_text(&e)),
             Ok(rows) => rows,
         };
         self.failing = false;
@@ -94,6 +90,17 @@ impl<T: Keyed + Clone> Poller<T> {
         }
         out
     }
+
+    /// A list failed, or the [`crate::liveness`] guard gave up on the
+    /// connection. Only the first failure of a streak is reported.
+    fn lost(&mut self, error: String) -> Vec<Update<T>> {
+        if self.failing {
+            return Vec::new();
+        }
+        self.failing = true;
+        self.announced = false;
+        vec![Update::State(WatchState::Reconnecting { error })]
+    }
 }
 
 /// List `api` now and then every `interval`, keeping a reflector [`Store`]
@@ -115,25 +122,28 @@ where
     let writer = reflector::store::Writer::new(dyntype);
     let store = writer.as_reader();
     let poller = Poller::new(interval);
+    let client = api.clone().into_client();
+    // A guard that lost the connection starts listing again, at once, when
+    // the server answers.
+    let lists = guard_client(client, move || lists(api.clone(), interval));
     let updates = stream::unfold(
-        (api, writer, poller, convert, true),
-        move |(api, mut writer, mut p, convert, first)| async move {
+        (lists, writer, poller, convert),
+        |(mut lists, mut writer, mut p, convert)| async move {
             if p.done {
                 return None;
             }
-            if !first {
-                tokio::time::sleep(interval).await;
-            }
-            let listed = api.list(&ListParams::default()).await.map(|list| {
-                writer.apply_watcher_event(&Event::Init);
-                for o in &list.items {
-                    writer.apply_watcher_event(&Event::InitApply(o.clone()));
-                }
-                writer.apply_watcher_event(&Event::InitDone);
-                list.items.iter().map(&convert).collect()
-            });
-            let out = p.step(listed);
-            Some((out, (api, writer, p, convert, false)))
+            let out = match lists.next().await? {
+                Guarded::Lost(error) => p.lost(error),
+                Guarded::Item(listed) => p.step(listed.map(|list| {
+                    writer.apply_watcher_event(&Event::Init);
+                    for o in &list.items {
+                        writer.apply_watcher_event(&Event::InitApply(o.clone()));
+                    }
+                    writer.apply_watcher_event(&Event::InitDone);
+                    list.items.iter().map(&convert).collect()
+                })),
+            };
+            Some((out, (lists, writer, p, convert)))
         },
     )
     .flat_map(stream::iter);
@@ -141,6 +151,24 @@ where
         WatchState::Connecting,
     )));
     (store, first.chain(updates).boxed())
+}
+
+/// The result of listing `api` now and then every `interval`.
+fn lists<K>(
+    api: Api<K>,
+    interval: Duration,
+) -> BoxStream<'static, Result<ObjectList<K>, kube::Error>>
+where
+    K: Resource + Clone + DeserializeOwned + Debug + Send + Sync + 'static,
+{
+    stream::unfold((api, true), move |(api, first)| async move {
+        if !first {
+            tokio::time::sleep(interval).await;
+        }
+        let listed = api.list(&ListParams::default()).await;
+        Some((listed, (api, false)))
+    })
+    .boxed()
 }
 
 #[cfg(test)]
@@ -209,6 +237,23 @@ mod tests {
         assert!(p.step(err()).is_empty());
         assert_eq!(p.step(Ok(vec![])), vec![polling()]);
         assert!(!p.done);
+    }
+
+    #[test]
+    fn a_lost_connection_is_one_failure_with_its_text() {
+        let mut p = Poller::new(POLL_INTERVAL);
+        p.step(Ok(vec![pod("x", "Running")]));
+        assert_eq!(
+            p.lost("The API server is not answering".into()),
+            vec![Update::State(WatchState::Reconnecting {
+                error: "The API server is not answering".into()
+            })]
+        );
+        assert!(p.step(Err(api_error(500, "boom"))).is_empty());
+        assert_eq!(
+            p.step(Ok(vec![pod("x", "Running")])),
+            vec![Update::Applied(pod("x", "Running")), polling()]
+        );
     }
 
     #[test]
