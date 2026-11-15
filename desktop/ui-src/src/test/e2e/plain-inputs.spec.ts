@@ -70,7 +70,8 @@ test("fields in the detail panel, dialogs and settings are plain too", async ({ 
   await page.keyboard.press("Escape");
 
   await page.getByRole("button", { name: "Cluster catalog" }).click();
-  await page.getByRole("button", { name: "Settings for prod", exact: true }).click();
+  await page.getByRole("button", { name: "More actions for prod", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Settings…" }).click();
   await expect(page.getByRole("dialog", { name: "Cluster settings" })).toBeVisible();
   expect(await notPlain(page)).toEqual([]);
 });

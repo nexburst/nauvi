@@ -130,6 +130,8 @@ test("More actions offers New window, Check, Settings and Remove", async ({ page
   ]);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
+  // Focus goes back to the ⋯ button, even where a click does not focus it (WebKit on macOS).
+  await expect(more).toBeFocused();
 
   // The current context's file is the default kubeconfig: nothing to remove.
   await catalogRow(page, "kind-kubeloupe-test").getByRole("button", { name: "More actions for kind-kubeloupe-test" }).click();

@@ -80,11 +80,19 @@
       menu = null;
       return;
     }
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const trigger = e.currentTarget as HTMLElement;
+    // WebKit on macOS does not focus a clicked button; focus it so the menu
+    // gives focus back to it when it closes.
+    trigger.focus({ preventScroll: true });
+    const r = trigger.getBoundingClientRect();
     const source = c.source;
     const items: MenuItem[] = [
       { label: "Open in new window", run: () => void openContextWindow(c.name) },
-      { label: "Check connection", run: () => void checkContext(c.name) },
+      {
+        label: "Check connection",
+        disabled: catalog.checks.get(c.name) === "checking",
+        run: () => void checkContext(c.name),
+      },
       { label: "Settings…", run: () => openClusterSettings(c.name) },
     ];
     if (source) items.push({ label: "Remove source…", danger: true, run: () => askRemove(source) });
