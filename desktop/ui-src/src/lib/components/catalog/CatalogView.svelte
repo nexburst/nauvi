@@ -177,9 +177,9 @@
             <td>
               <div class="name">
                 <span class="swatch" style:background={cs.color || "transparent"} aria-hidden="true"></span>
-                <span data-testid="catalog-name">{name}</span>
-                {#if c.current}<span class="badge">this window</span>{/if}
+                <span class="label" data-testid="catalog-name">{name}</span>
               </div>
+              {#if c.current}<div class="under"><span class="badge">this window</span></div>{/if}
               {#if name !== c.name}<div class="muted id">{c.name}</div>{/if}
             </td>
             <td class="status" data-testid="catalog-status">
@@ -360,13 +360,19 @@
     color: var(--amber);
     opacity: 1;
   }
+  /* The swatch and the name stay on one line; a long name wraps beside it. */
   .name {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 2px 6px;
+    align-items: baseline;
+    gap: 6px;
     white-space: normal;
+  }
+  .name .label {
+    min-width: 0;
     overflow-wrap: anywhere;
+  }
+  .under {
+    margin: 2px 0 0 16px;
   }
   .swatch {
     width: 10px;

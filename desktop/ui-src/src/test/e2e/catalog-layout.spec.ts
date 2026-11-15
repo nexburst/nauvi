@@ -57,6 +57,12 @@ test("server URLs stay on one line, with the full URL in the tooltip", async ({ 
     .evaluate((el) => el.scrollWidth > el.clientWidth);
   expect(cut).toBe(false);
   await expect(catalogRow(page, "dead").getByTestId("catalog-user")).toHaveText("dead-admin");
+  // A long name stays beside its colour swatch, level with the rest of the row.
+  for (const id of ["kind-kubeloupe-test", "dead"]) {
+    const name = await catalogRow(page, id).getByTestId("catalog-name").boundingBox();
+    const status = await catalogRow(page, id).getByTestId("catalog-status").locator("span").first().boundingBox();
+    expect(Math.abs(name!.y - status!.y), `${id}'s name on the row's first line`).toBeLessThan(4);
+  }
 });
 
 test("source paths wrap only after a slash", async ({ page }) => {
