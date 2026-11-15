@@ -75,6 +75,8 @@ changed, and no browser opens. The login shell environment import is off
 | resize the window | `resizeWindow(app, w, h)` (`lib/window.mjs`) | `terminal` |
 | several windows | `openNewWindow`, `switchTo`, `windowHandles`, `windowTitles`, `selectContext` (`lib/window.mjs`) | `multi-window` |
 | close the app like a user (WM_DELETE_WINDOW, so its exit path runs; WebDriver's Close Window kills it) | `closeLikeUser(pid)` (`lib/window.mjs`, `lib/wm-close.py`), `appPid(home)` (`lib/dock.mjs`) | `area-4-node-shell` |
+| close one window like a user (WebDriver's Close Window on a second window drops the webview but leaves the native window open), read native window titles (WebDriver's title is the page's `<title>`) | `closeLikeUser(pid, { title })`, `x11Titles(pid)` (`lib/window.mjs`) | `area-5-windows` |
+| keys WebDriver can't send (the Menu key) | `pressX11Keys(pid, "Menu")` (`lib/window.mjs`, `lib/xkey.py`, XTEST) | `area-5-keyboard` |
 | the dock: tabs, panes, drag/maximize, log lines and status | `dockTabs`, `activateTab`, `closeTab`, `dockControl`, `dragDock`, `pane`, `paneTerminal`, `openPodLogs`, `logLines`, `logStatus`, `panelButton`, `pressCtrl` (`lib/dock.mjs`) | `area-4-dock`, `area-4-logs` |
 | switch context without a second cluster | `aliasKubeconfig()` (`lib/dock.mjs`): the test context plus an alias of it | `area-4-dock`, `area-4-port-forwards` |
 | "Open in browser" | `app.profile.opened()` (the `xdg-open` recorder) | `port-forward` |
