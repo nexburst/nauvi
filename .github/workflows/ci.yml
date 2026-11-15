@@ -33,6 +33,34 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  # The unit and CLI tests on the other desktop platforms (#118). The
+  # cluster tests stay #[ignore]d.
+  test-other-os:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.7.8
+        with:
+          # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The local-shell test runs kubectl in a PTY (Unix only); the macOS
+      # image has no kubectl.
+      - name: Install kubectl (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          version=$(curl -fsSL https://dl.k8s.io/release/stable.txt)
+          curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/$version/bin/darwin/arm64/kubectl" \
+            || sudo curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/$version/bin/darwin/arm64/kubectl"
+          sudo chmod +x /usr/local/bin/kubectl
+          kubectl version --client
+      - run: cargo test --workspace --locked
+
   desktop-build:
     name: desktop build (${{ matrix.os }})
     strategy:

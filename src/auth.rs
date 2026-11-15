@@ -205,7 +205,8 @@ mod tests {
 
     #[test]
     fn not_found_lists_path() {
-        let msg = not_found_message("aws", "prod", "/usr/bin:/bin");
+        let path = std::env::join_paths(["/usr/bin", "/bin"]).unwrap();
+        let msg = not_found_message("aws", "prod", path.to_str().unwrap());
         assert!(msg.starts_with(LOGIN_FAILED), "{msg}");
         assert!(msg.contains("`aws`"), "{msg}");
         assert!(msg.contains("`prod`"), "{msg}");
