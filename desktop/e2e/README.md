@@ -74,6 +74,9 @@ changed, and no browser opens. The login shell environment import is off
 | type into xterm, read its screen, `stty size` | `terminal(app).type()`, `.screen()`, `.waitFor()`, `.run(cmd)`, `.size()` (`lib/terminal.mjs`) | `terminal`, `local-shell` |
 | resize the window | `resizeWindow(app, w, h)` (`lib/window.mjs`) | `terminal` |
 | several windows | `openNewWindow`, `switchTo`, `windowHandles`, `windowTitles`, `selectContext` (`lib/window.mjs`) | `multi-window` |
+| close the app like a user (WM_DELETE_WINDOW, so its exit path runs; WebDriver's Close Window kills it) | `closeLikeUser(pid)` (`lib/window.mjs`, `lib/wm-close.py`), `appPid(home)` (`lib/dock.mjs`) | `area-4-node-shell` |
+| the dock: tabs, panes, drag/maximize, log lines and status | `dockTabs`, `activateTab`, `closeTab`, `dockControl`, `dragDock`, `pane`, `paneTerminal`, `openPodLogs`, `logLines`, `logStatus`, `panelButton`, `pressCtrl` (`lib/dock.mjs`) | `area-4-dock`, `area-4-logs` |
+| switch context without a second cluster | `aliasKubeconfig()` (`lib/dock.mjs`): the test context plus an alias of it | `area-4-dock`, `area-4-port-forwards` |
 | "Open in browser" | `app.profile.opened()` (the `xdg-open` recorder) | `port-forward` |
 | the clipboard | `readSystemClipboard()` (xclip / xsel / wl-paste on the app's display), `hookClipboard` + `waitForClipboard` (falls back to a page hook) (`lib/clipboard.mjs`) | `port-forward` |
 | downloads | `app.profile.downloads`, `app.profile.waitForDownload(/re/)` | `logs-download` |

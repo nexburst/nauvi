@@ -1,6 +1,9 @@
 // Window size and the app's several windows (#45). WebDriver commands go
 // to the current window; switch with `switchTo`.
 
+import { execFileSync } from "node:child_process";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { By } from "selenium-webdriver";
 import { byTestId } from "./app.mjs";
 
@@ -78,4 +81,50 @@ export async function selectContext(app, context) {
   await app.waitFor(async () => (await select.getAttribute("value")) === context, {
     message: `context select on ${context}`,
   });
+}
+
+/**
+ * X11 windows of process `pid` that take WM_DELETE_WINDOW and are shown
+ * (Linux, $DISPLAY; uses xwininfo and xprop). Returns hex ids.
+ */
+export function x11Windows(pid) {
+  const run = (cmd, args) => execFileSync(cmd, args, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  const ids = [...run("xwininfo", ["-root", "-children"]).matchAll(/^\s+(0x[0-9a-f]+)/gim)].map((m) => m[1]);
+  return ids.filter((id) => {
+    try {
+      const props = run("xprop", ["-id", id, "_NET_WM_PID", "WM_PROTOCOLS"]);
+      if (!new RegExp(`_NET_WM_PID\\(CARDINAL\\) = ${pid}\\b`).test(props) || !props.includes("WM_DELETE_WINDOW")) return false;
+      return /Map State: IsViewable/.test(run("xwininfo", ["-id", id]));
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** Why `closeLikeUser` cannot work here (a string), or false when it can. */
+export function cannotCloseLikeUser() {
+  if (process.platform !== "linux") return "closing like a user needs X11 (Linux)";
+  if (!process.env.DISPLAY) return "no $DISPLAY";
+  for (const tool of ["xwininfo", "xprop", "python3"]) {
+    try {
+      execFileSync("sh", ["-c", `command -v ${tool}`], { stdio: "ignore" });
+    } catch {
+      return `no ${tool} (x11-utils / python3) to close the window like a user`;
+    }
+  }
+  return false;
+}
+
+/**
+ * Close the app's windows the way a window manager's close button does
+ * (WM_DELETE_WINDOW, lib/wm-close.py), so the app's own close and exit
+ * handlers run. WebDriver's Close Window on the last window ends the session
+ * and kills the app instead. Returns the window ids; throws when the app
+ * has no window to close (or the X tools are missing).
+ */
+export function closeLikeUser(pid) {
+  const ids = x11Windows(pid);
+  if (ids.length === 0) throw new Error(`no X11 window of pid ${pid} on ${process.env.DISPLAY}`);
+  execFileSync("python3", [join(dirname(fileURLToPath(import.meta.url)), "wm-close.py"), ...ids], { stdio: "inherit" });
+  return ids;
 }
