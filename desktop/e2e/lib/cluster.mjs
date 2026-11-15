@@ -95,8 +95,24 @@ export function tempNamespace(prefix, yaml = "") {
     ["apply", "-f", "-"],
     `apiVersion: v1\nkind: Namespace\nmetadata:\n  name: ${namespace}\n  labels:\n    kubeloupe-e2e: "true"\n`,
   );
+  // Pods are refused until the controller manager has made the default
+  // ServiceAccount, which can take a while on a busy cluster.
+  waitDefaultServiceAccount(namespace);
   if (yaml) kubectl(["-n", namespace, "apply", "-f", "-"], yaml);
   return namespace;
+}
+
+function waitDefaultServiceAccount(namespace, timeoutMs = 240_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      kubectl(["-n", namespace, "get", "serviceaccount", "default", "-o", "name"]);
+      return;
+    } catch (e) {
+      if (Date.now() > deadline) throw new Error(`no default ServiceAccount in ${namespace}: ${e.message}`);
+      execFileSync("sleep", ["0.5"]);
+    }
+  }
 }
 
 export function deleteNamespace(namespace) {
