@@ -74,12 +74,16 @@ changed, and no browser opens. The login shell environment import is off
 | type into xterm, read its screen, `stty size` | `terminal(app).type()`, `.screen()`, `.waitFor()`, `.run(cmd)`, `.size()` (`lib/terminal.mjs`) | `terminal`, `local-shell` |
 | resize the window | `resizeWindow(app, w, h)` (`lib/window.mjs`) | `terminal` |
 | several windows | `openNewWindow`, `switchTo`, `windowHandles`, `windowTitles`, `selectContext` (`lib/window.mjs`) | `multi-window` |
+| close the app like a user (WM_DELETE_WINDOW, so its exit path runs; WebDriver's Close Window kills it) | `closeLikeUser(pid)` (`lib/window.mjs`, `lib/wm-close.py`), `appPid(home)` (`lib/dock.mjs`) | `area-4-node-shell` |
+| the dock: tabs, panes, drag/maximize, log lines and status | `dockTabs`, `activateTab`, `closeTab`, `dockControl`, `dragDock`, `pane`, `paneTerminal`, `openPodLogs`, `logLines`, `logStatus`, `panelButton`, `pressCtrl` (`lib/dock.mjs`) | `area-4-dock`, `area-4-logs` |
+| switch context without a second cluster | `aliasKubeconfig()` (`lib/dock.mjs`): the test context plus an alias of it | `area-4-dock`, `area-4-port-forwards` |
 | "Open in browser" | `app.profile.opened()` (the `xdg-open` recorder) | `port-forward` |
 | the clipboard | `readSystemClipboard()` (xclip / xsel / wl-paste on the app's display), `hookClipboard` + `waitForClipboard` (falls back to a page hook) (`lib/clipboard.mjs`) | `port-forward` |
 | downloads | `app.profile.downloads`, `app.profile.waitForDownload(/re/)` | `logs-download` |
 | restart with the same settings | `app.restart({ beforeStart })`, `app.profile.settings()`, `.writeSettings()` | `persistence` |
 | pause the control plane | `withControlPlanePaused(fn, { maxMs })`, `cannotPause()` (`lib/control-plane.mjs`) | `reconnect` |
 | command palette | `app.palette(query, option)` | `local-shell` |
+| the table's rows by column, the error banner, the namespace picker | `tableData`, `bannerText`, `pickNamespaces`, `openNamespacePicker`, `namespaceOptions`, `namespaceChips`, `namespaceLabel` (`lib/table.mjs`) | `area-1-tables`, `area-1-namespaces` |
 | temp objects | `tempNamespace(prefix, yaml)`, `deleteNamespace`, `httpPodYaml`, `loggerPodYaml`, `waitPodReady`, `contexts()` (`lib/cluster.mjs`) | most |
 
 The pause is guarded four ways, because the cluster is shared: `finally`, a
@@ -100,6 +104,11 @@ you change in a temporary namespace (`tempNamespace`) and delete it in
 the cluster may not have (the limited user, helm, Prometheus, a second
 cluster, docker access), skip it with the reason instead of failing. Use
 `data-testid`s where they exist; adding one to a component is fine.
+
+A check that fails because of a filed bug becomes its own test with
+`{ todo: "#<bug>: <what>" }`: it still runs, the report lists it as a known
+bug (🐞) with its error, and it does not fail the run. Drop the `todo` when
+the fix lands.
 
 Known quirks of WebKitWebDriver: `getText()` sometimes returns nothing for
 elements inside tables, so read `innerText` with `app.js(...)`; clicks need

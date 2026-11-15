@@ -22,6 +22,8 @@ User-facing docs are in `README.md`; the plan is the roadmap issue #24.
 - `scripts/test-cluster/`: `setup.sh` (kind cluster, metrics-server),
   `demo.yaml` (the demo workload), `limited-user.sh` (a namespace-scoped
   user, opt-in) and `prometheus.yaml` (CI only, see below).
+- `scripts/dev/`: `capped.sh` (run a command under a memory ceiling) and
+  `clean-worktrees.sh` (remove merged agent worktrees).
 
 ## Rules
 
@@ -162,6 +164,41 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
   each other's artifacts.
 - All agents share one kind cluster. Keep tests in their own namespaces, and
   don't run two node-level tests at once.
+- Name scratch files uniquely (prefix them with your issue number). Agents
+  share a scratch directory, and a generic `pr.md` has been overwritten by
+  another agent and pushed as the wrong PR body.
+
+### Machine resources
+
+The dev box is small (4 cores, 15 GB RAM). Builds of this workspace and real-app
+runs (Xvfb + WebKitGTK) each take several GB; five at once got the whole
+session killed by systemd-oomd.
+
+- At most **two** agents should build or run the app at the same time.
+  Check `free -h` before a build; wait if "available" is under ~4 GB.
+- Run heavy commands under a memory ceiling, so a runaway one is killed alone:
+  `scripts/dev/capped.sh cargo test --workspace`,
+  `CAP=4G scripts/dev/capped.sh desktop/e2e/qa.sh <scenario>`.
+- Builds already share compiled dependencies through `sccache` and run two
+  rustc jobs at a time (user cargo config); don't override that.
+- Each worktree's `target/` grows to several GB. When your PR is merged, the
+  coordinator removes merged worktrees with `scripts/dev/clean-worktrees.sh
+  --yes` (dry run without `--yes`).
+
+## Definition of done
+
+A change to the desktop app is done when:
+
+1. The CI checks above pass, including the cluster tests.
+2. Playwright tests (fake backend) cover the new UI.
+3. **A real-app QA scenario** in `desktop/e2e/qa/` exercises the feature in
+   WebKitGTK against kind, and you ran it with `desktop/e2e/qa.sh` and
+   **looked at the screenshots** (layout at 1280x800, light and dark theme,
+   empty and error states). Say in the PR which scenario and what you saw.
+4. Anything you could not check (macOS, Windows, real managed clusters) is
+   listed under **Not verified**.
+
+Bugs found in your own feature are fixed in the same PR, not filed for later.
 
 ## Branches and PRs
 
