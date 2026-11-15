@@ -303,6 +303,15 @@ impl AppState {
         );
     }
 
+    /// A window opens again under a label that was closed (macOS: the main
+    /// window after a Dock click, #174): a fresh session on the remembered
+    /// context.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub(crate) fn reopen(&self, label: &str) {
+        self.gone.lock().unwrap().remove(label);
+        self.open(label, None);
+    }
+
     /// The window `label` is gone: close its session. Returns the terminal
     /// sessions still to close.
     pub(crate) fn close(&self, label: &str) -> Vec<ExecSession> {
@@ -448,6 +457,22 @@ mod tests {
             state.contexts(MAIN_WINDOW),
             vec![("cluster-1".to_string(), Some("staging".to_string()))]
         );
+    }
+
+    #[test]
+    fn a_reopened_window_gets_a_live_session_again() {
+        let state = AppState::default();
+        let first = state.session(MAIN_WINDOW);
+        state.close(MAIN_WINDOW);
+        // Closed: late calls get a throwaway closed session.
+        assert!(!Arc::ptr_eq(
+            &state.session(MAIN_WINDOW),
+            &state.session(MAIN_WINDOW)
+        ));
+        state.reopen(MAIN_WINDOW);
+        let again = state.session(MAIN_WINDOW);
+        assert!(Arc::ptr_eq(&again, &state.session(MAIN_WINDOW)));
+        assert!(!Arc::ptr_eq(&first, &again));
     }
 
     #[test]
