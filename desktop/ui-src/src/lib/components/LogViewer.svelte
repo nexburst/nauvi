@@ -12,6 +12,7 @@
     ALL_CONTAINERS,
     LogBuffer,
     LOG_BUFFER_MAX,
+    lineCountLabel,
     logMatches,
     offerAllContainers,
     splitHighlights,
@@ -108,7 +109,7 @@
   const podNames = $derived(Object.keys(podStates).sort());
   const status = $derived(
     statusNote ||
-      (paused ? "paused · " : "") + lineCount.toLocaleString() + (lineCount >= LOG_BUFFER_MAX ? "+" : "") + " lines",
+      (paused ? "paused · " : "") + lineCountLabel(lineCount),
   );
 
   function isAtBottom(): boolean {
