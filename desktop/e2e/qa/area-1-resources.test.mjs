@@ -175,11 +175,18 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     const { app } = s;
     await waitLive(app);
     // Open the API group folds (Custom Resources, Other), and take each
-    // label once (metrics.k8s.io has its own Nodes and Pods).
+    // label once (metrics.k8s.io has its own Nodes and Pods). Views that are
+    // not a kind's table are left out: the Overviews, Port Forwards and the
+    // Helm section.
     const labels = await app.js(
       `document.querySelectorAll("nav details").forEach((d) => (d.open = true));
-       const all = Array.from(document.querySelectorAll("nav button"), (b) => b.childNodes[0]?.textContent.trim() ?? "")
-         .filter((l) => l && l !== "Overview" && l !== "Port Forwards" && l !== "Releases");
+       let section = "";
+       const all = [];
+       for (const el of document.querySelectorAll("nav h4, nav button")) {
+         if (el.tagName === "H4") { section = el.textContent.trim(); continue; }
+         const label = el.childNodes[0]?.textContent.trim() ?? "";
+         if (label && section !== "Helm" && label !== "Overview" && label !== "Port Forwards") all.push(label);
+       }
        return [...new Set(all)];`,
     );
     console.log(`kinds: ${labels.length}: ${labels.join(", ")}`);
