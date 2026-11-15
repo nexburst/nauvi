@@ -152,6 +152,17 @@ pub(crate) fn window_destroyed(app: &AppHandle, label: &str) {
 
 /// Run node shell cleanups and wait for them, bounded, so a dead cluster
 /// cannot keep the app from exiting.
+/// Before the app quits (or an update's installer replaces it): write
+/// settings changed in the last moments, and stop what windows still have
+/// open (kill the local shells, delete their temp kubeconfigs and the node
+/// shell pods).
+pub(crate) fn before_exit(app: &AppHandle) {
+    if let Some(store) = app.try_state::<Arc<SettingsStore>>() {
+        store.flush();
+    }
+    run_cleanups_now(app.state::<AppState>().close_all());
+}
+
 pub(crate) fn run_cleanups_now(cleanups: Vec<SessionCleanup>) {
     if cleanups.is_empty() {
         return;

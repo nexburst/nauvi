@@ -7,6 +7,8 @@
   import { currentContextName } from "../stores/app.svelte";
   import { closeSettings } from "../stores/keyboard.svelte";
   import { applyAppearance, contextSettings, settings, updateContext, updateSettings } from "../stores/settings.svelte";
+  import { checkForUpdates, updates } from "../stores/updates.svelte";
+  import { checkSummary } from "../updates";
 
   /** The Settings page (gear in the header, Mod+, or the palette). Every
    *  change applies and is saved at once. */
@@ -162,6 +164,38 @@
       <p class="muted hint">
         Usage charts show 1h, 6h and 24h from Prometheus, through the API server's service proxy. Leave empty to detect
         it, type namespace/service:port to choose one, or off to use only metrics-server.
+      </p>
+    </fieldset>
+
+    <fieldset data-testid="update-settings">
+      <legend>Updates</legend>
+      <label class="choice">
+        <input
+          type="checkbox"
+          checked={current.check_updates}
+          onchange={(e) => updateSettings({ check_updates: e.currentTarget.checked })}
+        />
+        Check for updates on start
+      </label>
+      <div class="row">
+        <span class="muted status" data-testid="update-status">
+          {#if updates.checking}
+            Checking…
+          {:else if updates.checkError}
+            {updates.checkError}
+          {:else if updates.check}
+            {checkSummary(updates.check)}
+          {:else}
+            Not checked yet.
+          {/if}
+        </span>
+        <button type="button" class="btn" disabled={updates.checking} onclick={() => checkForUpdates(false)}
+          >Check for updates</button
+        >
+      </div>
+      <p class="muted hint">
+        The check asks GitHub for the latest release. Nothing is downloaded or installed until you click Install and
+        restart.
       </p>
     </fieldset>
 
