@@ -251,7 +251,8 @@ pub async fn watch_and_print(
     let kinds = resources::discover(client).await?;
     let kind = resources::resolve_kind(&kinds, resource)
         .with_context(|| format!("unknown resource type: {resource}"))?;
-    let (_store, updates) = watch::watch_resource(client, kind, namespace);
+    let prober = crate::liveness::Prober::new(client.clone());
+    let (_store, updates) = watch::watch_resource(client, &prober, kind, namespace);
     run_batched(updates, DEFAULT_FLUSH, print).await;
     Ok(())
 }

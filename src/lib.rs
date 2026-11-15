@@ -28,6 +28,7 @@ pub mod catalog;
 pub mod debug;
 pub mod errors;
 pub mod helm;
+pub mod liveness;
 pub mod node_shell;
 pub mod poll;
 pub mod resources;

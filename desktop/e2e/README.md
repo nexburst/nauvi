@@ -90,10 +90,10 @@ The pause is guarded four ways, because the cluster is shared: `finally`, a
 timer (`maxMs`, 60 s by default), process exit/signal handlers, and a marker
 file that `qa.sh`'s exit trap unpauses from. `docker pause` needs access to
 the Docker socket; without it `reconnect` is skipped with the reason. A
-paused API server never answers, so the app only notices when a watch times
-out (up to about 5 minutes); `QA_PAUSE_MAX_MS` caps the pause (45 s by
-default, too short to see "Reconnecting…"; qa.yml, on its own cluster, uses
-6 minutes).
+paused API server never answers; the watches' liveness guard
+(`src/liveness.rs`) notices within about 23 s, and `reconnect` expects
+"Reconnecting…" within 30 s. `QA_PAUSE_MAX_MS` caps the pause (45 s by
+default; `reconnect` skips if it is under 35 s).
 
 ### Writing a scenario
 

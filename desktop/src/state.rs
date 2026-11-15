@@ -9,6 +9,7 @@ use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
 use kube::api::TerminalSize;
 use kube::Client;
+use kubeloupe::liveness::Prober;
 use kubeloupe::resources::ResourceKind;
 use kubeloupe::UsageHistory;
 use kubeloupe::{client_for_context_with, client_for_target, ContextTarget};
@@ -87,8 +88,9 @@ pub(crate) struct ClusterSession {
     /// Where context ids are looked up (shared by all windows).
     sources: Arc<KubeconfigSources>,
     /// Client for the selected context, built lazily and dropped when the
-    /// context changes. `Client` is cheap to clone.
-    client: tokio::sync::Mutex<Option<Client>>,
+    /// context changes, with the liveness prober all its watches share
+    /// (#90). Both are cheap to clone.
+    client: tokio::sync::Mutex<Option<(Client, Prober)>>,
     /// Running log streams (pod and workload), by stream id.
     pub(crate) log_streams: LogStreams,
     /// Open terminal sessions, by session id.
@@ -141,6 +143,12 @@ impl ClusterSession {
 
     /// The cached client for the selected context, building it on first use.
     pub(crate) async fn client(&self) -> Result<Client, String> {
+        Ok(self.watch_client().await?.0)
+    }
+
+    /// [`Self::client`] and the prober its watches share, so the API server
+    /// is probed about once per 10 s however many watches are open.
+    pub(crate) async fn watch_client(&self) -> Result<(Client, Prober), String> {
         let mut slot = self.client.lock().await;
         if let Some(c) = slot.as_ref() {
             return Ok(c.clone());
@@ -152,6 +160,7 @@ impl ClusterSession {
             Some(id) => client_for_target(&self.sources.resolve(Some(&id))?, false).await,
         }
         .map_err(|e| kubeloupe::error_text(&e))?;
+        let c = (c.clone(), Prober::new(c));
         *slot = Some(c.clone());
         Ok(c)
     }

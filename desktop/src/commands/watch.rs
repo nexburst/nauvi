@@ -89,10 +89,10 @@ pub(crate) async fn cmd_watch_start(
     resource: ResourceRef,
     namespace: Option<String>,
 ) -> Result<String, String> {
-    let client = cluster.client().await?;
+    let (client, prober) = cluster.watch_client().await?;
     let kind = kind_of(&cluster, &client, &resource).await?;
     let id = next_session("watch");
-    let (_store, updates) = watch::watch_resource(&client, &kind, namespace.as_deref());
+    let (_store, updates) = watch::watch_resource(&client, &prober, &kind, namespace.as_deref());
     let task = tauri::async_runtime::spawn(pump_watch(cluster.emitter(), id.clone(), updates));
     cluster.add_watch(id.clone(), task);
     Ok(id)
@@ -108,12 +108,13 @@ pub(crate) async fn cmd_detail_watch(
     namespace: String,
     name: String,
 ) -> Result<String, String> {
-    let client = cluster.client().await?;
+    let (client, prober) = cluster.watch_client().await?;
     let id = next_session("detail");
     let watch_id = id.clone();
     let out = cluster.emitter();
     let task = tauri::async_runtime::spawn(resources::run_detail_watch(
         client,
+        prober,
         resource,
         namespace,
         name,

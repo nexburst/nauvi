@@ -43,9 +43,9 @@ pub(crate) async fn cmd_workloads_start(
     id: u32,
     namespaces: Vec<String>,
 ) -> Result<(), String> {
-    let client = cluster.client().await?;
+    let (client, prober) = cluster.watch_client().await?;
     let out = cluster.emitter();
-    let mut updates = watch_workloads(&client, &namespaces);
+    let mut updates = watch_workloads(&client, &prober, &namespaces);
     let task = tauri::async_runtime::spawn(async move {
         while let Some(update) = updates.next().await {
             match update {

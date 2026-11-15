@@ -325,7 +325,12 @@ async fn pod_rows_mark_problems_from_the_watch() -> Result<()> {
     }
 
     // The snapshot, or a later change of the pod, marks it too.
-    let (_store, mut updates) = watch_resource(&client, pods, Some("demo"));
+    let (_store, mut updates) = watch_resource(
+        &client,
+        &kubeloupe::liveness::Prober::new(client.clone()),
+        pods,
+        Some("demo"),
+    );
     let mut seen = false;
     tokio::time::timeout(TIMEOUT, async {
         while let Some(u) = updates.next().await {

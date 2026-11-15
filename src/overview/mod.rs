@@ -146,7 +146,8 @@ pub struct Overview {
 /// (`None` = the context's namespace) or left out; only an error other than
 /// a 403 fails the whole call.
 pub async fn get_overview(client: &Client, namespace: Option<&str>) -> Result<Overview> {
-    let mut updates = watch_overview(client, namespace);
+    let prober = crate::liveness::Prober::new(client.clone());
+    let mut updates = watch_overview(client, &prober, namespace);
     while let Some(update) = updates.next().await {
         match update {
             OverviewUpdate::Summary(overview) => return Ok(*overview),
@@ -165,7 +166,8 @@ pub async fn get_workloads_overview(
     client: &Client,
     namespaces: &[String],
 ) -> Result<WorkloadsOverview> {
-    let mut updates = watch_workloads(client, namespaces);
+    let prober = crate::liveness::Prober::new(client.clone());
+    let mut updates = watch_workloads(client, &prober, namespaces);
     while let Some(update) = updates.next().await {
         match update {
             WorkloadsUpdate::Summary(overview) => return Ok(*overview),

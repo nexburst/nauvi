@@ -10,6 +10,7 @@ use super::live::{api, config, trim_events, Keyed, Part, THROTTLE};
 use super::summary;
 use super::workloads::{self, WorkloadSummary, WorkloadsOverview, LABELS};
 use super::EventInfo;
+use crate::liveness::Prober;
 use crate::resources::WORKLOAD_KINDS;
 use crate::watch::{watch_summaries, Update, WatchState};
 use futures::stream::{self, BoxStream, SelectAll};
@@ -39,12 +40,14 @@ pub enum WorkloadsUpdate {
 
 /// Watch the workloads in `namespaces` (empty: all namespaces, falling
 /// back to the context's namespace for kinds the user may not list across
-/// the cluster). The stream never ends on its own; drop it to stop.
+/// the cluster). `prober` is shared by the connection's watches
+/// ([`crate::liveness`]). The stream never ends on its own; drop it to stop.
 pub fn watch_workloads(
     client: &Client,
+    prober: &Prober,
     namespaces: &[String],
 ) -> BoxStream<'static, WorkloadsUpdate> {
-    let live = Live::new(client.clone(), namespaces);
+    let live = Live::new(client.clone(), prober.clone(), namespaces);
     stream::unfold(live, |mut live| async move {
         let next = live.next().await;
         Some((next, live))
@@ -59,7 +62,13 @@ enum Msg {
     Events(usize, Update<Keyed<EventInfo>>),
 }
 
-fn typed<K>(client: &Client, kind: usize, ns: Option<&str>, part: usize) -> BoxStream<'static, Msg>
+fn typed<K>(
+    client: &Client,
+    prober: &Prober,
+    kind: usize,
+    ns: Option<&str>,
+    part: usize,
+) -> BoxStream<'static, Msg>
 where
     K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope, DynamicType = ()>
         + Clone
@@ -69,7 +78,7 @@ where
         + Send
         + 'static,
 {
-    watch_summaries(api::<K>(client, ns), config(), move |o: &K| {
+    watch_summaries(api::<K>(client, ns), prober, config(), move |o: &K| {
         let v = serde_json::to_value(o).unwrap_or_default();
         let s = workloads::workload_summary(kind, &v);
         (format!("{}/{}", s.namespace, s.name), s)
@@ -81,24 +90,30 @@ where
 /// The watch of `WORKLOAD_KINDS[kind]` in `ns` (`None`: all namespaces).
 fn kind_stream(
     client: &Client,
+    prober: &Prober,
     kind: usize,
     ns: Option<&str>,
     part: usize,
 ) -> BoxStream<'static, Msg> {
     match kind {
-        0 => typed::<Pod>(client, kind, ns, part),
-        1 => typed::<Deployment>(client, kind, ns, part),
-        2 => typed::<DaemonSet>(client, kind, ns, part),
-        3 => typed::<StatefulSet>(client, kind, ns, part),
-        4 => typed::<ReplicaSet>(client, kind, ns, part),
-        5 => typed::<Job>(client, kind, ns, part),
-        _ => typed::<CronJob>(client, kind, ns, part),
+        0 => typed::<Pod>(client, prober, kind, ns, part),
+        1 => typed::<Deployment>(client, prober, kind, ns, part),
+        2 => typed::<DaemonSet>(client, prober, kind, ns, part),
+        3 => typed::<StatefulSet>(client, prober, kind, ns, part),
+        4 => typed::<ReplicaSet>(client, prober, kind, ns, part),
+        5 => typed::<Job>(client, prober, kind, ns, part),
+        _ => typed::<CronJob>(client, prober, kind, ns, part),
     }
 }
 
-fn events_stream(client: &Client, ns: Option<&str>, part: usize) -> BoxStream<'static, Msg> {
+fn events_stream(
+    client: &Client,
+    prober: &Prober,
+    ns: Option<&str>,
+    part: usize,
+) -> BoxStream<'static, Msg> {
     let config = config().fields("type=Warning");
-    watch_summaries(api::<Event>(client, ns), config, |e: &Event| {
+    watch_summaries(api::<Event>(client, ns), prober, config, |e: &Event| {
         let info = summary::event_info(e);
         (info.key.clone(), info)
     })
@@ -108,6 +123,7 @@ fn events_stream(client: &Client, ns: Option<&str>, part: usize) -> BoxStream<'s
 
 struct Live {
     client: Client,
+    prober: Prober,
     /// The namespaces picked (empty: all namespaces).
     picked: Vec<String>,
     /// Where an all-namespaces watch falls back to after a 403.
@@ -126,7 +142,7 @@ struct Live {
 }
 
 impl Live {
-    fn new(client: Client, namespaces: &[String]) -> Self {
+    fn new(client: Client, prober: Prober, namespaces: &[String]) -> Self {
         let scopes: Vec<Option<String>> = if namespaces.is_empty() {
             vec![None]
         } else {
@@ -137,7 +153,13 @@ impl Live {
         let mut kind_of = Vec::new();
         for (kind, label) in LABELS.iter().enumerate() {
             for scope in &scopes {
-                streams.push(kind_stream(&client, kind, scope.as_deref(), parts.len()));
+                streams.push(kind_stream(
+                    &client,
+                    &prober,
+                    kind,
+                    scope.as_deref(),
+                    parts.len(),
+                ));
                 let mut part = Part::new(label, true);
                 // A part already in a namespace is left out on a 403.
                 part.scope = scope.clone();
@@ -147,7 +169,12 @@ impl Live {
         }
         let mut events = Vec::new();
         for scope in &scopes {
-            streams.push(events_stream(&client, scope.as_deref(), events.len()));
+            streams.push(events_stream(
+                &client,
+                &prober,
+                scope.as_deref(),
+                events.len(),
+            ));
             let mut part = Part::new("Events", true);
             part.scope = scope.clone();
             events.push(part);
@@ -155,6 +182,7 @@ impl Live {
         Self {
             fallback: client.default_namespace().to_string(),
             client,
+            prober,
             picked: namespaces.to_vec(),
             streams: stream::select_all(streams),
             parts,
@@ -198,8 +226,13 @@ impl Live {
                 Err(()) => {
                     if self.parts[i].refused(&fallback) {
                         let kind = self.kind_of[i];
-                        self.streams
-                            .push(kind_stream(&self.client, kind, Some(&fallback), i));
+                        self.streams.push(kind_stream(
+                            &self.client,
+                            &self.prober,
+                            kind,
+                            Some(&fallback),
+                            i,
+                        ));
                     }
                     true
                 }
@@ -213,8 +246,12 @@ impl Live {
                 }
                 Err(()) => {
                     if self.events[i].refused(&fallback) {
-                        self.streams
-                            .push(events_stream(&self.client, Some(&fallback), i));
+                        self.streams.push(events_stream(
+                            &self.client,
+                            &self.prober,
+                            Some(&fallback),
+                            i,
+                        ));
                     }
                     true
                 }

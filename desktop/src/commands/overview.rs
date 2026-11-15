@@ -43,9 +43,9 @@ pub(crate) async fn cmd_overview_start(
     id: u32,
     namespace: Option<String>,
 ) -> Result<(), String> {
-    let client = cluster.client().await?;
+    let (client, prober) = cluster.watch_client().await?;
     let out = cluster.emitter();
-    let mut updates = watch_overview(&client, namespace.as_deref());
+    let mut updates = watch_overview(&client, &prober, namespace.as_deref());
     let task = tauri::async_runtime::spawn(async move {
         while let Some(update) = updates.next().await {
             match update {

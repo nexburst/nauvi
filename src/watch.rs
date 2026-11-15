@@ -2,17 +2,21 @@
 //!
 //! [`watch`] turns a watcher (with `.default_backoff()`, so it re-lists after
 //! a 410 Gone and reconnects after a network drop) into a stream of
-//! [`Update`]s of display-ready summaries. [`run_batched`] coalesces those
+//! [`Update`]s of display-ready summaries. Each watcher runs under a
+//! [`crate::liveness`] guard, so an API server that stops answering without
+//! closing the connection shows as Reconnecting within about 25 s instead of
+//! after kube's 5-minute read timeout. [`run_batched`] coalesces those
 //! into at most one [`Batch`] per interval, which is what a UI wants instead
 //! of one event per object.
 
+use crate::liveness::{guard_client, Guarded, Prober};
 use crate::resources::{make_row, ResourceKind, ResourceRow};
 use crate::{namespace_info, node_info, pod_info, NamespaceInfo, NodeInfo, PodInfo};
 use futures::stream::{self, BoxStream};
 use futures::{Stream, StreamExt};
 use k8s_openapi::api::core::v1::{Namespace, Node, Pod};
 use kube::api::DynamicObject;
-use kube::runtime::reflector::{self, Store};
+use kube::runtime::reflector::Store;
 use kube::runtime::watcher::{self, Event};
 use kube::runtime::WatchStreamExt;
 use kube::{Api, Client, Resource};
@@ -270,16 +274,7 @@ impl<T> Tracker<T> {
                     error: crate::errors::api_message(&e),
                 }));
             }
-            Err(e) => {
-                // Only report the first failure of a streak.
-                if !self.failing {
-                    self.failing = true;
-                    self.live = false;
-                    out.push(Update::State(WatchState::Reconnecting {
-                        error: crate::errors::chain_text(&e),
-                    }));
-                }
-            }
+            Err(e) => return self.lost(crate::errors::chain_text(&e)),
             Ok(event) => {
                 self.failing = false;
                 match event {
@@ -304,6 +299,28 @@ impl<T> Tracker<T> {
         out
     }
 
+    /// The watch failed, or its [`crate::liveness`] guard gave up on the
+    /// connection. Only the first failure of a streak is reported.
+    fn lost(&mut self, error: String) -> Vec<Update<T>> {
+        if self.failing {
+            return Vec::new();
+        }
+        self.failing = true;
+        self.live = false;
+        vec![Update::State(WatchState::Reconnecting { error })]
+    }
+
+    fn guarded<K>(
+        &mut self,
+        event: Guarded<Result<Event<K>, watcher::Error>>,
+        convert: &impl Fn(&K) -> T,
+    ) -> Vec<Update<T>> {
+        match event {
+            Guarded::Item(event) => self.step(event, convert),
+            Guarded::Lost(error) => self.lost(error),
+        }
+    }
+
     /// The watch resumed after an error without needing a re-list.
     fn mark_live(&mut self, out: &mut Vec<Update<T>>) {
         if !self.live {
@@ -321,9 +338,11 @@ impl<T> Tracker<T> {
 ///
 /// `dyntype` is the kind's dynamic type (`()` for typed resources, an
 /// `ApiResource` for `DynamicObject`), so one watcher serves both the typed
-/// pod/node/namespace watches and any discovered kind.
+/// pod/node/namespace watches and any discovered kind. `prober` is shared
+/// by every watch of the connection ([`crate::liveness`]).
 pub fn watch_with<K, T>(
     api: Api<K>,
+    prober: &Prober,
     dyntype: K::DynamicType,
     convert: impl Fn(&K) -> T + Send + 'static,
 ) -> (Store<K>, BoxStream<'static, Update<T>>)
@@ -332,12 +351,13 @@ where
     K::DynamicType: Eq + Hash + Clone + Send + Sync + Unpin,
     T: Send + 'static,
 {
-    watch_with_config(api, dyntype, watcher::Config::default(), convert)
+    watch_with_config(api, prober, dyntype, watcher::Config::default(), convert)
 }
 
 /// [`watch_with`] with a custom watcher config (label/field selectors).
 pub fn watch_with_config<K, T>(
     api: Api<K>,
+    prober: &Prober,
     dyntype: K::DynamicType,
     config: watcher::Config,
     convert: impl Fn(&K) -> T + Send + 'static,
@@ -347,11 +367,36 @@ where
     K::DynamicType: Eq + Hash + Clone + Send + Sync + Unpin,
     T: Send + 'static,
 {
-    let writer = reflector::store::Writer::new(dyntype);
+    let mut writer = kube::runtime::reflector::store::Writer::new(dyntype);
     let store = writer.as_reader();
-    let events =
-        reflector::reflector(writer, watcher::watcher(api, config).default_backoff()).boxed();
+    // What `reflector::reflector` does, outside the guard: the guard starts
+    // a new watcher after a lost connection, and the store must outlive it.
+    let events = guarded_watcher(api, prober, config)
+        .map(move |event| {
+            if let Guarded::Item(Ok(ev)) = &event {
+                writer.apply_watcher_event(ev);
+            }
+            event
+        })
+        .boxed();
     (store, track(events, convert))
+}
+
+/// A watcher (with backoff) on `api`, restarted by a [`crate::liveness`]
+/// guard when the API server stops answering.
+pub fn guarded_watcher<K>(
+    api: Api<K>,
+    prober: &Prober,
+    config: watcher::Config,
+) -> BoxStream<'static, Guarded<Result<Event<K>, watcher::Error>>>
+where
+    K: Resource + Clone + DeserializeOwned + Debug + Send + 'static,
+{
+    guard_client(prober, move || {
+        watcher::watcher(api.clone(), config.clone())
+            .default_backoff()
+            .boxed()
+    })
 }
 
 /// Like [`watch_with_config`], but without a reflector store: only the
@@ -359,6 +404,7 @@ where
 /// For consumers that fold the updates into their own state (the overview).
 pub fn watch_summaries<K, T>(
     api: Api<K>,
+    prober: &Prober,
     config: watcher::Config,
     convert: impl Fn(&K) -> T + Send + 'static,
 ) -> BoxStream<'static, Update<T>>
@@ -366,16 +412,13 @@ where
     K: Resource + Clone + DeserializeOwned + Debug + Send + 'static,
     T: Send + 'static,
 {
-    track(
-        watcher::watcher(api, config).default_backoff().boxed(),
-        convert,
-    )
+    track(guarded_watcher(api, prober, config), convert)
 }
 
 /// Turn raw watcher events into [`Update`]s: [`WatchState::Connecting`]
 /// first, and the end right after a 403.
 fn track<K, T>(
-    events: BoxStream<'static, Result<Event<K>, watcher::Error>>,
+    events: BoxStream<'static, Guarded<Result<Event<K>, watcher::Error>>>,
     convert: impl Fn(&K) -> T + Send + 'static,
 ) -> BoxStream<'static, Update<T>>
 where
@@ -397,7 +440,7 @@ where
                 return None;
             }
             let event = events.next().await?;
-            let out = t.step(event, &convert);
+            let out = t.guarded(event, &convert);
             Some((out, (events, t, convert)))
         },
     )
@@ -409,12 +452,16 @@ where
 }
 
 /// [`watch_with`] for a typed resource.
-pub fn watch<K, T>(api: Api<K>, convert: fn(&K) -> T) -> (Store<K>, BoxStream<'static, Update<T>>)
+pub fn watch<K, T>(
+    api: Api<K>,
+    prober: &Prober,
+    convert: fn(&K) -> T,
+) -> (Store<K>, BoxStream<'static, Update<T>>)
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + Debug + Send + Sync + 'static,
     T: Send + 'static,
 {
-    watch_with(api, (), convert)
+    watch_with(api, prober, (), convert)
 }
 
 /// Whether the server can watch `kind`: it lists the `watch` verb.
@@ -427,19 +474,21 @@ pub fn can_watch(kind: &ResourceKind) -> bool {
 /// verb is listed every [`crate::poll::POLL_INTERVAL`] instead.
 pub fn watch_resource(
     client: &Client,
+    prober: &Prober,
     kind: &ResourceKind,
     namespace: Option<&str>,
 ) -> (
     Store<DynamicObject>,
     BoxStream<'static, Update<ResourceRow>>,
 ) {
-    poll_resource(client, kind, namespace, crate::poll::POLL_INTERVAL)
+    poll_resource(client, prober, kind, namespace, crate::poll::POLL_INTERVAL)
 }
 
 /// [`watch_resource`], with the time between lists for a kind that cannot
 /// be watched.
 pub fn poll_resource(
     client: &Client,
+    prober: &Prober,
     kind: &ResourceKind,
     namespace: Option<&str>,
     interval: Duration,
@@ -452,32 +501,35 @@ pub fn poll_resource(
     let resource = kind.resource.clone();
     let convert = move |o: &DynamicObject| make_row(&resource, &columns, o);
     if can_watch(kind) {
-        watch_with(api, kind.resource.api_resource(), convert)
+        watch_with(api, prober, kind.resource.api_resource(), convert)
     } else {
-        crate::poll::poll_with(api, kind.resource.api_resource(), interval, convert)
+        crate::poll::poll_with(api, prober, kind.resource.api_resource(), interval, convert)
     }
 }
 
 pub fn watch_pods(
     client: &Client,
+    prober: &Prober,
     namespace: Option<&str>,
 ) -> (Store<Pod>, BoxStream<'static, Update<PodInfo>>) {
     let api: Api<Pod> = match namespace {
         Some(ns) => Api::namespaced(client.clone(), ns),
         None => Api::all(client.clone()),
     };
-    watch(api, pod_info)
+    watch(api, prober, pod_info)
 }
 
 /// Watch the pods in `namespace` matching a label `selector`.
 pub fn watch_pods_selected(
     client: &Client,
+    prober: &Prober,
     namespace: &str,
     selector: &str,
 ) -> (Store<Pod>, BoxStream<'static, Update<PodInfo>>) {
     let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
     watch_with_config(
         api,
+        prober,
         (),
         watcher::Config::default().labels(selector),
         pod_info,
@@ -488,26 +540,32 @@ pub fn watch_pods_selected(
 /// recreated with the same name).
 pub fn watch_pod_named(
     client: &Client,
+    prober: &Prober,
     namespace: &str,
     name: &str,
 ) -> (Store<Pod>, BoxStream<'static, Update<PodInfo>>) {
     let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
     watch_with_config(
         api,
+        prober,
         (),
         watcher::Config::default().fields(&format!("metadata.name={name}")),
         pod_info,
     )
 }
 
-pub fn watch_nodes(client: &Client) -> (Store<Node>, BoxStream<'static, Update<NodeInfo>>) {
-    watch(Api::all(client.clone()), node_info)
+pub fn watch_nodes(
+    client: &Client,
+    prober: &Prober,
+) -> (Store<Node>, BoxStream<'static, Update<NodeInfo>>) {
+    watch(Api::all(client.clone()), prober, node_info)
 }
 
 pub fn watch_namespaces(
     client: &Client,
+    prober: &Prober,
 ) -> (Store<Namespace>, BoxStream<'static, Update<NamespaceInfo>>) {
-    watch(Api::all(client.clone()), namespace_info)
+    watch(Api::all(client.clone()), prober, namespace_info)
 }
 
 #[cfg(test)]
@@ -648,6 +706,33 @@ mod tests {
         let out = t.step(Ok(Event::Apply("b".to_string())), &conv);
         assert_eq!(out.last(), Some(&Update::State(WatchState::Live)));
         assert!(!t.done);
+    }
+
+    #[test]
+    fn a_lost_connection_reconnects_once_and_a_new_list_goes_live() {
+        let mut t = Tracker::<String> {
+            init: vec![],
+            live: false,
+            failing: false,
+            done: false,
+        };
+        let conv = |s: &String| s.clone();
+        t.guarded(Guarded::Item(Ok(Event::InitDone)), &conv);
+        let lost = || Guarded::Lost("The API server is not answering".into());
+        assert_eq!(
+            t.guarded(lost(), &conv),
+            vec![Update::State(WatchState::Reconnecting {
+                error: "The API server is not answering".into()
+            })]
+        );
+        assert!(t.guarded(lost(), &conv).is_empty());
+        // The guard starts a new watcher, which lists everything again.
+        t.guarded(Guarded::Item(Ok(Event::Init)), &conv);
+        let out = t.guarded(Guarded::Item(Ok(Event::InitDone)), &conv);
+        assert_eq!(
+            out,
+            vec![Update::Snapshot(vec![]), Update::State(WatchState::Live)]
+        );
     }
 
     #[test]

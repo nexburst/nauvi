@@ -966,7 +966,12 @@ async fn generic_watch_sees_configmap_changes() -> Result<()> {
     in_temp_ns("kl-it-gwatch", |client, ns| async move {
         let kind = kind_named(&client, "configmaps").await?;
         let r = &kind.resource;
-        let (_store, mut updates) = kubeloupe::watch::watch_resource(&client, &kind, Some(&ns));
+        let (_store, mut updates) = kubeloupe::watch::watch_resource(
+            &client,
+            &kubeloupe::liveness::Prober::new(client.clone()),
+            &kind,
+            Some(&ns),
+        );
         // Wait for the initial snapshot so the changes below are live events.
         within("initial snapshot", TIMEOUT, async {
             while let Some(u) = updates.next().await {
@@ -1037,7 +1042,12 @@ async fn kinds_without_watch_are_listed_instead() -> Result<()> {
         "verbs: {:?}",
         kind.verbs
     );
-    let (store, mut updates) = kubeloupe::watch::watch_resource(&client, &kind, None);
+    let (store, mut updates) = kubeloupe::watch::watch_resource(
+        &client,
+        &kubeloupe::liveness::Prober::new(client.clone()),
+        &kind,
+        None,
+    );
     let names = within("componentstatuses listed", TIMEOUT, async {
         let mut names = None;
         while let Some(u) = updates.next().await {
@@ -1073,8 +1083,13 @@ async fn polled_kind_sees_creates_and_deletes() -> Result<()> {
         let mut kind = kind_named(&client, "configmaps").await?;
         kind.verbs.retain(|v| v != "watch");
         let r = kind.resource.clone();
-        let (_store, mut updates) =
-            kubeloupe::watch::poll_resource(&client, &kind, Some(&ns), Duration::from_secs(1));
+        let (_store, mut updates) = kubeloupe::watch::poll_resource(
+            &client,
+            &kubeloupe::liveness::Prober::new(client.clone()),
+            &kind,
+            Some(&ns),
+            Duration::from_secs(1),
+        );
         within("first list", TIMEOUT, async {
             while let Some(u) = updates.next().await {
                 if matches!(u, Update::Snapshot(_)) {
@@ -1136,7 +1151,11 @@ async fn metrics_become_available() -> Result<()> {
 #[ignore]
 async fn watch_pods_sees_create_and_delete() -> Result<()> {
     in_temp_ns("kl-it-watch", |client, ns| async move {
-        let (_store, mut updates) = kubeloupe::watch::watch_pods(&client, Some(&ns));
+        let (_store, mut updates) = kubeloupe::watch::watch_pods(
+            &client,
+            &kubeloupe::liveness::Prober::new(client.clone()),
+            Some(&ns),
+        );
         // Wait for the initial (empty) snapshot so the pod is a live event.
         within("initial snapshot", TIMEOUT, async {
             while let Some(u) = updates.next().await {
@@ -1821,7 +1840,11 @@ fn pods_in(ov: &kubeloupe::Overview, ns: &str) -> usize {
 #[ignore]
 async fn live_overview_follows_a_pod_without_polling() -> Result<()> {
     in_temp_ns("kl-it-ov", |client, ns| async move {
-        let mut updates = watch_overview(&client, None);
+        let mut updates = watch_overview(
+            &client,
+            &kubeloupe::liveness::Prober::new(client.clone()),
+            None,
+        );
         let first = overview_until("first summary", &mut updates, |_| true).await?;
         ensure!(first.notes.is_empty(), "{:?}", first.notes);
         ensure!(pods_in(&first, &ns) == 0);
@@ -1901,7 +1924,7 @@ async fn overview_events_are_warnings_linked_to_their_object() -> Result<()> {
         events
             .create(&PostParams::default(), &serde_json::from_value(normal)?)
             .await?;
-        let mut updates = watch_overview(&client, None);
+        let mut updates = watch_overview(&client, &kubeloupe::liveness::Prober::new(client.clone()), None);
         overview_until("first summary", &mut updates, |_| true).await?;
         events.create(&PostParams::default(), &event).await?;
         let ov = overview_until("warning listed", &mut updates, |ov| {
@@ -2068,7 +2091,12 @@ async fn limited_user_forbidden_watch_stops() -> Result<()> {
     let pods = kind_named(&client, "pods").await?;
 
     // In its namespace: the watch goes live.
-    let (_store, mut updates) = kubeloupe::watch::watch_resource(&client, &pods, Some(LIMITED_NS));
+    let (_store, mut updates) = kubeloupe::watch::watch_resource(
+        &client,
+        &kubeloupe::liveness::Prober::new(client.clone()),
+        &pods,
+        Some(LIMITED_NS),
+    );
     within("live watch in team-a", TIMEOUT, async {
         while let Some(u) = updates.next().await {
             match u {
@@ -2082,7 +2110,12 @@ async fn limited_user_forbidden_watch_stops() -> Result<()> {
     .await?;
 
     // Across the cluster: one Forbidden, then the stream ends (no retries).
-    let (_store, updates) = kubeloupe::watch::watch_resource(&client, &pods, None);
+    let (_store, updates) = kubeloupe::watch::watch_resource(
+        &client,
+        &kubeloupe::liveness::Prober::new(client.clone()),
+        &pods,
+        None,
+    );
     let all: Vec<_> = within("forbidden watch ends", TIMEOUT, async {
         Ok(updates.collect::<Vec<_>>().await)
     })
@@ -2206,6 +2239,7 @@ async fn detail_watch_sends_updates_and_deleted() -> Result<()> {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let watch = tokio::spawn(resources::run_detail_watch(
             client.clone(),
+            kubeloupe::liveness::Prober::new(client.clone()),
             pod_ref(),
             ns.clone(),
             "p".into(),
@@ -2819,7 +2853,7 @@ async fn workloads_until(
 #[ignore]
 async fn workloads_overview_counts_kinds_by_status() -> Result<()> {
     in_temp_ns("kl-it-wl", |client, ns| async move {
-        let mut updates = kubeloupe::watch_workloads(&client, std::slice::from_ref(&ns));
+        let mut updates = kubeloupe::watch_workloads(&client, &kubeloupe::liveness::Prober::new(client.clone()), std::slice::from_ref(&ns));
         let first = workloads_until("first summary", &mut updates, |_| true).await?;
         ensure!(first.notes.is_empty(), "{:?}", first.notes);
         ensure!(first.kinds.len() == 7, "{:?}", first.kinds);
