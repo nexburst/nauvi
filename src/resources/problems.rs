@@ -12,8 +12,7 @@ use super::ResourceRef;
 use crate::overview::PENDING_TOO_LONG_SECS;
 use serde_json::Value;
 
-/// Waiting reasons that are part of a normal start, not an error.
-const STARTING: [&str; 2] = ["ContainerCreating", "PodInitializing"];
+use super::status::STARTING;
 
 /// Why the object is a problem, in a few words; empty if it is fine or its
 /// kind has no notion of a problem. `created` and `now` are unix seconds

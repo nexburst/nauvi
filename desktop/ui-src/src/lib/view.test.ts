@@ -23,15 +23,15 @@ const KIND: ResourceKind = {
   actions: [],
 };
 
-function entry(namespace: string, name: string, restarts: string, created: number): Entry<ResourceRow> {
-  const row = { key: `${namespace}/${name}`, name, namespace, created, cells: [name, restarts, ""], problem: "" };
+function entry(namespace: string, name: string, restarts: string, created: number, status = "Running"): Entry<ResourceRow> {
+  const row = { key: `${namespace}/${name}`, name, namespace, created, cells: [name, restarts, ""], status, problem: "" };
   return { key: row.key, row, hay: `${namespace}\0${name}\0${restarts}`.toLowerCase() };
 }
 
 const ENTRIES = [
   entry("prod", "web-b", "10", 300),
   entry("dev", "Web-A", "2", 100),
-  entry("prod", "db", "0", 200),
+  entry("prod", "db", "0", 200, "Pending"),
 ];
 const CTX: Ctx = { metrics: EMPTY_METRICS, now: 1_000_000 };
 const cols = columnsFor(KIND);
@@ -79,5 +79,12 @@ describe("visibleEntries", () => {
   it("filters before sorting", () => {
     const sorted = visibleEntries(ENTRIES, "prod", { key: "restarts", dir: "desc" }, cols, CTX);
     expect(keys(sorted)).toEqual(["prod/web-b", "prod/db"]);
+  });
+
+  it("filters by status, with the search text", () => {
+    expect(keys(visibleEntries(ENTRIES, "", null, cols, CTX, "Pending"))).toEqual(["prod/db"]);
+    expect(keys(visibleEntries(ENTRIES, "web", null, cols, CTX, "Running"))).toEqual(["dev/Web-A", "prod/web-b"]);
+    expect(keys(visibleEntries(ENTRIES, "web", null, cols, CTX, "Pending"))).toEqual([]);
+    expect(visibleEntries(ENTRIES, "", null, cols, CTX, "")).toHaveLength(3);
   });
 });

@@ -26,6 +26,8 @@
   import HelmConfirm from "./lib/components/helm/HelmConfirm.svelte";
   import { helm } from "./lib/stores/helm.svelte";
   import { HELM_VIEW } from "./lib/helm";
+  import WorkloadsOverview from "./lib/components/WorkloadsOverview.svelte";
+  import { WORKLOADS_VIEW } from "./lib/workloads";
   import { dock } from "./lib/stores/dock.svelte";
   import { isPod } from "./lib/columns";
   import {
@@ -98,6 +100,8 @@
       <Overview />
     {:else if app.view === HELM_VIEW}
       <HelmView />
+    {:else if app.view === WORKLOADS_VIEW}
+      <WorkloadsOverview />
     {:else if app.view === PORT_FORWARDS_VIEW}
       <PortForwards />
     {:else if kind}

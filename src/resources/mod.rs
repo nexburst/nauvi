@@ -20,6 +20,7 @@
 //! - `problems`: which rows need attention (row highlights, sidebar badges)
 //! - `rbac`: what Roles, bindings and ServiceAccounts say (cells, rules,
 //!   which bindings point at a role or an account)
+//! - `status`: the status of a workload object (overview counts, filters)
 //! - `table`: `kubectl get`-style table output for the CLI
 
 mod apply;
@@ -37,6 +38,7 @@ mod related;
 mod related_crd;
 mod related_local;
 mod related_summary;
+mod status;
 mod table;
 
 pub use apply::{apply_manifests, cli_apply, ApplyResult, ApplyStatus, ManifestOptions};
@@ -55,6 +57,7 @@ pub use pod_detail::{
 };
 pub use problems::row_problem;
 pub use related::{get_related, related_objects, Fact, Related, RelatedGroup, RelatedItem};
+pub use status::{classify, pod_status_of, statuses_of, WorkloadStatus, STARTING, WORKLOAD_KINDS};
 pub use table::{align_columns, render_table, table_cells, table_header};
 
 use columns::Source;
@@ -191,6 +194,10 @@ pub struct ResourceRow {
     /// Creation time (unix seconds).
     pub created: i64,
     pub cells: Vec<String>,
+    /// The workload status the Workloads overview counts this object under
+    /// ([`WorkloadStatus::as_str`]), so a click on a count can filter the
+    /// table; "" for kinds that are not workloads.
+    pub status: String,
     /// Why the object needs attention (`CrashLoopBackOff`, `1 of 3 ready`);
     /// empty if it is fine ([`problems::row_problem`]).
     pub problem: String,

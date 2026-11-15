@@ -113,6 +113,9 @@
         <MetaSection {info} />
         {#if target.resource.group === "" && target.resource.kind === "Node"}
           <UsageCharts what="nodes" namespace={null} name={target.name} />
+        {:else if isWorkload}
+          <!-- All its pods, summed (#79). -->
+          <UsageCharts workload={target.resource.kind} namespace={target.namespace} name={target.name} />
         {/if}
         {#if target.resource.group === "" && target.resource.kind === "Service"}
           <ServicePorts namespace={target.namespace} name={target.name} disabled={live.deleted} />
