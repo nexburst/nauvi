@@ -279,7 +279,7 @@ fn show_args(what: &str, chart: &str, version: &str) -> Vec<String> {
 }
 
 /// A chart version's metadata, README and default values (`helm show`),
-/// fetched together. `version` empty means the newest.
+/// fetched one after another. `version` empty means the newest.
 pub async fn chart_details(chart: &str, version: &str) -> Result<HelmChartDetails> {
     check_word("chart name", chart)?;
     if !version.is_empty() {
@@ -290,11 +290,13 @@ pub async fn chart_details(chart: &str, version: &str) -> Result<HelmChartDetail
         show_args("readme", chart, version),
         show_args("values", chart, version),
     );
-    let (meta, readme, values) = futures::join!(
-        run_helm_with_input(&meta_args, None, None),
-        run_helm_with_input(&readme_args, None, None),
-        run_helm_with_input(&values_args, None, None),
-    );
+    // One after another: each `helm show` downloads the chart into the shared
+    // repository cache and renames its temp file over the cached one; on
+    // Windows that rename fails ("Access denied") while another helm process
+    // has the file open (#157).
+    let meta = run_helm_with_input(&meta_args, None, None).await;
+    let readme = run_helm_with_input(&readme_args, None, None).await;
+    let values = run_helm_with_input(&values_args, None, None).await;
     let fail = |e: anyhow::Error| anyhow!("Cannot show chart {chart}: {e}");
     let meta: ChartYaml = serde_yaml::from_str(&meta.map_err(fail)?)
         .with_context(|| format!("cannot read the Chart.yaml of {chart}"))?;
