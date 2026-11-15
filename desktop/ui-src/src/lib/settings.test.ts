@@ -4,6 +4,7 @@ import {
   clampWidth,
   contextToRestore,
   defaultSettings,
+  EMPTY_CONTEXT,
   DEFAULT_DETAIL_WIDTH,
   MIN_DETAIL_WIDTH,
   namespacesToRestore,
@@ -35,7 +36,7 @@ describe("applyPatch", () => {
 
   it("does not change the settings it was given", () => {
     const before = defaultSettings();
-    applyPatch(before, { contexts: { x: { view: "v1/pods", namespaces: [], typed_namespaces: [], prometheus: "" } } });
+    applyPatch(before, { contexts: { x: { ...EMPTY_CONTEXT, view: "v1/pods" } } });
     expect(before.contexts).toEqual({});
   });
 });

@@ -52,7 +52,8 @@ impl Default for LogDefaults {
     }
 }
 
-/// What is remembered per kubeconfig context.
+/// What is remembered per kubeconfig context, by context id (#78), and set
+/// on its cluster settings page.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default)]
 pub(crate) struct ContextSettings {
@@ -65,6 +66,17 @@ pub(crate) struct ContextSettings {
     /// The Prometheus Service for usage charts (#47): `""` detects one,
     /// `"off"` turns it off, else `namespace/service:port`.
     pub(crate) prometheus: String,
+    /// Shown instead of the context id (`""`: the id).
+    pub(crate) display_name: String,
+    /// A CSS colour marking the cluster (`""`: none).
+    pub(crate) color: String,
+    /// The namespace to start in when none is remembered (`""`: all
+    /// namespaces if allowed, else the context's own).
+    pub(crate) default_namespace: String,
+    /// Where local shells start (`""`: the home directory; `~` expands).
+    pub(crate) shell_cwd: String,
+    /// When a window last connected to it, epoch milliseconds (0: never).
+    pub(crate) last_used: u64,
 }
 
 /// What is remembered per kind (by kind id).
@@ -98,6 +110,12 @@ pub(crate) struct Settings {
     /// the app quit, reopened on start (`""`: the kubeconfig's
     /// current-context). Kept up to date by the backend.
     pub(crate) windows: Vec<String>,
+    /// Kubeconfig files and folders added in the catalog (#78), pasted
+    /// files included. Changed only through the catalog commands.
+    pub(crate) kubeconfig_sources: Vec<String>,
+    /// Pinned context ids, in order: first in the context selector and the
+    /// palette.
+    pub(crate) favourites: Vec<String>,
 }
 
 impl Default for Settings {
@@ -113,6 +131,8 @@ impl Default for Settings {
             contexts: BTreeMap::new(),
             kinds: BTreeMap::new(),
             windows: Vec::new(),
+            kubeconfig_sources: Vec::new(),
+            favourites: Vec::new(),
         }
     }
 }
@@ -139,6 +159,8 @@ pub(crate) struct SettingsPatch {
     pub(crate) kinds: Option<BTreeMap<String, KindSettings>>,
     #[specta(optional)]
     pub(crate) windows: Option<Vec<String>>,
+    #[specta(optional)]
+    pub(crate) favourites: Option<Vec<String>>,
 }
 
 impl Settings {
@@ -163,6 +185,9 @@ impl Settings {
         }
         if let Some(v) = patch.windows {
             self.windows = v;
+        }
+        if let Some(v) = patch.favourites {
+            self.favourites = v;
         }
         self.contexts.extend(patch.contexts.unwrap_or_default());
         self.kinds.extend(patch.kinds.unwrap_or_default());
@@ -283,9 +308,14 @@ impl SettingsStore {
     /// Apply `patch` now; the file follows after `WRITE_DELAY` without
     /// further changes.
     pub(crate) fn update(self: &Arc<Self>, patch: SettingsPatch) -> Settings {
+        self.modify(|s| s.apply(patch))
+    }
+
+    /// Change the settings with `change`, saved like [`Self::update`].
+    pub(crate) fn modify(self: &Arc<Self>, change: impl FnOnce(&mut Settings)) -> Settings {
         let next = {
             let mut cur = self.current.lock().unwrap();
-            cur.apply(patch);
+            change(&mut cur);
             cur.clone()
         };
         self.dirty.store(true, Ordering::SeqCst);
@@ -409,10 +439,17 @@ mod tests {
                     namespaces: vec!["demo".into()],
                     typed_namespaces: vec!["team-a".into()],
                     prometheus: "monitoring/prometheus-k8s:web".into(),
+                    display_name: "Dev".into(),
+                    color: "#3b82f6".into(),
+                    default_namespace: "demo".into(),
+                    shell_cwd: "~/src".into(),
+                    last_used: 1_700_000_000_000,
                 },
             )])),
+            favourites: Some(vec!["kind".into(), "prod (work.yaml)".into()]),
             ..Default::default()
         });
+        s.kubeconfig_sources = vec!["/home/u/kc".into()];
         save(&path, &s).unwrap();
         assert_eq!(load(&path), s);
         assert!(!path.with_file_name("settings.json.tmp").exists());

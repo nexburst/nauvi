@@ -135,6 +135,16 @@ pub fn shell_kubeconfig_env_here(temp: &Path) -> OsString {
     )
 }
 
+/// The `KUBECONFIG` value for a shell at a catalog context (#78): `temp`
+/// then `source`, the added kubeconfig file the context comes from, or this
+/// process's default kubeconfig when `source` is `None`.
+pub fn shell_kubeconfig_env_for(temp: &Path, source: Option<&Path>) -> OsString {
+    match source {
+        Some(file) => shell_kubeconfig_env(temp, Some(file.as_os_str()), None, cfg!(windows)),
+        None => shell_kubeconfig_env_here(temp),
+    }
+}
+
 static NEXT_FILE: AtomicU64 = AtomicU64::new(1);
 
 /// A temp kubeconfig file, readable only by the user (`0600`), deleted when

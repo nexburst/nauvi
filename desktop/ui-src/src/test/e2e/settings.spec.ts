@@ -84,6 +84,11 @@ test("what no longer exists falls back safely", async ({ page }) => {
       namespaces: ["gone"],
       typed_namespaces: [],
       prometheus: "",
+      display_name: "",
+      color: "",
+      default_namespace: "",
+      shell_cwd: "",
+      last_used: 0,
     };
   });
   // No switch to a context that is gone, the overview instead of a kind

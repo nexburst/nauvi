@@ -5,8 +5,8 @@ use crate::state::{spawn_cleanups, Cluster};
 use crate::windows;
 use kubeloupe::resources::{self, AccessResult, ResourceKind, ResourceRef};
 use kubeloupe::{
-    default_namespace, get_node_metrics, get_pod_metrics, list_contexts,
-    list_namespaces_if_allowed, ContextInfo, NamespaceInfo, NodeUsage, PodUsage, Spark,
+    default_namespace, get_node_metrics, get_pod_metrics, list_namespaces_if_allowed, ContextInfo,
+    NamespaceInfo, NodeUsage, PodUsage, Spark,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -110,10 +110,16 @@ pub(crate) async fn cmd_check_access(
     Ok(resources::check_access(&client, &kinds, namespace.as_deref()).await)
 }
 
+/// Every context of the catalog (#78): the default kubeconfig's, then those
+/// of the added files and folders, each with a unique id (`name`). The
+/// calling window's context is `current`.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_list_contexts(cluster: Cluster) -> Result<Vec<ContextInfo>, String> {
-    let mut contexts = list_contexts().await.map_err(|e| e.to_string())?;
+pub(crate) async fn cmd_list_contexts(
+    cluster: Cluster,
+    state: tauri::State<'_, crate::state::AppState>,
+) -> Result<Vec<ContextInfo>, String> {
+    let mut contexts = state.sources.catalog().contexts;
     if let Some(selected) = cluster.selected_context() {
         for ctx in &mut contexts {
             ctx.current = ctx.name == selected;
