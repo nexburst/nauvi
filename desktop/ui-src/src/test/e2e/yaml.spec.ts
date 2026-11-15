@@ -412,3 +412,28 @@ test("after typing, the editor is back at its left edge: column-0 keys aren't cu
   });
   expect(edges.text).toBeGreaterThanOrEqual(edges.gutter);
 });
+
+test("closing the window or quitting with unsaved edits asks first (#173)", async ({ page }) => {
+  const fake = await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  const lastReport = async () => (await fake.calls("cmdSetUnsaved")).at(-1);
+  // Nothing unsaved yet: the backend is told so.
+  await expect.poll(lastReport).toEqual({ unsaved: false });
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  await expect.poll(lastReport).toEqual({ unsaved: true });
+  const dialog = page.getByRole("alertdialog", { name: "Discard changes?" });
+
+  // The backend stopped a close: Keep editing leaves the window open.
+  await page.evaluate(() => window.__fake.emitUnsavedCloseRequested(false));
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Keep editing" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(editor).toContainText("replicas: 5");
+  expect(await fake.calls("cmdDiscardAndClose")).toHaveLength(0);
+
+  // A stopped quit: Discard goes on quitting.
+  await page.evaluate(() => window.__fake.emitUnsavedCloseRequested(true));
+  await dialog.getByRole("button", { name: "Discard changes" }).click();
+  await expect.poll(() => fake.calls("cmdDiscardAndClose")).toEqual([{ quit: true }]);
+  await expect.poll(lastReport).toEqual({ unsaved: false });
+});

@@ -318,12 +318,23 @@ export const commands = {
 	/**  Stop a table watch or a detail watch. */
 	cmdWatchStop: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_watch_stop", { id }, options),
 	/**
+	 *  The user discarded this window's unsaved edits after an
+	 *  `UnsavedCloseRequested`: go on closing the window (`quit`: quitting the
+	 *  app).
+	 */
+	cmdDiscardAndClose: (quit: boolean, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_discard_and_close", { quit }, options),
+	/**
 	 *  Open a new window connected to `context` (`""`: the kubeconfig's
 	 *  current-context), with the context's name as its title. Its streams,
 	 *  terminals and forwards are its own: switching or closing another window
 	 *  does not touch them.
 	 */
 	cmdOpenWindow: (context: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_open_window", { context }, options),
+	/**
+	 *  This window has (or no longer has) unsaved edits: closing it or quitting
+	 *  the app asks first (#173, `close_guard.rs`).
+	 */
+	cmdSetUnsaved: (unsaved: boolean, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_set_unsaved", { unsaved }, options),
 	/**
 	 *  The summed usage history of a workload's pods (`kind` is Deployment,
 	 *  StatefulSet, DaemonSet, ReplicaSet or Job), for the charts in its detail
@@ -356,6 +367,7 @@ export const events = {
 	podLog: makeEvent<PodLog, PodLog>("pod-log"),
 	podLogDone: makeEvent<PodLogDone, PodLogDone>("pod-log-done"),
 	podLogError: makeEvent<PodLogError, PodLogError>("pod-log-error"),
+	unsavedCloseRequested: makeEvent<UnsavedCloseRequested, UnsavedCloseRequested>("unsaved-close-requested"),
 	updateProgress: makeEvent<UpdateProgress, UpdateProgress>("update-progress"),
 	watchBatch: makeEvent<WatchBatch, WatchBatch>("watch-batch"),
 	watchState: makeEvent<WatchStateChanged, WatchStateChanged>("watch-state"),
@@ -1749,6 +1761,15 @@ export type TaggedLine = {
 export type Theme = 
 /**  Follow the system's light or dark preference. */
 "system" | "dark" | "light";
+
+/**
+ *  Closing this window (`quit`: quitting the app) was stopped because it has
+ *  unsaved edits: ask the user, and call `cmd_discard_and_close` if they
+ *  discard them.
+ */
+export type UnsavedCloseRequested = {
+	quit: boolean,
+};
 
 /**  What a check found. Fields that do not apply are empty. */
 export type UpdateCheck = {

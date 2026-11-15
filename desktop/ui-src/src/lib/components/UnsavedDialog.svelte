@@ -1,5 +1,10 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
+  import { startCloseGuard } from "../stores/close-guard";
   import { answerDiscard, unsaved } from "../stores/unsaved.svelte";
+
+  // Closing the window or quitting asks here too (#173).
+  onDestroy(startCloseGuard());
 
   /** "Keep editing" is the safe default: focused, and what Escape does. */
   function focus(node: HTMLElement) {

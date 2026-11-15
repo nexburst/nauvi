@@ -12,5 +12,8 @@ export function windowHandlers(s: FakeState) {
       saveSettings(s, applyPatch(s.cluster.settings, { windows: [...s.cluster.settings.windows, context] }));
       return null;
     },
+    // Unsaved edits block closing the window (#173); tests read the calls.
+    cmdSetUnsaved: () => {},
+    cmdDiscardAndClose: () => null,
   } satisfies AreaHandlers;
 }

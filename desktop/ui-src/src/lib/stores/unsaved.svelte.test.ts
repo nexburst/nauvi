@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { answerDiscard, confirmDiscard, hasUnsaved, markSaved, markUnsaved, unsaved, whenDiscarded } from "./unsaved.svelte";
+import {
+  answerDiscard,
+  confirmDiscard,
+  hasUnsaved,
+  markSaved,
+  markUnsaved,
+  onUnsavedChange,
+  unsaved,
+  whenDiscarded,
+} from "./unsaved.svelte";
 
 afterEach(() => {
   markSaved("a");
@@ -48,5 +57,21 @@ describe("unsaved guard", () => {
     markSaved("b");
     expect(await confirmDiscard()).toBe(true);
     expect(unsaved.asking).toBe(false);
+  });
+});
+
+describe("onUnsavedChange", () => {
+  it("reports only when the window starts or stops having unsaved edits", () => {
+    const seen: boolean[] = [];
+    onUnsavedChange((u) => seen.push(u));
+    markUnsaved("a", () => {});
+    markUnsaved("b", () => {});
+    markSaved("a");
+    markSaved("b");
+    markUnsaved("a", () => {});
+    answerDiscard(true);
+    onUnsavedChange(null);
+    markUnsaved("a", () => {});
+    expect(seen).toEqual([true, false, true, false]);
   });
 });

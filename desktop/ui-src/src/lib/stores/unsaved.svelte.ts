@@ -9,15 +9,30 @@ export const unsaved = $state({ asking: false });
 /** Owner id → what to do when the user discards its edits. */
 const owners = new Map<string, () => void>();
 let waiting: ((discard: boolean) => void)[] = [];
+/** Told when the window starts or stops having unsaved edits. */
+let listener: ((hasUnsaved: boolean) => void) | null = null;
+
+/** Call `fn` whenever `hasUnsaved()` changes (`null`: stop). */
+export function onUnsavedChange(fn: ((hasUnsaved: boolean) => void) | null) {
+  listener = fn;
+}
+
+function changed(before: number) {
+  if (before > 0 !== owners.size > 0) listener?.(owners.size > 0);
+}
 
 /** `id` has unsaved edits; `onDiscard` runs if the user discards them. */
 export function markUnsaved(id: string, onDiscard: () => void) {
+  const before = owners.size;
   owners.set(id, onDiscard);
+  changed(before);
 }
 
 /** `id` has nothing unsaved (any more). */
 export function markSaved(id: string) {
+  const before = owners.size;
   owners.delete(id);
+  changed(before);
 }
 
 export function hasUnsaved(): boolean {
@@ -39,7 +54,9 @@ export function answerDiscard(discard: boolean) {
   unsaved.asking = false;
   if (discard) {
     const discards = [...owners.values()];
+    const before = owners.size;
     owners.clear();
+    changed(before);
     for (const fn of discards) fn();
   }
   const resolve = waiting;

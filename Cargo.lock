@@ -2521,6 +2521,7 @@ dependencies = [
  "futures",
  "kube",
  "kubeloupe",
+ "objc2",
  "portable-pty",
  "semver",
  "serde",

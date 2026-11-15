@@ -165,6 +165,7 @@ fn restorable(remembered: &[String], contexts: &[String]) -> Vec<String> {
 /// out, in an order the app doesn't choose, and only a window the user
 /// closed alone is forgotten.
 pub(crate) fn window_destroyed(app: &AppHandle, label: &str) {
+    crate::close_guard::forget(label);
     let sessions = app.state::<AppState>().close(label);
     let others = app.webview_windows().keys().any(|l| l != label);
     if others {
