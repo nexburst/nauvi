@@ -444,7 +444,8 @@ async fn body(client: &Client, server: &RepoServer, ns: &str) -> Result<()> {
     ensure!(
         e.to_string()
             .starts_with("Dry run of the upgrade of kl-none failed:")
-            && e.to_string().contains("release kl-none was not found in namespace"),
+            && e.to_string()
+                .contains("release kl-none was not found in namespace"),
         "{e}"
     );
 
