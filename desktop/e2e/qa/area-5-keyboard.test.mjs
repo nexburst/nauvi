@@ -110,7 +110,7 @@ describe("area 5: keyboard and command palette", { timeout: 15 * 60_000 }, () =>
     const input = await app.find(By.css('[data-testid="command-palette"] input[role="combobox"]'));
     await input.sendKeys("qa5w");
     await app.waitFor(
-      async () => (await app.js(`return document.querySelector('[data-testid="command-palette"] [role="option"]')?.textContent ?? ""`)).toLowerCase().includes("qaareafivewidget"),
+      async () => (await app.js(`return document.querySelector('[data-testid="command-palette"] [role="option"]')?.textContent ?? ""`)).toLowerCase().replace(/\s+/g, "").includes("qaareafivewidget"),
       { timeout: 30_000, message: "the CRD's kind by its short name" },
     );
     await app.shot("palette-crd");
