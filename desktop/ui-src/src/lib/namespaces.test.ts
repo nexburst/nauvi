@@ -49,10 +49,10 @@ describe("combineWatches", () => {
 
   it("keeps the single-watch messages", () => {
     expect(combineWatches([w(null, "live")], "Pods", true)).toEqual({ ok: true, text: "Live", error: "" });
-    expect(combineWatches([w(null, "reconnecting", "reset")], "Pods", true)).toEqual({
+    expect(combineWatches([w(null, "reconnecting", "Lost the connection to the cluster; retrying.")], "Pods", true)).toEqual({
       ok: false,
       text: "Reconnecting…",
-      error: "Watch interrupted, retrying: reset",
+      error: "Lost the connection to the cluster; retrying.",
     });
     expect(combineWatches([w(null, "forbidden", "403")], "Pods", true).error).toBe(
       "You can't list Pods across all namespaces. Pick a namespace you have access to. (403)",
@@ -84,8 +84,13 @@ describe("combineWatches", () => {
   });
 
   it("names the namespaces that are reconnecting or not allowed", () => {
-    const r = combineWatches([w("a", "live"), w("b", "reconnecting", "reset")], "Pods", true);
-    expect(r).toEqual({ ok: false, text: "Reconnecting… (b)", error: "Watch of b interrupted, retrying: reset" });
+    const r = combineWatches([w("a", "live"), w("b", "reconnecting", "reset; retrying.")], "Pods", true);
+    expect(r).toEqual({ ok: false, text: "Reconnecting… (b)", error: "b: reset; retrying." });
+
+    // One lost connection is one line, however many namespaces it cut off.
+    const lost = "Lost the connection to the cluster (https://127.0.0.1:6443); retrying.";
+    const both = combineWatches([w("a", "reconnecting", lost), w("b", "reconnecting", lost)], "Pods", true);
+    expect(both).toEqual({ ok: false, text: "Reconnecting… (a and b)", error: `a and b: ${lost}` });
 
     const f = combineWatches([w("a", "live"), w("b", "forbidden", "403")], "Pods", true);
     expect(f).toEqual({ ok: false, text: "Not allowed in b", error: "You can't list Pods in namespace b. (403)" });

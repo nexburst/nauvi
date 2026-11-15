@@ -32,6 +32,8 @@ pub const POLL_INTERVAL: Duration = Duration::from_secs(30);
 /// Turns the result of each list into [`Update`]s.
 struct Poller<T> {
     interval_secs: u32,
+    /// The API server's URL, for messages (`""`: unknown).
+    server: String,
     /// The rows of the last successful list, by key; `None` before the first.
     known: Option<HashMap<String, T>>,
     /// The last list failed (only the first failure of a streak is reported).
@@ -46,6 +48,7 @@ impl<T: Keyed + Clone> Poller<T> {
     fn new(interval: Duration) -> Self {
         Self {
             interval_secs: interval.as_secs().clamp(1, u64::from(u32::MAX)) as u32,
+            server: String::new(),
             known: None,
             failing: false,
             announced: false,
@@ -63,7 +66,10 @@ impl<T: Keyed + Clone> Poller<T> {
                 }));
                 return out;
             }
-            Err(e) => return self.lost(crate::errors::chain_text(&e)),
+            Err(e) => {
+                let text = crate::reconnect::failure_text(&e, &self.server);
+                return self.lost(text);
+            }
             Ok(rows) => rows,
         };
         self.failing = false;
@@ -122,7 +128,8 @@ where
 {
     let writer = reflector::store::Writer::new(dyntype);
     let store = writer.as_reader();
-    let poller = Poller::new(interval);
+    let mut poller = Poller::new(interval);
+    poller.server = prober.server().to_string();
     // A guard that lost the connection starts listing again, at once, when
     // the server answers.
     let lists = guard_client(prober, move || lists(api.clone(), interval));
@@ -133,7 +140,7 @@ where
                 return None;
             }
             let out = match lists.next().await? {
-                Guarded::Lost(error) => p.lost(error),
+                Guarded::Lost(error) => p.lost(crate::reconnect::retrying(&error)),
                 Guarded::Item(listed) => p.step(listed.map(|list| {
                     writer.apply_watcher_event(&Event::Init);
                     for o in &list.items {

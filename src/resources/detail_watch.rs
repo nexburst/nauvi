@@ -171,12 +171,13 @@ pub async fn run_detail_watch<F>(
                 None => break,
                 Some(Guarded::Item(Ok(ev))) => tracker.object(ev),
                 Some(Guarded::Item(Err(e))) => {
-                    if let Some(state) = tracker.failed(e.to_string()) {
+                    let text = crate::reconnect::failure_text(&e, prober.server());
+                    if let Some(state) = tracker.failed(text) {
                         sink(state);
                     }
                 }
                 Some(Guarded::Lost(error)) => {
-                    if let Some(state) = tracker.failed(error) {
+                    if let Some(state) = tracker.failed(crate::reconnect::retrying(&error)) {
                         sink(state);
                     }
                 }

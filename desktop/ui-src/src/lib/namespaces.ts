@@ -70,13 +70,16 @@ export function combineWatches(watches: readonly WatchStatus[], label: string, n
   if (watches.length === 1) return single(watches[0], label, namespaced);
   const of = (state: WatchStatus["state"]) => watches.filter((w) => w.state === state);
   const names = (ws: WatchStatus[]) => joinNames(ws.map((w) => w.namespace ?? ""));
-  const messages = watches.flatMap((w) => {
+  // The backend's text already says what failed and that it retries. Watches
+  // that lost the same connection say so once, naming their namespaces.
+  const lost = new Map<string, string[]>();
+  for (const w of of("reconnecting")) lost.set(w.error, [...(lost.get(w.error) ?? []), w.namespace ?? ""]);
+  const messages = [...lost].map(([error, ns]) => `${joinNames(ns)}: ${error}`);
+  for (const w of watches) {
     const ns = w.namespace ?? "";
-    if (w.state === "reconnecting") return [`Watch of ${ns} interrupted, retrying: ${w.error}`];
-    if (w.state === "forbidden") return [`You can't list ${label} in namespace ${ns}. (${w.error})`];
-    if (w.state === "failed") return [`${ns}: ${w.error}`];
-    return [];
-  });
+    if (w.state === "forbidden") messages.push(`You can't list ${label} in namespace ${ns}. (${w.error})`);
+    if (w.state === "failed") messages.push(`${ns}: ${w.error}`);
+  }
   const error = messages.length ? messages.join("\n") : of("connecting").length ? null : "";
   const failed = of("failed");
   if (failed.length) return { ok: false, text: `${failed[0].status ?? "Failed"} (${names(failed)})`, error };
@@ -103,7 +106,8 @@ function single(w: WatchStatus, label: string, namespaced: boolean): CombinedSta
     case "polling":
       return { ok: null, text: pollingText(w), error: "" };
     case "reconnecting":
-      return { ok: false, text: "Reconnecting…", error: "Watch interrupted, retrying: " + w.error };
+      // The backend's text says what failed and that it retries.
+      return { ok: false, text: "Reconnecting…", error: w.error };
     case "forbidden": {
       // The backend stopped the watch: retrying would get the same 403.
       const where = !namespaced

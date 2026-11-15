@@ -53,6 +53,17 @@ impl KubeconfigSources {
         self.catalog().resolve(id).map_err(|e| e.to_string())
     }
 
+    /// The API server URL of context `id` (`None`: the default kubeconfig's
+    /// current-context), `""` if it is not known (in-cluster config).
+    pub(crate) fn server(&self, id: Option<&str>) -> String {
+        let catalog = self.catalog();
+        let id = id.unwrap_or(&catalog.current_context);
+        catalog
+            .find(id)
+            .map(|c| c.server.clone())
+            .unwrap_or_default()
+    }
+
     /// The files and folders whose changes the windows hear about.
     fn watched(&self) -> Vec<PathBuf> {
         let mut paths = default_kubeconfig_paths();

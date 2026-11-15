@@ -85,15 +85,32 @@ pub struct Prober {
     send: Arc<ProbeFn>,
     timeout: Duration,
     last: Arc<Mutex<Option<(Instant, ProbeFuture)>>>,
+    /// The API server's URL, for messages (`""`: unknown).
+    server: Arc<str>,
 }
 
 impl Prober {
     /// Probes `client`'s API server with `GET /readyz`.
     pub fn new(client: Client) -> Self {
-        Self::with(LIVENESS.timeout, move || {
-            let client = client.clone();
-            async move { answers(&client).await }.boxed()
-        })
+        Self::for_server(client, "")
+    }
+
+    /// [`Self::new`] for the API server at `server` (its URL, as the
+    /// kubeconfig has it), which the messages about a lost connection name.
+    pub fn for_server(client: Client, server: &str) -> Self {
+        let server: Arc<str> = crate::reconnect::display_server(server).into();
+        let s = server.clone();
+        let mut prober = Self::with(LIVENESS.timeout, move || {
+            let (client, server) = (client.clone(), s.clone());
+            async move { answers(&client, &server).await }.boxed()
+        });
+        prober.server = server;
+        prober
+    }
+
+    /// The API server's URL (`""`: unknown).
+    pub fn server(&self) -> &str {
+        &self.server
     }
 
     /// A prober whose requests are `send` (they need not time out by
@@ -106,6 +123,7 @@ impl Prober {
             send: Arc::new(send),
             timeout,
             last: Arc::new(Mutex::new(None)),
+            server: "".into(),
         }
     }
 
@@ -160,7 +178,7 @@ impl Prober {
 }
 
 /// Whether the API server behind `client` answers `GET /readyz` at all.
-async fn answers(client: &Client) -> Result<(), String> {
+async fn answers(client: &Client, server: &str) -> Result<(), String> {
     let request = http::Request::get("/readyz")
         .body(Vec::new())
         .expect("a GET without a body is a valid request");
@@ -168,10 +186,10 @@ async fn answers(client: &Client) -> Result<(), String> {
         // An error status is still an answer; a failed credential refresh
         // is not a connection problem, and the watches report it themselves.
         Ok(_) | Err(kube::Error::Api(_)) | Err(kube::Error::Auth(_)) => Ok(()),
-        Err(e) => Err(format!(
-            "The API server cannot be reached: {}",
-            crate::errors::chain_text(&e)
-        )),
+        Err(e) => {
+            tracing::warn!(server, error = %crate::errors::chain_text(&e), "liveness probe failed");
+            Err(crate::reconnect::lost_connection(server))
+        }
     }
 }
 

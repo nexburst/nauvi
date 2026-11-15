@@ -154,13 +154,16 @@ impl ClusterSession {
             return Ok(c.clone());
         }
         // A GUI can't answer an exec plugin's prompts.
-        let c = match self.selected_context() {
+        // Read once: the client and the URL in messages are of one context.
+        let selected = self.selected_context();
+        let c = match selected.as_deref() {
             // The default kubeconfig's current-context, or in-cluster config.
             None => client_for_context_with(None, false).await,
-            Some(id) => client_for_target(&self.sources.resolve(Some(&id))?, false).await,
+            Some(id) => client_for_target(&self.sources.resolve(Some(id))?, false).await,
         }
         .map_err(|e| kubeloupe::error_text(&e))?;
-        let c = (c.clone(), Prober::new(c));
+        let server = self.sources.server(selected.as_deref());
+        let c = (c.clone(), Prober::for_server(c, &server));
         *slot = Some(c.clone());
         Ok(c)
     }

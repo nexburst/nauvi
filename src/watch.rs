@@ -1,8 +1,9 @@
 //! Live cluster state via `kube::runtime` watchers and reflectors.
 //!
-//! [`watch`] turns a watcher (with `.default_backoff()`, so it re-lists after
-//! a 410 Gone and reconnects after a network drop) into a stream of
-//! [`Update`]s of display-ready summaries. Each watcher runs under a
+//! [`watch`] turns a watcher (restarted with a backoff after every error by
+//! [`crate::reconnect`], so it lists again after a 410 Gone or a network
+//! drop and then says it is Live) into a stream of [`Update`]s of
+//! display-ready summaries. Each watcher runs under a
 //! [`crate::liveness`] guard, so an API server that stops answering without
 //! closing the connection shows as Reconnecting within about 25 s instead of
 //! after kube's 5-minute read timeout. [`run_batched`] coalesces those
@@ -18,7 +19,6 @@ use k8s_openapi::api::core::v1::{Namespace, Node, Pod};
 use kube::api::DynamicObject;
 use kube::runtime::reflector::Store;
 use kube::runtime::watcher::{self, Event};
-use kube::runtime::WatchStreamExt;
 use kube::{Api, Client, Resource};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -252,6 +252,8 @@ fn is_forbidden(e: &watcher::Error) -> bool {
 
 /// Tracks the watcher's lifecycle and turns raw events into [`Update`]s.
 struct Tracker<T> {
+    /// The API server's URL, for messages (`""`: unknown).
+    server: String,
     init: Vec<T>,
     live: bool,
     failing: bool,
@@ -260,6 +262,16 @@ struct Tracker<T> {
 }
 
 impl<T> Tracker<T> {
+    fn new(server: &str) -> Self {
+        Self {
+            server: server.to_string(),
+            init: Vec::new(),
+            live: false,
+            failing: false,
+            done: false,
+        }
+    }
+
     fn step<K>(
         &mut self,
         event: Result<Event<K>, watcher::Error>,
@@ -274,27 +286,30 @@ impl<T> Tracker<T> {
                     error: crate::errors::api_message(&e),
                 }));
             }
-            Err(e) => return self.lost(crate::errors::chain_text(&e)),
-            Ok(event) => {
-                self.failing = false;
-                match event {
-                    Event::Init => self.init.clear(),
-                    Event::InitApply(k) => self.init.push(convert(&k)),
-                    Event::InitDone => {
-                        out.push(Update::Snapshot(std::mem::take(&mut self.init)));
-                        self.live = true;
-                        out.push(Update::State(WatchState::Live));
-                    }
-                    Event::Apply(k) => {
-                        out.push(Update::Applied(convert(&k)));
-                        self.mark_live(&mut out);
-                    }
-                    Event::Delete(k) => {
-                        out.push(Update::Deleted(convert(&k)));
-                        self.mark_live(&mut out);
-                    }
-                }
+            Err(e) => {
+                let text = crate::reconnect::failure_text(&e, &self.server);
+                return self.lost(text);
             }
+            // A new watcher's Init and InitApply don't end a failure streak:
+            // its watch may still fail right after the list (#180).
+            Ok(event) => match event {
+                Event::Init => self.init.clear(),
+                Event::InitApply(k) => self.init.push(convert(&k)),
+                Event::InitDone => {
+                    out.push(Update::Snapshot(std::mem::take(&mut self.init)));
+                    self.failing = false;
+                    self.live = true;
+                    out.push(Update::State(WatchState::Live));
+                }
+                Event::Apply(k) => {
+                    out.push(Update::Applied(convert(&k)));
+                    self.mark_live(&mut out);
+                }
+                Event::Delete(k) => {
+                    out.push(Update::Deleted(convert(&k)));
+                    self.mark_live(&mut out);
+                }
+            },
         }
         out
     }
@@ -317,12 +332,13 @@ impl<T> Tracker<T> {
     ) -> Vec<Update<T>> {
         match event {
             Guarded::Item(event) => self.step(event, convert),
-            Guarded::Lost(error) => self.lost(error),
+            Guarded::Lost(error) => self.lost(crate::reconnect::retrying(&error)),
         }
     }
 
     /// The watch resumed after an error without needing a re-list.
     fn mark_live(&mut self, out: &mut Vec<Update<T>>) {
+        self.failing = false;
         if !self.live {
             self.live = true;
             out.push(Update::State(WatchState::Live));
@@ -379,11 +395,14 @@ where
             event
         })
         .boxed();
-    (store, track(events, convert))
+    (store, track(events, prober.server(), convert))
 }
 
-/// A watcher (with backoff) on `api`, restarted by a [`crate::liveness`]
-/// guard when the API server stops answering.
+/// A watcher on `api`, started again after every error, after a backoff
+/// ([`crate::reconnect`]), and by a [`crate::liveness`] guard when the API
+/// server stops answering. Either way the new watcher lists everything
+/// again, so its consumer sees `InitDone` once the watch works again (kube's
+/// own backoff resumes a watch silently: #180).
 pub fn guarded_watcher<K>(
     api: Api<K>,
     prober: &Prober,
@@ -393,9 +412,12 @@ where
     K: Resource + Clone + DeserializeOwned + Debug + Send + 'static,
 {
     guard_client(prober, move || {
-        watcher::watcher(api.clone(), config.clone())
-            .default_backoff()
-            .boxed()
+        let (api, config) = (api.clone(), config.clone());
+        crate::reconnect::restart_on_error(
+            move || watcher::watcher(api.clone(), config.clone()).boxed(),
+            crate::reconnect::RetryBackoff::default(),
+        )
+        .boxed()
     })
 }
 
@@ -412,25 +434,25 @@ where
     K: Resource + Clone + DeserializeOwned + Debug + Send + 'static,
     T: Send + 'static,
 {
-    track(guarded_watcher(api, prober, config), convert)
+    track(
+        guarded_watcher(api, prober, config),
+        prober.server(),
+        convert,
+    )
 }
 
 /// Turn raw watcher events into [`Update`]s: [`WatchState::Connecting`]
 /// first, and the end right after a 403.
 fn track<K, T>(
     events: BoxStream<'static, Guarded<Result<Event<K>, watcher::Error>>>,
+    server: &str,
     convert: impl Fn(&K) -> T + Send + 'static,
 ) -> BoxStream<'static, Update<T>>
 where
     K: Send + 'static,
     T: Send + 'static,
 {
-    let tracker = Tracker {
-        init: Vec::new(),
-        live: false,
-        failing: false,
-        done: false,
-    };
+    let tracker = Tracker::new(server);
     // End right after a 403 instead of polling the watcher again, which
     // would only sleep in its backoff and retry.
     let updates = stream::unfold(
@@ -681,12 +703,7 @@ mod tests {
 
     #[test]
     fn tracker_snapshots_on_init_done_and_reports_failures_once() {
-        let mut t = Tracker::<String> {
-            init: vec![],
-            live: false,
-            failing: false,
-            done: false,
-        };
+        let mut t = Tracker::<String>::new("https://127.0.0.1:6443");
         let conv = |s: &String| s.clone();
         assert!(t.step(Ok(Event::Init), &conv).is_empty());
         assert!(t
@@ -710,19 +727,14 @@ mod tests {
 
     #[test]
     fn a_lost_connection_reconnects_once_and_a_new_list_goes_live() {
-        let mut t = Tracker::<String> {
-            init: vec![],
-            live: false,
-            failing: false,
-            done: false,
-        };
+        let mut t = Tracker::<String>::new("https://127.0.0.1:6443");
         let conv = |s: &String| s.clone();
         t.guarded(Guarded::Item(Ok(Event::InitDone)), &conv);
         let lost = || Guarded::Lost("The API server is not answering".into());
         assert_eq!(
             t.guarded(lost(), &conv),
             vec![Update::State(WatchState::Reconnecting {
-                error: "The API server is not answering".into()
+                error: "The API server is not answering; retrying.".into()
             })]
         );
         assert!(t.guarded(lost(), &conv).is_empty());
@@ -735,14 +747,41 @@ mod tests {
         );
     }
 
+    /// #180: the connection drops, so the watch fails; the watcher started
+    /// after the backoff lists again, and its InitDone brings back Live even
+    /// though nothing changed in the cluster.
+    #[test]
+    fn a_failed_watch_goes_live_again_with_the_next_list() {
+        let mut t = Tracker::<String>::new("https://127.0.0.1:45613");
+        let conv = |s: &String| s.clone();
+        t.guarded(Guarded::Item(Ok(Event::InitDone)), &conv);
+        let dropped = || {
+            Guarded::Item(Err(watcher::Error::WatchFailed(kube::Error::ReadEvents(
+                std::io::Error::new(std::io::ErrorKind::UnexpectedEof, "peer closed connection"),
+            ))))
+        };
+        assert_eq!(
+            t.guarded(dropped(), &conv),
+            vec![Update::State(WatchState::Reconnecting {
+                error: "Lost the connection to the cluster (https://127.0.0.1:45613); retrying."
+                    .into()
+            })]
+        );
+        assert!(t.guarded(dropped(), &conv).is_empty());
+        t.guarded(Guarded::Item(Ok(Event::Init)), &conv);
+        t.guarded(Guarded::Item(Ok(Event::InitApply("a".into()))), &conv);
+        assert_eq!(
+            t.guarded(Guarded::Item(Ok(Event::InitDone)), &conv),
+            vec![
+                Update::Snapshot(vec!["a".to_string()]),
+                Update::State(WatchState::Live)
+            ]
+        );
+    }
+
     #[test]
     fn tracker_stops_on_forbidden() {
-        let mut t = Tracker::<String> {
-            init: vec![],
-            live: false,
-            failing: false,
-            done: false,
-        };
+        let mut t = Tracker::<String>::new("https://127.0.0.1:6443");
         let conv = |s: &String| s.clone();
         let forbidden =
             watcher::Error::InitialListFailed(kube::Error::Api(kube::core::ErrorResponse {

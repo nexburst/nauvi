@@ -49,7 +49,7 @@ export class LiveDetail {
         this.#watchId = watch.value;
       }
     } else {
-      this.watchError = String(watch.reason);
+      this.watchError = `Live updates could not start: ${String(watch.reason)}`;
     }
     if (this.#stopped) return;
     if (detail.status === "fulfilled") {

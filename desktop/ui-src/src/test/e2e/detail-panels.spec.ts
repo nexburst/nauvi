@@ -145,8 +145,9 @@ test("closing the panel stops the detail watch", async ({ page }) => {
 test("events of another detail watch are ignored", async ({ page }) => {
   const fake = await openPod(page, "web-1");
   await fake.emitDetail({ id: "detail-999", state: "deleted" });
-  await fake.emitDetail({ state: "error", error: "connection reset" });
-  await expect(panel(page).getByRole("status")).toHaveText("Live updates interrupted, retrying: connection reset");
+  const lost = "Lost the connection to the cluster (https://127.0.0.1:6443); retrying.";
+  await fake.emitDetail({ state: "error", error: lost });
+  await expect(panel(page).getByRole("status")).toHaveText(lost);
   await expect(panel(page).getByText("This Pod was deleted")).toHaveCount(0);
 });
 
