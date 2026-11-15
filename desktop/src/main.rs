@@ -5,6 +5,7 @@ use crate::state::AppState;
 use tauri::Manager;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
+mod catalog;
 mod commands;
 mod local_shell;
 mod log_streams;
@@ -42,6 +43,11 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::watch::cmd_detail_watch,
             commands::cluster::cmd_list_contexts,
             commands::cluster::cmd_set_context,
+            commands::catalog::cmd_kubeconfig_sources,
+            commands::catalog::cmd_add_kubeconfig_source,
+            commands::catalog::cmd_remove_kubeconfig_source,
+            commands::catalog::cmd_paste_kubeconfig,
+            commands::catalog::cmd_check_context,
             commands::exec::cmd_exec_start,
             commands::exec::cmd_attach_start,
             commands::exec::cmd_exec_input,
@@ -107,7 +113,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::exec::ExecClosed,
             commands::actions::DrainProgress,
             commands::actions::DrainFinished,
-            commands::updater::UpdateProgress
+            commands::updater::UpdateProgress,
+            catalog::KubeconfigsChanged
         ])
         // Counters and epoch seconds stay far below 2^53.
         .dangerously_cast_bigints_to_number()
@@ -143,12 +150,15 @@ fn main() {
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
-            let path = app
-                .path()
-                .app_config_dir()
-                .ok()
-                .map(|d| d.join("settings.json"));
-            app.manage(SettingsStore::open(path));
+            let config_dir = app.path().app_config_dir().ok();
+            let store = SettingsStore::open(config_dir.as_ref().map(|d| d.join("settings.json")));
+            // The catalog's added kubeconfigs (#78), before any window
+            // looks a context up.
+            let sources = app.state::<AppState>().sources.clone();
+            sources.set_pasted_dir(config_dir.map(|d| d.join("kubeconfigs")));
+            sources.set_extra(&store.get().kubeconfig_sources);
+            catalog::watch(app.handle().clone(), sources);
+            app.manage(store);
             commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());
             Ok(())

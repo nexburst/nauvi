@@ -58,19 +58,16 @@ pub(crate) async fn cmd_helm_version() -> Result<String, String> {
     helm::helm_version().await.map_err(|e| format!("{e:#}"))
 }
 
-/// Helm talks to the app's context. Without a selection, name the
-/// kubeconfig's current context explicitly, so helm cannot drift to another
-/// one if the file changes meanwhile.
-pub(crate) fn target(state: &ClusterSession) -> HelmTarget {
-    let context = state.selected_context().or_else(|| {
-        kube::config::Kubeconfig::read()
-            .ok()
-            .and_then(|k| k.current_context)
-    });
-    HelmTarget {
-        kubeconfig: None,
-        context,
-    }
+/// Helm talks to the app's context, from the kubeconfig file it came from
+/// (#78). Without a selection, name the kubeconfig's current context
+/// explicitly, so helm cannot drift to another one if the file changes
+/// meanwhile.
+pub(crate) fn target(state: &ClusterSession) -> Result<HelmTarget, String> {
+    let target = state.target()?;
+    Ok(HelmTarget {
+        kubeconfig: target.kubeconfig,
+        context: Some(target.context),
+    })
 }
 
 /// `helm rollback <name> <revision>`; returns a short summary.
@@ -82,7 +79,7 @@ pub(crate) async fn cmd_helm_rollback(
     name: String,
     revision: u32,
 ) -> Result<String, String> {
-    helm::helm_rollback(&target(&cluster), &namespace, &name, revision)
+    helm::helm_rollback(&target(&cluster)?, &namespace, &name, revision)
         .await
         .map_err(|e| format!("{e:#}"))
 }
@@ -95,7 +92,7 @@ pub(crate) async fn cmd_helm_uninstall(
     namespace: String,
     name: String,
 ) -> Result<String, String> {
-    helm::helm_uninstall(&target(&cluster), &namespace, &name)
+    helm::helm_uninstall(&target(&cluster)?, &namespace, &name)
         .await
         .map_err(|e| format!("{e:#}"))
 }

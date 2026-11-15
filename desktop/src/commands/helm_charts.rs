@@ -83,7 +83,7 @@ pub(crate) async fn cmd_helm_install(
     cluster: Cluster,
     request: HelmDeployRequest,
 ) -> Result<HelmDeployResult, String> {
-    helm::helm_install(&target(&cluster), &request)
+    helm::helm_install(&target(&cluster)?, &request)
         .await
         .map_err(plain)
 }
@@ -95,7 +95,7 @@ pub(crate) async fn cmd_helm_upgrade(
     cluster: Cluster,
     request: HelmDeployRequest,
 ) -> Result<HelmDeployResult, String> {
-    helm::helm_upgrade(&target(&cluster), &request)
+    helm::helm_upgrade(&target(&cluster)?, &request)
         .await
         .map_err(plain)
 }

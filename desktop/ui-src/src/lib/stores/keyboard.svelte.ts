@@ -9,6 +9,7 @@ import type { Row } from "../columns";
 import { bindingFor, inEditorOrTerminal, isActivatable, isMacPlatform, isTextEntry } from "../keys";
 import { actionUi } from "./actions.svelte";
 import { helm, selectRelease } from "./helm.svelte";
+import { catalog } from "./catalog.svelte";
 import { charts, selectChart } from "./helmCharts.svelte";
 import { createUi } from "./create.svelte";
 import { closeDetail, detail } from "./detail.svelte";
@@ -103,7 +104,15 @@ export function closeSettings() {
 
 /** A menu or a dialog has the keyboard (each handles its own Esc). */
 function modalOpen(): boolean {
-  return keyboard.menus > 0 || actionUi.request !== null || helm.request !== null || charts.deploy !== null || createUi.open || unsaved.asking;
+  return (
+    keyboard.menus > 0 ||
+    actionUi.request !== null ||
+    helm.request !== null ||
+    charts.deploy !== null ||
+    createUi.open ||
+    unsaved.asking ||
+    catalog.settingsFor !== null
+  );
 }
 
 const mac = isMacPlatform();
