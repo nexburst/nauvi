@@ -28,6 +28,8 @@ import { defaultHelm } from "./helm";
 import type { FakeHelm } from "./helm";
 import { NO_PROMETHEUS, sparkFixtures, usageFixtures } from "./usage";
 import type { FakePrometheus, UsageFixture } from "./usage";
+import { upToDate } from "./updates";
+import type { FakeUpdate } from "./updates";
 
 export interface FakeCluster {
   contexts: ContextInfo_Serialize[];
@@ -90,6 +92,8 @@ export interface FakeCluster {
   usage: Record<string, UsageFixture>;
   /** The context's Prometheus (#47 phase 2); none by default. */
   prometheus: FakePrometheus;
+  /** What the update check finds (#30); up to date by default. */
+  update: FakeUpdate;
 }
 
 /** Unix seconds, a fixed distance in the past so ages are stable. */
@@ -427,6 +431,7 @@ export function defaultCluster(): FakeCluster {
     },
     helm: defaultHelm(),
     settings: defaultSettings(),
+    update: upToDate(),
   };
 }
 

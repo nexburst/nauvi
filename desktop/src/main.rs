@@ -2,7 +2,6 @@
 
 use crate::settings::SettingsStore;
 use crate::state::AppState;
-use std::sync::Arc;
 use tauri::Manager;
 use tauri_specta::{collect_commands, collect_events, Builder};
 
@@ -13,6 +12,7 @@ mod settings;
 #[cfg(unix)]
 mod shell_env;
 mod state;
+mod updater;
 mod windows;
 
 /// The typed command and event registry. Also used to generate
@@ -83,7 +83,9 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::helm_charts::cmd_helm_upgrade,
             commands::settings::cmd_get_settings,
             commands::settings::cmd_update_settings,
-            commands::window::cmd_open_window
+            commands::window::cmd_open_window,
+            commands::updater::cmd_update_check,
+            commands::updater::cmd_update_install
         ])
         .events(collect_events![
             commands::watch::WatchBatch,
@@ -99,7 +101,8 @@ fn specta_builder() -> Builder<tauri::Wry> {
             commands::exec::ExecOutput,
             commands::exec::ExecClosed,
             commands::actions::DrainProgress,
-            commands::actions::DrainFinished
+            commands::actions::DrainFinished,
+            commands::updater::UpdateProgress
         ])
         // Counters and epoch seconds stay far below 2^53.
         .dangerously_cast_bigints_to_number()
@@ -128,6 +131,10 @@ fn main() {
         // Opens forwarded URLs in the browser; the capability limits it to
         // http://127.0.0.1 and http://localhost.
         .plugin(tauri_plugin_opener::init())
+        // In-app updates (#30): the check and the install run from
+        // `commands/updater.rs`; `process` restarts into the new version.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
@@ -137,6 +144,7 @@ fn main() {
                 .ok()
                 .map(|d| d.join("settings.json"));
             app.manage(SettingsStore::open(path));
+            commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());
             Ok(())
         })
@@ -150,13 +158,7 @@ fn main() {
         .expect("error while building kubeloupe")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                // Write settings changed in the last moments before quitting.
-                if let Some(store) = app.try_state::<Arc<SettingsStore>>() {
-                    store.flush();
-                }
-                // Stop what windows still have open: kill the local shells,
-                // delete their temp kubeconfigs and the node shell pods.
-                windows::run_cleanups_now(app.state::<AppState>().close_all());
+                windows::before_exit(app);
             }
         });
 }

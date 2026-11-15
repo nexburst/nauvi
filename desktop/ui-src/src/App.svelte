@@ -5,6 +5,8 @@
   import ErrorBanner from "./lib/components/ErrorBanner.svelte";
   import ActionDialog from "./lib/components/ActionDialog.svelte";
   import ActionNotice from "./lib/components/ActionNotice.svelte";
+  import UpdateBanner from "./lib/components/UpdateBanner.svelte";
+  import { listenUpdates, startupCheck } from "./lib/stores/updates.svelte";
   import NodeShellLeftovers from "./lib/components/NodeShellLeftovers.svelte";
   import { checkLeftovers } from "./lib/stores/debug.svelte";
   import UnsavedDialog from "./lib/components/UnsavedDialog.svelte";
@@ -52,10 +54,16 @@
     // of cmd_watch_start's reply are buffered by the live store.
     const unlisten = live.listen();
     const unlistenDrain = listenDrain();
-    void startApp().then(() => checkLeftovers());
+    const unlistenUpdates = listenUpdates();
+    // The update check waits for the settings (its on/off switch).
+    void startApp().then(() => {
+      void checkLeftovers();
+      void startupCheck();
+    });
     return () => {
       unlisten.then((un) => un());
       unlistenDrain.then((un) => un());
+      unlistenUpdates.then((un) => un());
     };
   });
 
@@ -87,6 +95,7 @@
     {/if}
     <ErrorBanner />
     <ActionNotice />
+    <UpdateBanner />
     <NodeShellLeftovers />
     {#if !app.ready}
       <!-- Restoring the remembered context and namespaces. -->

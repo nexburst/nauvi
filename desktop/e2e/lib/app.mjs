@@ -1,10 +1,12 @@
 // Starts the real desktop app under tauri-driver and wraps the WebDriver
-// session in a few helpers. Used by smoke.test.mjs and bench.mjs.
+// session in a few helpers. Used by smoke.test.mjs, bench.mjs and the QA
+// scenarios in qa/.
 //
 // Environment (all optional):
 //   KUBELOUPE_APP   path to the built app (default: <target>/debug/kubeloupe-desktop)
 //   TAURI_DRIVER    path to tauri-driver (default: on PATH)
 //   WEBKIT_DRIVER   path to WebKitWebDriver (default: tauri-driver's lookup on PATH)
+//   NATIVE_DRIVER   same, for any platform (Windows: msedgedriver.exe)
 //   E2E_CONTEXT     kube context to test against (default: kind-kubeloupe-test)
 //   E2E_ARTIFACTS   where screenshots and logs go (default: desktop/e2e/artifacts)
 //   E2E_DRIVER_PORT port for tauri-driver (default: 4444; the native driver gets +1)
@@ -15,7 +17,8 @@ import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Builder, By } from "selenium-webdriver";
+import { Builder, By, Key } from "selenium-webdriver";
+import { createProfile } from "./profile.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const E2E_DIR = resolve(here, "..");
@@ -32,18 +35,61 @@ function appBinary() {
 }
 
 /**
- * A kubeconfig holding only the test context, so the app picks it no matter
- * what the developer's own kubeconfig has as current.
+ * A kubeconfig holding only the given contexts (default: the test context),
+ * so the app picks the first one no matter what the developer's own
+ * kubeconfig has as current.
  */
-function testKubeconfig() {
-  const yaml = execFileSync("kubectl", ["config", "view", "--minify", "--flatten", "--context", CONTEXT], {
-    encoding: "utf8",
-  });
+function testKubeconfig(contexts = [CONTEXT]) {
   // Holds credentials: private directory, removed when the app stops.
   const dir = mkdtempSync(join(tmpdir(), "kubeloupe-e2e-"));
+  const parts = contexts.map((ctx, i) => {
+    const part = join(dir, `part-${i}`);
+    const yaml = execFileSync("kubectl", ["config", "view", "--minify", "--flatten", "--context", ctx], {
+      encoding: "utf8",
+    });
+    writeFileSync(part, yaml, { mode: 0o600 });
+    return part;
+  });
+  // kubectl merges KUBECONFIG lists; the first file's current-context wins.
+  const merged = execFileSync("kubectl", ["config", "view", "--flatten"], {
+    encoding: "utf8",
+    env: { ...process.env, KUBECONFIG: parts.join(":") },
+  });
   const path = join(dir, "kubeconfig");
-  writeFileSync(path, yaml, { mode: 0o600 });
+  writeFileSync(path, merged, { mode: 0o600 });
+  for (const part of parts) rmSync(part);
   return { dir, path };
+}
+
+/**
+ * Process groups of running apps, killed when this process exits however it
+ * exits. qa.sh also gets them through $QA_RUN_DIR, for a `kill -9` of node.
+ */
+const groups = new Set();
+const WINDOWS = process.platform === "win32";
+
+/** Kill tauri-driver and everything under it (the native driver, the app). */
+function killTree(pid) {
+  try {
+    if (WINDOWS) execFileSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+    else process.kill(-pid, "SIGKILL");
+  } catch {
+    /* already gone */
+  }
+}
+
+process.once("exit", () => {
+  for (const pgid of groups) killTree(pgid);
+});
+
+function trackGroup(pgid) {
+  groups.add(pgid);
+  if (process.env.QA_RUN_DIR) writeFileSync(join(process.env.QA_RUN_DIR, `pgid-${pgid}`), String(pgid));
+}
+
+function untrackGroup(pgid) {
+  groups.delete(pgid);
+  if (process.env.QA_RUN_DIR) rmSync(join(process.env.QA_RUN_DIR, `pgid-${pgid}`), { force: true });
 }
 
 function waitForPort(port, timeoutMs) {
@@ -68,8 +114,30 @@ function waitForPort(port, timeoutMs) {
 /**
  * Start tauri-driver and open a session, which launches the app. `name`
  * prefixes the log and screenshot files.
+ *
+ * Options (all optional):
+ *   kubeconfig  use this kubeconfig file as-is (e.g. the limited user)
+ *   contexts    otherwise: a kubeconfig made of these contexts (default [E2E_CONTEXT])
+ *   profile     a Profile (lib/profile.mjs) to reuse: same HOME, settings and
+ *               Downloads. Default: a new one, removed by close().
+ *   env         extra environment for the app, e.g. { SHELL: "/bin/sh" }
+ *   shellEnv    true to let the app import the login shell's environment
+ *               (off by default, so the app sees exactly this environment)
  */
-export async function launch(name) {
+export async function launch(name, opts = {}) {
+  const ownProfile = !opts.profile;
+  const profile = opts.profile ?? createProfile();
+  const app = new App(name, { ...opts, profile }, ownProfile);
+  try {
+    await app.start();
+  } catch (e) {
+    if (ownProfile) profile.remove();
+    throw e;
+  }
+  return app;
+}
+
+async function startSession(name, opts) {
   const app = appBinary();
   if (!existsSync(app)) {
     throw new Error(
@@ -81,32 +149,40 @@ export async function launch(name) {
   mkdirSync(ARTIFACTS, { recursive: true });
   const port = Number(process.env.E2E_DRIVER_PORT || 4444);
   const args = ["--port", String(port), "--native-port", String(port + 1)];
-  if (process.env.WEBKIT_DRIVER) args.push("--native-driver", process.env.WEBKIT_DRIVER);
+  const native = process.env.NATIVE_DRIVER || process.env.WEBKIT_DRIVER;
+  if (native) args.push("--native-driver", native);
 
   // The app inherits this environment through tauri-driver and WebKitWebDriver.
-  const kubeconfig = testKubeconfig();
-  const env = { ...process.env, KUBECONFIG: kubeconfig.path };
-  const log = createWriteStream(join(ARTIFACTS, `${name}-app.log`));
+  const kubeconfig = opts.kubeconfig ? null : testKubeconfig(opts.contexts);
+  const env = {
+    ...process.env,
+    ...opts.profile.env(),
+    KUBECONFIG: opts.kubeconfig ?? kubeconfig.path,
+    ...(opts.shellEnv ? {} : { KUBELOUPE_NO_SHELL_ENV: "1" }),
+    ...opts.env,
+  };
+  const log = createWriteStream(join(ARTIFACTS, `${name}-app.log`), { flags: "a" });
   // Its own process group: WebKitWebDriver and the app inherit it, and ending
   // the session does not always stop the app, so stop() kills the group.
   const driverProc = spawn(process.env.TAURI_DRIVER || "tauri-driver", args, {
     env,
     stdio: ["ignore", "pipe", "pipe"],
-    detached: true,
+    // (On Windows, `detached` would open a console; taskkill /T stops the tree.)
+    detached: !WINDOWS,
   });
+  trackGroup(driverProc.pid);
   driverProc.stdout.pipe(log);
   driverProc.stderr.pipe(log);
   driverProc.once("error", (e) => log.write(`tauri-driver: ${e}\n`));
-  const stop = () => {
-    try {
-      process.kill(-driverProc.pid, "SIGKILL");
-    } catch {
-      /* already gone */
-    }
+  const stop = async () => {
+    killTree(driverProc.pid);
+    untrackGroup(driverProc.pid);
     driverProc.stdout.destroy();
     driverProc.stderr.destroy();
     log.end();
-    rmSync(kubeconfig.dir, { recursive: true, force: true });
+    if (kubeconfig) rmSync(kubeconfig.dir, { recursive: true, force: true });
+    // Let the ports go before a restart binds them again.
+    await sleep(300);
   };
 
   try {
@@ -115,12 +191,15 @@ export async function launch(name) {
       .usingServer(`http://127.0.0.1:${port}/`)
       .withCapabilities({ browserName: "wry", "tauri:options": { application: app } })
       .build();
-    return new App(driver, name, async () => {
-      await Promise.race([driver.quit().catch(() => {}), sleep(5000)]);
-      stop();
-    });
+    return {
+      driver,
+      close: async () => {
+        await Promise.race([driver.quit().catch(() => {}), sleep(5000)]);
+        await stop();
+      },
+    };
   } catch (e) {
-    stop();
+    await stop();
     throw e;
   }
 }
@@ -136,11 +215,41 @@ export const byTestId = (id) => By.css(`[data-testid="${id}"]`);
 
 export class App {
   #shots = 0;
+  #session = null;
 
-  constructor(driver, name, close) {
-    this.driver = driver;
+  constructor(name, opts, ownProfile) {
     this.name = name;
-    this.close = close;
+    this.opts = opts;
+    /** @type {import("./profile.mjs").Profile} */
+    this.profile = opts.profile;
+    this.ownProfile = ownProfile;
+    /** @type {import("selenium-webdriver").WebDriver} */
+    this.driver = null;
+  }
+
+  async start() {
+    this.#session = await startSession(this.name, this.opts);
+    this.driver = this.#session.driver;
+  }
+
+  /** Stop the app (and remove its profile unless the caller passed one). */
+  async close() {
+    await this.#session?.close();
+    this.#session = null;
+    if (this.ownProfile) this.profile.remove();
+  }
+
+  /**
+   * Quit and start the app again with the same profile (settings, Downloads)
+   * and options. `wait` gives debounced settings writes time to land first;
+   * `beforeStart` runs while the app is stopped (e.g. to edit settings.json).
+   */
+  async restart({ wait = 1000, beforeStart } = {}) {
+    await sleep(wait);
+    await this.#session?.close();
+    this.#session = null;
+    await beforeStart?.();
+    await this.start();
   }
 
   /**
@@ -198,9 +307,14 @@ export class App {
     return (await this.driver.findElement(byTestId("connection-status"))).getText();
   }
 
-  /** Click a kind (or Overview) in the sidebar, by its label (a problem badge may follow it). */
+  /** The sidebar button of a kind (or Overview), by its label (a count or problem badge may follow it). */
+  navButton(label) {
+    return By.xpath(`//nav//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)}]`);
+  }
+
+  /** Click a kind (or Overview) in the sidebar. */
   async nav(label) {
-    const button = await this.find(By.xpath(`//nav//button[normalize-space(text()[1])=${xq(label)}]`));
+    const button = await this.find(this.navButton(label));
     // The sidebar scrolls (more so with the dock open); WebKitGTK's driver
     // refuses to click a button that is only partly visible.
     await this.js("arguments[0].scrollIntoView({ block: 'center' })", button);
@@ -218,6 +332,32 @@ export class App {
       el,
       value,
     );
+  }
+
+  /**
+   * Run a command palette entry: Ctrl+K, type `query`, wait for the first
+   * option to contain `option`, then Enter.
+   */
+  async palette(query, option = query) {
+    // Not from inside a terminal, which keeps most keys.
+    await this.js("document.activeElement?.blur()");
+    await this.driver.actions().keyDown(Key.CONTROL).sendKeys("k").keyUp(Key.CONTROL).perform();
+    const dialog = await this.find(byTestId("command-palette"));
+    const input = await dialog.findElement(By.css('input[role="combobox"]'));
+    await input.sendKeys(query);
+    await this.waitFor(
+      async () =>
+        (
+          await this.js(
+            `return document.querySelector('[data-testid="command-palette"] [role="option"]')?.textContent ?? ""`,
+          )
+        ).includes(option),
+      { message: `palette option "${option}"` },
+    );
+    await input.sendKeys(Key.ENTER);
+    await this.waitFor(async () => (await this.driver.findElements(byTestId("command-palette"))).length === 0, {
+      message: "the palette to close",
+    });
   }
 
   /** Type into the table's filter box. */
