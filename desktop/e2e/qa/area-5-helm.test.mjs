@@ -211,7 +211,8 @@ describe("area 5: helm releases on an added kubeconfig's context", { timeout: 25
       });
     for (let i = 0; i < names.length; i += 4) await Promise.all(names.slice(i, i + 4).map(run));
     console.log(`${MANY} installs in ${Date.now() - t0} ms`);
-    await (await app.find(By.css('[data-testid="helm-detail"] button[aria-label="Close details"]'))).click().catch(() => {});
+    // The panel may already be closed (the previous test uninstalled its release).
+    await app.js(`document.querySelector('[data-testid="helm-detail"] button[aria-label="Close details"]')?.click()`);
     await app.filter("qa-many-");
     const t1 = Date.now();
     await app.js(`Array.from(document.querySelectorAll("button")).find((b) => b.textContent.trim() === "Refresh")?.click()`);
