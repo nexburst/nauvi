@@ -285,6 +285,8 @@ describe("area 5: keyboard and command palette", { timeout: 15 * 60_000 }, () =>
           }
         }
         return bad;`);
+    // An earlier check left "web-" in the filter.
+    await app.filter("");
     await app.js("document.activeElement?.blur()");
     await press(app, "/");
     await press(app, "shell demo web");
