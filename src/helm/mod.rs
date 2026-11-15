@@ -37,13 +37,33 @@ use std::collections::BTreeMap;
 const CHART_CONCURRENCY: usize = 6;
 
 /// Where a release is stored: Helm's default Secret driver or the
-/// ConfigMap one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+/// ConfigMap one. (Helm's `sql` driver keeps releases outside the cluster,
+/// where kubeloupe does not look.)
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]
 pub enum HelmStorage {
+    #[default]
     Secret,
     ConfigMap,
+}
+
+impl HelmStorage {
+    /// The `HELM_DRIVER` value that makes helm use this storage.
+    pub fn driver(self) -> &'static str {
+        match self {
+            HelmStorage::Secret => "secret",
+            HelmStorage::ConfigMap => "configmap",
+        }
+    }
+
+    /// The objects it keeps revisions in, for messages.
+    pub fn objects(self) -> &'static str {
+        match self {
+            HelmStorage::Secret => "Secrets",
+            HelmStorage::ConfigMap => "ConfigMaps",
+        }
+    }
 }
 
 /// One revision, from its labels.

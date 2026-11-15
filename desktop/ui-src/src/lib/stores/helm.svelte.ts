@@ -2,7 +2,7 @@
 // (decoded lazily), the selected release and the rollback/uninstall dialog.
 
 import { commands } from "../bindings";
-import type { HelmChartInfo, HelmReleaseRow } from "../bindings";
+import type { HelmChartInfo, HelmReleaseRow, HelmStorage } from "../bindings";
 import { chartKeys, releaseKey } from "../helm";
 import { setNotice } from "./actions.svelte";
 
@@ -19,6 +19,8 @@ export interface HelmActionRequest {
   revision: number;
   /** The release's current revision (for the dialog's text). */
   current: number;
+  /** Where the release is stored: helm is told (`HELM_DRIVER`). */
+  storage: HelmStorage;
   /** What the user typed to confirm (uninstall). */
   typed: string;
 }
@@ -138,8 +140,8 @@ export async function confirmHelmAction(namespaces: readonly string[]) {
   try {
     const msg =
       req.action === "rollback"
-        ? await commands.cmdHelmRollback(req.namespace, req.name, req.revision)
-        : await commands.cmdHelmUninstall(req.namespace, req.name);
+        ? await commands.cmdHelmRollback(req.namespace, req.name, req.revision, req.storage)
+        : await commands.cmdHelmUninstall(req.namespace, req.name, req.storage);
     helm.busy = false;
     helm.request = null;
     if (req.action === "uninstall" && helm.selected && releaseKey(helm.selected) === releaseKey(req)) {

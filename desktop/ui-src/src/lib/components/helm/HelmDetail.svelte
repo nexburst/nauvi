@@ -70,6 +70,7 @@
       name: release.name,
       revision: to,
       current: newest,
+      storage: release.storage,
     });
   }
 
@@ -99,6 +100,7 @@
       namespace: current.namespace,
       name: current.name,
       values: current.values,
+      storage: current.storage,
     });
   }
 
@@ -110,6 +112,7 @@
       name: release.name,
       revision: 0,
       current: newest,
+      storage: release.storage,
     });
   }
 

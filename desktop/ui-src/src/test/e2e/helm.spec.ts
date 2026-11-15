@@ -147,7 +147,12 @@ test("rollback and uninstall are confirmed, then run through helm", async ({ pag
   await dialog.getByTestId("helm-confirm").click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("status")).toContainText("Rolled back demo/web to revision 1");
-  expect(await fake.lastCall("cmdHelmRollback")).toEqual({ namespace: "demo", name: "web", revision: 1 });
+  expect(await fake.lastCall("cmdHelmRollback")).toEqual({
+    namespace: "demo",
+    name: "web",
+    revision: 1,
+    storage: "secret",
+  });
   await expect(helmRow(page, "web").getByRole("gridcell", { name: "3", exact: true })).toBeVisible();
   await expect(d.getByTestId("helm-revision")).toHaveCount(3);
 
@@ -157,9 +162,12 @@ test("rollback and uninstall are confirmed, then run through helm", async ({ pag
   const confirm = dialog.getByTestId("helm-confirm");
   await expect(confirm).toBeDisabled();
   await dialog.getByRole("textbox").fill("web");
-  await fake.failNext("cmdHelmUninstall", "Uninstall of web failed: uninstall: Release not loaded: web: release: not found");
+  await fake.failNext(
+    "cmdHelmUninstall",
+    "Uninstall of web failed: release web was not found in namespace demo (helm looked in its Secrets)",
+  );
   await confirm.click();
-  await expect(dialog.getByRole("alert")).toContainText("release: not found");
+  await expect(dialog.getByRole("alert")).toContainText("was not found in namespace demo");
   await confirm.click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("status")).toContainText("Uninstalled demo/web");
@@ -180,6 +188,38 @@ test("without helm, the actions explain how to install it", async ({ page }) => 
   await expect(d.getByRole("button", { name: "Uninstall…" })).toBeDisabled();
   // Reading still works.
   await expect(d.getByTestId("helm-status")).toHaveText("deployed");
+  expect(fake.errors).toEqual([]);
+});
+
+test("a release stored in ConfigMaps is rolled back, upgraded and uninstalled there (#122)", async ({ page }) => {
+  const fake = await openApp(page, (c) => {
+    for (const r of c.helm.revisions) if (r.name === "web") r.storage = "configmap";
+  });
+  await openHelm(page);
+  await helmRow(page, "web").click();
+  const d = detail(page);
+  await expect(d).toContainText("ConfigMaps");
+  const dialog = page.getByTestId("helm-dialog");
+
+  await d.getByRole("button", { name: "Rollback…" }).click();
+  await dialog.getByTestId("helm-confirm").click();
+  await expect(page.getByRole("status")).toContainText("Rolled back demo/web to revision 1");
+  expect((await fake.lastCall("cmdHelmRollback")).storage).toBe("configmap");
+
+  await d.getByRole("button", { name: "Upgrade…" }).click();
+  const dlg = page.getByTestId("helm-deploy");
+  await dlg.getByTestId("deploy-preview").click();
+  await expect(dlg.getByTestId("deploy-summary")).toContainText("Dry run of demo/web");
+  expect((await fake.lastCall("cmdHelmUpgrade")).request).toMatchObject({ storage: "configmap" });
+  await dlg.getByRole("button", { name: "Cancel" }).click();
+  await expect(dlg).toBeHidden();
+
+  await d.getByRole("button", { name: "Uninstall…" }).click();
+  await dialog.getByRole("textbox").fill("web");
+  await dialog.getByTestId("helm-confirm").click();
+  await expect(page.getByRole("status")).toContainText("Uninstalled demo/web");
+  expect((await fake.lastCall("cmdHelmUninstall")).storage).toBe("configmap");
+  await expect(helmRows(page)).toHaveCount(1);
   expect(fake.errors).toEqual([]);
 });
 

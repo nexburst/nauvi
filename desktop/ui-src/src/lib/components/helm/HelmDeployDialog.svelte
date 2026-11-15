@@ -66,6 +66,8 @@
     create_namespace: mode === "install" && createNamespace,
     dry_run: true,
     reveal,
+    // An install goes where helm puts releases by default.
+    storage: upgrade?.storage ?? "secret",
   });
   const canPreview = $derived(
     !busy && !helm.helmMissing && !!source && !!version && !nameProblem && !nsProblem && !defaultsError,

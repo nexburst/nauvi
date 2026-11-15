@@ -95,12 +95,14 @@ describe("sameDeploy", () => {
     create_namespace: true,
     dry_run: true,
     reveal: false,
+    storage: "secret",
   };
 
   it("ignores dry_run and compares everything else", () => {
     expect(sameDeploy(req, { ...req, dry_run: false })).toBe(true);
     expect(sameDeploy(req, { ...req, values: "a: 2\n" })).toBe(false);
     expect(sameDeploy(req, { ...req, version: "1.1.0" })).toBe(false);
+    expect(sameDeploy(req, { ...req, storage: "configmap" })).toBe(false);
     expect(sameDeploy(null, req)).toBe(false);
   });
 });

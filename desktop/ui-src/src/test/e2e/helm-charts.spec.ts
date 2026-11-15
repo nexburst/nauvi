@@ -163,6 +163,7 @@ test("install: edit the values, dry run the manifest, then install and open the 
     create_namespace: true,
     dry_run: true,
     reveal: false,
+    storage: "secret",
   });
 
   // Back keeps the edits; the install runs exactly what was previewed.
@@ -243,6 +244,7 @@ test("upgrade: values and a version from the chart's repository, a dry-run diff,
     create_namespace: false,
     dry_run: true,
     reveal: false,
+    storage: "secret",
   });
   // The current side of the diff is the newest revision, redacted the same way.
   expect(await fake.lastCall("cmdHelmGet")).toEqual({ namespace: "demo", name: "web", revision: 0, reveal: false });

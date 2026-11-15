@@ -2,7 +2,7 @@
 // them, the selected chart, and the install/upgrade dialog.
 
 import { commands } from "../bindings";
-import type { HelmChartVersion, HelmDeployRequest, HelmDeployResult, HelmRepo } from "../bindings";
+import type { HelmChartVersion, HelmDeployRequest, HelmDeployResult, HelmRepo, HelmStorage } from "../bindings";
 import { setNotice } from "./actions.svelte";
 
 class ChartsStore {
@@ -37,6 +37,8 @@ export type DeployTarget =
       name: string;
       /** The release's user values. */
       values: string;
+      /** Where the release is stored. */
+      storage: HelmStorage;
     };
 
 let chartsGen = 0;
