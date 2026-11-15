@@ -123,12 +123,22 @@ function uncordon() {
 describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
   before(() => {
     ns = tempNamespace("qa-area2-act");
-    // A bare pod is refused until the namespace's default ServiceAccount exists.
-    for (let i = 0; i < 60; i++) {
+    // A bare pod is refused until the namespace's default ServiceAccount
+    // exists; a busy controller-manager can take a while to create it, so
+    // create it ourselves if it hasn't appeared after a few seconds.
+    for (let i = 0; ; i++) {
       try {
         get(["get", "serviceaccount", "default"]);
         break;
       } catch {
+        if (i === 10) {
+          try {
+            get(["create", "serviceaccount", "default"]);
+          } catch {
+            /* created meanwhile */
+          }
+        }
+        if (i > 40) throw new Error(`no default ServiceAccount in ${ns}`);
         execFileSync("sleep", ["0.5"]);
       }
     }
@@ -205,7 +215,7 @@ describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
     ["StatefulSets", "sts", "qa-sts", "app=qa-sts"],
     ["DaemonSets", "ds", "qa-ds", "app=qa-ds"],
   ]) {
-    it(`rollout restart of ${kind}/${name} rolls its pods`, T, async () => {
+    it(`rollout restart of ${kind}/${name} rolls its pods`, { timeout: 360_000 }, async () => {
       const { app } = s;
       if (kind === "deploy") {
         get(["scale", "deploy/qa-dep", "--replicas=1"]);
@@ -226,8 +236,11 @@ describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
         get(["get", kind, name, "-o", "jsonpath={.spec.template.metadata.annotations.kubectl\\.kubernetes\\.io/restartedAt}"]),
         "restartedAt annotation set",
       );
-      // The Pods table shows the new pod(s).
+      // The Pods table shows the new pod(s). The rollout itself can be slow
+      // on a busy shared cluster: wait for it with kubectl first, then give
+      // the table a few seconds to match.
       await openKind(app, "Pods", ns, name);
+      get(["rollout", "status", `${kind}/${name}`, "--timeout=240s"]);
       await app.waitFor(
         async () => {
           const now = podNames(ns, selector);
@@ -236,7 +249,7 @@ describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
           const rows = (await app.rows()).map(([n]) => n);
           return now.every((p) => rows.includes(p)) && pods.every((p) => !rows.includes(p) || now.includes(p));
         },
-        { timeout: 120_000, interval: 1000, message: `${name}'s pods replaced in the table` },
+        { timeout: 60_000, interval: 1000, message: `${name}'s pods replaced in the table` },
       );
     });
   }
