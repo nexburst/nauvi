@@ -16,6 +16,9 @@
   let port = $state("80");
   let local = $state("");
   let status = $state("");
+  /** The forward `status` describes; once it stops, the line goes with it. */
+  let startedId = $state("");
+  const shown = $derived(startedId && !mine.some((f) => f.id === startedId) ? "" : status);
 
   const stopPolling = pollForwards();
   onDestroy(stopPolling);
@@ -24,12 +27,15 @@
     const remote = parseRemotePort(remoteText);
     const loc = parseLocalPort(localText);
     if (!remote.ok || !loc.ok) {
+      startedId = "";
       status = !remote.ok ? remote.error : !loc.ok ? loc.error : "";
       return;
     }
+    startedId = "";
     status = "Starting…";
     try {
       const f = await startForward(target, remote.value, loc.value);
+      startedId = f.id;
       status = `Forwarding ${f.url} → ${pod.name}:${f.remote}`;
     } catch (e) {
       status = "Could not start port-forward: " + e;
@@ -49,7 +55,7 @@
   <input class="port input" aria-label="Local port" placeholder="local" bind:value={local} />
   <button type="button" class="btn" {disabled} onclick={() => start(port, local)}>Forward</button>
 </div>
-{#if status}<p class="detail-status muted">{status}</p>{/if}
+{#if shown}<p class="detail-status muted">{shown}</p>{/if}
 {#if mine.length > 0}
   <ul class="forwards">
     {#each mine as f (f.id)}
