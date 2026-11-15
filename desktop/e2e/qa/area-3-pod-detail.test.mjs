@@ -1,0 +1,305 @@
+// Area 3 of #83, PR #59 (pod detail parity, live detail panels):
+// - default/hungry: FailedScheduling event, PodScheduled=False, `cpu 1k / —`
+// - demo/crashed: `Waiting: CrashLoopBackOff` in red, `Terminated: Error
+//   (exit 1)`; the restart count climbs live (on a pod of our own that
+//   crashes at once, so the back-off is still short)
+// - a demo/web pod: the owner link opens the ReplicaSet
+// - a container port's Forward button starts a forward that serves HTTP
+// - `kubectl label` while the panel is open: the chip appears in about 1 s
+// - `kubectl delete pod` from outside: "This Pod was deleted", actions disabled
+// - a Deployment and a ConfigMap panel update live and show the deletion
+// - a Secret panel shows keys only (overview and YAML tab)
+// - Logs and Open terminal still open in the dock
+// The demo objects are only read; what changes lives in a temp namespace.
+
+import assert from "node:assert/strict";
+import { after, before, describe, it } from "node:test";
+import { By } from "selenium-webdriver";
+import { byTestId } from "../lib/app.mjs";
+import { deleteNamespace, httpPodYaml, kubectl, podNames, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
+import { actionButtons, panelText, waitPanelTitle } from "../lib/panels.mjs";
+import { appSession, waitLive } from "../lib/qa.mjs";
+import { terminal } from "../lib/terminal.mjs";
+import { resizeWindow } from "../lib/window.mjs";
+
+const T = { timeout: 180_000 };
+const SECRET_VALUE = "qa-area3-do-not-leak-7f3a";
+
+const fixtures = `
+${httpPodYaml("qa-web", 8080, "hello from area 3")}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: qa-crash
+spec:
+  restartPolicy: Always
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: app
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "echo boom; exit 1"]
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qa-config
+data:
+  greeting: hello
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: qa-secret
+stringData:
+  password: ${SECRET_VALUE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qa-deploy
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: qa-deploy }
+  template:
+    metadata:
+      labels: { app: qa-deploy }
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: app
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do echo tick; sleep 2; done"]
+`;
+
+/** The `Restarts` value of the first container card. */
+function restarts(app) {
+  return app.js(`
+    const dts = document.querySelectorAll('[data-testid="detail-panel"] section.card dt');
+    for (const dt of dts) if (dt.textContent.trim() === 'Restarts') return Number(dt.nextElementSibling.textContent.trim());
+    return -1;`);
+}
+
+/** Text and computed colour of the first container's state and last state. */
+function containerStates(app) {
+  return app.js(`
+    const s = document.querySelector('[data-testid="detail-panel"] [data-testid="container-state"]');
+    const l = document.querySelector('[data-testid="detail-panel"] [data-testid="last-state"]');
+    return {
+      state: s?.textContent.replace(/\\s+/g, ' ').trim() ?? '',
+      stateColor: s ? getComputedStyle(s).color : '',
+      red: getComputedStyle(document.documentElement).getPropertyValue('--red').trim(),
+      last: l?.textContent.replace(/\\s+/g, ' ').trim() ?? '',
+    };`);
+}
+
+/** The label chips of the panel. */
+function chips(app) {
+  return app.js(`return Array.from(document.querySelectorAll('[data-testid="detail-panel"] .chip'), (c) => c.textContent.trim())`);
+}
+
+describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, () => {
+  let ns;
+  before(() => {
+    ns = tempNamespace("qa-area3-pod", fixtures);
+    waitPodReady(ns, "qa-web");
+    kubectl(["-n", ns, "rollout", "status", "deploy/qa-deploy", "--timeout=180s"]);
+  });
+  after(() => deleteNamespace(ns));
+
+  const s = appSession("area-3-pod-detail");
+
+  it("default/hungry shows FailedScheduling, PodScheduled=False and cpu 1k / —", T, async () => {
+    const { app } = s;
+    await resizeWindow(app, 1280, 800);
+    await waitLive(app);
+    await app.openDetail("Pods", "default", "hungry");
+    const text = await app.waitFor(
+      async () => {
+        const t = await panelText(app);
+        return t.includes("FailedScheduling") ? t : null;
+      },
+      { message: "the FailedScheduling event" },
+    );
+    assert.match(text, /PodScheduled\s+False/);
+    assert.match(text, /cpu 1k \/ —/);
+    await app.js(`document.querySelector('[data-testid="detail-panel"] section.card')?.scrollIntoView()`);
+  });
+
+  it("demo/crashed shows CrashLoopBackOff in red and the last termination", T, async () => {
+    const { app } = s;
+    await app.openDetail("Pods", "demo", "crashed");
+    const st = await app.waitFor(
+      async () => {
+        const v = await containerStates(app);
+        // On a fresh cluster the first crash (the last termination) can take a while.
+        return v.state && v.last ? v : null;
+      },
+      { timeout: 60_000, message: "the container state and its last termination" },
+    );
+    console.log(`crashed: ${JSON.stringify(st)}`);
+    // Between two crashes the pod is briefly Running.
+    if (st.state.startsWith("Waiting")) {
+      assert.match(st.state, /^Waiting: CrashLoopBackOff/);
+      assert.ok(st.stateColor && st.red, "colours resolved");
+    }
+    assert.match(st.last, /^Terminated: Error \(exit 1\)/);
+  });
+
+  it("the restart count climbs live without reopening the panel", T, async () => {
+    const { app } = s;
+    await app.openDetail("Pods", ns, "qa-crash");
+    await app.waitFor(async () => (await restarts(app)) >= 1, { timeout: 60_000, message: "a first restart" });
+    const first = await restarts(app);
+    const t0 = Date.now();
+    const next = await app.waitFor(
+      async () => {
+        const n = await restarts(app);
+        return n > first ? n : null;
+      },
+      { timeout: 120_000, interval: 500, message: `the restart count to go past ${first}` },
+    );
+    const kube = Number(kubectl(["-n", ns, "get", "pod", "qa-crash", "-o", "jsonpath={.status.containerStatuses[0].restartCount}"]));
+    console.log(`restarts ${first} -> ${next} in ${Date.now() - t0} ms (kubectl: ${kube})`);
+    assert.ok(kube >= next);
+  });
+
+  it("a demo/web pod's owner link opens its ReplicaSet", T, async () => {
+    const { app } = s;
+    const pod = podNames("demo", "app=web")[0];
+    assert.ok(pod, "a demo/web pod");
+    const rs = kubectl(["-n", "demo", "get", "pod", pod, "-o", "jsonpath={.metadata.ownerReferences[0].name}"]);
+    await app.openDetail("Pods", "demo", pod);
+    const link = await app.find(By.xpath(`//*[@data-testid='detail-panel']//button[contains(@class,'link')][contains(normalize-space(), '${rs}')]`));
+    await link.click();
+    await waitPanelTitle(app, `ReplicaSet demo/${rs}`);
+  });
+
+  it("a container port's Forward button starts a working forward", T, async () => {
+    const { app } = s;
+    await app.openDetail("Pods", ns, "qa-web");
+    const btn = await app.find(By.css('[data-testid="detail-panel"] button[aria-label="Forward port 8080"]'));
+    await app.js("arguments[0].scrollIntoView({ block: 'center' })", btn);
+    await btn.click();
+    const url = await app.waitFor(
+      async () => (await panelText(app)).match(/(http:\/\/127\.0\.0\.1:\d+)/)?.[1] ?? null,
+      { timeout: 60_000, message: "a forward URL in the panel" },
+    );
+    const body = await (await fetch(url)).text();
+    assert.match(body, /hello from area 3/);
+    await (await app.find(By.css(`[data-testid="detail-panel"] button[aria-label="Stop ${url}"]`))).click();
+    await app.waitFor(
+      async () => (await app.driver.findElements(By.css(`[data-testid="detail-panel"] button[aria-label="Stop ${url}"]`))).length === 0,
+      { message: "the forward's row to go" },
+    );
+    await assert.rejects(fetch(url), "the forward stopped");
+    // The status line under "Port forward" should not still say "Forwarding".
+    const status = await app.js(
+      `return Array.from(document.querySelectorAll('[data-testid="detail-panel"] .detail-status'), (p) => p.textContent.trim())`,
+    );
+    console.log(`status after Stop: ${JSON.stringify(status)}`);
+    assert.ok(!status.some((t) => t.startsWith("Forwarding")), `stale status after Stop: ${JSON.stringify(status)}`);
+  });
+
+  it("a label added with kubectl shows up as a chip within about a second", T, async () => {
+    const { app } = s;
+    await app.openDetail("Pods", ns, "qa-web");
+    await app.waitFor(async () => (await chips(app)).includes("app=qa-web"), { message: "the app label chip" });
+    const k0 = Date.now();
+    kubectl(["-n", ns, "label", "pod", "qa-web", "qa-area3=live"]);
+    // From when the API server accepted the change (kubectl itself can be
+    // slow on a busy machine).
+    const t0 = Date.now();
+    await app.waitFor(async () => (await chips(app)).includes("qa-area3=live"), {
+      timeout: 10_000,
+      interval: 100,
+      message: "the new label chip",
+    });
+    const ms = Date.now() - t0;
+    console.log(`label chip ${ms} ms after kubectl returned (kubectl took ${t0 - k0} ms)`);
+    assert.ok(ms < 2000, `label chip took ${ms} ms`);
+  });
+
+  it("deleting the pod from outside shows the deleted notice and disables the actions", T, async () => {
+    const { app } = s;
+    await app.openDetail("Pods", ns, "qa-web");
+    kubectl(["-n", ns, "delete", "pod", "qa-web", "--wait=false"]);
+    await app.waitFor(async () => (await panelText(app)).includes("This Pod was deleted"), {
+      timeout: 30_000,
+      message: '"This Pod was deleted"',
+    });
+    const buttons = await actionButtons(app);
+    console.log(`actions: ${JSON.stringify(buttons)}`);
+    assert.ok(buttons.length > 0 && buttons.every((b) => b.disabled), "every action disabled");
+    const term = await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Open terminal']"));
+    assert.equal(await term.getAttribute("disabled"), "true");
+  });
+
+  it("a Deployment panel updates live and shows its deletion", T, async () => {
+    const { app } = s;
+    await app.openDetail("Deployments", ns, "qa-deploy");
+    kubectl(["-n", ns, "label", "deploy", "qa-deploy", "qa-area3=deploy-live"]);
+    await app.waitFor(async () => (await chips(app)).includes("qa-area3=deploy-live"), {
+      timeout: 10_000,
+      message: "the Deployment's new label",
+    });
+    kubectl(["-n", ns, "delete", "deploy", "qa-deploy", "--wait=false"]);
+    await app.waitFor(async () => (await panelText(app)).includes("This Deployment was deleted"), {
+      timeout: 30_000,
+      message: '"This Deployment was deleted"',
+    });
+  });
+
+  it("a ConfigMap panel updates live and shows its deletion", T, async () => {
+    const { app } = s;
+    await app.openDetail("Config Maps", ns, "qa-config");
+    kubectl(["-n", ns, "label", "configmap", "qa-config", "qa-area3=cm-live"]);
+    await app.waitFor(async () => (await chips(app)).includes("qa-area3=cm-live"), {
+      timeout: 10_000,
+      message: "the ConfigMap's new label",
+    });
+    kubectl(["-n", ns, "delete", "configmap", "qa-config", "--wait=false"]);
+    await app.waitFor(async () => (await panelText(app)).includes("This ConfigMap was deleted"), {
+      timeout: 30_000,
+      message: '"This ConfigMap was deleted"',
+    });
+  });
+
+  it("a Secret panel shows only its keys, in the overview and the YAML tab", T, async () => {
+    const { app } = s;
+    await app.openDetail("Secrets", ns, "qa-secret");
+    const text = await app.waitFor(
+      async () => {
+        const t = await panelText(app);
+        return /password \(\d+ bytes\)/.test(t) ? t : null;
+      },
+      { message: "the Secret's key list" },
+    );
+    const b64 = Buffer.from(SECRET_VALUE).toString("base64");
+    assert.ok(!text.includes(SECRET_VALUE) && !text.includes(b64), "the overview leaks the value");
+    await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[@role='tab'][normalize-space()='YAML']"))).click();
+    await app.find(By.css('[data-testid="detail-panel"] .cm-content'), { timeout: 20_000 });
+    await app.waitFor(async () => (await panelText(app)).includes("password"), { message: "the YAML" });
+    const html = await app.js(`return document.querySelector('[data-testid="detail-panel"]').innerHTML`);
+    assert.ok(!html.includes(SECRET_VALUE) && !html.includes(b64), "the YAML tab leaks the value before Reveal");
+  });
+
+  it("Logs and Open terminal still open in the dock", T, async () => {
+    const { app } = s;
+    // The crashing pod logs "boom" before each exit.
+    await app.openDetail("Pods", ns, "qa-crash");
+    await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Logs']"))).click();
+    await app.waitFor(
+      async () => (await app.js(`return document.querySelector('[data-testid="dock"]')?.innerText ?? ""`)).includes("boom"),
+      { timeout: 30_000, message: '"boom" in the dock log tab' },
+    );
+    await app.openDetail("Pods", "demo", "multi");
+    await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Open terminal']"))).click();
+    await app.find(byTestId("terminal"), { timeout: 30_000 });
+    const out = await terminal(app).run("hostname", { timeout: 30_000 });
+    assert.equal(out, "multi");
+  });
+});

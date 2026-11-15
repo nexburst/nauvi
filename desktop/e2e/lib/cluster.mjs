@@ -19,6 +19,14 @@ export function podNames(namespace, selector) {
   return out ? out.split(/\s+/) : [];
 }
 
+/** Names of the Running (and not terminating) pods matching a label selector. */
+export function runningPodNames(namespace, selector) {
+  const out = kubectl(["-n", namespace, "get", "pods", "-l", selector, "--field-selector=status.phase=Running", "-o", "json"]);
+  return JSON.parse(out)
+    .items.filter((p) => !p.metadata.deletionTimestamp)
+    .map((p) => p.metadata.name);
+}
+
 /**
  * A temporary namespace with a ConfigMap and a small logging Deployment, all
  * with unique names (the filter box matches across namespaces, and other
@@ -95,8 +103,24 @@ export function tempNamespace(prefix, yaml = "") {
     ["apply", "-f", "-"],
     `apiVersion: v1\nkind: Namespace\nmetadata:\n  name: ${namespace}\n  labels:\n    kubeloupe-e2e: "true"\n`,
   );
+  // Pods are refused until the controller manager has made the default
+  // ServiceAccount, which can take a while on a busy cluster.
+  waitDefaultServiceAccount(namespace);
   if (yaml) kubectl(["-n", namespace, "apply", "-f", "-"], yaml);
   return namespace;
+}
+
+function waitDefaultServiceAccount(namespace, timeoutMs = 240_000) {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      kubectl(["-n", namespace, "get", "serviceaccount", "default", "-o", "name"]);
+      return;
+    } catch (e) {
+      if (Date.now() > deadline) throw new Error(`no default ServiceAccount in ${namespace}: ${e.message}`);
+      execFileSync("sleep", ["0.5"]);
+    }
+  }
 }
 
 export function deleteNamespace(namespace) {

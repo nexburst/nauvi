@@ -284,6 +284,10 @@ async fn all_container_logs_of_demo_multi_are_tagged_by_container() -> Result<()
 
 /// Read-only: demo/crashed crash-loops, demo/web is healthy; the rows the
 /// table watch sends say so, and the list rows agree.
+///
+/// demo/crashed is only a problem between two runs of its container (while
+/// it runs it is Running and ready), and on a fresh cluster it may not have
+/// crashed yet: both checks wait for it instead of assuming it.
 #[tokio::test]
 #[ignore]
 async fn pod_rows_mark_problems_from_the_watch() -> Result<()> {
@@ -293,13 +297,24 @@ async fn pod_rows_mark_problems_from_the_watch() -> Result<()> {
         .iter()
         .find(|k| k.id == "v1/pods")
         .context("no pods kind")?;
-    let rows = list_resources(&client, pods, Some("demo")).await?;
-    let problem = |name: &str| {
-        rows.iter()
-            .find(|r| r.name == name)
+    let deadline = tokio::time::Instant::now() + TIMEOUT;
+    let rows = loop {
+        let rows = list_resources(&client, pods, Some("demo")).await?;
+        let problem = rows
+            .iter()
+            .find(|r| r.name == "crashed")
             .map(|r| r.problem.clone())
+            .context("no demo/crashed in the list")?;
+        if !problem.is_empty() {
+            break rows;
+        }
+        ensure!(
+            tokio::time::Instant::now() < deadline,
+            "timed out after {TIMEOUT:?}: demo/crashed never had a problem in the list rows"
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
     };
-    let crashed = problem("crashed").context("no demo/crashed")?;
+    let crashed = &rows.iter().find(|r| r.name == "crashed").unwrap().problem;
     // Between restarts it is Not ready, otherwise backing off.
     ensure!(
         ["CrashLoopBackOff", "Not ready", "Error"].contains(&crashed.as_str()),
@@ -309,21 +324,32 @@ async fn pod_rows_mark_problems_from_the_watch() -> Result<()> {
         ensure!(r.problem.is_empty(), "{}: {}", r.name, r.problem);
     }
 
+    // The snapshot, or a later change of the pod, marks it too.
     let (_store, mut updates) = watch_resource(&client, pods, Some("demo"));
-    let from_watch = tokio::time::timeout(TIMEOUT, async {
+    let mut seen = false;
+    tokio::time::timeout(TIMEOUT, async {
         while let Some(u) = updates.next().await {
-            if let Update::Snapshot(rows) = u {
-                return Ok(rows);
+            let rows = match u {
+                Update::Snapshot(rows) => rows,
+                Update::Applied(row) => vec![row],
+                _ => continue,
+            };
+            if let Some(r) = rows.iter().find(|r| r.name == "crashed") {
+                seen = true;
+                if !r.problem.is_empty() {
+                    return Ok(());
+                }
             }
         }
         bail!("the watch ended")
     })
     .await
-    .context("no snapshot")??;
-    let crashed = from_watch
-        .iter()
-        .find(|r| r.name == "crashed")
-        .context("no demo/crashed in the watch")?;
-    ensure!(!crashed.problem.is_empty(), "demo/crashed has no problem");
+    .with_context(|| {
+        if seen {
+            format!("timed out after {TIMEOUT:?}: the watch never marked demo/crashed as a problem")
+        } else {
+            format!("timed out after {TIMEOUT:?}: no demo/crashed in the watch")
+        }
+    })??;
     Ok(())
 }

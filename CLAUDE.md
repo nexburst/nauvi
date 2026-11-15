@@ -2,6 +2,8 @@
 
 Guide for people and coding agents. `AGENTS.md` is a symlink to this file.
 User-facing docs are in `README.md`; the plan is the roadmap issue #24.
+Why things are the way they are: `docs/decisions/`. Setting up (or
+recovering) a development machine: `docs/dev-setup.md`.
 
 ## Layout
 
@@ -11,16 +13,20 @@ User-facing docs are in `README.md`; the plan is the roadmap issue #24.
   columns, table, ops, detail). `lib.rs` re-exports them. The CLI is
   `src/main.rs`, with its arguments in `src/args.rs`; `tests/cli.rs` runs the
   binary.
-- `desktop/src/`: the Tauri app. `main.rs` builds and registers everything,
-  `state.rs` holds `AppState`, `commands/` has one module per concern.
+- `desktop/src/`: the Tauri app. `main.rs` builds the app, `state.rs` holds
+  `AppState`, `commands/` has one module per concern and `commands/mod.rs`
+  registers every command and event (`specta_builder`).
 - `desktop/ui-src/`: the Svelte 5 + Vite + TypeScript UI.
-  `src/lib/bindings.ts` is generated; `src/test/` is the fake backend and the
+  `src/lib/bindings.ts` is generated; `src/lib/registry.ts` lists the views,
+  banners, side panels and dialogs `App.svelte` shows; `src/test/` is the fake
+  backend (handlers in `src/test/fake/`, one file per command module) and the
   Playwright tests.
 - `desktop/e2e/`: the real app on WebKitGTK (tauri-driver): the smoke suite,
   the QA scenarios in `qa/`, their helpers in `lib/` and `qa.sh`.
 - `tests/cluster.rs`: integration tests against the kind cluster.
 - `scripts/test-cluster/`: `setup.sh` (kind cluster, metrics-server),
-  `demo.yaml` (the demo workload), `limited-user.sh` (a namespace-scoped
+  `demo.yaml` (the demo workload), `wait-demo.sh` (waits until the demo pods
+  are in the state the tests expect), `limited-user.sh` (a namespace-scoped
   user, opt-in) and `prometheus.yaml` (CI only, see below).
 - `scripts/dev/`: `capped.sh` (run a command under a memory ceiling) and
   `clean-worktrees.sh` (remove merged agent worktrees).
@@ -64,15 +70,25 @@ Playwright needs a browser once: `npx playwright install chromium` (add
   commands and events. Never edit it by hand. CI fails if it is stale.
 - On a merge or rebase conflict in `bindings.ts`, take either side and
   regenerate it with `cargo test -p kubeloupe-desktop export_typescript_bindings`.
+  `.gitattributes` marks it `-merge` (git never merges it: a conflict means take
+  either side and regenerate) and `linguist-generated`
+  (collapsed in PR diffs). Always regenerate after a merge or rebase.
+- Commands and events are registered in `specta_builder` in
+  `desktop/src/commands/mod.rs`, sorted by module and name, one per line,
+  with a trailing comma. Add a new one at its sorted place, never at the
+  end: `bindings.ts` lists the commands in that order, so two branches that
+  add commands to different modules touch different lines of both files.
 - Avoid `Option` fields in command and event output types where you can.
   Otherwise specta splits the type into separate Serialize and Deserialize
   variants in TypeScript.
 - Types in `src/` that cross the IPC boundary derive
   `#[cfg_attr(feature = "specta", derive(specta::Type))]`, so the core and
   the CLI build without specta.
-- A new command also needs a handler in `HANDLERS` in
-  `desktop/ui-src/src/test/fake-backend.ts`; `npm run check` fails until it
-  has one. The header comment there explains how to add commands and events.
+- A new command also needs a fake handler, in the file of its module in
+  `desktop/ui-src/src/test/fake/` (`commands/helm_charts.rs` ->
+  `fake/helm-charts.ts`); `npm run check` fails in `fake/index.ts` until it
+  has one. The header comment of `src/test/fake-backend.ts` explains how to
+  add commands and events.
 
 ## Svelte
 
@@ -81,6 +97,8 @@ Playwright needs a browser once: `npx playwright install chromium` (add
   `KeyedStore` (`lib/stores/keyed.svelte.ts`).
 - Components that start a stream (logs, exec, port-forward, watch) stop it
   in `onDestroy`.
+- A new view, banner, side panel or dialog goes at the end of its list in
+  `lib/registry.ts`, not into `App.svelte`.
 - Put pure logic in `lib/*.ts` next to a `*.test.ts`. Tests of modules that use
   runes are named `*.svelte.test.ts`.
 
@@ -129,7 +147,12 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
 
 - kind only. `bash scripts/test-cluster/setup.sh` creates the cluster
   (context `kind-kubeloupe-test`).
-- `cargo test -- --ignored --test-threads=4` runs `tests/cluster.rs`. Run one
+- `cargo test -- --ignored --test-threads=4` runs `tests/cluster.rs`.
+  On a fresh cluster run `bash scripts/test-cluster/wait-demo.sh` first (CI
+  does): it waits for `demo/crashed`'s first restart and the logger's first
+  line. Tests that read the state of a demo pod still poll for it with a
+  bound (`eventually`), never assume it: `demo/crashed` is only a problem
+  between two runs of its container. Run one
   test with `cargo test --test cluster -- --ignored <name>`. Set
   `KUBELOUPE_TEST_CONTEXT` to use another context.
 - New cluster tests are `#[ignore]`d and create what they need in a temporary
@@ -164,6 +187,14 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
   each other's artifacts.
 - All agents share one kind cluster. Keep tests in their own namespaces, and
   don't run two node-level tests at once.
+- Shared files take append-only or sorted lists, one entry per line with a
+  trailing comma: `mod`/`use` lists, `specta_builder` in
+  `desktop/src/commands/mod.rs`, `desktop/ui-src/src/test/fake/index.ts` and
+  `desktop/ui-src/src/lib/registry.ts`. Put the rest in a file of your own
+  area (a command module, a `fake/<module>.ts`, a component).
+- Leave `README.md` out of feature PRs: the coordinator collects the user
+  docs of a wave in one separate docs PR. Put what the README should say in
+  your PR body.
 - Name scratch files uniquely (prefix them with your issue number). Agents
   share a scratch directory, and a generic `pr.md` has been overwritten by
   another agent and pushed as the wrong PR body.
@@ -174,8 +205,9 @@ The dev box is small (4 cores, 15 GB RAM). Builds of this workspace and real-app
 runs (Xvfb + WebKitGTK) each take several GB; five at once got the whole
 session killed by systemd-oomd.
 
-- At most **two** agents should build or run the app at the same time.
-  Check `free -h` before a build; wait if "available" is under ~4 GB.
+- At most **two** agents should build or run the app at the same time;
+  `scripts/dev/capped.sh` enforces it with two build slots. Check `free -h`
+  before a build; wait if "available" is under ~4 GB.
 - Run heavy commands under a memory ceiling, so a runaway one is killed alone:
   `scripts/dev/capped.sh cargo test --workspace`,
   `CAP=4G scripts/dev/capped.sh desktop/e2e/qa.sh <scenario>`.
@@ -184,6 +216,27 @@ session killed by systemd-oomd.
 - Each worktree's `target/` grows to several GB. When your PR is merged, the
   coordinator removes merged worktrees with `scripts/dev/clean-worktrees.sh
   --yes` (dry run without `--yes`).
+
+### Agent roles and the merge gate
+
+Agent definitions live in `.claude/agents/`: `coordinator` (start a session
+with `claude --agent coordinator`), `dev` (one issue per worktree), `qa`
+(real-app checks per area) and `reviewer` (read-only pre-merge review).
+
+- `main` is protected: the CI checks must pass, but branches don't have to be
+  up to date with `main`. Merge with `gh pr merge --auto --squash`; update a
+  branch only when it really conflicts; if `main` breaks, revert first.
+- Before merging a feature or fix PR: a `reviewer` verdict of "merge", and for
+  desktop changes a QA scenario run in CI
+  (`gh workflow run qa.yml --ref <branch> -f scenario='<names>'`) whose
+  screenshots someone looked at.
+- Heavy commands go through `scripts/dev/capped.sh`, which waits for one of
+  two build slots and caps memory.
+- Agents act through the maintainer's GitHub account. Only the coordinator
+  closes, reopens or merges issues and PRs; other agents never close or
+  reopen anything, and never touch PRs or issues they didn't create.
+- A SessionStart hook (`.claude/settings.json`) removes merged, clean agent
+  worktrees.
 
 ## Definition of done
 

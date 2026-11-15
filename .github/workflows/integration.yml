@@ -46,11 +46,10 @@ jobs:
       - name: Build tests
         run: cargo test --test cluster --test helm_cluster --test helm_charts_cluster --no-run
 
+      # Some tests read demo/crashed's crash loop and the logger's lines: wait
+      # for its first restart and first line instead of racing them.
       - name: Wait for demo pods
-        run: |
-          # setup.sh already waited for the web/logger rollouts.
-          kubectl --context kind-kubeloupe-test -n demo wait --for=condition=Ready \
-            pod/multi --timeout=180s
+        run: bash scripts/test-cluster/wait-demo.sh
 
       - name: Integration tests
         run: cargo test -- --ignored --test-threads=4
@@ -132,7 +131,7 @@ jobs:
           for _ in $(seq 1 360); do [ -f "$RUNNER_TEMP/cluster/rc" ] && break; sleep 1; done
           cat "$RUNNER_TEMP/cluster/setup.log"
           [ "$(cat "$RUNNER_TEMP/cluster/rc" 2>/dev/null)" = 0 ]
-          kubectl --context kind-kubeloupe-test -n demo wait --for=condition=Ready pod/multi --timeout=180s
+          bash scripts/test-cluster/wait-demo.sh
 
       - name: Smoke tests
         run: xvfb-run -a -s "-screen 0 1600x1000x24" npm --prefix desktop/e2e test

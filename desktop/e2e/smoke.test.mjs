@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { after, afterEach, before, describe, it } from "node:test";
 import { By, Key } from "selenium-webdriver";
 import { byTestId, launch, xq } from "./lib/app.mjs";
-import { createFixture, deleteFixture, kubectl, podNames } from "./lib/cluster.mjs";
+import { createFixture, deleteFixture, kubectl, podNames, runningPodNames } from "./lib/cluster.mjs";
 
 const TEST_TIMEOUT = 90_000;
 
@@ -57,7 +57,9 @@ describe("kubeloupe on WebKitGTK against kind", { timeout: 15 * 60_000 }, () => 
           `return Array.from(document.querySelectorAll('[aria-label="Problem pods"] .problem'), (p) => p.textContent)
              .some((t) => t.includes("demo/crashed"));`,
         )) || null,
-      { message: "demo/crashed in the problem pods" },
+      // It is only a problem between two runs of its container, and on a
+      // fresh cluster it may not have crashed yet.
+      { timeout: 60_000, message: "demo/crashed in the problem pods" },
     );
   });
 
@@ -97,14 +99,18 @@ describe("kubeloupe on WebKitGTK against kind", { timeout: 15 * 60_000 }, () => 
   });
 
   it("shows log lines of demo/logger-*", { timeout: TEST_TIMEOUT }, async () => {
-    const [pod] = podNames("demo", "app=logger");
-    assert.ok(pod, "a demo logger pod exists");
+    // A Running logger pod that has printed a line already (a fresh
+    // cluster may still be starting it).
+    const pod = await app.waitFor(
+      () => runningPodNames("demo", "app=logger").find((p) => kubectl(["-n", "demo", "logs", p, "--tail=1"]) !== ""),
+      { timeout: 60_000, message: "a running demo/logger pod with a log line" },
+    );
     await app.openDetail("Pods", "demo", pod);
     // Logs open in a dock tab.
     await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Logs']"))).click();
     const lines = By.css(`[data-testid="dock"] [data-tab="logs:demo/${pod}"] [data-testid="log-line"]`);
     await app.waitFor(async () => (await app.driver.findElements(lines)).length > 0, {
-      timeout: 20_000,
+      timeout: 30_000,
       message: "log lines in the dock tab",
     });
   });
