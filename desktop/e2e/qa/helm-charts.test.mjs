@@ -33,6 +33,7 @@ let ns;
 let dir;
 let server;
 let url;
+let repo;
 
 /** helm with its own homes (the app's), against the test context. */
 function helm(args) {
@@ -59,7 +60,7 @@ const button = (testid, text) => By.xpath(`//*[@data-testid=${xq(testid)}]//butt
 describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
   before(async () => {
     dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-helm-"));
-    const repo = join(dir, "repo");
+    repo = join(dir, "repo");
     mkdirSync(repo);
     for (const version of ["0.1.0", "0.2.0"]) {
       execFileSync("helm", ["package", CHART, "--version", version, "-d", repo], { stdio: "pipe" });
@@ -221,5 +222,100 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
     const values = JSON.parse(helm(["get", "values", RELEASE, "-n", ns, "-o", "json"]));
     if (values.greeting !== "upgraded" || values.replicas !== 0) throw new Error(`values: ${JSON.stringify(values)}`);
     await (await app.find(button("helm-deploy", "Close"))).click();
+  });
+
+  // QA area 5 (#83, PR #94 "not verified"): the repository Update and Remove
+  // buttons, the Settings section and the error paths, in WebKitGTK.
+
+  it("an invalid values document gets a plain error, not helm's", T, async () => {
+    const { app } = s;
+    await app.nav("Charts");
+    await (await app.find(By.xpath("//*[@data-testid='chart-row'][*[@role='gridcell'][1][normalize-space()='qa-local/demo-chart']]"))).click();
+    await app.find(byTestId("chart-readme"), { timeout: 60_000 });
+    const install = await app.find(button("chart-detail", "Install…"));
+    await app.waitFor(() => install.isEnabled(), { message: "Install… enabled" });
+    await install.click();
+    const dialog = await app.find(byTestId("helm-deploy"), { timeout: 30_000 });
+    await app.setValue(await dialog.findElement(By.css('input[aria-label="Namespace"]')), ns);
+    await app.setValue(await dialog.findElement(By.css('input[aria-label="Release name"]')), "qa-bad-values");
+    await app.waitFor(
+      async () =>
+        (await app.js(`return document.querySelector('[data-testid="deploy-values"]')?.kubeloupeEditor?.getValue() ?? ""`)).includes("greeting"),
+      { message: "the chart defaults" },
+    );
+    await setEditor("deploy-values", "- just\n- a list\n");
+    await (await app.find(byTestId("deploy-preview"))).click();
+    const error = await app.waitFor(async () => textOf("deploy-error"), { timeout: 30_000, message: "the values error" });
+    console.log(`values error: ${error}`);
+    if (!/mapping/i.test(error) || /Error:|INSTALLATION FAILED/.test(error)) throw new Error(`error text: ${error}`);
+    await app.shot("deploy-values-error");
+    await (await app.find(button("helm-deploy", "Cancel"))).click();
+  });
+
+  it("Update in the repositories panel picks up a new chart version", T, async () => {
+    const { app } = s;
+    execFileSync("helm", ["package", CHART, "--version", "0.3.0", "-d", repo], { stdio: "pipe" });
+    execFileSync("helm", ["repo", "index", repo, "--url", url], { stdio: "pipe" });
+    await app.js(`document.querySelector('[data-testid="chart-detail"] button[aria-label="Close details"]')?.click()`);
+    const toggle = await app.find(By.xpath("//*[@data-testid='helm-charts']//button[normalize-space()='Manage repositories']"));
+    await toggle.click();
+    await (await app.find(By.xpath("//*[@data-testid='helm-repo'][span[normalize-space()='qa-local']]/button[normalize-space()='Update']"))).click();
+    await app.waitFor(
+      async () =>
+        (await app.js(
+          `return Array.from(document.querySelectorAll('[data-testid="chart-row"]'), (r) => r.innerText).find((t) => t.includes("qa-local/demo-chart")) ?? ""`,
+        )).includes("0.3.0"),
+      { timeout: 60_000, message: "demo-chart 0.3.0 listed after Update" },
+    );
+  });
+
+  it("an unreachable repository gets a plain error", T, async () => {
+    const { app } = s;
+    const repos = await app.find(byTestId("helm-repos"));
+    await app.setValue(await repos.findElement(By.css('input[aria-label="Repository name"]')), "qa-unreachable");
+    await app.setValue(await repos.findElement(By.css('input[aria-label="Repository URL"]')), "http://127.0.0.1:1/charts");
+    await (await app.find(By.xpath("//*[@data-testid='helm-repos']//button[normalize-space()='Add']"))).click();
+    const text = await app.waitFor(
+      async () =>
+        app.js(
+          `return Array.from(document.querySelectorAll('[data-testid="helm-repos"] [role="alert"], [data-testid="helm-repo-warning"]'), (e) => e.innerText).join(" | ")`,
+        ),
+      { timeout: 60_000, message: "an error for the unreachable repository" },
+    );
+    console.log(`unreachable repository: ${text}`);
+    await app.shot("repo-unreachable");
+    const list = JSON.parse(helm(["repo", "list", "-o", "json"]));
+    if (list.some((r) => r.name === "qa-unreachable")) throw new Error(`added anyway: ${JSON.stringify(list)}`);
+  });
+
+  it("Settings lists the repository and removes it", T, async () => {
+    const { app } = s;
+    await app.js("document.activeElement?.blur()");
+    await app.driver.actions().keyDown("").sendKeys(",").keyUp("").perform();
+    await app.find(byTestId("settings"));
+    const section = await app.find(byTestId("helm-repo-settings"));
+    await app.js("arguments[0].scrollIntoView()", section);
+    await app.waitFor(async () => (await app.js("return arguments[0].innerText", section)).includes("qa-local"), {
+      message: "qa-local in Settings",
+    });
+    await app.shot("settings-helm-repos");
+    const remove = await section.findElement(By.css('button[aria-label="Remove qa-local"]'));
+    await remove.click();
+    await (await section.findElement(By.css('button[aria-label="Confirm removing qa-local"]'))).click();
+    const names = () => {
+      try {
+        return JSON.parse(helm(["repo", "list", "-o", "json"])).map((r) => r.name);
+      } catch {
+        return []; // "no repositories to show"
+      }
+    };
+    await app.waitFor(() => !names().includes("qa-local"), {
+      timeout: 30_000,
+      message: "qa-local removed from helm's repositories",
+    });
+    await (await app.find(By.xpath("//*[@data-testid='settings']//button[normalize-space()='Close']"))).click();
+    await app.waitFor(async () => /No chart repositories configured/.test(await textOf("helm-charts")), {
+      message: "the Charts view without repositories",
+    });
   });
 });
