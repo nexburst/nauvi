@@ -1,5 +1,6 @@
 //! Helm 3 releases, read natively from the cluster (no `helm` binary), and
-//! rollback/uninstall through the `helm` CLI ([`command`]).
+//! rollback/uninstall ([`command`]), install/upgrade ([`deploy`]) and chart
+//! repositories ([`repo`]) through the `helm` CLI.
 //!
 //! Helm keeps one object per release revision: a Secret of type
 //! `helm.sh/release.v1` named `sh.helm.release.v1.<release>.v<revision>`
@@ -9,12 +10,19 @@
 
 mod command;
 mod decode;
+mod deploy;
 mod manifest;
 mod print;
+mod repo;
 
 pub use command::{helm_rollback, helm_uninstall, helm_version, HelmTarget};
+pub use deploy::{helm_install, helm_upgrade, HelmDeployRequest, HelmDeployResult};
 pub use manifest::{manifest_resources, redact_manifest, HelmResource};
 pub use print::{print_helm_get, print_helm_list, HelmGetOptions, HelmSection};
+pub use repo::{
+    add_repo, chart_details, chart_versions, list_repos, remove_repo, search_charts, update_repos,
+    HelmChartDetails, HelmChartVersion, HelmRepo, HelmRepoUpdate,
+};
 
 use crate::is_forbidden;
 use anyhow::{bail, Context, Result};

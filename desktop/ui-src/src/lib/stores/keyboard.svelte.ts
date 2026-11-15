@@ -10,6 +10,7 @@ import { bindingFor, inEditorOrTerminal, isActivatable, isMacPlatform, isTextEnt
 import { actionUi } from "./actions.svelte";
 import { helm, selectRelease } from "./helm.svelte";
 import { catalog } from "./catalog.svelte";
+import { charts, selectChart } from "./helmCharts.svelte";
 import { createUi } from "./create.svelte";
 import { closeDetail, detail } from "./detail.svelte";
 import { toggleDock } from "./dock.svelte";
@@ -107,6 +108,7 @@ function modalOpen(): boolean {
     keyboard.menus > 0 ||
     actionUi.request !== null ||
     helm.request !== null ||
+    charts.deploy !== null ||
     createUi.open ||
     unsaved.asking ||
     catalog.settingsFor !== null
@@ -153,6 +155,7 @@ export function handleKey(e: KeyboardEvent) {
     case "escape":
       if (detail.target) done(e, closeDetail);
       else if (helm.selected) done(e, () => selectRelease(null));
+      else if (charts.selected) done(e, () => selectChart(null));
       return;
     case "focusFilter": {
       const filter = document.getElementById("table-filter");

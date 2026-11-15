@@ -62,7 +62,7 @@ pub(crate) async fn cmd_helm_version() -> Result<String, String> {
 /// (#78). Without a selection, name the kubeconfig's current context
 /// explicitly, so helm cannot drift to another one if the file changes
 /// meanwhile.
-fn target(state: &ClusterSession) -> Result<HelmTarget, String> {
+pub(crate) fn target(state: &ClusterSession) -> Result<HelmTarget, String> {
     let target = state.target()?;
     Ok(HelmTarget {
         kubeconfig: target.kubeconfig,
