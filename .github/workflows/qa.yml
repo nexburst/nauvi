@@ -7,6 +7,11 @@ name: QA
 
 on:
   workflow_dispatch:
+    inputs:
+      scenario:
+        description: "Run only these scenarios (space-separated names under desktop/e2e/qa/, e.g. 'area-4-dock helm-charts'). Empty: smoke + every scenario."
+        type: string
+        default: ""
   schedule:
     - cron: "17 3 * * *"
 
@@ -102,7 +107,15 @@ jobs:
 
       - name: QA scenarios and smoke suite
         working-directory: desktop/e2e
-        run: ./qa.sh --no-build --out artifacts/qa smoke.test.mjs qa/*.test.mjs
+        env:
+          SCENARIOS: ${{ inputs.scenario }}
+        run: |
+          if [ -n "$SCENARIOS" ]; then
+            # Per-PR QA: `gh workflow run qa.yml --ref <branch> -f scenario='<names>'`
+            ./qa.sh --no-build --out artifacts/qa $SCENARIOS
+          else
+            ./qa.sh --no-build --out artifacts/qa smoke.test.mjs qa/*.test.mjs
+          fi
 
       - name: Summary
         if: always()
