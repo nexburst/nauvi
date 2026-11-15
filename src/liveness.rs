@@ -110,14 +110,17 @@ impl Prober {
     }
 
     /// Whether the API server answers within the timeout: the answer of a
-    /// probe in flight or started less than [`REUSE`] ago, or a new probe.
+    /// probe started less than [`REUSE`] ago, or of one still in flight and
+    /// started less than the timeout ago, or a new probe.
+    ///
+    /// A probe nobody waits for any more (every waiter got an item first) is
+    /// not polled, so it may still look in flight long after its request got
+    /// an answer: past the timeout that answer is too old to reuse (#151).
     pub async fn probe(&self) -> Result<(), String> {
         let probe = {
             let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner());
             match &*last {
-                Some((started, probe)) if probe.peek().is_none() || started.elapsed() < REUSE => {
-                    probe.clone()
-                }
+                Some((started, probe)) if self.reusable(*started, probe) => probe.clone(),
                 _ => {
                     let probe = self.start();
                     *last = Some((Instant::now(), probe.clone()));
@@ -126,6 +129,15 @@ impl Prober {
             }
         };
         probe.await
+    }
+
+    fn reusable(&self, started: Instant, probe: &ProbeFuture) -> bool {
+        let age = started.elapsed();
+        if probe.peek().is_some() {
+            age < REUSE
+        } else {
+            age < self.timeout
+        }
     }
 
     fn start(&self) -> ProbeFuture {
@@ -462,6 +474,38 @@ mod tests {
             .await
             .is_err());
         assert!(cached.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_abandoned_probe_is_not_reused_past_the_timeout() {
+        // Answers after 1 s while up; never while down.
+        let up = Arc::new(AtomicBool::new(true));
+        let u = up.clone();
+        let prober = Prober::with(LIVENESS.timeout, move || {
+            let up = u.clone();
+            async move {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                while !up.load(Ordering::SeqCst) {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Ok(())
+            }
+            .boxed()
+        });
+
+        // A probe whose only waiter stops waiting (an item won the select):
+        // its request still gets an answer, but nobody polls the probe again.
+        let mut abandoned = Box::pin(prober.probe());
+        assert!(futures::poll!(&mut abandoned).is_pending());
+        drop(abandoned);
+        tokio::time::sleep(LIVENESS.timeout + Duration::from_secs(1)).await;
+
+        // Then the server dies: the old answer must not count.
+        up.store(false, Ordering::SeqCst);
+        let mut s = guard(|| silent(0), prober, LIVENESS);
+        let start = Instant::now();
+        assert_eq!(s.next().await, Some(not_answering()));
+        assert_eq!(start.elapsed(), Duration::from_secs(23));
     }
 
     #[tokio::test(start_paused = true)]
