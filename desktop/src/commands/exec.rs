@@ -50,7 +50,11 @@ pub(crate) async fn cmd_exec_start(
         .await
         .map_err(|e| e.to_string())?;
     let session = next_session("exec");
-    start_session(&cluster, session.clone(), attached, cols, rows, None).await;
+    let close = SessionClose {
+        end_shell: true,
+        cleanup: None,
+    };
+    start_session(&cluster, session.clone(), attached, cols, rows, close).await;
     Ok(session)
 }
 
@@ -79,8 +83,22 @@ pub(crate) async fn cmd_attach_start(
         &session,
         &attach_note(&name, &target, "Closing this tab detaches."),
     );
-    start_session(&cluster, session.clone(), attached, cols, rows, None).await;
+    // Closing detaches (#88): the main process keeps running.
+    let close = SessionClose {
+        end_shell: false,
+        cleanup: None,
+    };
+    start_session(&cluster, session.clone(), attached, cols, rows, close).await;
     Ok(session)
+}
+
+/// What closing a terminal session does.
+pub(crate) struct SessionClose {
+    /// End the shell first (exec, debug container), rather than detach.
+    pub(crate) end_shell: bool,
+    /// What to remove when the session ends or is closed (a node shell's
+    /// pod).
+    pub(crate) cleanup: Option<SessionCleanup>,
 }
 
 /// Write a line of text into a terminal session (progress, notes).
@@ -94,16 +112,16 @@ pub(crate) fn emit_note(out: &WindowEmitter, session: &str, text: &str) {
 
 /// Pump an attached or exec'd process to `exec-output` events and register
 /// it as `session`, so `cmd_exec_input`, `cmd_exec_resize` and
-/// `cmd_exec_close` drive it. `cleanup` runs when the session ends or is
-/// closed.
+/// `cmd_exec_close` drive it. `close` says what closing it does.
 pub(crate) async fn start_session(
     cluster: &Cluster,
     session: String,
     mut attached: AttachedProcess,
     cols: u16,
     rows: u16,
-    cleanup: Option<SessionCleanup>,
+    close: SessionClose,
 ) {
+    let SessionClose { end_shell, cleanup } = close;
     let app = cluster.emitter();
     let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
     let mut stdin_writer = attached.stdin();
@@ -203,10 +221,11 @@ pub(crate) async fn start_session(
             size_tx,
             task,
             cleanup,
+            end_on_close: end_shell,
         },
     );
-    if let Some(c) = stopped {
-        c.run().await;
+    if let Some(s) = stopped {
+        s.close().await;
     }
 }
 
@@ -261,10 +280,7 @@ pub(crate) async fn cmd_exec_resize(
 pub(crate) async fn cmd_exec_close(cluster: Cluster, session: String) -> Result<(), String> {
     let entry = cluster.exec_sessions.lock().unwrap().remove(&session);
     if let Some(entry) = entry {
-        entry.task.abort();
-        if let Some(c) = entry.cleanup {
-            tauri::async_runtime::spawn(c.run());
-        }
+        entry.close().await;
     }
     Ok(())
 }

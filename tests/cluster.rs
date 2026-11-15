@@ -344,6 +344,88 @@ async fn exec_runs_echo() -> Result<()> {
     Ok(())
 }
 
+/// Shells running in `ns/name`: `ps` lines whose command is `/bin/sh` or
+/// `sh` (the pod's own process is `httpd -f`).
+async fn shells_in(client: &Client, ns: &str, name: &str) -> Result<usize> {
+    let ps = strings(&["ps", "-o", "pid,args"]);
+    let r = exec_command(client, ns, name, None, &ps).await?;
+    ensure!(r.success, "ps failed: {}", r.stderr);
+    Ok(r.stdout
+        .lines()
+        .filter(|l| matches!(l.split_whitespace().nth(1), Some("/bin/sh" | "sh")))
+        .count())
+}
+
+// #114: dropping an exec connection (or closing its stdin) leaves a TTY
+// shell running in the container; end_shell ends it first, even with a
+// nested shell running a command in the foreground.
+#[tokio::test]
+#[ignore]
+async fn closing_an_exec_shell_ends_it() -> Result<()> {
+    in_temp_ns("it-exec-close", |client, ns| async move {
+        let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
+        let pod: Pod = serde_json::from_value(serde_json::json!({
+            "apiVersion": "v1", "kind": "Pod", "metadata": { "name": "shell" },
+            "spec": {
+                "terminationGracePeriodSeconds": 0,
+                "containers": [{ "name": "c", "image": "busybox:1.36", "command": ["httpd", "-f"] }]
+            }
+        }))?;
+        pods.create(&PostParams::default(), &pod).await?;
+        wait_running(&client, &ns, "shell").await?;
+
+        let mut attached = kubeloupe::exec_pod(&client, &ns, "shell", None).await?;
+        let mut stdin = attached.stdin().context("no stdin")?;
+        let mut stdout = attached.stdout().context("no stdout")?;
+        // Drain the output so the connection never blocks on it.
+        let (out_tx, mut out_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        tokio::spawn(async move {
+            let mut buf = [0u8; 4096];
+            while let Ok(n @ 1..) = stdout.read(&mut buf).await {
+                let _ = out_tx.send(String::from_utf8_lossy(&buf[..n]).into_owned());
+            }
+        });
+        // The stdin pump the app uses: a channel into the process's stdin.
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+        tokio::spawn(async move {
+            while let Some(bytes) = rx.recv().await {
+                if stdin.write_all(&bytes).await.is_err() {
+                    break;
+                }
+            }
+        });
+        tx.send(b"sh\recho nested-$((40+2))\rsleep 1000\r".to_vec())
+            .await?;
+        let mut seen = String::new();
+        within("the nested shell's output", TIMEOUT, async {
+            while !seen.contains("nested-42") {
+                seen.push_str(&out_rx.recv().await.context("output ended")?);
+            }
+            Ok(())
+        })
+        .await?;
+        eventually("two shells and a sleep", TIMEOUT, || async {
+            Ok((shells_in(&client, &ns, "shell").await? == 2).then_some(()))
+        })
+        .await?;
+
+        let ended = kubeloupe::end_shell(&tx, attached.join()).await;
+        drop(tx);
+        ensure!(
+            ended,
+            "the shell did not exit within {:?}",
+            kubeloupe::END_SHELL_WAIT
+        );
+        eventually(
+            "no shell left in the pod",
+            Duration::from_secs(20),
+            || async { Ok((shells_in(&client, &ns, "shell").await? == 0).then_some(())) },
+        )
+        .await
+    })
+    .await
+}
+
 #[tokio::test]
 #[ignore]
 async fn exec_in_named_container() -> Result<()> {

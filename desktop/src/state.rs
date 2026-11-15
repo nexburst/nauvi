@@ -36,6 +36,24 @@ pub(crate) struct ExecSession {
     pub(crate) task: JoinHandle<()>,
     /// What to remove when the session ends (a node shell's pod).
     pub(crate) cleanup: Option<SessionCleanup>,
+    /// End the shell when the session is closed (exec and debug shells).
+    /// Off for attach, where closing detaches and the main process keeps
+    /// running (#88), and for node shells, whose pod is deleted anyway.
+    pub(crate) end_on_close: bool,
+}
+
+impl ExecSession {
+    /// Stop the session: end its shell (bounded, see
+    /// [`kubeloupe::end_shell`]), stop its pumps and run its cleanup.
+    pub(crate) async fn close(mut self) {
+        if self.end_on_close {
+            kubeloupe::end_shell(&self.stdin_tx, &mut self.task).await;
+        }
+        self.task.abort();
+        if let Some(c) = self.cleanup {
+            c.run().await;
+        }
+    }
 }
 
 /// A pod a terminal session created and must delete when it ends: closed,
@@ -146,29 +164,24 @@ impl ClusterSession {
     }
 
     /// Switch to `context`: stop everything of the old one and forget its
-    /// client, kinds, usage history and Prometheus. Returns the node shell pods still
-    /// to delete.
-    pub(crate) async fn set_context(&self, context: Option<String>) -> Vec<SessionCleanup> {
-        let cleanups = self.stop_all();
+    /// client, kinds, usage history and Prometheus. Returns the terminal
+    /// sessions still to close.
+    pub(crate) async fn set_context(&self, context: Option<String>) -> Vec<ExecSession> {
+        let sessions = self.stop_all();
         self.kinds.lock().unwrap().clear();
         self.usage.lock().unwrap().clear();
         *self.prometheus.lock().unwrap() = None;
         *self.context.lock().unwrap() = context;
         *self.client.lock().await = None;
-        cleanups
+        sessions
     }
 
-    /// Stop every stream, terminal, local shell, forward and watch.
-    /// Returns the node shell pods still to delete.
-    pub(crate) fn stop_all(&self) -> Vec<SessionCleanup> {
+    /// Stop every stream, local shell, forward and watch. Returns the
+    /// terminal sessions, still to close: ending their shells and deleting
+    /// node shell pods takes the network.
+    pub(crate) fn stop_all(&self) -> Vec<ExecSession> {
         self.log_streams.stop_all();
-        let cleanups = take_all(&self.exec_sessions)
-            .into_values()
-            .filter_map(|s| {
-                s.task.abort();
-                s.cleanup
-            })
-            .collect();
+        let sessions = take_all(&self.exec_sessions).into_values().collect();
         // Dropping a local shell kills it and deletes its temp kubeconfig.
         drop(take_all(&self.local_shells));
         // Dropping a forward stops it.
@@ -176,12 +189,12 @@ impl ClusterSession {
         for task in take_all(&self.watches).into_values() {
             task.abort();
         }
-        cleanups
+        sessions
     }
 
     /// Mark the session closed and stop everything in it for good, drains
     /// included (they outlive a context switch, not their window).
-    pub(crate) fn close(&self) -> Vec<SessionCleanup> {
+    pub(crate) fn close(&self) -> Vec<ExecSession> {
         self.closed.store(true, Ordering::SeqCst);
         self.log_streams.close();
         for task in take_all(&self.drains).into_values() {
@@ -221,12 +234,10 @@ impl ClusterSession {
         drop(self.insert(&self.local_shells, id, shell));
     }
 
-    /// Register a terminal session. On a closed session it is stopped at
-    /// once and its cleanup returned for the caller to run.
-    pub(crate) fn add_exec(&self, id: String, session: ExecSession) -> Option<SessionCleanup> {
-        let old = self.insert(&self.exec_sessions, id, session)?;
-        old.task.abort();
-        old.cleanup
+    /// Register a terminal session. Returns the session the caller has to
+    /// close: the one it replaced, or on a closed session `session` itself.
+    pub(crate) fn add_exec(&self, id: String, session: ExecSession) -> Option<ExecSession> {
+        self.insert(&self.exec_sessions, id, session)
     }
 
     /// Insert under the map's lock, unless the session is closed. Returns
@@ -283,16 +294,16 @@ impl AppState {
         );
     }
 
-    /// The window `label` is gone: close its session. Returns the node
-    /// shell pods still to delete.
-    pub(crate) fn close(&self, label: &str) -> Vec<SessionCleanup> {
+    /// The window `label` is gone: close its session. Returns the terminal
+    /// sessions still to close.
+    pub(crate) fn close(&self, label: &str) -> Vec<ExecSession> {
         self.gone.lock().unwrap().insert(label.to_string());
         let session = self.sessions.lock().unwrap().remove(label);
         session.map(|s| s.close()).unwrap_or_default()
     }
 
     /// Close every session (the app is quitting).
-    pub(crate) fn close_all(&self) -> Vec<SessionCleanup> {
+    pub(crate) fn close_all(&self) -> Vec<ExecSession> {
         let labels: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
         labels.iter().flat_map(|l| self.close(l)).collect()
     }
@@ -317,10 +328,10 @@ impl AppState {
     }
 }
 
-/// Run node shell cleanups in the background.
-pub(crate) fn spawn_cleanups(cleanups: Vec<SessionCleanup>) {
-    for c in cleanups {
-        tauri::async_runtime::spawn(c.run());
+/// Close terminal sessions in the background.
+pub(crate) fn spawn_closes(sessions: Vec<ExecSession>) {
+    for s in sessions {
+        tauri::async_runtime::spawn(s.close());
     }
 }
 
@@ -469,10 +480,59 @@ mod tests {
     #[test]
     fn adding_to_a_closing_session_is_stopped() {
         let session = ClusterSession::default();
-        let cleanups = session.close();
-        assert!(cleanups.is_empty());
+        assert!(session.close().is_empty());
         session.add_drain("d".into(), forever());
         assert!(session.drains.lock().unwrap().is_empty());
+    }
+
+    /// A terminal session whose shell exits on the first input; the
+    /// receiver gets what was typed.
+    fn shell(end_on_close: bool) -> (ExecSession, std::sync::mpsc::Receiver<Vec<u8>>) {
+        let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
+        let (typed_tx, typed) = std::sync::mpsc::channel();
+        let task = tauri::async_runtime::spawn(async move {
+            if let Some(bytes) = stdin_rx.recv().await {
+                let _ = typed_tx.send(bytes);
+            }
+        });
+        let session = ExecSession {
+            stdin_tx,
+            size_tx: None,
+            task,
+            cleanup: None,
+            end_on_close,
+        };
+        (session, typed)
+    }
+
+    #[test]
+    fn closing_an_exec_session_ends_its_shell() {
+        let (session, typed) = shell(true);
+        tauri::async_runtime::block_on(session.close());
+        assert_eq!(typed.try_recv().unwrap(), kubeloupe::END_SHELL_KEYS);
+    }
+
+    #[test]
+    fn closing_an_attach_session_only_detaches() {
+        let (session, typed) = shell(false);
+        tauri::async_runtime::block_on(session.close());
+        assert!(typed.try_recv().is_err());
+    }
+
+    #[test]
+    fn switching_context_hands_back_the_terminals_to_close() {
+        let session = ClusterSession::new(Some("a".into()), Default::default());
+        let (s, typed) = shell(true);
+        assert!(session.add_exec("exec-1".into(), s).is_none());
+        let stopped = tauri::async_runtime::block_on(session.set_context(None));
+        assert!(session.exec_sessions.lock().unwrap().is_empty());
+        assert_eq!(stopped.len(), 1);
+        tauri::async_runtime::block_on(async {
+            for s in stopped {
+                s.close().await;
+            }
+        });
+        assert_eq!(typed.try_recv().unwrap(), kubeloupe::END_SHELL_KEYS);
     }
 
     #[test]
