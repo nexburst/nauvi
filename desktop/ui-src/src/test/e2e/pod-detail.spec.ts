@@ -107,6 +107,17 @@ test("pause holds new lines back until resume", async ({ page }) => {
   expect(await fake.calls("cmdStreamPodLogs")).toHaveLength(1);
 });
 
+test("a full buffer reads 50,000+ lines, not the buffer's length (#113)", async ({ page }) => {
+  const fake = await openPod(page);
+  await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(1);
+  // 52,241 lines: over the cap, under the 10% the buffer runs over between trims.
+  const batch = Array.from({ length: 10_000 }, (_, i) => `line ${i}`);
+  for (let i = 0; i < 5; i++) await fake.emitLogLines(batch);
+  await fake.emitLogLines(batch.slice(0, 2241));
+  await expect(logs(page).getByText("50,000+ lines", { exact: true })).toBeVisible();
+  await expect(logs(page).getByText("52,241+ lines")).toHaveCount(0);
+});
+
 test("stream end and errors are shown as system lines", async ({ page }) => {
   const fake = await openPod(page);
   await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(1);

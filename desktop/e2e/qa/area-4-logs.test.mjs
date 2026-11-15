@@ -379,6 +379,15 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
         },
         { timeout: 180_000, interval: 1000, message: '"50,000+ lines"' },
       );
+      // The label is the cap, not the buffer's length, which runs up to 10%
+      // over it between trims (#113): sample it while lines keep coming.
+      const samples = [status];
+      for (let i = 0; i < 5; i++) {
+        await new Promise((r) => setTimeout(r, 400));
+        samples.push(await logStatus(app, sid));
+      }
+      console.log(`status samples: ${JSON.stringify(samples)}`);
+      for (const st of samples) assert.match(st, /^(paused · )?50,000\+ lines$/, `status "${st}"`);
       // Frames per second over 2 s while the lines pour in.
       const fps = await app.driver.executeAsyncScript(`
         const done = arguments[arguments.length - 1];

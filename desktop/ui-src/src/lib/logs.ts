@@ -75,6 +75,15 @@ export class LogBuffer {
   }
 }
 
+/**
+ * The line count in the viewer's status: "1,234 lines", and "50,000+ lines"
+ * once the buffer is full. The buffer itself runs up to 10% over the cap
+ * between trims, so the count is capped here (#113).
+ */
+export function lineCountLabel(count: number): string {
+  return count >= LOG_BUFFER_MAX ? `${LOG_BUFFER_MAX.toLocaleString()}+ lines` : `${count.toLocaleString()} lines`;
+}
+
 /** Case-insensitive substring match; an empty filter matches everything. */
 export function logMatches(text: string, filterLower: string): boolean {
   return !filterLower || text.toLowerCase().includes(filterLower);

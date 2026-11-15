@@ -3,6 +3,7 @@ import {
   LOG_BUFFER_MAX,
   LogBuffer,
   POD_COLORS,
+  lineCountLabel,
   linePrefix,
   logMatches,
   offerAllContainers,
@@ -69,6 +70,17 @@ describe("LogBuffer", () => {
     expect(b.tagIds).toEqual([]);
     b.pushTagged([{ pod: "p", container: "c", line: "y" }]);
     expect(b.tagIds).toEqual([1]);
+  });
+});
+
+describe("lineCountLabel", () => {
+  it("counts lines, and shows the cap once the buffer is full, however far over it is (#113)", () => {
+    expect(lineCountLabel(0)).toBe("0 lines");
+    expect(lineCountLabel(1234)).toBe((1234).toLocaleString() + " lines");
+    const cap = LOG_BUFFER_MAX.toLocaleString() + "+ lines";
+    expect(lineCountLabel(LOG_BUFFER_MAX)).toBe(cap);
+    expect(lineCountLabel(52_241)).toBe(cap);
+    expect(lineCountLabel(LOG_BUFFER_MAX + LOG_BUFFER_MAX / 10)).toBe(cap);
   });
 });
 
