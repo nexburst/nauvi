@@ -233,6 +233,29 @@ export async function loadNamespaces() {
 }
 
 /**
+ * List the namespaces again, so ones created or deleted since the start
+ * show up in the namespace control and the palette (#177). Runs on Refresh
+ * and when either opens. Quiet: a failure keeps the last list, and an
+ * answer for a context that is no longer current is dropped. Resolves to
+ * whether the list changed.
+ */
+export async function reloadNamespaces(): Promise<boolean> {
+  const ctx = currentContextName();
+  let listed: NamespaceInfo[] | null;
+  try {
+    listed = await commands.cmdListNamespaces();
+  } catch {
+    return false;
+  }
+  // Not listable: the control keeps offering the known and typed ones.
+  if (listed === null || app.namespacesForbidden || currentContextName() !== ctx) return false;
+  const names = (list: NamespaceInfo[]) => list.map((n) => `${n.name}\n${n.status}`);
+  if (sameNamespaces(names(listed), names(app.namespaces))) return false;
+  app.namespaces = listed;
+  return true;
+}
+
+/**
  * Pick the starting namespace: all namespaces if the user may list pods
  * cluster-wide, otherwise the context's namespace or the first one they can
  * access.
@@ -326,6 +349,7 @@ export function openWithStatus(kind: ResourceKind, status: string) {
 
 export function refresh() {
   app.refreshNonce += 1;
+  void reloadNamespaces();
 }
 
 export async function switchContext(name: string) {

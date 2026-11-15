@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { app, setNamespaces } from "../stores/app.svelte";
+  import { app, reloadNamespaces, setNamespaces } from "../stores/app.svelte";
   import { keyboard } from "../stores/keyboard.svelte";
   import { filterNamespaces, MAX_NAMESPACES, namespacesLabel, toggleNamespace } from "../namespaces";
 
@@ -38,6 +38,8 @@
 
   async function show() {
     open = true;
+    // Namespaces created since the start show up while it is open (#177).
+    void reloadNamespaces();
     await tick();
     search?.focus();
   }
