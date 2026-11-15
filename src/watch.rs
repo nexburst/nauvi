@@ -90,6 +90,10 @@ pub enum WatchState {
     /// The server refused the list or watch (403). Retrying would not help,
     /// so the watch stops; `error` is the server's message.
     Forbidden { error: String },
+    /// The kind cannot be watched (no `watch` verb), so it is listed again
+    /// every `interval_secs` seconds instead ([`crate::poll`]). Changes show
+    /// up late: the table is not live.
+    Polling { interval_secs: u32 },
 }
 
 /// One step of a watch, with objects already summarized.
@@ -413,8 +417,14 @@ where
     watch_with(api, (), convert)
 }
 
+/// Whether the server can watch `kind`: it lists the `watch` verb.
+pub fn can_watch(kind: &ResourceKind) -> bool {
+    kind.verbs.iter().any(|v| v == "watch")
+}
+
 /// Watch any discovered kind, optionally in one namespace, yielding table
-/// rows built from the kind's column definitions.
+/// rows built from the kind's column definitions. A kind without the `watch`
+/// verb is listed every [`crate::poll::POLL_INTERVAL`] instead.
 pub fn watch_resource(
     client: &Client,
     kind: &ResourceKind,
@@ -423,12 +433,29 @@ pub fn watch_resource(
     Store<DynamicObject>,
     BoxStream<'static, Update<ResourceRow>>,
 ) {
+    poll_resource(client, kind, namespace, crate::poll::POLL_INTERVAL)
+}
+
+/// [`watch_resource`], with the time between lists for a kind that cannot
+/// be watched.
+pub fn poll_resource(
+    client: &Client,
+    kind: &ResourceKind,
+    namespace: Option<&str>,
+    interval: Duration,
+) -> (
+    Store<DynamicObject>,
+    BoxStream<'static, Update<ResourceRow>>,
+) {
     let api = crate::resources::dyn_api(client, &kind.resource, namespace);
     let columns = Arc::new(kind.columns.clone());
     let resource = kind.resource.clone();
-    watch_with(api, kind.resource.api_resource(), move |o| {
-        make_row(&resource, &columns, o)
-    })
+    let convert = move |o: &DynamicObject| make_row(&resource, &columns, o);
+    if can_watch(kind) {
+        watch_with(api, kind.resource.api_resource(), convert)
+    } else {
+        crate::poll::poll_with(api, kind.resource.api_resource(), interval, convert)
+    }
 }
 
 pub fn watch_pods(

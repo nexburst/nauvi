@@ -24,7 +24,9 @@ export function watchHandlers(s: FakeState) {
         }
         const applied = rowsOf(s, kind).filter((r) => !namespace || r.namespace === namespace);
         void events.watchBatch.emit({ id, snapshot: true, applied, deleted: [] });
-        void events.watchState.emit({ id, state: "live" });
+        // Like the backend: a kind without the watch verb is polled.
+        if (kind.verbs.includes("watch")) void events.watchState.emit({ id, state: "live" });
+        else void events.watchState.emit({ id, state: "polling", interval_secs: 30 });
       }, 0);
       return id;
     },

@@ -47,8 +47,10 @@ export function joinNames(names: readonly string[]): string {
 export interface WatchStatus {
   /** The namespace it watches, or `null` for all namespaces / cluster scope. */
   namespace: string | null;
-  state: "connecting" | "live" | "reconnecting" | "forbidden" | "failed";
+  state: "connecting" | "live" | "polling" | "reconnecting" | "forbidden" | "failed";
   error: string;
+  /** For `polling` (a kind that cannot be watched): seconds between lists. */
+  interval?: number;
   /** For `failed`: the header status (`clusterError(...).status`). */
   status?: string;
 }
@@ -84,13 +86,22 @@ export function combineWatches(watches: readonly WatchStatus[], label: string, n
   if (forbidden.length === watches.length) return { ok: false, text: "Not allowed", error };
   if (forbidden.length) return { ok: false, text: `Not allowed in ${names(forbidden)}`, error };
   if (of("connecting").length) return { ok: null, text: "Connecting…", error };
+  const polling = of("polling");
+  if (polling.length) return { ok: null, text: pollingText(polling[0]), error };
   return { ok: true, text: "Live", error };
+}
+
+/** The header status of a kind that cannot be watched and is listed now and then. */
+export function pollingText(w: WatchStatus): string {
+  return `Not live: refreshed every ${w.interval ?? 30} s`;
 }
 
 function single(w: WatchStatus, label: string, namespaced: boolean): CombinedStatus {
   switch (w.state) {
     case "live":
       return { ok: true, text: "Live", error: "" };
+    case "polling":
+      return { ok: null, text: pollingText(w), error: "" };
     case "reconnecting":
       return { ok: false, text: "Reconnecting…", error: "Watch interrupted, retrying: " + w.error };
     case "forbidden": {

@@ -1028,6 +1028,88 @@ async fn generic_watch_sees_configmap_changes() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
+async fn kinds_without_watch_are_listed_instead() -> Result<()> {
+    // componentstatuses has only get and list (#95): a watch never starts.
+    let client = connect().await?;
+    let kind = kind_named(&client, "componentstatuses").await?;
+    ensure!(
+        !kubeloupe::watch::can_watch(&kind),
+        "verbs: {:?}",
+        kind.verbs
+    );
+    let (store, mut updates) = kubeloupe::watch::watch_resource(&client, &kind, None);
+    let names = within("componentstatuses listed", TIMEOUT, async {
+        let mut names = None;
+        while let Some(u) = updates.next().await {
+            match u {
+                Update::Snapshot(rows) => {
+                    names = Some(rows.into_iter().map(|r| r.name).collect::<BTreeSet<_>>())
+                }
+                Update::State(WatchState::Polling { interval_secs }) => {
+                    ensure!(interval_secs == 30, "{interval_secs}");
+                    return names.context("Polling before the first list");
+                }
+                Update::State(WatchState::Reconnecting { error }) => bail!("failed: {error}"),
+                Update::State(WatchState::Forbidden { error }) => bail!("forbidden: {error}"),
+                _ => {}
+            }
+        }
+        bail!("stream ended")
+    })
+    .await?;
+    ensure!(names.contains("scheduler"), "{names:?}");
+    ensure!(
+        store.state().len() == names.len(),
+        "the store holds the list"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn polled_kind_sees_creates_and_deletes() -> Result<()> {
+    // The polling path, on a kind that could be watched, with a short interval.
+    in_temp_ns("kl-it-poll", |client, ns| async move {
+        let mut kind = kind_named(&client, "configmaps").await?;
+        kind.verbs.retain(|v| v != "watch");
+        let r = kind.resource.clone();
+        let (_store, mut updates) =
+            kubeloupe::watch::poll_resource(&client, &kind, Some(&ns), Duration::from_secs(1));
+        within("first list", TIMEOUT, async {
+            while let Some(u) = updates.next().await {
+                if matches!(u, Update::Snapshot(_)) {
+                    return Ok(());
+                }
+            }
+            bail!("stream ended")
+        })
+        .await?;
+        apply_resource_yaml(&client, &r, &ns, "cm", &configmap_yaml(&ns, "  a: \"1\"\n")).await?;
+        within("created", TIMEOUT, async {
+            while let Some(u) = updates.next().await {
+                if matches!(&u, Update::Applied(row) if row.name == "cm") {
+                    return Ok(());
+                }
+            }
+            bail!("stream ended")
+        })
+        .await?;
+        delete_resource(&client, &r, &ns, "cm").await?;
+        within("deleted", TIMEOUT, async {
+            while let Some(u) = updates.next().await {
+                if matches!(&u, Update::Deleted(row) if row.name == "cm") {
+                    return Ok(());
+                }
+            }
+            bail!("stream ended")
+        })
+        .await
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore]
 async fn metrics_become_available() -> Result<()> {
     let client = connect().await?;
     // metrics-server needs a while after start before it reports anything.

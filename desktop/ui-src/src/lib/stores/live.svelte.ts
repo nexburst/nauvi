@@ -78,7 +78,12 @@ export class LiveTable {
       stamp();
     } else {
       const s = ev.payload;
-      w.status = { namespace: w.status.namespace, state: s.state, error: "error" in s ? s.error : "" };
+      w.status = {
+        namespace: w.status.namespace,
+        state: s.state,
+        error: "error" in s ? s.error : "",
+        interval: "interval_secs" in s ? s.interval_secs : undefined,
+      };
       this.#publishState();
     }
   }

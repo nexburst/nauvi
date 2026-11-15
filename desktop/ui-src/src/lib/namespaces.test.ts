@@ -68,6 +68,21 @@ describe("combineWatches", () => {
     expect(combineWatches([w("a", "live"), w("b", "connecting")], "Pods", true).text).toBe("Connecting…");
   });
 
+  it("says a polled kind (no watch verb) is not live", () => {
+    const polling = (ns: string | null): WatchStatus => ({ ...w(ns, "polling"), interval: 30 });
+    expect(combineWatches([polling(null)], "Component Statuses", false)).toEqual({
+      ok: null,
+      text: "Not live: refreshed every 30 s",
+      error: "",
+    });
+    expect(combineWatches([polling("a"), polling("b")], "Pod Metrics", true)).toEqual({
+      ok: null,
+      text: "Not live: refreshed every 30 s",
+      error: "",
+    });
+    expect(combineWatches([polling("a"), w("b", "connecting")], "Pod Metrics", true).text).toBe("Connecting…");
+  });
+
   it("names the namespaces that are reconnecting or not allowed", () => {
     const r = combineWatches([w("a", "live"), w("b", "reconnecting", "reset")], "Pods", true);
     expect(r).toEqual({ ok: false, text: "Reconnecting… (b)", error: "Watch of b interrupted, retrying: reset" });

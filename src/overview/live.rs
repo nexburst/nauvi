@@ -188,7 +188,7 @@ impl<T> Part<T> {
                 self.error = Some(error);
                 return Ok(false);
             }
-            Update::State(WatchState::Live) => {
+            Update::State(WatchState::Live | WatchState::Polling { .. }) => {
                 self.error = None;
                 return Ok(false);
             }
