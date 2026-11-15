@@ -135,9 +135,10 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
     const st = await app.waitFor(
       async () => {
         const v = await containerStates(app);
-        return v.state ? v : null;
+        // On a fresh cluster the first crash (the last termination) can take a while.
+        return v.state && v.last ? v : null;
       },
-      { message: "the container state" },
+      { timeout: 60_000, message: "the container state and its last termination" },
     );
     console.log(`crashed: ${JSON.stringify(st)}`);
     // Between two crashes the pod is briefly Running.

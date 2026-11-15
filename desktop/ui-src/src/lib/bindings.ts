@@ -7,211 +7,20 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	/**
-	 *  The cluster's namespaces, or `null` if the user may not list them (the
-	 *  UI then lets them type one).
+	 *  Delete many objects of one kind. Every object is attempted; the result
+	 *  has one entry per object with its error, if any.
 	 */
-	cmdListNamespaces: (options?: InvokeOptions) => __TAURI_INVOKE<NamespaceInfo[] | null>("cmd_list_namespaces", undefined, options),
-	/**  Discover every kind the cluster serves (including CRDs) with its columns. */
-	cmdDiscover: (options?: InvokeOptions) => __TAURI_INVOKE<ResourceKind[]>("cmd_discover", undefined, options),
+	cmdBulkDelete: (resource: ResourceRef, items: ObjectId[], options?: InvokeOptions) => __TAURI_INVOKE<BulkItemResult[]>("cmd_bulk_delete", { resource, items }, options),
 	/**
-	 *  Which of the kinds the current user may list in `namespace` (`null` =
-	 *  across all namespaces; ignored for cluster-scoped kinds).
+	 *  Stop following a drain. Pods already evicted stay evicted and the node
+	 *  stays cordoned.
 	 */
-	cmdCheckAccess: (kinds: ResourceRef[], namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<AccessResult[]>("cmd_check_access", { kinds, namespace }, options),
-	cmdStreamPodLogs: (namespace: string, name: string, container: string | null, previous: boolean | null, tailLines: number | null, sinceSeconds: number | null, timestamps: boolean | null, streamId: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_pod_logs", { namespace, name, container, previous, tailLines, sinceSeconds, timestamps, streamId }, options),
+	cmdCancelDrain: (drainId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cancel_drain", { drainId }, options),
 	/**
-	 *  Stop one log stream (pod or workload, with every per-pod task under it).
-	 *  Other streams keep running.
+	 *  Cordon a node and evict its pods in the background. Progress arrives as
+	 *  `DrainProgress` events and the end as `DrainFinished`; returns the drain id.
 	 */
-	cmdStopLogs: (streamId: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stop_logs", { streamId }, options),
-	/**
-	 *  Follow the logs of all pods of a Deployment, StatefulSet, DaemonSet, Job
-	 *  or ReplicaSet (`kind` is case-insensitive). Runs next to the other log
-	 *  streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs`, a context switch or
-	 *  its window closes.
-	 */
-	cmdStreamWorkloadLogs: (kind: string, namespace: string, name: string, options: WorkloadLogOptions_Deserialize, streamId: number, _options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_workload_logs", { kind, namespace, name, options, streamId }, _options),
-	/**
-	 *  Follow every container of one pod at once, merged and tagged by container
-	 *  like a workload stream (same events as [`cmd_stream_workload_logs`]).
-	 *  `options.container` narrows it to one container; previous logs are not
-	 *  offered (they are per container).
-	 */
-	cmdStreamPodAllLogs: (namespace: string, name: string, options: WorkloadLogOptions_Deserialize, streamId: number, _options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_pod_all_logs", { namespace, name, options, streamId }, _options),
-	/**
-	 *  Save log text to the user's Downloads folder and return the path. A
-	 *  webview Blob download is not reliable across the platforms Tauri targets
-	 *  and there is no file dialog without an extra plugin, so we write directly.
-	 */
-	cmdSaveLogs: (filename: string, content: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_save_logs", { filename, content }, options),
-	/**
-	 *  Start the overview feed `id` (chosen by the UI, so no event can arrive
-	 *  before it knows the id). Parts the user may not see cluster-wide fall
-	 *  back to `namespace` (`null` = the context's namespace). Replaces a feed
-	 *  with the same id.
-	 */
-	cmdOverviewStart: (id: number, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_start", { id, namespace }, options),
-	cmdOverviewStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_stop", { id }, options),
-	/**
-	 *  Start the Workloads overview feed `id` (chosen by the UI) for
-	 *  `namespaces` (empty: all namespaces). Replaces a feed with the same id;
-	 *  the UI starts a new one when the namespace selection changes.
-	 */
-	cmdWorkloadsStart: (id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_start", { id, namespaces }, options),
-	cmdWorkloadsStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_stop", { id }, options),
-	/**
-	 *  The namespace to start on: `null` (all namespaces) if the user may list
-	 *  pods cluster-wide, otherwise the context's namespace or the first one
-	 *  they can access.
-	 */
-	cmdDefaultNamespace: (options?: InvokeOptions) => __TAURI_INVOKE<string | null>("cmd_default_namespace", undefined, options),
-	/**
-	 *  Usage for what is on screen: pod metrics in `namespace` (`null` = all
-	 *  namespaces), or node metrics (`namespace` is ignored). The other list
-	 *  is empty. Each call also records the usage history (#47).
-	 */
-	cmdGetMetrics: (namespace: string | null, what: MetricsKind, options?: InvokeOptions) => __TAURI_INVOKE<MetricsSnapshot>("cmd_get_metrics", { namespace, what }, options),
-	/**
-	 *  The usage history of one pod (`namespace` set) or node, for the charts in
-	 *  its detail panel, with its requests and limits or allocatable. Polled
-	 *  while the panel is open: when no table has sampled the object lately, it
-	 *  samples it itself, so history keeps growing with only the panel open.
-	 * 
-	 *  A `range` other than `live` asks Prometheus (#47 phase 2). Without one,
-	 *  or when the query fails, it is the metrics-server history with a `note`
-	 *  saying why.
-	 */
-	cmdUsageHistory: (what: MetricsKind, namespace: string | null, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_usage_history", { what, namespace, name, range }, options),
-	/**
-	 *  The summed usage history of a workload's pods (`kind` is Deployment,
-	 *  StatefulSet, DaemonSet, ReplicaSet or Job), for the charts in its detail
-	 *  panel, with their summed requests and limits. Polled while the panel is
-	 *  open; it samples the pods itself when no table did lately.
-	 * 
-	 *  A `range` other than `live` asks Prometheus, as `cmd_usage_history`
-	 *  does, and falls back to the metrics-server history with a `note`.
-	 */
-	cmdWorkloadUsageHistory: (kind: string, namespace: string, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_workload_usage_history", { kind, namespace, name, range }, options),
-	/**
-	 *  Which Prometheus the usage charts use for the selected context, or why
-	 *  there is none. `redetect` looks again instead of using the cached answer.
-	 */
-	cmdPrometheusStatus: (redetect: boolean, options?: InvokeOptions) => __TAURI_INVOKE<PrometheusStatus>("cmd_prometheus_status", { redetect }, options),
-	/**
-	 *  Start watching a kind (in `namespace`, if it is namespaced). Returns the
-	 *  watch id carried by the `watch-batch` / `watch-state` events.
-	 */
-	cmdWatchStart: (resource: ResourceRef, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { resource, namespace }, options),
-	/**  Stop a table watch or a detail watch. */
-	cmdWatchStop: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_watch_stop", { id }, options),
-	/**
-	 *  Watch one object for the detail panel. Returns the watch id carried by
-	 *  the `detail-watch` events; stop it with `cmd_watch_stop`.
-	 */
-	cmdDetailWatch: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_detail_watch", { resource, namespace, name }, options),
-	/**
-	 *  Every context of the catalog (#78): the default kubeconfig's, then those
-	 *  of the added files and folders, each with a unique id (`name`). The
-	 *  calling window's context is `current`.
-	 */
-	cmdListContexts: (options?: InvokeOptions) => __TAURI_INVOKE<ContextInfo_Serialize[]>("cmd_list_contexts", undefined, options),
-	/**
-	 *  Switch the calling window to context `name` (`null`: the kubeconfig's
-	 *  current-context). Everything that window started is stopped first;
-	 *  other windows are not affected.
-	 */
-	cmdSetContext: (name: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_set_context", { name }, options),
-	/**
-	 *  Every source of contexts: the default kubeconfig's files, then the
-	 *  added ones in order, each with what was read from it or why it could
-	 *  not be.
-	 */
-	cmdKubeconfigSources: (options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_kubeconfig_sources", undefined, options),
-	/**
-	 *  Add a kubeconfig file or a folder of them (`~` expands). Its contexts
-	 *  show up in every window. Returns the sources.
-	 */
-	cmdAddKubeconfigSource: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_add_kubeconfig_source", { path }, options),
-	/**
-	 *  Remove an added source. A pasted kubeconfig's file is deleted too (the
-	 *  app saved it); any other file stays where it is, untouched.
-	 */
-	cmdRemoveKubeconfigSource: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_remove_kubeconfig_source", { path }, options),
-	/**
-	 *  Save a pasted kubeconfig in the app's config directory (readable only by
-	 *  the user) and add it as a source. `name` names the file (`""`: its
-	 *  first context). Returns the sources.
-	 */
-	cmdPasteKubeconfig: (yaml: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_paste_kubeconfig", { yaml, name }, options),
-	/**
-	 *  Log in to context `name`'s cluster and report whether it answers. Never
-	 *  prompts; gives up after 15 s.
-	 */
-	cmdCheckContext: (name: string, options?: InvokeOptions) => __TAURI_INVOKE<ContextCheck>("cmd_check_context", { name }, options),
-	/**
-	 *  Open an interactive shell in a pod. Returns the session id; output
-	 *  arrives as `exec-output` events, `exec-closed` when the shell exits.
-	 */
-	cmdExecStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { namespace, name, container, cols, rows }, options),
-	/**
-	 *  Attach to the main process of a pod's container (`container`: `None` for
-	 *  the default one). Returns the session id; the session works like a shell's
-	 *  (`exec-*` events). Closing it detaches and leaves the process running.
-	 *  Fails, in plain words, when the container has no stdin or is not running.
-	 */
-	cmdAttachStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_attach_start", { namespace, name, container, cols, rows }, options),
-	cmdExecInput: (session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_input", { session, data }, options),
-	cmdExecResize: (session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_resize", { session, cols, rows }, options),
-	cmdExecClose: (session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_close", { session }, options),
-	/**
-	 *  Start the user's shell on this machine with `KUBECONFIG` pointing at a
-	 *  temp kubeconfig that selects the app's context and `namespace` (`null`:
-	 *  the context's own), followed by the kubeconfig the context comes from.
-	 *  It starts in the cluster's working directory from its settings (#78),
-	 *  else the home directory. The user's kubeconfig files are not changed.
-	 */
-	cmdLocalShellStart: (namespace: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<LocalShellStarted>("cmd_local_shell_start", { namespace, cols, rows }, options),
-	cmdLocalShellInput: (session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_input", { session, data }, options),
-	cmdLocalShellResize: (session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_resize", { session, cols, rows }, options),
-	/**  Kill the shell and delete its temp kubeconfig. */
-	cmdLocalShellClose: (session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_close", { session }, options),
-	/**
-	 *  Start forwarding `remote_port` (a number or a port name) of a pod,
-	 *  Service or workload. `local_port`: none picks the remote port if it is
-	 *  free and at least 1024, else a random one; 0 is random; any other
-	 *  number is used as is or fails if taken. Asking again for a forward that
-	 *  already runs (same target and port, no explicit local port) returns it.
-	 */
-	cmdPortforwardStart: (target: ForwardTarget, remotePort: string, localPort: number | null, options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo>("cmd_portforward_start", { target, remotePort, localPort }, options),
-	/**  Stop a forward. Stopping one that is already gone is not an error. */
-	cmdPortforwardStop: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_portforward_stop", { id }, options),
-	/**  Every running forward, oldest first. */
-	cmdPortforwardList: (options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo[]>("cmd_portforward_list", undefined, options),
-	/**  The ports of a Service, for its per-port Forward buttons. */
-	cmdServicePorts: (namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ServicePortInfo[]>("cmd_service_ports", { namespace, name }, options),
-	/**  Detail of any object; pods include their `pod` section. */
-	cmdGetResourceDetail: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ResourceDetail>("cmd_get_resource_detail", { resource, namespace, name }, options),
-	/**
-	 *  The per-kind summary and related objects of any object (a Deployment's
-	 *  ReplicaSets and pods, a Service's endpoints, the pods on a Node...).
-	 */
-	cmdGetRelated: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<Related>("cmd_get_related", { resource, namespace, name }, options),
-	/**  An object as YAML. Secret values stay hidden unless `reveal` is set. */
-	cmdGetResourceYaml: (resource: ResourceRef, namespace: string, name: string, reveal: boolean, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_get_resource_yaml", { resource, namespace, name, reveal }, options),
-	/**
-	 *  Server-side apply of edited YAML. `resource_version` is the version the
-	 *  YAML was loaded at (empty: don't check); if the object changed since,
-	 *  nothing is applied and the outcome says so. `dry_run` validates only.
-	 */
-	cmdApplyResourceYaml: (resource: ResourceRef, namespace: string, name: string, yaml: string, resourceVersion: string, dryRun: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_apply_resource_yaml", { resource, namespace, name, yaml, resourceVersion, dryRun }, options),
-	cmdDeleteResource: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_delete_resource", { resource, namespace, name }, options),
-	/**
-	 *  Create or update the objects of a (multi-document) YAML manifest. The
-	 *  batch is validated with a dry run first; unless `dry_run`, it is applied
-	 *  if every document passed, or with `skip_invalid` the ones that did.
-	 *  Objects without a namespace go to `namespace` ("" = "default").
-	 */
-	cmdApplyManifests: (yaml: string, namespace: string, dryRun: boolean, skipInvalid: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyResult[]>("cmd_apply_manifests", { yaml, namespace, dryRun, skipInvalid }, options),
+	cmdDrainNode: (node: string, timeoutSecs: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_drain_node", { node, timeoutSecs }, options),
 	/**
 	 *  Run one action (everything except drain) on one object. Returns a short
 	 *  summary. The change reaches the table through the live watch. Errors are
@@ -219,20 +28,68 @@ export const commands = {
 	 */
 	cmdRunAction: (resource: ResourceRef, namespace: string, name: string, action: ActionId, replicas: number | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_run_action", { resource, namespace, name, action, replicas }, options),
 	/**
-	 *  Delete many objects of one kind. Every object is attempted; the result
-	 *  has one entry per object with its error, if any.
+	 *  Add a kubeconfig file or a folder of them (`~` expands). Its contexts
+	 *  show up in every window. Returns the sources.
 	 */
-	cmdBulkDelete: (resource: ResourceRef, items: ObjectId[], options?: InvokeOptions) => __TAURI_INVOKE<BulkItemResult[]>("cmd_bulk_delete", { resource, items }, options),
+	cmdAddKubeconfigSource: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_add_kubeconfig_source", { path }, options),
 	/**
-	 *  Cordon a node and evict its pods in the background. Progress arrives as
-	 *  `DrainProgress` events and the end as `DrainFinished`; returns the drain id.
+	 *  Log in to context `name`'s cluster and report whether it answers. Never
+	 *  prompts; gives up after 15 s.
 	 */
-	cmdDrainNode: (node: string, timeoutSecs: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_drain_node", { node, timeoutSecs }, options),
+	cmdCheckContext: (name: string, options?: InvokeOptions) => __TAURI_INVOKE<ContextCheck>("cmd_check_context", { name }, options),
 	/**
-	 *  Stop following a drain. Pods already evicted stay evicted and the node
-	 *  stays cordoned.
+	 *  Every source of contexts: the default kubeconfig's files, then the
+	 *  added ones in order, each with what was read from it or why it could
+	 *  not be.
 	 */
-	cmdCancelDrain: (drainId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cancel_drain", { drainId }, options),
+	cmdKubeconfigSources: (options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_kubeconfig_sources", undefined, options),
+	/**
+	 *  Save a pasted kubeconfig in the app's config directory (readable only by
+	 *  the user) and add it as a source. `name` names the file (`""`: its
+	 *  first context). Returns the sources.
+	 */
+	cmdPasteKubeconfig: (yaml: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_paste_kubeconfig", { yaml, name }, options),
+	/**
+	 *  Remove an added source. A pasted kubeconfig's file is deleted too (the
+	 *  app saved it); any other file stays where it is, untouched.
+	 */
+	cmdRemoveKubeconfigSource: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_remove_kubeconfig_source", { path }, options),
+	/**
+	 *  Which of the kinds the current user may list in `namespace` (`null` =
+	 *  across all namespaces; ignored for cluster-scoped kinds).
+	 */
+	cmdCheckAccess: (kinds: ResourceRef[], namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<AccessResult[]>("cmd_check_access", { kinds, namespace }, options),
+	/**
+	 *  The namespace to start on: `null` (all namespaces) if the user may list
+	 *  pods cluster-wide, otherwise the context's namespace or the first one
+	 *  they can access.
+	 */
+	cmdDefaultNamespace: (options?: InvokeOptions) => __TAURI_INVOKE<string | null>("cmd_default_namespace", undefined, options),
+	/**  Discover every kind the cluster serves (including CRDs) with its columns. */
+	cmdDiscover: (options?: InvokeOptions) => __TAURI_INVOKE<ResourceKind[]>("cmd_discover", undefined, options),
+	/**
+	 *  Usage for what is on screen: pod metrics in `namespace` (`null` = all
+	 *  namespaces), or node metrics (`namespace` is ignored). The other list
+	 *  is empty. Each call also records the usage history (#47).
+	 */
+	cmdGetMetrics: (namespace: string | null, what: MetricsKind, options?: InvokeOptions) => __TAURI_INVOKE<MetricsSnapshot>("cmd_get_metrics", { namespace, what }, options),
+	/**
+	 *  Every context of the catalog (#78): the default kubeconfig's, then those
+	 *  of the added files and folders, each with a unique id (`name`). The
+	 *  calling window's context is `current`.
+	 */
+	cmdListContexts: (options?: InvokeOptions) => __TAURI_INVOKE<ContextInfo_Serialize[]>("cmd_list_contexts", undefined, options),
+	/**
+	 *  The cluster's namespaces, or `null` if the user may not list them (the
+	 *  UI then lets them type one).
+	 */
+	cmdListNamespaces: (options?: InvokeOptions) => __TAURI_INVOKE<NamespaceInfo[] | null>("cmd_list_namespaces", undefined, options),
+	/**
+	 *  Switch the calling window to context `name` (`null`: the kubeconfig's
+	 *  current-context). Everything that window started is stopped first;
+	 *  other windows are not affected.
+	 */
+	cmdSetContext: (name: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_set_context", { name }, options),
 	/**
 	 *  Add an ephemeral debug container to a pod, targeting `target` (empty: the
 	 *  first container), and attach to it, as terminal session `session` (an id
@@ -241,12 +98,10 @@ export const commands = {
 	 */
 	cmdDebugStart: (session: string, namespace: string, name: string, target: string, image: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_debug_start", { session, namespace, name, target, image, cols, rows }, options),
 	/**
-	 *  Open a root shell on `node` through a privileged pod in `namespace`, as
-	 *  terminal session `session` (see [`cmd_debug_start`]). The pod is deleted
-	 *  when the session closes or ends, on a context switch, when its window
-	 *  closes and when the app quits.
+	 *  Delete the node shell pods [`cmd_node_shell_leftovers`] lists. Returns
+	 *  how many were deleted; fails with the first error after trying them all.
 	 */
-	cmdNodeShellStart: (session: string, node: string, namespace: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_node_shell_start", { session, node, namespace, cols, rows }, options),
+	cmdNodeShellCleanup: (options?: InvokeOptions) => __TAURI_INVOKE<number>("cmd_node_shell_cleanup", undefined, options),
 	/**
 	 *  Node shell pods in the cluster that no window of this app owns: left
 	 *  behind by a crash or by another copy of the app. Empty when the
@@ -254,15 +109,27 @@ export const commands = {
 	 */
 	cmdNodeShellLeftovers: (options?: InvokeOptions) => __TAURI_INVOKE<NodeShellPod[]>("cmd_node_shell_leftovers", undefined, options),
 	/**
-	 *  Delete the node shell pods [`cmd_node_shell_leftovers`] lists. Returns
-	 *  how many were deleted; fails with the first error after trying them all.
+	 *  Open a root shell on `node` through a privileged pod in `namespace`, as
+	 *  terminal session `session` (see [`cmd_debug_start`]). The pod is deleted
+	 *  when the session closes or ends, on a context switch, when its window
+	 *  closes and when the app quits.
 	 */
-	cmdNodeShellCleanup: (options?: InvokeOptions) => __TAURI_INVOKE<number>("cmd_node_shell_cleanup", undefined, options),
+	cmdNodeShellStart: (session: string, node: string, namespace: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_node_shell_start", { session, node, namespace, cols, rows }, options),
 	/**
-	 *  The releases in `namespaces` (empty = all), from labels only. Namespaces
-	 *  whose Secrets may not be listed come back as `warnings`.
+	 *  Attach to the main process of a pod's container (`container`: `None` for
+	 *  the default one). Returns the session id; the session works like a shell's
+	 *  (`exec-*` events). Closing it detaches and leaves the process running.
+	 *  Fails, in plain words, when the container has no stdin or is not running.
 	 */
-	cmdHelmList: (namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<HelmReleaseList>("cmd_helm_list", { namespaces }, options),
+	cmdAttachStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_attach_start", { namespace, name, container, cols, rows }, options),
+	cmdExecClose: (session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_close", { session }, options),
+	cmdExecInput: (session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_input", { session, data }, options),
+	cmdExecResize: (session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_resize", { session, cols, rows }, options),
+	/**
+	 *  Open an interactive shell in a pod. Returns the session id; output
+	 *  arrives as `exec-output` events, `exec-closed` when the shell exits.
+	 */
+	cmdExecStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { namespace, name, container, cols, rows }, options),
 	/**
 	 *  The chart of each given revision (a few payloads downloaded at a time),
 	 *  for the list's chart columns. Errors are per release.
@@ -273,16 +140,33 @@ export const commands = {
 	 *  manifest are hidden unless `reveal`.
 	 */
 	cmdHelmGet: (namespace: string, name: string, revision: number, reveal: boolean, options?: InvokeOptions) => __TAURI_INVOKE<HelmRelease>("cmd_helm_get", { namespace, name, revision, reveal }, options),
-	/**  The installed helm's version; an error says how to install it. */
-	cmdHelmVersion: (options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_version", undefined, options),
+	/**
+	 *  The releases in `namespaces` (empty = all), from labels only. Namespaces
+	 *  whose Secrets may not be listed come back as `warnings`.
+	 */
+	cmdHelmList: (namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<HelmReleaseList>("cmd_helm_list", { namespaces }, options),
 	/**  `helm rollback <name> <revision>`; returns a short summary. */
 	cmdHelmRollback: (namespace: string, name: string, revision: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_rollback", { namespace, name, revision }, options),
 	/**  `helm uninstall <name>`; returns a short summary. */
 	cmdHelmUninstall: (namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_uninstall", { namespace, name }, options),
-	/**  The configured chart repositories. */
-	cmdHelmRepoList: (options?: InvokeOptions) => __TAURI_INVOKE<HelmRepo[]>("cmd_helm_repo_list", undefined, options),
+	/**  The installed helm's version; an error says how to install it. */
+	cmdHelmVersion: (options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_version", undefined, options),
+	/**
+	 *  A chart version's metadata, README and default values (`version` empty:
+	 *  the newest).
+	 */
+	cmdHelmChartShow: (chart: string, version: string, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartDetails>("cmd_helm_chart_show", { chart, version }, options),
+	/**
+	 *  Every version of `chart` (`repo/chart`, or a bare name in any
+	 *  repository), newest first.
+	 */
+	cmdHelmChartVersions: (chart: string, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_chart_versions", { chart }, options),
+	/**  `helm install` (or its dry run) into the window's cluster. */
+	cmdHelmInstall: (request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_install", { request }, options),
 	/**  `helm repo add`; returns a short summary. */
 	cmdHelmRepoAdd: (name: string, url: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_repo_add", { name, url }, options),
+	/**  The configured chart repositories. */
+	cmdHelmRepoList: (options?: InvokeOptions) => __TAURI_INVOKE<HelmRepo[]>("cmd_helm_repo_list", undefined, options),
 	/**  `helm repo remove`; returns a short summary. */
 	cmdHelmRepoRemove: (name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_repo_remove", { name }, options),
 	/**
@@ -295,20 +179,96 @@ export const commands = {
 	 *  each, or every version with `all_versions`.
 	 */
 	cmdHelmSearch: (query: string, allVersions: boolean, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_search", { query, allVersions }, options),
-	/**
-	 *  Every version of `chart` (`repo/chart`, or a bare name in any
-	 *  repository), newest first.
-	 */
-	cmdHelmChartVersions: (chart: string, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_chart_versions", { chart }, options),
-	/**
-	 *  A chart version's metadata, README and default values (`version` empty:
-	 *  the newest).
-	 */
-	cmdHelmChartShow: (chart: string, version: string, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartDetails>("cmd_helm_chart_show", { chart, version }, options),
-	/**  `helm install` (or its dry run) into the window's cluster. */
-	cmdHelmInstall: (request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_install", { request }, options),
 	/**  `helm upgrade` (or its dry run) of a release in the window's cluster. */
 	cmdHelmUpgrade: (request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_upgrade", { request }, options),
+	/**  Kill the shell and delete its temp kubeconfig. */
+	cmdLocalShellClose: (session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_close", { session }, options),
+	cmdLocalShellInput: (session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_input", { session, data }, options),
+	cmdLocalShellResize: (session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_resize", { session, cols, rows }, options),
+	/**
+	 *  Start the user's shell on this machine with `KUBECONFIG` pointing at a
+	 *  temp kubeconfig that selects the app's context and `namespace` (`null`:
+	 *  the context's own), followed by the kubeconfig the context comes from.
+	 *  It starts in the cluster's working directory from its settings (#78),
+	 *  else the home directory. The user's kubeconfig files are not changed.
+	 */
+	cmdLocalShellStart: (namespace: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<LocalShellStarted>("cmd_local_shell_start", { namespace, cols, rows }, options),
+	/**
+	 *  Save log text to the user's Downloads folder and return the path. A
+	 *  webview Blob download is not reliable across the platforms Tauri targets
+	 *  and there is no file dialog without an extra plugin, so we write directly.
+	 */
+	cmdSaveLogs: (filename: string, content: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_save_logs", { filename, content }, options),
+	/**
+	 *  Stop one log stream (pod or workload, with every per-pod task under it).
+	 *  Other streams keep running.
+	 */
+	cmdStopLogs: (streamId: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stop_logs", { streamId }, options),
+	/**
+	 *  Follow every container of one pod at once, merged and tagged by container
+	 *  like a workload stream (same events as [`cmd_stream_workload_logs`]).
+	 *  `options.container` narrows it to one container; previous logs are not
+	 *  offered (they are per container).
+	 */
+	cmdStreamPodAllLogs: (namespace: string, name: string, options: WorkloadLogOptions_Deserialize, streamId: number, _options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_pod_all_logs", { namespace, name, options, streamId }, _options),
+	cmdStreamPodLogs: (namespace: string, name: string, container: string | null, previous: boolean | null, tailLines: number | null, sinceSeconds: number | null, timestamps: boolean | null, streamId: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_pod_logs", { namespace, name, container, previous, tailLines, sinceSeconds, timestamps, streamId }, options),
+	/**
+	 *  Follow the logs of all pods of a Deployment, StatefulSet, DaemonSet, Job
+	 *  or ReplicaSet (`kind` is case-insensitive). Runs next to the other log
+	 *  streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs`, a context switch or
+	 *  its window closes.
+	 */
+	cmdStreamWorkloadLogs: (kind: string, namespace: string, name: string, options: WorkloadLogOptions_Deserialize, streamId: number, _options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_workload_logs", { kind, namespace, name, options, streamId }, _options),
+	/**
+	 *  Start the overview feed `id` (chosen by the UI, so no event can arrive
+	 *  before it knows the id). Parts the user may not see cluster-wide fall
+	 *  back to `namespace` (`null` = the context's namespace). Replaces a feed
+	 *  with the same id.
+	 */
+	cmdOverviewStart: (id: number, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_start", { id, namespace }, options),
+	cmdOverviewStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_stop", { id }, options),
+	/**  Every running forward, oldest first. */
+	cmdPortforwardList: (options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo[]>("cmd_portforward_list", undefined, options),
+	/**
+	 *  Start forwarding `remote_port` (a number or a port name) of a pod,
+	 *  Service or workload. `local_port`: none picks the remote port if it is
+	 *  free and at least 1024, else a random one; 0 is random; any other
+	 *  number is used as is or fails if taken. Asking again for a forward that
+	 *  already runs (same target and port, no explicit local port) returns it.
+	 */
+	cmdPortforwardStart: (target: ForwardTarget, remotePort: string, localPort: number | null, options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo>("cmd_portforward_start", { target, remotePort, localPort }, options),
+	/**  Stop a forward. Stopping one that is already gone is not an error. */
+	cmdPortforwardStop: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_portforward_stop", { id }, options),
+	/**  The ports of a Service, for its per-port Forward buttons. */
+	cmdServicePorts: (namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ServicePortInfo[]>("cmd_service_ports", { namespace, name }, options),
+	/**
+	 *  Which Prometheus the usage charts use for the selected context, or why
+	 *  there is none. `redetect` looks again instead of using the cached answer.
+	 */
+	cmdPrometheusStatus: (redetect: boolean, options?: InvokeOptions) => __TAURI_INVOKE<PrometheusStatus>("cmd_prometheus_status", { redetect }, options),
+	/**
+	 *  Create or update the objects of a (multi-document) YAML manifest. The
+	 *  batch is validated with a dry run first; unless `dry_run`, it is applied
+	 *  if every document passed, or with `skip_invalid` the ones that did.
+	 *  Objects without a namespace go to `namespace` ("" = "default").
+	 */
+	cmdApplyManifests: (yaml: string, namespace: string, dryRun: boolean, skipInvalid: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyResult[]>("cmd_apply_manifests", { yaml, namespace, dryRun, skipInvalid }, options),
+	/**
+	 *  Server-side apply of edited YAML. `resource_version` is the version the
+	 *  YAML was loaded at (empty: don't check); if the object changed since,
+	 *  nothing is applied and the outcome says so. `dry_run` validates only.
+	 */
+	cmdApplyResourceYaml: (resource: ResourceRef, namespace: string, name: string, yaml: string, resourceVersion: string, dryRun: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_apply_resource_yaml", { resource, namespace, name, yaml, resourceVersion, dryRun }, options),
+	cmdDeleteResource: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_delete_resource", { resource, namespace, name }, options),
+	/**
+	 *  The per-kind summary and related objects of any object (a Deployment's
+	 *  ReplicaSets and pods, a Service's endpoints, the pods on a Node...).
+	 */
+	cmdGetRelated: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<Related>("cmd_get_related", { resource, namespace, name }, options),
+	/**  Detail of any object; pods include their `pod` section. */
+	cmdGetResourceDetail: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ResourceDetail>("cmd_get_resource_detail", { resource, namespace, name }, options),
+	/**  An object as YAML. Secret values stay hidden unless `reveal` is set. */
+	cmdGetResourceYaml: (resource: ResourceRef, namespace: string, name: string, reveal: boolean, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_get_resource_yaml", { resource, namespace, name, reveal }, options),
 	/**  The settings, as loaded on start and changed since. */
 	cmdGetSettings: (options?: InvokeOptions) => __TAURI_INVOKE<Settings_Serialize>("cmd_get_settings", undefined, options),
 	/**
@@ -316,13 +276,6 @@ export const commands = {
 	 *  The file is written shortly after, once changes stop.
 	 */
 	cmdUpdateSettings: (patch: SettingsPatch_Deserialize, options?: InvokeOptions) => __TAURI_INVOKE<Settings_Serialize>("cmd_update_settings", { patch }, options),
-	/**
-	 *  Open a new window connected to `context` (`""`: the kubeconfig's
-	 *  current-context), with the context's name as its title. Its streams,
-	 *  terminals and forwards are its own: switching or closing another window
-	 *  does not touch them.
-	 */
-	cmdOpenWindow: (context: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_open_window", { context }, options),
 	/**
 	 *  Check for a newer release. `startup`: the check on start, which the
 	 *  "Check for updates on start" setting turns off. Debug builds only check
@@ -335,6 +288,53 @@ export const commands = {
 	 *  Only runs when the user clicks Install.
 	 */
 	cmdUpdateInstall: (options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_update_install", undefined, options),
+	/**
+	 *  The usage history of one pod (`namespace` set) or node, for the charts in
+	 *  its detail panel, with its requests and limits or allocatable. Polled
+	 *  while the panel is open: when no table has sampled the object lately, it
+	 *  samples it itself, so history keeps growing with only the panel open.
+	 * 
+	 *  A `range` other than `live` asks Prometheus (#47 phase 2). Without one,
+	 *  or when the query fails, it is the metrics-server history with a `note`
+	 *  saying why.
+	 */
+	cmdUsageHistory: (what: MetricsKind, namespace: string | null, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_usage_history", { what, namespace, name, range }, options),
+	/**
+	 *  Watch one object for the detail panel. Returns the watch id carried by
+	 *  the `detail-watch` events; stop it with `cmd_watch_stop`.
+	 */
+	cmdDetailWatch: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_detail_watch", { resource, namespace, name }, options),
+	/**
+	 *  Start watching a kind (in `namespace`, if it is namespaced). Returns the
+	 *  watch id carried by the `watch-batch` / `watch-state` events.
+	 */
+	cmdWatchStart: (resource: ResourceRef, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { resource, namespace }, options),
+	/**  Stop a table watch or a detail watch. */
+	cmdWatchStop: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_watch_stop", { id }, options),
+	/**
+	 *  Open a new window connected to `context` (`""`: the kubeconfig's
+	 *  current-context), with the context's name as its title. Its streams,
+	 *  terminals and forwards are its own: switching or closing another window
+	 *  does not touch them.
+	 */
+	cmdOpenWindow: (context: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_open_window", { context }, options),
+	/**
+	 *  The summed usage history of a workload's pods (`kind` is Deployment,
+	 *  StatefulSet, DaemonSet, ReplicaSet or Job), for the charts in its detail
+	 *  panel, with their summed requests and limits. Polled while the panel is
+	 *  open; it samples the pods itself when no table did lately.
+	 * 
+	 *  A `range` other than `live` asks Prometheus, as `cmd_usage_history`
+	 *  does, and falls back to the metrics-server history with a `note`.
+	 */
+	cmdWorkloadUsageHistory: (kind: string, namespace: string, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_workload_usage_history", { kind, namespace, name, range }, options),
+	/**
+	 *  Start the Workloads overview feed `id` (chosen by the UI) for
+	 *  `namespaces` (empty: all namespaces). Replaces a feed with the same id;
+	 *  the UI starts a new one when the namespace selection changes.
+	 */
+	cmdWorkloadsStart: (id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_start", { id, namespaces }, options),
+	cmdWorkloadsStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_stop", { id }, options),
 };
 
 /** Events */
