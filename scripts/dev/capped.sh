@@ -12,26 +12,36 @@
 #
 # The memory ceiling uses a transient systemd user scope (no sudo); without
 # systemd the command runs without one. Without flock, there are no slots.
+#
+# macOS: works with the system bash 3.2 (hence the fixed descriptor 9 below,
+# not `exec {fd}>`, which needs bash 4.1). flock isn't built in: install it
+# with `brew install flock` to get slots. There is no systemd, so no memory
+# ceiling; use HEAVY_SLOTS=1 on a small Mac.
 set -euo pipefail
 cap="${CAP:-6G}"
 slots="${HEAVY_SLOTS:-2}"
 lockdir="${XDG_RUNTIME_DIR:-/tmp}/kubeloupe-heavy"
 mkdir -p "$lockdir"
 
-if command -v flock >/dev/null 2>&1 && [ -z "${KUBELOUPE_SLOT_HELD:-}" ]; then
-  # Take the first free slot; if all are busy, wait for slot 1.
-  for i in $(seq 1 "$slots"); do
-    exec {fd}>"$lockdir/slot-$i.lock"
-    if flock -n "$fd"; then got=$i; break; fi
-    exec {fd}>&-
-  done
-  if [ -z "${got:-}" ]; then
-    echo "capped.sh: all $slots heavy slots are busy; waiting…" >&2
-    exec {fd}>"$lockdir/slot-1.lock"
-    flock "$fd"
+if [ -z "${KUBELOUPE_SLOT_HELD:-}" ]; then
+  if command -v flock >/dev/null 2>&1; then
+    # Take the first free slot; if all are busy, wait for slot 1. The slot is
+    # held through descriptor 9 until this script (and the command) ends.
+    for i in $(seq 1 "$slots"); do
+      exec 9>"$lockdir/slot-$i.lock"
+      if flock -n 9; then got=$i; break; fi
+      exec 9>&-
+    done
+    if [ -z "${got:-}" ]; then
+      echo "capped.sh: all $slots heavy slots are busy; waiting…" >&2
+      exec 9>"$lockdir/slot-1.lock"
+      flock 9
+    fi
+    # Nested capped.sh calls (e.g. qa.sh building the app) reuse this slot.
+    export KUBELOUPE_SLOT_HELD=1
+  else
+    echo "capped.sh: flock not found, running without a build slot (macOS: brew install flock)" >&2
   fi
-  # Nested capped.sh calls (e.g. qa.sh building the app) reuse this slot.
-  export KUBELOUPE_SLOT_HELD=1
 fi
 
 if command -v systemd-run >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
