@@ -1,6 +1,6 @@
 // Enter after a line that opens a block indents the next line (#101), as in
 // VS Code: `key:`, `- key:`, a bare `-`, and block scalars (`key: |`,
-// `key: >-`). @codemirror/lang-yaml keeps the previous line's indentation
+// `key: >-`, `- |`). @codemirror/lang-yaml keeps the previous line's indentation
 // there, which turns `inner:` into `null` and the next key into a sibling.
 // Everything else falls through to the language's own indentation.
 
@@ -37,6 +37,11 @@ export function blockIndentAfter(text: string, unit: number, column: (text: stri
   if (content === "" || content === "-") {
     // A bare `-`: the item's content goes after the marker.
     return column(c, c.lastIndexOf("-")) + unit;
+  }
+  if (item[1] && /^[|>][-+0-9]*$/.test(content)) {
+    // `- |`, `- >-`: an item that is a block scalar. Its text goes where
+    // the item's content starts.
+    return column(c, item[1].length);
   }
   const opens = /:$/.test(content) || /:\s+[|>][-+0-9]*$/.test(content);
   if (!opens) return undefined;

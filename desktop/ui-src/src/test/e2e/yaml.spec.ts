@@ -377,3 +377,38 @@ test("the editor follows the theme; its cursor and active line number stay visib
     key: "rgb(11, 92, 173)",
   });
 });
+
+test("after typing, the editor is back at its left edge: column-0 keys aren't cut by the gutter (#153)", async ({ page }) => {
+  // A long line, like kubectl's last-applied-configuration annotation.
+  await openApp(page, (c) => {
+    const long = `{"apiVersion":"apps/v1","kind":"Deployment","metadata":{"annotations":{},"name":"web","namespace":"demo"},"spec":{"replicas":1,"selector":{"matchLabels":{"app":"web"}}}}`;
+    c.yaml["apps/v1/deployments|demo/web"] =
+      `apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  annotations:\n    kubectl.kubernetes.io/last-applied-configuration: |\n      ${long}\n  name: web\n  namespace: demo\ndata:\n  alpha: one\n  beta: two\n`;
+  });
+  await openKind(page, "Deployments");
+  await row(page, "web").click();
+  await page.locator("aside").getByRole("tab", { name: "YAML" }).click();
+  const editor = await editorOf(page, "Deployment");
+  const scroller = page.locator("aside .cm-scroller");
+  // Read the end of the long line: the view scrolls sideways.
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+Home");
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("End");
+  await expect.poll(() => scroller.evaluate((e) => e.scrollLeft)).toBeGreaterThan(100);
+  // Then type on a short line. CodeMirror alone scrolls back only until the
+  // cursor shows, 5 px from the gutter, and leaves the keys' start hidden.
+  for (let i = 0; i < 5; i++) await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("End");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("gamma: three");
+  expect(await editor.evaluate((el) => (el as HTMLElement).innerText)).toContain("beta: two\n  gamma: three");
+  await expect.poll(() => scroller.evaluate((e) => e.scrollLeft)).toBe(0);
+  const edges = await scroller.evaluate((e) => {
+    const line = Array.from(e.querySelectorAll(".cm-line")).find((l) => l.textContent === "apiVersion: apps/v1")!;
+    const text = document.createRange();
+    text.selectNodeContents(line);
+    return { text: text.getBoundingClientRect().left, gutter: e.querySelector(".cm-gutters")!.getBoundingClientRect().right };
+  });
+  expect(edges.text).toBeGreaterThanOrEqual(edges.gutter);
+});

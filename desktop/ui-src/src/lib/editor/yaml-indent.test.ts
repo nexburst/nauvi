@@ -37,6 +37,13 @@ describe("Enter in the YAML editor (#101)", () => {
     expect(enter("  text: >-")).toBe("  text: >-\n    x");
   });
 
+  it("indents under a list item that is a block scalar (#153)", () => {
+    expect(enter("args:\n  - |")).toBe("args:\n  - |\n    x");
+    expect(enter("args:\n  - >-")).toBe("args:\n  - >-\n    x");
+    expect(enter("- |+ # keep")).toBe("- |+ # keep\n  x");
+    expect(enter("- - >2")).toBe("- - >2\n    x");
+  });
+
   it("ignores a trailing comment, but not a colon in quotes or a URL", () => {
     expect(enter("spec: # the spec")).toBe("spec: # the spec\n  x");
     expect(enter('  msg: "a:"')).toBe('  msg: "a:"\n  x');
