@@ -4,8 +4,14 @@ name: Release
 # Linux, macOS and Windows and releases them:
 #   1. `prepare` checks the versions and creates a *draft* release.
 #   2. `desktop` and `cli` build, smoke-check and upload into the draft.
-#   3. `publish` checks every expected asset is there, uploads SHA256SUMS and
-#      only then publishes the draft. A failed build leaves just the draft.
+#   3. `publish` checks every expected asset is there, verifies the update
+#      signatures, writes latest.json (the in-app updater's endpoint, #30)
+#      and SHA256SUMS, uploads them and only then publishes the draft. A
+#      failed build leaves just the draft.
+#
+# The update bundles are signed with the TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)
+# secrets; the public key is in desktop/tauri.conf.json. The dry run signs
+# them too, so a missing or wrong key fails it.
 #
 # Running it by hand (Actions > Release > Run workflow) is a dry run by
 # default: it builds everything and uploads it as workflow artifacts, without
@@ -200,34 +206,53 @@ jobs:
           cargo tauri icon desktop/icons/icon.png --output desktop/icons
 
       # With a releaseId it uploads into the draft; without one (dry run) it
-      # only builds.
+      # only builds. Both sign the update bundles (createUpdaterArtifacts in
+      # tauri.conf.json): the build fails if the signing key is missing or
+      # wrong. With a release it also uploads the .sig files and latest.json;
+      # `publish` rewrites latest.json from all of them (see
+      # scripts/release/updater_json.py).
       - uses: tauri-apps/tauri-action@v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: desktop
           tauriScript: cargo tauri
           releaseId: ${{ needs.prepare.outputs.release_id }}
-          uploadUpdaterJson: false
+          uploadUpdaterJson: true
+          uploadUpdaterSignatures: true
           args: >-
             ${{ matrix.args }}
             --config '{"bundle":{"icon":["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"]}}'
 
       - name: Collect the bundles
         shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           mkdir dist
           # target/release/bundle, or target/<triple>/release/bundle. (No
           # globstar: macOS ships bash 3.2.)
           find target -path '*/release/bundle/*' -type f \( \
-              -path '*/bundle/appimage/*.AppImage' -o -path '*/bundle/deb/*.deb' -o \
-              -path '*/bundle/dmg/*.dmg' -o -path '*/bundle/msi/*.msi' -o \
-              -path '*/bundle/nsis/*.exe' \) -exec cp {} dist/ \;
+              -path '*/bundle/appimage/*.AppImage' -o -path '*/bundle/appimage/*.AppImage.sig' -o \
+              -path '*/bundle/deb/*.deb' -o -path '*/bundle/deb/*.deb.sig' -o \
+              -path '*/bundle/dmg/*.dmg' -o \
+              -path '*/bundle/macos/*.app.tar.gz' -o -path '*/bundle/macos/*.app.tar.gz.sig' -o \
+              -path '*/bundle/msi/*.msi' -o -path '*/bundle/msi/*.msi.sig' -o \
+              -path '*/bundle/nsis/*.exe' -o -path '*/bundle/nsis/*.exe.sig' \) -exec cp {} dist/ \;
+          # The .app.tar.gz has no version or arch in its name; use the name
+          # tauri-action gives it in a release.
+          for f in dist/*.app.tar.gz dist/*.app.tar.gz.sig; do
+            [ -e "$f" ] || continue
+            base=$(basename "$f"); name=${base%%.app.tar.gz*}; ext=${base#"$name"}
+            mv "$f" "dist/${name}_${VERSION}_universal${ext}"
+          done
           ls -l dist
           case "$RUNNER_OS" in
-            Linux)   want=("*.AppImage" "*.deb") ;;
-            macOS)   want=("*_universal.dmg") ;;
-            Windows) want=("*.msi" "*-setup.exe") ;;
+            Linux)   want=("*.AppImage" "*.AppImage.sig" "*.deb") ;;
+            macOS)   want=("*_universal.dmg" "*_universal.app.tar.gz" "*_universal.app.tar.gz.sig") ;;
+            Windows) want=("*.msi" "*.msi.sig" "*-setup.exe" "*-setup.exe.sig") ;;
           esac
           for p in "${want[@]}"; do
             compgen -G "dist/$p" >/dev/null || { echo "::error::no bundle matching $p"; exit 1; }
@@ -356,6 +381,9 @@ jobs:
     needs: [prepare, desktop, cli]
     runs-on: ubuntu-22.04
     steps:
+      # For tauri.conf.json's updater key and scripts/release/updater_json.py.
+      - uses: actions/checkout@v4
+
       - name: Fetch the release assets
         if: needs.prepare.outputs.dry_run == 'false'
         env:
@@ -365,6 +393,8 @@ jobs:
           mkdir assets
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
           rm -f assets/SHA256SUMS
+          # tauri-action's latest.json: checked against, then replaced.
+          if [ -f assets/latest.json ]; then mv assets/latest.json tauri-action-latest.json; fi
 
       - name: Fetch the workflow artifacts (dry run)
         if: needs.prepare.outputs.dry_run == 'true'
@@ -381,6 +411,8 @@ jobs:
           ls -l
           fail=0
           for p in "*.AppImage" "*.deb" "*_universal.dmg" "*.msi" "*-setup.exe" \
+                   "*.AppImage.sig" "*_universal.app.tar.gz" "*_universal.app.tar.gz.sig" \
+                   "*.msi.sig" "*-setup.exe.sig" \
                    "kubeloupe-cli-$TAG-x86_64-unknown-linux-gnu.tar.gz" \
                    "kubeloupe-cli-$TAG-aarch64-apple-darwin.tar.gz" \
                    "kubeloupe-cli-$TAG-x86_64-apple-darwin.tar.gz" \
@@ -388,23 +420,46 @@ jobs:
             compgen -G "$p" >/dev/null || { echo "::error::missing asset $p"; fail=1; }
           done
           [ "$fail" -eq 0 ] || exit 1
+
+      # Every .sig must verify against the public key the app ships with, or
+      # the app would refuse the update.
+      - name: Verify the update signatures
+        run: |
+          # Ubuntu 22.04 has no minisign package; the script checks the same.
+          python3 -m pip install --quiet "cryptography==44.0.2"
+          python3 scripts/release/verify_sigs.py --pubkey-config desktop/tauri.conf.json --assets assets
+
+      - name: Write latest.json and SHA256SUMS
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          check=()
+          if [ -f tauri-action-latest.json ]; then check=(--check tauri-action-latest.json); fi
+          python3 scripts/release/updater_json.py --assets assets --repo "$GITHUB_REPOSITORY" \
+            --tag "$TAG" "${check[@]}" --out assets/latest.json
+          cd assets
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
 
-      - name: Upload SHA256SUMS as a workflow artifact (dry run)
+      - name: Upload latest.json and SHA256SUMS as workflow artifacts (dry run)
         if: needs.prepare.outputs.dry_run == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: SHA256SUMS
-          path: assets/SHA256SUMS
+          path: |
+            assets/SHA256SUMS
+            assets/latest.json
           retention-days: 7
 
-      - name: Upload SHA256SUMS and publish the release
+      # latest.json goes up last of all, together with publishing: the
+      # app's endpoint (releases/latest/download/latest.json) only sees
+      # published releases.
+      - name: Upload latest.json and SHA256SUMS and publish the release
         if: needs.prepare.outputs.dry_run == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          gh release upload "$TAG" assets/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+          gh release upload "$TAG" assets/latest.json assets/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
           gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
