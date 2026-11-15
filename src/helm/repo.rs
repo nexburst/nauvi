@@ -293,24 +293,29 @@ pub async fn chart_details(chart: &str, version: &str) -> Result<HelmChartDetail
     // One after another: each `helm show` downloads the chart into the shared
     // repository cache and renames its temp file over the cached one; on
     // Windows that rename fails ("Access denied") while another helm process
-    // has the file open (#157).
-    let meta = run_helm_with_input(&meta_args, None, None).await;
-    let readme = run_helm_with_input(&readme_args, None, None).await;
-    let values = run_helm_with_input(&values_args, None, None).await;
+    // has the file open (#157). Stop at the first failure.
     let fail = |e: anyhow::Error| anyhow!("Cannot show chart {chart}: {e}");
-    let meta: ChartYaml = serde_yaml::from_str(&meta.map_err(fail)?)
+    let meta = run_helm_with_input(&meta_args, None, None)
+        .await
+        .map_err(fail)?;
+    let meta: ChartYaml = serde_yaml::from_str(&meta)
         .with_context(|| format!("cannot read the Chart.yaml of {chart}"))?;
-    let mut values = values.map_err(fail)?;
+    let mut values = run_helm_with_input(&values_args, None, None)
+        .await
+        .map_err(fail)?;
     if !values.is_empty() {
         values.push('\n');
     }
+    let readme = run_helm_with_input(&readme_args, None, None)
+        .await
+        .map_err(fail)?;
     Ok(HelmChartDetails {
         chart: chart.to_string(),
         version: meta.version,
         app_version: meta.app_version,
         description: meta.description,
         home: meta.home,
-        readme: readme.map_err(fail)?,
+        readme,
         values,
     })
 }
