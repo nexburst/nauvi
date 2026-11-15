@@ -68,6 +68,30 @@ test("where the update cannot be installed in place, the banner links to the rel
   await expect.poll(() => page.evaluate(() => window.__fake.opened())).toEqual([RELEASE]);
 });
 
+test("a long note does not squeeze the banner's text into a column (#124)", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openApp(page, (_c, f) =>
+    f.offerUpdate(
+      "9.9.9",
+      false,
+      "This copy was not installed from a release download, so it cannot update itself. Download the new version from the release page.",
+    ),
+  );
+  const text = banner(page).locator(".text");
+  const note = banner(page).locator(".note");
+  await expect(note).toContainText("cannot update itself");
+  // The main text is one line, left of the note.
+  const lineHeight = await text.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 18);
+  const t = (await text.boundingBox())!;
+  const n = (await note.boundingBox())!;
+  expect(t.height).toBeLessThan(lineHeight * 1.5);
+  expect(n.x).toBeGreaterThanOrEqual(t.x + t.width);
+  // The ✕ stays at the right end of the banner.
+  const b = (await banner(page).boundingBox())!;
+  const x = (await banner(page).getByRole("button", { name: "Dismiss update" }).boundingBox())!;
+  expect(b.x + b.width - (x.x + x.width)).toBeLessThan(20);
+});
+
 test("the banner can be closed, and checking again brings it back", async ({ page }) => {
   await openApp(page, (_c, f) => f.offerUpdate("0.2.0"));
   await banner(page).getByRole("button", { name: "Dismiss update" }).click();

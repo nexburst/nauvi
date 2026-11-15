@@ -79,9 +79,12 @@
     border-color: var(--red);
     color: var(--error-text);
   }
+  /* The main text keeps its one line (#124): it never shrinks below its
+     content (only past the row's width, where it wraps), and a long note or
+     error takes the rest of the row, wrapping inside it or onto its own row. */
   .text {
-    flex: 1;
-    min-width: 0;
+    flex: 0 0 auto;
+    max-width: 100%;
   }
   .link {
     background: none;
@@ -123,12 +126,15 @@
   }
   .note,
   .error {
+    flex: 1 1 20em;
+    min-width: 0;
     font-size: 12px;
   }
   .error {
     color: var(--error-text);
   }
   .x {
+    margin-left: auto;
     background: transparent;
     border: none;
     color: inherit;
