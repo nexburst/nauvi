@@ -151,7 +151,7 @@ export function logLines(app, id) {
   );
 }
 
-/** The status text next to the log filter ("123 lines", "paused · …", "saved to …"). */
+/** The status text next to the log filter ("123 lines", "paused · …"). */
 export function logStatus(app, id) {
   return app.js(
     `return Array.from(document.querySelectorAll(arguments[0] + ' .logs-options > span.muted'), (s) => s.textContent.trim()).join(' ');`,

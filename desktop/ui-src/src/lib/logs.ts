@@ -156,3 +156,18 @@ export function splitHighlights(text: string, filter: string): Segment[] {
   if (pos < text.length) out.push({ text: text.slice(pos), hit: false });
   return out;
 }
+
+/** How long "Saved to …" stays after a Download (#178), whatever the stream does. */
+export const SAVED_NOTE_MS = 10_000;
+
+/**
+ * The short form of a saved log's path for the Download note (#178):
+ * `Downloads/<file>` when it is in a Downloads folder, else just the file
+ * name. The full path goes in the note's tooltip.
+ */
+export function savedLabel(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  const file = parts.at(-1) ?? path;
+  const dir = parts.at(-2);
+  return dir && dir.toLowerCase() === "downloads" ? `${dir}/${file}` : file;
+}
