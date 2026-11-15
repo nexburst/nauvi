@@ -133,7 +133,7 @@ impl ClusterSession {
             None => client_for_context_with(None, false).await,
             Some(id) => client_for_target(&self.sources.resolve(Some(&id))?, false).await,
         }
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| kubeloupe::error_text(&e))?;
         *slot = Some(c.clone());
         Ok(c)
     }

@@ -154,7 +154,7 @@
       {/if}
       {#if pods}
         {@const scope = pods.namespace ? ` in ${pods.namespace}` : ""}
-        <div class="card">
+        <div class="card" title="Pods{scope}">
           <div class="num">{pods.total}</div>
           <div class="label">Pods{scope}</div>
         </div>
@@ -269,6 +269,7 @@
     font-size: 12px;
   }
   .card {
+    min-width: 0;
     background: var(--bg-raised);
     border: 1px solid var(--border);
     border-radius: 8px;
@@ -288,6 +289,11 @@
     color: var(--text-muted);
     font-size: 12px;
     margin-top: 2px;
+    /* One line: a long namespace ("Pods in team-a") ellipsizes, the card's
+       title has the full text. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .capacity {
     margin-bottom: 20px;

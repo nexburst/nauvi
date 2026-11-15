@@ -16,7 +16,7 @@ pub(crate) async fn cmd_get_resource_detail(
     let client = cluster.client().await?;
     resources::get_resource_detail(&client, &resource, &namespace, &name)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| kubeloupe::error_text(&e))
 }
 
 /// The per-kind summary and related objects of any object (a Deployment's
@@ -48,7 +48,7 @@ pub(crate) async fn cmd_get_resource_yaml(
     let client = cluster.client().await?;
     resources::get_resource_yaml(&client, &resource, &namespace, &name, reveal)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| kubeloupe::error_text(&e))
 }
 
 /// Server-side apply of edited YAML. `resource_version` is the version the

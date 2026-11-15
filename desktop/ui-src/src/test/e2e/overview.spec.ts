@@ -127,3 +127,28 @@ test("a failed start is reported and retried", async ({ page }) => {
   await expect(card(page, "Pods")).toHaveText("5");
   await expect(page.locator("header")).toContainText("Live");
 });
+
+test("no kubeconfig at all says so and what to do, not that the cluster is unreachable", async ({ page }) => {
+  await openApp(page, (_cluster, f) =>
+    f.failNext("cmdOverviewStart", "No kubeconfig found (looked at /home/me/.kube/config; KUBECONFIG is not set)."),
+  );
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("No kubeconfig found (looked at /home/me/.kube/config; KUBECONFIG is not set).");
+  await expect(alert).toContainText("Open the cluster catalog");
+  await expect(alert).not.toContainText("Could not reach the cluster");
+  await expect(page.locator("header")).toContainText("No kubeconfig");
+});
+
+test("a scoped Pods card keeps its label on one line, with the full text as its title", async ({ page }) => {
+  await openApp(page, (cluster) => {
+    cluster.overview.pods!.namespace = "team-a-with-a-much-longer-namespace-name";
+  });
+  const pods = page.locator(".card", { hasText: "Pods in team-a" });
+  await expect(pods).toHaveAttribute("title", "Pods in team-a-with-a-much-longer-namespace-name");
+  const label = await pods.locator(".label").evaluate((el) => ({
+    height: el.getBoundingClientRect().height,
+    clipped: el.scrollWidth > el.clientWidth,
+  }));
+  expect(label.height).toBeLessThan(20);
+  expect(label.clipped).toBe(true);
+});

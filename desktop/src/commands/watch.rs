@@ -74,7 +74,7 @@ async fn kind_of(
     }
     let kinds = resources::discover(client)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| kubeloupe::error_text(&e))?;
     let found = find(&kinds);
     *state.kinds.lock().unwrap() = kinds;
     found.ok_or_else(|| format!("{} is not served by this cluster", resource.kind))

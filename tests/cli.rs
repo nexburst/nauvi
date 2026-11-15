@@ -53,7 +53,7 @@ fn errors_go_to_stderr_with_a_failing_exit_code() {
     assert!(out.stdout.is_empty());
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(
-        err.starts_with("error: cannot read kubeconfig /nonexistent/kubeconfig"),
+        err.starts_with("error: Cannot read the kubeconfig /nonexistent/kubeconfig: "),
         "{err}"
     );
     assert!(
