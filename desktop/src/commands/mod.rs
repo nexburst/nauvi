@@ -16,3 +16,5 @@ pub(crate) mod settings;
 pub(crate) mod usage;
 pub(crate) mod watch;
 pub(crate) mod window;
+pub(crate) mod workload_usage;
+pub(crate) mod workloads;

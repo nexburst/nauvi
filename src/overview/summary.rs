@@ -5,6 +5,7 @@
 
 use super::{Capacity, EventInfo, NodeCounts, PodCounts, ProblemPod};
 use crate::created_secs;
+use crate::resources::{pod_status_of, WorkloadStatus};
 use crate::{parse_cpu_quantity, parse_memory_quantity};
 use k8s_openapi::api::core::v1::{Container, Event, Node, Pod};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
@@ -57,9 +58,6 @@ pub struct NodeSummary {
     pub pods_allocatable: u64,
 }
 
-/// Waiting reasons that are part of a normal start, not an error.
-const STARTING: [&str; 2] = ["ContainerCreating", "PodInitializing"];
-
 /// The pod's status the way `kubectl get pods` (and the Pods table) shows
 /// it: `Terminating`, else the first waiting reason other than
 /// `PodInitializing`, else `status.reason` or the phase.
@@ -90,13 +88,14 @@ fn waiting_reasons(pod: &Pod) -> impl Iterator<Item = &str> {
 pub fn pod_summary(pod: &Pod) -> PodSummary {
     let status = pod.status.as_ref();
     let phase = status.and_then(|s| s.phase.as_deref()).unwrap_or_default();
-    let waiting_error = waiting_reasons(pod).any(|r| !STARTING.contains(&r));
-    let state = match phase {
-        "Succeeded" => PodState::Succeeded,
-        "Failed" => PodState::Failed,
-        _ if waiting_error => PodState::WaitingError,
-        "Running" => PodState::Running,
-        "Pending" => PodState::Pending,
+    // The same classification as the Pods table rows and the Workloads
+    // overview.
+    let state = match pod_status_of(phase, waiting_reasons(pod)) {
+        WorkloadStatus::Succeeded => PodState::Succeeded,
+        WorkloadStatus::Failed => PodState::Failed,
+        WorkloadStatus::Error => PodState::WaitingError,
+        WorkloadStatus::Running => PodState::Running,
+        WorkloadStatus::Pending => PodState::Pending,
         _ => PodState::Other,
     };
     let ready = status

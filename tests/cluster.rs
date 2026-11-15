@@ -2543,3 +2543,135 @@ async fn real_prometheus_has_pod_and_node_usage() -> Result<()> {
     ensure!(last.cpu_millicores > 0 && last.memory_bytes > 0, "{last:?}");
     Ok(())
 }
+
+/// The count of `status` for `kind` in a Workloads overview.
+fn workload_count(ov: &kubeloupe::WorkloadsOverview, kind: &str, status: &str) -> usize {
+    ov.kinds
+        .iter()
+        .find(|k| k.kind == kind)
+        .and_then(|k| k.statuses.iter().find(|s| s.status.as_str() == status))
+        .map_or(0, |s| s.count)
+}
+
+/// The next Workloads overview summary that `pred` accepts.
+async fn workloads_until(
+    what: &str,
+    updates: &mut futures::stream::BoxStream<'static, kubeloupe::WorkloadsUpdate>,
+    pred: impl Fn(&kubeloupe::WorkloadsOverview) -> bool,
+) -> Result<kubeloupe::WorkloadsOverview> {
+    within(what, TIMEOUT, async {
+        while let Some(u) = updates.next().await {
+            if let kubeloupe::WorkloadsUpdate::Summary(ov) = u {
+                if pred(&ov) {
+                    return Ok(*ov);
+                }
+            }
+        }
+        bail!("workloads stream ended")
+    })
+    .await
+}
+
+/// Workloads overview (#79): live counts per kind and status in one
+/// namespace, the problem workloads, and a workload's pods for its charts.
+#[tokio::test]
+#[ignore]
+async fn workloads_overview_counts_kinds_by_status() -> Result<()> {
+    in_temp_ns("kl-it-wl", |client, ns| async move {
+        let mut updates = kubeloupe::watch_workloads(&client, std::slice::from_ref(&ns));
+        let first = workloads_until("first summary", &mut updates, |_| true).await?;
+        ensure!(first.notes.is_empty(), "{:?}", first.notes);
+        ensure!(first.kinds.len() == 7, "{:?}", first.kinds);
+        ensure!(first.kinds.iter().all(|k| k.total == 0), "{:?}", first.kinds);
+
+        let deploy: Deployment = serde_json::from_value(serde_json::json!({
+            "metadata": { "name": "web" },
+            "spec": {
+                "replicas": 1,
+                "selector": { "matchLabels": { "app": "wl" } },
+                "template": {
+                    "metadata": { "labels": { "app": "wl" } },
+                    "spec": { "terminationGracePeriodSeconds": 0, "containers": [{
+                        "name": "c", "image": "busybox:1.36", "command": ["sleep", "3600"],
+                        "resources": { "requests": { "cpu": "10m", "memory": "16Mi" } }
+                    }]}
+                }
+            }
+        }))?;
+        let deployments: Api<Deployment> = Api::namespaced(client.clone(), &ns);
+        deployments.create(&PostParams::default(), &deploy).await?;
+        let job: Job = serde_json::from_value(serde_json::json!({
+            "metadata": { "name": "fails" },
+            "spec": { "backoffLimit": 0, "template": { "spec": {
+                "restartPolicy": "Never",
+                "containers": [{ "name": "c", "image": "busybox:1.36", "command": ["sh", "-c", "exit 1"] }]
+            }}}
+        }))?;
+        Api::<Job>::namespaced(client.clone(), &ns)
+            .create(&PostParams::default(), &job)
+            .await?;
+        let cron: CronJob = serde_json::from_value(serde_json::json!({
+            "metadata": { "name": "nightly" },
+            "spec": { "schedule": "0 3 * * *", "suspend": true, "jobTemplate": { "spec": { "template": { "spec": {
+                "restartPolicy": "Never",
+                "containers": [{ "name": "c", "image": "busybox:1.36", "command": ["true"] }]
+            }}}}}
+        }))?;
+        Api::<CronJob>::namespaced(client.clone(), &ns)
+            .create(&PostParams::default(), &cron)
+            .await?;
+
+        let ov = workloads_until(
+            "deployment ready, job failed, cronjob suspended",
+            &mut updates,
+            |ov| {
+                workload_count(ov, "Deployment", "Running") == 1
+                    && workload_count(ov, "ReplicaSet", "Running") == 1
+                    && workload_count(ov, "Job", "Failed") == 1
+                    && workload_count(ov, "CronJob", "Suspended") == 1
+                    && workload_count(ov, "Pod", "Running") == 1
+            },
+        )
+        .await?;
+        let mut problems: Vec<(&str, &str)> = ov
+            .problems
+            .iter()
+            .map(|p| (p.kind.as_str(), p.name.as_str()))
+            .collect();
+        problems.sort();
+        ensure!(
+            problems == [("CronJob", "nightly"), ("Job", "fails")],
+            "{problems:?}"
+        );
+        ensure!(ov.problems.iter().all(|p| p.namespace == ns));
+
+        // The deployment's pods and their requests, for its charts.
+        let pods = kubeloupe::workload_pods(&client, WorkloadKind::Deployment, &ns, "web").await?;
+        ensure!(pods.len() == 1, "{} pods", pods.len());
+        let values = pods
+            .iter()
+            .map(serde_json::to_value)
+            .collect::<Result<Vec<_>, _>>()?;
+        let reference = kubeloupe::workload_reference(&values);
+        ensure!(reference.cpu_request == 10, "{reference:?}");
+
+        // Scaled to two: the new replica is counted as soon as it exists.
+        deployments
+            .patch(
+                "web",
+                &PatchParams::default(),
+                &Patch::Merge(serde_json::json!({ "spec": { "replicas": 2 } })),
+            )
+            .await?;
+        workloads_until("the second replica counted", &mut updates, |ov| {
+            ov.kinds
+                .iter()
+                .find(|k| k.kind == "Deployment")
+                .is_some_and(|k| k.total == 1)
+                && ov.kinds.iter().any(|k| k.kind == "Pod" && k.total >= 3)
+        })
+        .await?;
+        Ok(())
+    })
+    .await
+}

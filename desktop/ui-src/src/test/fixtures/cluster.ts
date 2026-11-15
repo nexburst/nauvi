@@ -184,8 +184,46 @@ export function makeRow(
     created,
     // Like the backend: columns the UI fills itself get an empty cell.
     cells: kind.columns.map((c) => (UI_FILLED.has(c.kind) ? "" : (values[c.key] ?? ""))),
+    status: fakeStatus(kindId, values),
     problem,
   };
+}
+
+/** `[ready, desired]` of a "2/3" cell. */
+const ratio = (s = "") => s.split("/").map((n) => Number(n) || 0);
+
+/**
+ * The `ResourceRow.status` the backend would give a row with these cells
+ * (`src/resources/status.rs`), roughly: enough for the Workloads overview
+ * and the status filter.
+ */
+export function fakeStatus(kindId: string, cells: Record<string, string>): string {
+  switch (kindId) {
+    case "v1/pods": {
+      const s = cells.status ?? "";
+      if (s === "Completed") return "Succeeded";
+      if (["Running", "Pending", "Succeeded", "Failed", "ContainerCreating"].includes(s))
+        return s === "ContainerCreating" ? "Pending" : s;
+      return s === "Evicted" ? "Failed" : "Error";
+    }
+    case "apps/v1/deployments":
+    case "apps/v1/statefulsets": {
+      const [ready, desired] = ratio(cells.ready);
+      return ready >= desired ? "Running" : "Pending";
+    }
+    case "apps/v1/replicasets":
+    case "apps/v1/daemonsets":
+      return Number(cells.ready ?? 0) >= Number(cells.desired ?? 0) ? "Running" : "Pending";
+    case "batch/v1/jobs": {
+      if (cells.failed) return "Failed";
+      const [done, want] = ratio(cells.completions);
+      return want > 0 && done >= want ? "Succeeded" : "Running";
+    }
+    case "batch/v1/cronjobs":
+      return cells.suspend === "true" ? "Suspended" : Number(cells.active ?? 0) > 0 ? "Running" : "Scheduled";
+    default:
+      return "";
+  }
 }
 
 const UI_FILLED = new Set<ColumnKind>(["age", "podCpu", "podMemory", "nodeCpu", "nodeMemory"]);
@@ -265,6 +303,11 @@ export function defaultCluster(): FakeCluster {
       "apps/v1/replicasets": [
         row("apps/v1/replicasets", "demo", "web-5d8f", { desired: "2", current: "2", ready: "2" }),
       ],
+      "batch/v1/jobs": [
+        row("batch/v1/jobs", "demo", "migrate", { completions: "0/1", active: "0", failed: "BackoffLimitExceeded" }),
+        row("batch/v1/jobs", "demo", "report", { completions: "1/1", active: "0" }),
+      ],
+      "batch/v1/cronjobs": [row("batch/v1/cronjobs", "demo", "nightly", { schedule: "0 3 * * *", suspend: "true" })],
       "v1/secrets": [row("v1/secrets", "demo", "db-creds", { type: "Opaque", data: "1" })],
       "v1/configmaps": [row("v1/configmaps", "demo", "settings", { data: "2" })],
       "v1/services": [row("v1/services", "demo", "api", { type: "ClusterIP" })],

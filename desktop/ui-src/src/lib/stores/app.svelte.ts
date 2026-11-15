@@ -4,6 +4,7 @@ import { joinNames, normalizeNamespaces, sameNamespaces } from "../namespaces";
 import { clampHeight } from "../dock";
 import { PORT_FORWARDS_VIEW } from "../forwards";
 import { HELM_VIEW } from "../helm";
+import { WORKLOADS_VIEW } from "../workloads";
 import { contextToRestore, namespacesToRestore } from "../settings";
 import { isMainWindow } from "../window";
 import { closeDetail, detail, openDetail } from "./detail.svelte";
@@ -31,6 +32,11 @@ export const app = $state({
    */
   selectedNamespaces: [] as string[],
   search: "",
+  /**
+   * Show only rows of this `ResourceRow.status` ("" = all): set by a click
+   * on a count in the Workloads overview, cleared when the view changes.
+   */
+  statusFilter: "",
   contexts: [] as ContextInfo[],
   namespaces: [] as NamespaceInfo[],
   /** Listing namespaces is forbidden: the namespace control takes free text. */
@@ -101,7 +107,7 @@ function restorePendingView() {
   const view = pendingView;
   pendingView = null;
   if (!view || view === "overview" || app.view !== "overview") return;
-  if (view === PORT_FORWARDS_VIEW || view === HELM_VIEW) {
+  if (view === PORT_FORWARDS_VIEW || view === HELM_VIEW || view === WORKLOADS_VIEW) {
     app.view = view;
     return;
   }
@@ -276,11 +282,20 @@ export function setView(view: View) {
   whenDiscarded(() => {
     closeDetail();
     app.view = view;
+    app.statusFilter = "";
     pendingView = null;
     updateContext(currentContextName(), { view });
     app.count = "";
     app.updated = "";
     showError("");
+  });
+}
+
+/** Open `kind`'s table showing only its rows of `status` (Workloads overview). */
+export function openWithStatus(kind: ResourceKind, status: string) {
+  whenDiscarded(() => {
+    setView(kind.id);
+    app.statusFilter = status;
   });
 }
 
@@ -302,6 +317,7 @@ export async function switchContext(name: string) {
   closeDetail();
   app.selectedNamespaces = [];
   app.view = "overview";
+  app.statusFilter = "";
   // The other windows' contexts are remembered by the backend.
   if (isMainWindow()) updateSettings({ last_context: name });
   await loadContexts();

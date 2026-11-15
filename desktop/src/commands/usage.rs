@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::State;
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -66,16 +66,16 @@ pub(crate) enum UsageSource {
 
 #[derive(Debug, Clone, Serialize, Type)]
 pub(crate) struct UsageHistoryView {
-    history: SeriesView,
-    reference: UsageReference,
-    source: UsageSource,
+    pub(crate) history: SeriesView,
+    pub(crate) reference: UsageReference,
+    pub(crate) source: UsageSource,
     /// The range shown: the one asked for, or `live` after a fallback.
-    range: UsageRange,
+    pub(crate) range: UsageRange,
     /// The Prometheus of this context (`namespace/service:port`), or "".
-    prometheus: String,
+    pub(crate) prometheus: String,
     /// Why Prometheus was not used for a range that asked for it ("" when it
     /// was, or for `live`).
-    note: String,
+    pub(crate) note: String,
 }
 
 /// The usage history of one pod (`namespace` set) or node, for the charts in

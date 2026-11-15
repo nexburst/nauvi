@@ -83,7 +83,7 @@ describe("confirmCopy", () => {
 });
 
 describe("replicasFromRow", () => {
-  const row = (ready: string) => ({ key: "k", name: "n", namespace: "ns", created: 0, cells: ["n", ready], problem: "" });
+  const row = (ready: string) => ({ key: "k", name: "n", namespace: "ns", created: 0, cells: ["n", ready], problem: "", status: "" });
   it("reads the desired count from the ready column", () => {
     expect(replicasFromRow(row("2/5"), ["name", "ready"])).toBe(5);
     expect(replicasFromRow(row("0/0"), ["name", "ready"])).toBe(0);
