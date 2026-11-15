@@ -51,7 +51,7 @@ export function paletteItems(): PaletteItem[] {
       terms: ["status", "deployments", "problems"],
       run: () => setView(WORKLOADS_VIEW),
     },
-        { id: "cmd:helm", group: "Command", label: "Go to Helm releases", run: () => setView(HELM_VIEW) },
+    { id: "cmd:helm", group: "Command", label: "Go to Helm releases", run: () => setView(HELM_VIEW) },
     {
       id: "cmd:helm-charts",
       group: "Command",
