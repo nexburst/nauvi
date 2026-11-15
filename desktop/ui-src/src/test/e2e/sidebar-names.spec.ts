@@ -1,30 +1,52 @@
-// Sidebar names of discovered kinds (#96): readable, unique, and cut off
-// with an ellipsis (the full name in the tooltip) when they do not fit.
+// Sidebar names of discovered kinds (#96): readable, unique, and kept inside
+// the sidebar: a long name wraps onto a second line, a longer one ends in an
+// ellipsis, and the tooltip has the full name.
 
 import { expect, test } from "@playwright/test";
+import type { Locator } from "@playwright/test";
 import { openApp } from "./helpers";
 
-test("long kind names end in an ellipsis inside the sidebar and show in full in the tooltip", async ({ page }) => {
-  await openApp(page);
+const LONG = "Extraordinarily Long Custom Resource Kind Names That Go On And On";
+
+/** How the label of a sidebar button fits. */
+function fit(button: Locator) {
+  return button.evaluate((b) => {
+    const label = b.querySelector(".label") as HTMLElement | null;
+    const nav = b.closest("nav")!.getBoundingClientRect();
+    const lineHeight = label ? parseFloat(getComputedStyle(label).lineHeight) : 0;
+    return {
+      inside: b.getBoundingClientRect().right <= nav.right,
+      lines: label ? Math.round(label.clientHeight / lineHeight) : 0,
+      clipped: label ? label.scrollHeight > label.clientHeight + 1 : false,
+    };
+  });
+}
+
+test("long kind names wrap inside the sidebar, longer ones end in an ellipsis", async ({ page }) => {
+  await openApp(page, (cluster) => {
+    cluster.kinds.find((k) => k.id === "example.com/v1/widgets")!.label =
+      "Extraordinarily Long Custom Resource Kind Names That Go On And On";
+  });
   const nav = page.getByRole("navigation");
   await nav.evaluate((n) => n.querySelectorAll("details").forEach((d) => (d.open = true)));
 
-  const button = nav.getByRole("button", { name: "Validating Admission Policy Bindings", exact: true });
-  await expect(button).toBeVisible();
-  await expect(button).toHaveAttribute(
+  const bindings = nav.getByRole("button", { name: "Validating Admission Policy Bindings", exact: true });
+  await expect(bindings).toBeVisible();
+  await expect(bindings).toHaveAttribute(
     "title",
     "Validating Admission Policy Bindings: ValidatingAdmissionPolicyBinding (admissionregistration.k8s.io/v1)",
   );
-  const fit = await button.evaluate((b) => {
-    const label = b.querySelector(".label") as HTMLElement | null;
-    const nav = b.closest("nav")!.getBoundingClientRect();
-    return {
-      ellipsis: label ? getComputedStyle(label).textOverflow : "",
-      cut: label ? label.scrollWidth > label.clientWidth : false,
-      inside: b.getBoundingClientRect().right <= nav.right,
-    };
+  expect(await fit(bindings)).toEqual({ inside: true, lines: 2, clipped: false });
+
+  const long = nav.getByRole("button", { name: LONG, exact: true });
+  expect(await fit(long)).toEqual({ inside: true, lines: 2, clipped: true });
+  await expect(long).toHaveAttribute("title", `${LONG}: Widget (example.com/v1)`);
+
+  expect(await fit(nav.getByRole("button", { name: "Pods", exact: true }))).toEqual({
+    inside: true,
+    lines: 1,
+    clipped: false,
   });
-  expect(fit).toEqual({ ellipsis: "ellipsis", cut: true, inside: true });
 });
 
 test("every kind in the sidebar has its own name", async ({ page }) => {

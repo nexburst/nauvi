@@ -202,8 +202,8 @@
     background: var(--bg-hover);
     color: var(--text);
   }
-  /* A kind's button: its label is cut off with an ellipsis (the full name
-     is in the tooltip); a badge after it stays visible. */
+  /* A kind's button: its label stays inside the sidebar (the full name and
+     API identity are in the tooltip); a badge after it stays visible. */
   button.kind {
     display: flex;
     align-items: center;
@@ -212,11 +212,16 @@
     box-sizing: border-box;
     min-width: 0;
   }
+  /* Long names wrap onto a second line; past that they end in an ellipsis. */
   .label {
     min-width: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
   }
   .problems {
     flex-shrink: 0;

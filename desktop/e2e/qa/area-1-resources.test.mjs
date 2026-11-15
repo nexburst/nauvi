@@ -218,8 +218,8 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
          return {
            label: label.textContent.trim(),
            title: b.title,
-           cut: label.scrollWidth > label.clientWidth,
-           ellipsis: getComputedStyle(label).textOverflow,
+           clipped: label.scrollHeight > label.clientHeight + 1 || label.scrollWidth > label.clientWidth + 1,
+           wrapped: label.getClientRects().length > 0 && label.clientHeight > 1.5 * parseFloat(getComputedStyle(label).lineHeight),
            inside: b.getBoundingClientRect().right <= nav.right + 0.5,
          };
        });`,
@@ -234,14 +234,14 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     // No run-together plural like "Componentstatuses" or "Csinodes".
     const runTogether = labels.filter((l) => /^[A-Z][a-z]{13,}$/.test(l) || /^Csi|^Api[a-z]|^Ip[a-z]/.test(l));
     assert.deepEqual(runTogether, []);
+    // Long names wrap onto a second line; every built-in name fits in full.
     assert.deepEqual(
-      kinds.filter((k) => !k.inside || k.ellipsis !== "ellipsis").map((k) => k.label),
+      kinds.filter((k) => !k.inside || k.clipped).map((k) => k.label),
       [],
-      "every label ends in an ellipsis inside the sidebar",
+      "every label in full inside the sidebar",
     );
-    const cut = kinds.filter((k) => k.cut);
-    console.log(`cut off: ${cut.map((k) => k.label).join(", ")}`);
-    for (const k of cut) assert.ok(k.title.startsWith(`${k.label}: `), `tooltip of ${k.label}: ${k.title}`);
+    console.log(`wrapped: ${kinds.filter((k) => k.wrapped).map((k) => k.label).join(", ")}`);
+    for (const k of kinds) assert.ok(k.title.startsWith(`${k.label}: `), `tooltip of ${k.label}: ${k.title}`);
     const long = await app.find(app.navButton("Validating Admission Policy Bindings"));
     await app.js("arguments[0].scrollIntoView({ block: 'center' })", long);
     await app.shot("sidebar-names");
