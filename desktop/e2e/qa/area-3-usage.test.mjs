@@ -30,6 +30,7 @@ import {
   openRelated,
   scrollPanelTo,
   setTheme,
+  useLiveRange,
   usageCharts,
   waitPanelTitle,
   waitRelatedGroup,
@@ -162,12 +163,12 @@ describe("area 3: usage history charts (#73, #92)", { timeout: 30 * 60_000 }, ()
   it("demo/multi: pod, app and sidecar lines and Collecting since (dark)", T, async () => {
     const { app } = s;
     await app.openDetail("Pods", "demo", "multi");
+    await useLiveRange(app);
     const u = await waitUsagePoints(app, 2, { series: "pod" });
     console.log(`multi: ${JSON.stringify({ ...u, text: undefined })}`);
     assert.deepEqual(Object.keys(u.cpu.series).sort(), ["app", "pod", "sidecar"]);
     assert.deepEqual(Object.keys(u.memory.series).sort(), ["app", "pod", "sidecar"]);
     assert.match(u.since, /^Collecting since \d\d:\d\d\./);
-    assert.equal(u.ranges.length, 0, "no range buttons without Prometheus");
     await setTheme(app, "dark");
     await scrollPanelTo(app, '[data-testid="usage-charts"]');
   });
@@ -190,6 +191,7 @@ describe("area 3: usage history charts (#73, #92)", { timeout: 30 * 60_000 }, ()
     await setTheme(app, null);
     const pod = podNames("kube-system", "k8s-app=kube-dns")[0];
     await app.openDetail("Pods", "kube-system", pod);
+    await useLiveRange(app);
     const u = await waitUsagePoints(app, 1);
     console.log(`coredns: cpu refs ${u.cpu.refs} legend ${u.cpu.legend}; memory refs ${u.memory.refs} legend ${u.memory.legend}`);
     assert.deepEqual(u.cpu.refs, ["request"]);
@@ -203,6 +205,7 @@ describe("area 3: usage history charts (#73, #92)", { timeout: 30 * 60_000 }, ()
     const { app } = s;
     const node = kubectl(["get", "nodes", "-o", "jsonpath={.items[0].metadata.name}"]);
     await openClusterDetail(app, "Nodes", node);
+    await useLiveRange(app);
     const u = await waitUsagePoints(app, 1);
     console.log(`node: cpu ${JSON.stringify(u.cpu)} memory refs ${u.memory.refs}`);
     assert.deepEqual(u.cpu.refs, ["allocatable"]);
@@ -213,6 +216,7 @@ describe("area 3: usage history charts (#73, #92)", { timeout: 30 * 60_000 }, ()
   it("a Deployment: summed charts grow and match the sum of its pods", T, async () => {
     const { app } = s;
     await app.openDetail("Deployments", ns, "qa-burn");
+    await useLiveRange(app);
     const first = await waitUsagePoints(app, 1, { series: "pods" });
     const n0 = first.cpu.series.pods;
     const u = await waitUsagePoints(app, n0 + 1, { series: "pods", timeout: 60_000 });
@@ -242,6 +246,7 @@ describe("area 3: usage history charts (#73, #92)", { timeout: 30 * 60_000 }, ()
     const g = await waitRelatedGroup(app, "Pods");
     await openRelated(app, "Pods", g.links[0]);
     await waitPanelTitle(app, `${ns}/${g.links[0]}`);
+    await useLiveRange(app);
     const a = await waitUsagePoints(app, 1, { series: "pod" });
     const n0 = maxPoints(a.cpu);
     const b = await waitUsagePoints(app, n0 + 2, { series: "pod", timeout: 75_000 });
@@ -272,6 +277,7 @@ describe("area 3: usage history charts (#73, #92)", { timeout: 30 * 60_000 }, ()
   it("switching context drops the usage history", T, async () => {
     const { app } = s;
     await app.openDetail("Pods", "demo", "multi");
+    await useLiveRange(app);
     const before = await waitUsagePoints(app, 3, { series: "pod", timeout: 90_000 });
     console.log(`before switch: ${before.since} ${maxPoints(before.cpu)} points`);
     await selectContext(app, kube.second);
@@ -279,6 +285,7 @@ describe("area 3: usage history charts (#73, #92)", { timeout: 30 * 60_000 }, ()
     await selectContext(app, CONTEXT);
     await waitLive(app);
     await app.openDetail("Pods", "demo", "multi");
+    await useLiveRange(app);
     const u = await app.waitFor(async () => usageCharts(app), { message: "the usage charts after the switch" });
     await app.driver.sleep(1000);
     const after = (await usageCharts(app)) ?? u;

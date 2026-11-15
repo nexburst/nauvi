@@ -51,15 +51,19 @@ async function clickRange(app, label) {
   await b.click();
 }
 
-/** Wait for Prometheus charts over `range` with a drawn line. */
+/**
+ * Wait for Prometheus charts over `range` with data: a line over 1h; over
+ * 6h and 24h a young Prometheus (minutes old in CI) may have one step only.
+ */
 function waitProm(app, range, what) {
+  const min = range === "1h" ? 2 : 1;
   return app.waitFor(
     async () => {
       const u = await usageCharts(app);
       const ok =
         u?.source === `From Prometheus (${TARGET}), last ${range}.` &&
-        Object.values(u.cpu?.series ?? {}).some((n) => n >= 2) &&
-        Object.values(u.memory?.series ?? {}).some((n) => n >= 2);
+        Object.values(u.cpu?.series ?? {}).some((n) => n >= min) &&
+        Object.values(u.memory?.series ?? {}).some((n) => n >= min);
       return ok ? u : null;
     },
     { timeout: 90_000, interval: 1000, message: `Prometheus ${range} charts with data for ${what}` },

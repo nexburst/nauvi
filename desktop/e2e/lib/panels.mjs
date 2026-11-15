@@ -206,3 +206,25 @@ export async function closePanel(app) {
     message: "the detail panel to close",
   });
 }
+
+/**
+ * Show the metrics-server history ("Live") when the charts offer ranges
+ * (a context with Prometheus starts on 1h). No-op without range buttons.
+ * Waits for the charts to load first.
+ */
+export async function useLiveRange(app) {
+  await app.waitFor(
+    async () => {
+      const u = await usageCharts(app);
+      return u && !u.text.includes("Loading");
+    },
+    { timeout: 60_000, message: "the usage charts to load" },
+  );
+  const live = await app.driver.findElements(
+    By.xpath("//*[@data-testid='detail-panel']//*[@aria-label='Usage range']//button[normalize-space()='Live']"),
+  );
+  if (live.length === 0) return false;
+  await live[0].click();
+  await app.waitFor(async () => !(await usageCharts(app))?.source, { message: "the Live (metrics-server) charts" });
+  return true;
+}
