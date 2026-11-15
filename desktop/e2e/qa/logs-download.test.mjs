@@ -63,13 +63,16 @@ describe("log download", { timeout: 10 * 60_000 }, () => {
          const o = document.querySelector(t + ' [data-testid="log-output"]').getBoundingClientRect();
          const n = document.querySelector(t + ' [data-testid="log-saved"]');
          return { headerH: Math.round(h.height), outputY: Math.round(o.top), note: n.textContent, noteH: Math.round(n.getBoundingClientRect().height),
-                  lines: document.querySelectorAll(t + ' [data-testid="log-line"]').length };`,
+                  lines: Number((document.querySelector(t + ' .logs-options > span.muted')?.textContent ?? "").replace(/[^0-9]/g, "")) };`,
         tab,
       );
+    // Compare against the header without a note: the first test's note goes after 10 s.
+    await app.waitFor(async () => (await layout()).note === "", { timeout: 15_000, message: "no saved note yet" });
     const before = await layout();
     await (await app.find(By.xpath(`//*[@data-tab='logs:${ns}/chatty']//button[normalize-space()='Download']`))).click();
     await app.waitFor(async () => (await layout()).note.startsWith("Saved to"), { message: "the saved note" });
     const shown = await layout();
+    await setTheme(app, "dark");
     await app.shot("saved-note-1280-dark");
     // The pod writes a line a second: after 4 s new lines are in, and the note is still there.
     await new Promise((r) => setTimeout(r, 4000));
@@ -82,7 +85,7 @@ describe("log download", { timeout: 10 * 60_000 }, () => {
     assert.ok(shown.noteH <= 20, `the note is one line (${shown.noteH}px)`);
     await setTheme(app, "light");
     await app.shot("saved-note-1280-light");
-    await setTheme(app, "dark");
+    await setTheme(app, null);
     // And it goes away by itself (10 s).
     await app.waitFor(async () => (await app.js(`return document.querySelector(arguments[0])?.textContent ?? ""`, note)) === "", {
       timeout: 15_000,
