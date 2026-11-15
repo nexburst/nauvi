@@ -39,7 +39,8 @@ test("the catalog lists every context with its status and source, checked on ope
   expect((await fake.calls("cmdCheckContext")).map((c) => c.name).sort()).toEqual(["kind-dev", "prod"]);
 
   // Check again on demand.
-  await prod.getByRole("button", { name: "Check prod" }).click();
+  await prod.getByRole("button", { name: "More actions for prod" }).click();
+  await page.getByRole("menuitem", { name: "Check connection" }).click();
   await expect.poll(async () => (await fake.calls("cmdCheckContext")).length).toBe(3);
   expect(fake.errors).toEqual([]);
 });
@@ -83,7 +84,8 @@ test("an added kubeconfig file brings its contexts everywhere, disambiguated", a
   await page.keyboard.press("Escape");
 
   // Open in a new window, or here.
-  await catalogRow(page, "staging").getByRole("button", { name: "Open staging in new window" }).click();
+  await catalogRow(page, "staging").getByRole("button", { name: "More actions for staging" }).click();
+  await page.getByRole("menuitem", { name: "Open in new window" }).click();
   await expect.poll(() => fake.calls("cmdOpenWindow")).toEqual([{ context: "staging" }]);
   await catalogRow(page, "prod (team.yaml)").getByRole("button", { name: "Open prod (team.yaml)", exact: true }).click();
   await expect.poll(() => fake.calls("cmdSetContext")).toEqual([{ name: "prod (team.yaml)" }]);
@@ -113,14 +115,16 @@ test("a pasted kubeconfig is saved and added; removing it asks first", async ({ 
   await expect(pasted).toContainText("Pasted");
   expect(await fake.lastCall("cmdPasteKubeconfig")).toMatchObject({ name: "lab" });
 
-  await pasted.getByRole("button", { name: "Remove prod (lab.yaml)'s source" }).click();
+  await pasted.getByRole("button", { name: "More actions for prod (lab.yaml)" }).click();
+  await page.getByRole("menuitem", { name: "Remove source…" }).click();
   const confirm = page.getByRole("alertdialog", { name: "Remove source" });
   await expect(confirm).toContainText("The pasted kubeconfig saved by kubeloupe is deleted.");
   await confirm.getByRole("button", { name: "Cancel" }).click();
   await expect(pasted).toBeVisible();
   expect(await fake.calls("cmdRemoveKubeconfigSource")).toEqual([]);
 
-  await pasted.getByRole("button", { name: "Remove prod (lab.yaml)'s source" }).click();
+  await pasted.getByRole("button", { name: "More actions for prod (lab.yaml)" }).click();
+  await page.getByRole("menuitem", { name: "Remove source…" }).click();
   await confirm.getByRole("button", { name: "Remove" }).click();
   await expect(pasted).toHaveCount(0);
   expect(await fake.calls("cmdRemoveKubeconfigSource")).toEqual([

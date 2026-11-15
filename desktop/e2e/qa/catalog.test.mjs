@@ -5,6 +5,10 @@
 // each cluster gets a status (connected / unreachable); the added context
 // connects through its own file and lists pods; the source survives a
 // restart; the kubeconfig files are byte for byte unchanged.
+// Checks (#179): at 1280x800 with the unreachable cluster, server URLs stay
+// on one line and uncut, paths wrap only at '/', the status message is at
+// most two lines, the row actions (Open, More) fit in one line; screenshots
+// in dark and light, and of the More menu.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -15,7 +19,9 @@ import { join } from "node:path";
 import { after, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { CONTEXT } from "../lib/app.mjs";
+import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
 const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-catalog-"));
@@ -87,6 +93,59 @@ describe("cluster catalog", { timeout: 10 * 60_000 }, () => {
     );
     console.log(`sources: ${JSON.stringify(sources)}`);
     assert.ok(sources.some((t) => t.includes(folder) && t.includes("2 contexts in 2 files")), JSON.stringify(sources));
+  });
+
+  it("the table at 1280x800: URLs on one line, paths cut at '/', actions in one line (#179)", T, async () => {
+    const { app } = s;
+    await resizeWindow(app, 1280, 800);
+    const layout = () =>
+      app.js(`
+        const catalog = document.querySelector('[data-testid="catalog"]');
+        const rows = Array.from(document.querySelectorAll('[data-testid="catalog-row"]'), (tr) => {
+          const server = tr.querySelector('[data-testid="catalog-server"]');
+          const parts = Array.from(tr.querySelectorAll('[data-testid="catalog-file"] .part'));
+          const buttons = Array.from(tr.querySelectorAll('.actions button'));
+          const why = tr.querySelector('[data-testid="catalog-status-message"]');
+          return {
+            id: tr.dataset.context,
+            height: Math.round(tr.getBoundingClientRect().height),
+            server: server.textContent, serverCut: server.scrollWidth > server.clientWidth,
+            serverLines: new Set(Array.from(server.getClientRects(), (r) => Math.round(r.top))).size,
+            partSplit: parts.some((p) => p.getClientRects().length > 1),
+            buttons: buttons.map((b) => b.textContent.trim()),
+            buttonLines: new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top))).size,
+            buttonsRight: Math.max(...buttons.map((b) => b.getBoundingClientRect().right)),
+            whyHeight: why ? Math.round(why.getBoundingClientRect().height) : 0,
+          };
+        });
+        return { width: innerWidth, overflow: catalog.scrollWidth - catalog.clientWidth, rows };
+      `);
+    const l = await layout();
+    console.log(JSON.stringify(l));
+    assert.ok(l.overflow <= 0, `no horizontal scroll (${l.overflow}px)`);
+    for (const r of l.rows) {
+      assert.equal(r.serverLines, 1, `${r.id}: the server URL on one line`);
+      assert.ok(!r.serverCut, `${r.id}: the server URL ${r.server} is not cut`);
+      assert.ok(!r.partSplit, `${r.id}: no folder name split over two lines`);
+      assert.deepEqual(r.buttons, ["Open", "⋯"], `${r.id}: Open and More`);
+      assert.equal(r.buttonLines, 1, `${r.id}: actions in one line`);
+      assert.ok(r.buttonsRight <= l.width, `${r.id}: actions inside the window`);
+      assert.ok(r.whyHeight <= 36, `${r.id}: the status message is at most two lines (${r.whyHeight}px)`);
+      assert.ok(r.height < 100, `${r.id}: the row is short (${r.height}px)`);
+    }
+    await setTheme(app, "dark");
+    await app.shot("catalog-1280-dark");
+    await setTheme(app, "light");
+    await app.shot("catalog-1280-light");
+    // The More menu, open on the unreachable cluster.
+    await click(app, `${row(BROKEN)} button[aria-label=${JSON.stringify(`More actions for ${BROKEN}`)}]`);
+    await app.find(By.css('[role="menu"]'));
+    const items = await app.js(`return Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"]'), (b) => b.textContent.trim())`);
+    assert.deepEqual(items, ["Open in new window", "Check connection", "Settings…", "Remove source…"]);
+    await app.shot("catalog-1280-menu-light");
+    await app.js(`document.querySelector('[role="menu"]').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await app.waitFor(async () => (await app.driver.findElements(By.css('[role="menu"]'))).length === 0, { message: "the menu to close" });
+    await setTheme(app, null);
   });
 
   it("opens the added context through its own file and lists pods", T, async () => {

@@ -51,6 +51,21 @@ const options = (app) =>
     value: o.value, text: o.textContent.trim(), group: o.parentElement.tagName === "OPTGROUP" ? o.parentElement.label : "" }));`);
 const row = (id) => `[data-testid="catalog-row"][data-context=${JSON.stringify(id)}]`;
 
+/** Run `label` from the row's "More actions" menu (#179). */
+async function rowMenu(app, id, name, label) {
+  await click(app, `${row(id)} button[aria-label=${JSON.stringify(`More actions for ${name}`)}]`);
+  await app.waitFor(
+    () =>
+      app.js(
+        `const b = Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"]')).find((b) => b.textContent.trim() === arguments[0]);
+         b?.click();
+         return !!b;`,
+        label,
+      ),
+    { message: `"${label}" in ${name}'s menu` },
+  );
+}
+
 async function openCatalog(app) {
   await click(app, 'button[aria-label="Cluster catalog"]');
   await app.find(byTestId("catalog"));
@@ -94,7 +109,7 @@ describe("area 5: cluster catalog and per-cluster settings", { timeout: 15 * 60_
 
   it("a cluster's settings: display name, colour, pinned, default namespace, folder (dark)", T, async () => {
     const { app } = s;
-    await click(app, `${row(ADDED)} button[aria-label="Settings for ${ADDED}"]`);
+    await rowMenu(app, ADDED, ADDED, "Settings…");
     const dialog = await app.find(byTestId("cluster-settings"));
     const input = async (label) => dialog.findElement(By.css(`input[aria-label="${label}"]`));
     await app.setValue(await input("Display name"), NAME);
@@ -177,7 +192,7 @@ describe("area 5: cluster catalog and per-cluster settings", { timeout: 15 * 60_
       message: "three clusters",
     });
     await app.shot("catalog-light");
-    await click(app, `${row(ADDED)} button[aria-label="Settings for ${NAME}"]`);
+    await rowMenu(app, ADDED, NAME, "Settings…");
     await app.find(byTestId("cluster-settings"));
   });
 });

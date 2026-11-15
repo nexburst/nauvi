@@ -5,6 +5,8 @@
   export interface MenuItem {
     label: string;
     danger?: boolean;
+    /** Shown but not offered (e.g. while it is already running). */
+    disabled?: boolean;
     run: () => void;
   }
 
@@ -35,7 +37,7 @@
   onMount(() => {
     const before = document.activeElement as HTMLElement | null;
     keyboard.menus += 1;
-    el?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+    el?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
     return () => {
       keyboard.menus -= 1;
       if (before?.isConnected) before.focus({ preventScroll: true });
@@ -48,7 +50,7 @@
       onclose();
       return;
     }
-    const all = [...(el?.querySelectorAll<HTMLElement>('[role="menuitem"]') ?? [])];
+    const all = [...(el?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])];
     if (all.length === 0) return;
     const at = all.indexOf(document.activeElement as HTMLElement);
     const go = ({ ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 } as Record<string, number>)[
@@ -72,6 +74,7 @@
       role="menuitem"
       tabindex="-1"
       class:danger={item.danger}
+      disabled={item.disabled}
       onclick={() => {
         onclose();
         item.run();
@@ -120,10 +123,14 @@
     font-size: 13px;
     cursor: pointer;
   }
-  button:hover,
+  button:hover:not(:disabled),
   button:focus-visible {
     background: var(--bg-hover);
     outline: none;
+  }
+  button:disabled {
+    color: var(--text-muted);
+    cursor: default;
   }
   button.danger {
     color: var(--error-text);
