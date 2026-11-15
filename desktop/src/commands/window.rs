@@ -12,8 +12,14 @@ use tauri::{AppHandle, Webview};
 #[tauri::command]
 #[specta::specta]
 // Async: building a window from a sync command deadlocks on Windows.
-pub(crate) async fn cmd_open_window(app: AppHandle, context: String) -> Result<(), String> {
-    windows::open_window(&app, &context).map(|_| ())
+pub(crate) async fn cmd_open_window(
+    app: AppHandle,
+    webview: Webview,
+    context: String,
+) -> Result<(), String> {
+    // Cascaded from this window, so it doesn't cover it (#182).
+    let rect = windows::cascade_from(&app, webview.label());
+    windows::open_window(&app, &context, rect).map(|_| ())
 }
 
 /// This window has (or no longer has) unsaved edits: closing it or quitting
