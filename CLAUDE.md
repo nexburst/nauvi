@@ -174,8 +174,9 @@ The dev box is small (4 cores, 15 GB RAM). Builds of this workspace and real-app
 runs (Xvfb + WebKitGTK) each take several GB; five at once got the whole
 session killed by systemd-oomd.
 
-- At most **two** agents should build or run the app at the same time.
-  Check `free -h` before a build; wait if "available" is under ~4 GB.
+- At most **two** agents should build or run the app at the same time;
+  `scripts/dev/capped.sh` enforces it with two build slots. Check `free -h`
+  before a build; wait if "available" is under ~4 GB.
 - Run heavy commands under a memory ceiling, so a runaway one is killed alone:
   `scripts/dev/capped.sh cargo test --workspace`,
   `CAP=4G scripts/dev/capped.sh desktop/e2e/qa.sh <scenario>`.
@@ -184,6 +185,24 @@ session killed by systemd-oomd.
 - Each worktree's `target/` grows to several GB. When your PR is merged, the
   coordinator removes merged worktrees with `scripts/dev/clean-worktrees.sh
   --yes` (dry run without `--yes`).
+
+### Agent roles and the merge gate
+
+Agent definitions live in `.claude/agents/`: `coordinator` (start a session
+with `claude --agent coordinator`), `dev` (one issue per worktree), `qa`
+(real-app checks per area) and `reviewer` (read-only pre-merge review).
+
+- `main` is protected: the CI checks must pass, but branches don't have to be
+  up to date with `main`. Merge with `gh pr merge --auto --squash`; update a
+  branch only when it really conflicts; if `main` breaks, revert first.
+- Before merging a feature or fix PR: a `reviewer` verdict of "merge", and for
+  desktop changes a QA scenario run in CI
+  (`gh workflow run qa.yml --ref <branch> -f scenario='<names>'`) whose
+  screenshots someone looked at.
+- Heavy commands go through `scripts/dev/capped.sh`, which waits for one of
+  two build slots and caps memory.
+- A SessionStart hook (`.claude/settings.json`) removes merged, clean agent
+  worktrees.
 
 ## Definition of done
 
