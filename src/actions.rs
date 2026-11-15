@@ -57,6 +57,9 @@ pub enum ActionId {
     /// A root shell on a node through a privileged pod. Interactive
     /// ([`crate::node_shell`]).
     NodeShell,
+    /// Attach to a container's main process (`kubectl attach -it`).
+    /// Interactive ([`crate::attach`]).
+    Attach,
 }
 
 /// An extra value the action needs before it can run.
@@ -146,6 +149,7 @@ pub fn actions_for(r: &ResourceRef, verbs: &[String]) -> Vec<ActionDef> {
         });
     }
     if (r.group.as_str(), r.kind.as_str()) == ("", "Pod") {
+        out.push(def(Attach, "Attach"));
         out.push(ActionDef {
             input: ActionInput::Debug,
             ..def(Debug, "Debug…")
@@ -494,6 +498,7 @@ pub async fn run_action(
         ActionId::NodeShell => {
             bail!("a node shell is interactive: use node_shell::create_node_shell")
         }
+        ActionId::Attach => bail!("an attach session is interactive: use attach::attach_pod"),
     })
 }
 
@@ -891,7 +896,7 @@ mod tests {
         );
         assert_eq!(
             ids("", "Pod", &d),
-            [PortForward, Debug, Delete, ForceDelete]
+            [PortForward, Attach, Debug, Delete, ForceDelete]
         );
         assert_eq!(ids("", "ConfigMap", &d), [Delete]);
         // Same kind name in another group gets nothing special.

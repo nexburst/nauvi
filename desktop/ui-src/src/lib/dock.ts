@@ -18,6 +18,11 @@ export type DockTabSpec =
   | { type: "workloadLogs"; workload: WorkloadRef }
   /** `container`: undefined picks the pod's first regular container. */
   | { type: "terminal"; pod: PodTabRef; container?: string | null }
+  /**
+   * Attached to a container's main process (`container`: null for the
+   * pod's default container). Closing the tab detaches.
+   */
+  | { type: "attach"; pod: PodTabRef; container: string | null }
   /** An ephemeral debug container sharing `target`'s processes. */
   | { type: "debug"; pod: PodTabRef; target: string; image: string }
   /** A root shell on a node through a privileged pod in `namespace`. */
@@ -45,6 +50,8 @@ export function tabId(spec: DockTabSpec): string {
       return `wlogs:${spec.workload.kind}:${spec.workload.namespace}/${spec.workload.name}`;
     case "terminal":
       return `shell:${spec.pod.namespace}/${spec.pod.name}`;
+    case "attach":
+      return `attach:${spec.pod.namespace}/${spec.pod.name}/${spec.container ?? ""}`;
     case "debug":
       return `debug:${spec.pod.namespace}/${spec.pod.name}/${spec.target}`;
     case "nodeShell":
@@ -62,6 +69,8 @@ export function tabTitle(spec: DockTabSpec): string {
       return `Logs: ${spec.workload.kind.toLowerCase()}/${spec.workload.name}`;
     case "terminal":
       return `Shell: ${spec.pod.name}`;
+    case "attach":
+      return spec.container ? `Attach: ${spec.pod.name}/${spec.container}` : `Attach: ${spec.pod.name}`;
     case "debug":
       return `Debug: ${spec.pod.name}`;
     case "nodeShell":

@@ -10,6 +10,7 @@ import { closeDetail, detail, openDetail } from "./detail.svelte";
 import { checkLeftovers } from "./debug.svelte";
 import { contextSettings, loadSettings, settings, updateContext, updateSettings } from "./settings.svelte";
 import { closeAllDockTabs, dock } from "./dock.svelte";
+import { clearProblems } from "./problems.svelte";
 import { whenDiscarded } from "./unsaved.svelte";
 
 /** `"overview"`, or the id of a discovered kind (`apps/v1/deployments`). */
@@ -297,6 +298,7 @@ export async function switchContext(name: string) {
   // The backend has stopped every stream and session this window started
   // in the old context; other windows keep theirs.
   closeAllDockTabs();
+  clearProblems();
   closeDetail();
   app.selectedNamespaces = [];
   app.view = "overview";

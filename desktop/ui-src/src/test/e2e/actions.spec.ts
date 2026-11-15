@@ -14,7 +14,7 @@ async function contextMenu(page: Page, name: string) {
 test("the context menu offers the actions of each kind", async ({ page }) => {
   await openApp(page);
   const cases: [string, string, string, string[]][] = [
-    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Port forward…", "Debug…", "Delete", "Force delete…"]],
+    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Port forward…", "Attach", "Debug…", "Delete", "Force delete…"]],
     ["Deployments", "web", "demo/web", ["Logs", "Scale…", "Rollout restart", "Port forward…", "Delete"]],
     ["Nodes", "node-1", "node-1", ["Shell", "Cordon", "Uncordon", "Drain…", "Delete"]],
     ["Secrets", "db-creds", "demo/db-creds", ["Delete"]],

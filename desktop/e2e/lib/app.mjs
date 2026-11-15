@@ -198,9 +198,9 @@ export class App {
     return (await this.driver.findElement(byTestId("connection-status"))).getText();
   }
 
-  /** Click a kind (or Overview) in the sidebar. */
+  /** Click a kind (or Overview) in the sidebar, by its label (a problem badge may follow it). */
   async nav(label) {
-    const button = await this.find(By.xpath(`//nav//button[normalize-space()=${xq(label)}]`));
+    const button = await this.find(By.xpath(`//nav//button[normalize-space(text()[1])=${xq(label)}]`));
     // The sidebar scrolls (more so with the dock open); WebKitGTK's driver
     // refuses to click a button that is only partly visible.
     await this.js("arguments[0].scrollIntoView({ block: 'center' })", button);

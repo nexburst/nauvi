@@ -111,6 +111,20 @@ export function linePrefix(tag: LineTag, withContainer: boolean): string {
   return withContainer ? `[${tag.pod}/${tag.container}]` : `[${tag.pod}]`;
 }
 
+/** The pod log viewer's container choice that merges all of them. */
+export const ALL_CONTAINERS = "*";
+
+/** "All containers" is offered for pods with more than one regular container. */
+export function offerAllContainers(containers: readonly { init: boolean }[]): boolean {
+  return containers.filter((c) => !c.init).length > 1;
+}
+
+/** The label and colour of a merged line: by pod for a workload, by container for one pod. */
+export function tagLabel(tag: LineTag, byContainer: boolean, withContainer: boolean): { prefix: string; color: string } {
+  if (byContainer) return { prefix: `[${tag.container}]`, color: podColor(tag.container) };
+  return { prefix: linePrefix(tag, withContainer), color: podColor(tag.pod) };
+}
+
 export interface Segment {
   text: string;
   hit: boolean;

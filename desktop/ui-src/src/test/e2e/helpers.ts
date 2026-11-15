@@ -102,6 +102,10 @@ export class Fake {
     return this.page.evaluate(([l, id]) => window.__fake.emitLogLines(l, id), [lines, streamId] as const);
   }
 
+  emitTaggedLines(lines: { pod: string; container: string; line: string }[], streamId?: number): Promise<void> {
+    return this.page.evaluate(([l, id]) => window.__fake.emitTaggedLines(l, id), [lines, streamId] as const);
+  }
+
   /** Change the fake cluster in the page. */
   setCluster<A>(fn: (cluster: FakeCluster, arg: A) => void, arg: A): Promise<void> {
     return this.page.evaluate(
@@ -114,7 +118,7 @@ export class Fake {
   }
 
   /** A pod row as the backend would send it (cells in the Pods column order). */
-  podRow(namespace: string, name: string, status = "Running", restarts = "0"): ResourceRow {
+  podRow(namespace: string, name: string, status = "Running", restarts = "0", problem = ""): ResourceRow {
     // name, namespace, ready, status, restarts, node, age, cpu, memory
     const ready = status === "Running" ? "1/1" : "0/1";
     return {
@@ -123,6 +127,7 @@ export class Fake {
       namespace,
       created: Math.floor(Date.now() / 1000) - 60,
       cells: [name, namespace, ready, status, restarts, "node-1", "", "", ""],
+      problem,
     };
   }
 }

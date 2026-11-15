@@ -47,7 +47,7 @@ pub async fn list_resources(
     Ok(list
         .items
         .iter()
-        .map(|o| make_row(&kind.columns, o))
+        .map(|o| make_row(&kind.resource, &kind.columns, o))
         .collect())
 }
 

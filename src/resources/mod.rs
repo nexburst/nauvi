@@ -17,6 +17,7 @@
 //! - `detail_watch`: live updates of one object's detail
 //! - `related`: related objects and a per-kind summary (`related_local`,
 //!   `related_summary`, `related_crd` hold the pure per-kind parts)
+//! - `problems`: which rows need attention (row highlights, sidebar badges)
 //! - `rbac`: what Roles, bindings and ServiceAccounts say (cells, rules,
 //!   which bindings point at a role or an account)
 //! - `table`: `kubectl get`-style table output for the CLI
@@ -30,6 +31,7 @@ mod jsonpath;
 mod manifests;
 mod ops;
 mod pod_detail;
+mod problems;
 mod rbac;
 mod related;
 mod related_crd;
@@ -51,6 +53,7 @@ pub use pod_detail::{
     env_refs, pod_extras, probe_summary, state_info, ContainerDetail, ContainerKind, EnvInfo,
     MountInfo, PodExtras, PortInfo, ProbeInfo, StateInfo,
 };
+pub use problems::row_problem;
 pub use related::{get_related, related_objects, Fact, Related, RelatedGroup, RelatedItem};
 pub use table::{align_columns, render_table, table_cells, table_header};
 
@@ -188,6 +191,9 @@ pub struct ResourceRow {
     /// Creation time (unix seconds).
     pub created: i64,
     pub cells: Vec<String>,
+    /// Why the object needs attention (`CrashLoopBackOff`, `1 of 3 ready`);
+    /// empty if it is fine ([`problems::row_problem`]).
+    pub problem: String,
 }
 
 /// Result of an access check for one kind.

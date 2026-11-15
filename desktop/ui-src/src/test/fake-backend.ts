@@ -45,6 +45,7 @@ import type {
   ResourceRef,
   ResourceRow,
   PrometheusStatus,
+  TaggedLine,
   UsageHistoryView,
   WatchBatch,
   WatchState,
@@ -102,6 +103,8 @@ export interface FakeApi {
   emitOverviewState(state: WatchState & { id?: number }): Promise<void>;
   /** Send `pod-log` lines; `streamId` defaults to the latest stream. */
   emitLogLines(lines: string[], streamId?: number): Promise<void>;
+  /** Send `workload-log` lines (merged streams: workloads, all containers of a pod). */
+  emitTaggedLines(lines: TaggedLine[], streamId?: number): Promise<void>;
   /** Send `pod-log-error`, then (if `done`) `pod-log-done`. */
   emitLogEnd(error: string, done?: boolean, streamId?: number): Promise<void>;
   /** URLs the app asked `tauri-plugin-opener` to open. */
@@ -421,6 +424,7 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     },
     cmdStreamPodLogs: (_namespace, _name, _container, _previous, _tail, _since, _timestamps, id) => startStream(id),
     cmdStreamWorkloadLogs: (_kind, _namespace, _name, _options, id) => startStream(id),
+    cmdStreamPodAllLogs: (_namespace, _name, _options, id) => startStream(id),
     cmdStopLogs: (id) => {
       logStreams.delete(id);
       return null;
@@ -428,6 +432,17 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     cmdSaveLogs: (filename) => `/home/tester/Downloads/${filename}`,
 
     cmdExecStart: () => `exec-${++sessionSeq}`,
+    // Writes its note into the session before returning the id, like the backend.
+    cmdAttachStart: async (namespace, name, container) => {
+      if (cluster.attachError) throw cluster.attachError;
+      const session = `attach-${++sessionSeq}`;
+      await events.execOutput.emit({
+        session,
+        stream: "stderr",
+        data: `Attached to ${name}/${container ?? "app"} in ${namespace}. Closing this tab detaches. The process keeps running.\r\n`,
+      });
+      return session;
+    },
     cmdExecInput: () => null,
     cmdExecResize: () => null,
     cmdExecClose: () => null,
@@ -684,6 +699,7 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     },
     emitOverviewState: (s) => events.overviewState.emit({ ...s, id: s.id ?? lastOverview ?? -1 }),
     emitLogLines: (lines, id) => events.podLog.emit({ streamId: id ?? streamId ?? -1, data: lines }),
+    emitTaggedLines: (lines, id) => events.workloadLog.emit({ streamId: id ?? streamId ?? -1, data: lines }),
     opened: () => [...opened],
     installPrometheus: () => {
       cluster.prometheus = prometheusFixture();

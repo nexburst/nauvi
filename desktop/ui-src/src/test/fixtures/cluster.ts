@@ -73,6 +73,8 @@ export interface FakeCluster {
   servicePorts: Record<string, ServicePortInfo[]>;
   /** `cmd_debug_start` fails with this after its first progress line. */
   debugError: string;
+  /** `cmd_attach_start` fails with this (no stdin, not running, forbidden). */
+  attachError: string;
   /** `cmd_node_shell_start` fails with this after its first progress line. */
   nodeShellError: string;
   /** Node shell pods `cmd_node_shell_leftovers` finds. */
@@ -163,7 +165,10 @@ export function detail(
   };
 }
 
-/** A row for `kindId` with cells given by column key (missing cells are empty). */
+/**
+ * A row for `kindId` with cells given by column key (missing cells are
+ * empty). `problem` is what the backend's `row_problem` would say.
+ */
 export function makeRow(
   kinds: ResourceKind[],
   kindId: string,
@@ -171,6 +176,7 @@ export function makeRow(
   name: string,
   cells: Record<string, string> = {},
   created = ago(3600),
+  problem = "",
 ): ResourceRow {
   const kind = kinds.find((k) => k.id === kindId);
   if (!kind) throw new Error(`fake cluster: no kind ${kindId}`);
@@ -182,6 +188,7 @@ export function makeRow(
     created,
     // Like the backend: columns the UI fills itself get an empty cell.
     cells: kind.columns.map((c) => (UI_FILLED.has(c.kind) ? "" : (values[c.key] ?? ""))),
+    problem,
   };
 }
 
@@ -206,10 +213,26 @@ const WIDGETS: ResourceKind = {
 
 export function defaultCluster(): FakeCluster {
   const kinds = [...DISCOVERED, WIDGETS];
-  const row = (kindId: string, ns: string, name: string, cells: Record<string, string> = {}, created?: number) =>
-    makeRow(kinds, kindId, ns, name, cells, created);
+  const row = (
+    kindId: string,
+    ns: string,
+    name: string,
+    cells: Record<string, string> = {},
+    created?: number,
+    problem?: string,
+  ) => makeRow(kinds, kindId, ns, name, cells, created, problem);
+  // Problems as the overview fixture lists them: crash-looping, pending for an hour.
+  const podProblem = (status: string) =>
+    status === "CrashLoopBackOff" ? status : status === "Pending" ? "Pending for 60m" : "";
   const pod = (ns: string, name: string, status: string, restarts = "0", node = "node-1") =>
-    row("v1/pods", ns, name, { ready: status === "Running" ? "1/1" : "0/1", status, restarts, node });
+    row(
+      "v1/pods",
+      ns,
+      name,
+      { ready: status === "Running" ? "1/1" : "0/1", status, restarts, node },
+      undefined,
+      podProblem(status),
+    );
 
   return {
     contexts: [
@@ -237,7 +260,7 @@ export function defaultCluster(): FakeCluster {
       ],
       "apps/v1/deployments": [
         row("apps/v1/deployments", "demo", "web", { ready: "2/2", uptodate: "2", available: "2" }),
-        row("apps/v1/deployments", "demo", "api", { ready: "1/3", uptodate: "3", available: "1" }),
+        row("apps/v1/deployments", "demo", "api", { ready: "1/3", uptodate: "3", available: "1" }, undefined, "1 of 3 ready"),
       ],
       "v1/nodes": [
         row("v1/nodes", "", "node-1", { ready: "True", version: "v1.37.0" }),
@@ -303,6 +326,7 @@ export function defaultCluster(): FakeCluster {
     applyErrors: {},
     forwards: [],
     debugError: "",
+    attachError: "",
     nodeShellError: "",
     nodeShellLeftovers: [],
     servicePorts: {

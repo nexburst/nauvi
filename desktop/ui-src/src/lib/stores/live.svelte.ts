@@ -40,6 +40,8 @@ export class LiveTable {
   store = new KeyedStore<Row>((row) => row.key);
   metrics = $state.raw<Metrics>(EMPTY_METRICS);
   now = $state.raw(Date.now());
+  /** A first batch has arrived since `start`, so the rows are not just empty. */
+  synced = $state.raw(false);
 
   #kind: ResourceKind | null = null;
   /** The running watches by key, in selection order. */
@@ -72,6 +74,7 @@ export class LiveTable {
   #handle(w: Watch, ev: WatchEvent) {
     if (ev.kind === "batch") {
       this.store.applyBatch(ev.payload, w.key);
+      if (!this.synced) this.synced = true;
       stamp();
     } else {
       const s = ev.payload;
@@ -108,6 +111,7 @@ export class LiveTable {
     this.stop();
     this.#kind = kind;
     this.store.clear();
+    this.synced = false;
     for (const key of this.#keysFor(namespaces)) void this.#startWatch(key);
     this.#publishState();
     this.#startMetrics();

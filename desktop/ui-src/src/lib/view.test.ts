@@ -24,7 +24,7 @@ const KIND: ResourceKind = {
 };
 
 function entry(namespace: string, name: string, restarts: string, created: number): Entry<ResourceRow> {
-  const row = { key: `${namespace}/${name}`, name, namespace, created, cells: [name, restarts, ""] };
+  const row = { key: `${namespace}/${name}`, name, namespace, created, cells: [name, restarts, ""], problem: "" };
   return { key: row.key, row, hay: `${namespace}\0${name}\0${restarts}`.toLowerCase() };
 }
 

@@ -8,6 +8,7 @@ import { closeDetail, detail } from "./detail.svelte";
 import { forwardKindOf } from "../forwards";
 import { openForwardDialog } from "./forwards.svelte";
 import { openDebugDialog, openNodeShell } from "./debug.svelte";
+import { openDockTab } from "./dock.svelte";
 
 /** Drain gives up waiting on PodDisruptionBudgets after this long. */
 const DRAIN_TIMEOUT_SECS = 300;
@@ -86,6 +87,11 @@ export function requestAction(kind: ResourceKind, targets: ActionTarget[], actio
   }
   if (action.id === "nodeShell") {
     openNodeShell(targets[0].name);
+    return;
+  }
+  if (action.id === "attach") {
+    const pod = { resource: kind.resource, namespace: targets[0].namespace, name: targets[0].name };
+    openDockTab({ type: "attach", pod, container: null });
     return;
   }
   const req: ActionRequest = { kind, targets, action, replicas, typed: "" };
