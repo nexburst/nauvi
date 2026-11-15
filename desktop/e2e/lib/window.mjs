@@ -14,6 +14,9 @@ import { byTestId } from "./app.mjs";
  */
 export async function resizeWindow(app, width, height) {
   const before = await viewportSize(app);
+  const rect = await app.driver.manage().window().getRect();
+  // Already that size (the app opens at 1280x800): nothing would change.
+  if (rect.width === width && rect.height === height) return before;
   await app.driver.manage().window().setRect({ width, height });
   await app.waitFor(
     async () => {
@@ -101,6 +104,19 @@ export function x11Windows(pid) {
   });
 }
 
+/**
+ * The native titles of the app's windows (`_NET_WM_NAME`), sorted. WebDriver's
+ * getTitle() returns the page's <title>, not the window's.
+ */
+export function x11Titles(pid) {
+  return x11Windows(pid).map(x11Title).sort();
+}
+
+function x11Title(id) {
+  const out = execFileSync("xprop", ["-id", id, "_NET_WM_NAME"], { encoding: "utf8" });
+  return out.match(/= "(.*)"/)?.[1] ?? "";
+}
+
 /** Why `closeLikeUser` cannot work here (a string), or false when it can. */
 export function cannotCloseLikeUser() {
   if (process.platform !== "linux") return "closing like a user needs X11 (Linux)";
@@ -116,14 +132,28 @@ export function cannotCloseLikeUser() {
 }
 
 /**
+ * Press X11 keys (keysym names, e.g. "Menu") in the app's window through
+ * XTEST (lib/xkey.py), for keys WebDriver cannot send. Focuses the first
+ * window of `pid`; returns false when there is none.
+ */
+export function pressX11Keys(pid, ...keysyms) {
+  const [id] = x11Windows(pid);
+  if (!id) return false;
+  execFileSync("python3", [join(dirname(fileURLToPath(import.meta.url)), "xkey.py"), id, ...keysyms], { stdio: "inherit" });
+  return true;
+}
+
+/**
  * Close the app's windows the way a window manager's close button does
  * (WM_DELETE_WINDOW, lib/wm-close.py), so the app's own close and exit
  * handlers run. WebDriver's Close Window on the last window ends the session
- * and kills the app instead. Returns the window ids; throws when the app
- * has no window to close (or the X tools are missing).
+ * and kills the app instead (and on another window it drops the webview but
+ * leaves the native window open). `title`: only the windows with that
+ * native title. Returns the window ids; throws when the app has no window
+ * to close (or the X tools are missing).
  */
-export function closeLikeUser(pid) {
-  const ids = x11Windows(pid);
+export function closeLikeUser(pid, { title } = {}) {
+  const ids = x11Windows(pid).filter((id) => title === undefined || x11Title(id) === title);
   if (ids.length === 0) throw new Error(`no X11 window of pid ${pid} on ${process.env.DISPLAY}`);
   execFileSync("python3", [join(dirname(fileURLToPath(import.meta.url)), "wm-close.py"), ...ids], { stdio: "inherit" });
   return ids;
