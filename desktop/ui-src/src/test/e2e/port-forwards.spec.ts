@@ -56,6 +56,29 @@ test("a pod forward outlives its panel and is listed, opened and stopped from Po
   expect(fake.errors).toEqual([]);
 });
 
+test("the pod panel's status line goes when its forward stops", async ({ page }) => {
+  const fake = await openApp(page);
+  await openKind(page, "Pods");
+  await row(page, "web-1").click();
+  await expect(panel(page).locator(".title")).toHaveText("demo/web-1");
+  const status = panel(page).getByText(/^Forwarding http/);
+
+  // Stopped from the panel.
+  await panel(page).getByLabel("Pod port").fill("8080");
+  await panel(page).getByRole("button", { name: "Forward", exact: true }).click();
+  await expect(status).toHaveText("Forwarding http://127.0.0.1:8080 → web-1:8080");
+  await panel(page).getByRole("button", { name: "Stop http://127.0.0.1:8080" }).click();
+  await expect(panel(page).getByRole("button", { name: "Stop http://127.0.0.1:8080" })).toHaveCount(0);
+  await expect(status).toHaveCount(0);
+
+  // Stopped elsewhere (Port Forwards view, a context switch): the next poll drops it.
+  await panel(page).getByRole("button", { name: "Forward", exact: true }).click();
+  await expect(status).toHaveText("Forwarding http://127.0.0.1:8080 → web-1:8080");
+  await fake.setCluster((c) => (c.forwards = []), null);
+  await expect(status).toHaveCount(0);
+  expect(fake.errors).toEqual([]);
+});
+
 test("the context menu starts a Service forward on a chosen port", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Services");
