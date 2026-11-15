@@ -41,3 +41,15 @@ libc = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }
+
+# Debug builds: keep line tables for our own crates (readable backtraces) and
+# drop debug info for dependencies. Full debug info made every target/ dir
+# 7–25 GB and made linking the desktop app use several GB of RAM.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+[profile.test]
+debug = "line-tables-only"
