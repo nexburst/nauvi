@@ -140,7 +140,7 @@ test("download saves the buffered lines through cmd_save_logs", async ({ page })
   const call = await fake.lastCall("cmdSaveLogs");
   expect(call.filename).toMatch(/^web-1_app_\d{4}-\d\d-\d\dT[\d-]+Z\.log$/);
   expect(call.content).toBe("alpha\nbeta\n");
-  await expect(logs(page).getByText(`saved to /home/tester/Downloads/${call.filename}`)).toBeVisible();
+  await expect(logs(page).getByTestId("log-saved")).toHaveText(`Saved to Downloads/${call.filename}`);
 });
 
 test("a failed download is reported in the log view", async ({ page }) => {

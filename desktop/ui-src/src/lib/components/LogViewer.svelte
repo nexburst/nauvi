@@ -15,6 +15,8 @@
     lineCountLabel,
     logMatches,
     offerAllContainers,
+    SAVED_NOTE_MS,
+    savedLabel,
     splitHighlights,
     tagLabel,
   } from "../logs";
@@ -67,7 +69,10 @@
   let filterInput = $state("");
   let filter = $state("");
   let paused = $state(false);
-  let statusNote = $state("");
+  // Where the last Download went: shown in the header for SAVED_NOTE_MS,
+  // apart from the line count that every batch updates (#178).
+  let savedPath = $state("");
+  let savedTimer: ReturnType<typeof setTimeout> | undefined;
   // Workload mode: which pods/containers have been seen, and the pod filter.
   let podFilter = $state("");
   let podStates = $state<Record<string, "live" | "ended">>({});
@@ -107,10 +112,7 @@
     return (i: number) => d.lines[i]?.id ?? i;
   });
   const podNames = $derived(Object.keys(podStates).sort());
-  const status = $derived(
-    statusNote ||
-      (paused ? "paused · " : "") + lineCountLabel(lineCount),
-  );
+  const status = $derived((paused ? "paused · " : "") + lineCountLabel(lineCount));
 
   function isAtBottom(): boolean {
     return !scrollEl || scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 40;
@@ -124,7 +126,6 @@
   }
 
   function updateStatus() {
-    statusNote = "";
     lineCount = buf.lines.length;
   }
 
@@ -367,7 +368,9 @@
       // Tauri's webviews, and a save dialog would need an extra plugin.
       const text = buf.lines.map((l, i) => (buf.tagIds[i] ? tagInfo(buf.tagIds[i]).prefix + " " + l : l)).join("\n");
       const path = await commands.cmdSaveLogs(filename, text + "\n");
-      statusNote = "saved to " + path;
+      savedPath = path;
+      clearTimeout(savedTimer);
+      savedTimer = setTimeout(() => (savedPath = ""), SAVED_NOTE_MS);
     } catch (e) {
       appendLog("Could not save logs: " + e, "error-text");
     }
@@ -428,6 +431,7 @@
     unlisteners.forEach((f) => f());
     cancelAnimationFrame(raf);
     clearTimeout(filterTimer);
+    clearTimeout(savedTimer);
     const ownStream = streamId;
     streamId = ++streamCounter;
     // Stops this tab's stream only; the other tabs keep theirs.
@@ -447,6 +451,9 @@
     {paused ? "Resume" : "Pause"}
   </button>
   <button type="button" class="btn" onclick={resetLogs}>Clear</button>
+  <span class="saved" role="status" data-testid="log-saved" title={savedPath || undefined}
+    >{#if savedPath}Saved to {savedLabel(savedPath)}{/if}</span
+  >
   <button type="button" class="btn" onclick={downloadLogs}>Download</button>
 </div>
 <div class="logs-options">
@@ -533,6 +540,23 @@
     margin: 0;
     font-size: 13px;
     flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .logs-header > :not(h3, .saved) {
+    flex-shrink: 0;
+  }
+  /* One line at most: it never wraps the header or moves the log list. */
+  .saved {
+    min-width: 0;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--green, var(--text-muted));
+    font-size: 12px;
   }
   .logs-options {
     display: flex;
