@@ -11,6 +11,7 @@ import type { Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { tags as t } from "@lezer/highlight";
+import { yamlBlockIndent } from "./yaml-indent";
 
 const MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
@@ -82,6 +83,27 @@ const theme = EditorView.theme(
     ".cm-deletedChunk, .cm-merge-a .cm-changedLine": { backgroundColor: "rgba(229, 72, 77, 0.12)" },
     ".cm-deletedChunk .cm-deletedText, .cm-merge-a .cm-changedText": { background: "rgba(229, 72, 77, 0.35)" },
     ".cm-changeGutter": { width: "3px" },
+    // The "N unchanged lines" bar. @codemirror/merge frames it with `⦚`,
+    // which the usual Linux fonts lack (tofu in WebKitGTK, #101): draw a
+    // chevron with borders instead, in the theme's colours.
+    ".cm-collapsedLines": {
+      color: "var(--text-muted)",
+      background: "var(--bg-hover)",
+      borderTop: "1px solid var(--border)",
+      borderBottom: "1px solid var(--border)",
+    },
+    ".cm-collapsedLines:hover": { color: "var(--text)" },
+    ".cm-collapsedLines:before, .cm-collapsedLines:after": {
+      content: '""',
+      display: "inline-block",
+      width: "5px",
+      height: "5px",
+      borderRight: "1.5px solid currentColor",
+      borderBottom: "1.5px solid currentColor",
+      transform: "translateY(-3px) rotate(45deg)",
+    },
+    ".cm-collapsedLines:before": { marginInlineEnd: "10px" },
+    ".cm-collapsedLines:after": { marginInlineStart: "10px" },
   },
 );
 
@@ -160,6 +182,7 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): EditorHa
         indentUnit.of("  "),
         EditorState.tabSize.of(2),
         yamlLook(),
+        yamlBlockIndent(),
         label(opts.label),
         errorLine,
         ro.of(readonly(opts.readonly)),

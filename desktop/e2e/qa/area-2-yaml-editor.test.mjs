@@ -189,11 +189,13 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     await typeKeys(app, [Key.ENTER, { shift: Key.TAB }, "nested:", Key.ENTER, "x: y"]);
     v = await editorValue(app, el);
     console.log(`block after nested: ${JSON.stringify(v.slice(v.indexOf("nested")))}`);
+    assert.match(v, /\nnested:\n {2}x: y\n/, "Enter after a top-level key indents the next line (#101)");
     // The same inside the data: block.
     await cursorAtEndOf(app, el, "alpha: one");
     await typeKeys(app, [Key.ENTER, "inner:", Key.ENTER, "z: 1"]);
     v = await editorValue(app, el);
     console.log(`block after inner: ${JSON.stringify(v.slice(v.indexOf("  inner"), v.indexOf("z: 1") + 4))}`);
+    assert.match(v, /\n {2}inner:\n {4}z: 1\n/, "Enter after a nested key indents the next line (#101)");
     const dot = await app.js("return !!document.querySelector('[data-testid=\"detail-panel\"] h3 .dirty')");
     assert.ok(dot, "the unsaved dot shows");
     // Both themes explicitly: CI's system theme is light.
@@ -345,7 +347,19 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     });
     const changed = await app.js("return Array.from(document.querySelectorAll('[data-testid=\"detail-panel\"] .cm-changedLine'), (l) => l.textContent)");
     console.log(`diff against the latest: ${JSON.stringify(changed)}`);
+    // #101: the "N unchanged lines" bar draws CSS chevrons, not a `⦚` glyph
+    // the system fonts lack; in both themes.
+    const marks = await app.js(`
+      const bar = document.querySelector('[data-testid="detail-panel"] .cm-collapsedLines');
+      return bar && { text: bar.textContent, marks: ['::before', '::after'].map((p) => getComputedStyle(bar, p).content) };`);
+    console.log(`collapsed bar: ${JSON.stringify(marks)}`);
+    assert.ok(marks, "the diff collapses the unchanged lines");
+    assert.deepEqual(marks.marks, ['""', '""'], "no glyph in the unchanged-lines bar");
+    await setTheme(app, "light");
+    await app.shot("diff-against-latest-light");
+    await setTheme(app, "dark");
     await app.shot("diff-against-latest");
+    await setTheme(app, null);
     await (await app.find(byTestId("yaml-save"))).click();
     await app.waitFor(async () => /Saved/.test(await statusText(app)), { message: "Saved." });
     const data = JSON.parse(get(["get", "cm", "qa-yaml", "-o", "jsonpath={.data}"]));
