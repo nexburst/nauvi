@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write;
 
 /// Width of the `Label:` column.
-const LABEL_WIDTH: usize = 15;
+const LABEL_WIDTH: usize = 16;
 
 /// Fetch one object's detail and print it.
 pub async fn print_describe(
@@ -432,7 +432,7 @@ mod tests {
         };
         let out = render_describe_with(&detail(), &related);
         assert!(
-            out.contains("Summary:        2/2 ready · revision 4\nRollout:        complete\n"),
+            out.contains("Summary:         2/2 ready · revision 4\nRollout:         complete\n"),
             "{out}"
         );
         assert!(
@@ -447,36 +447,36 @@ mod tests {
     fn describe_prints_metadata_owners_conditions_and_events() {
         let out = render_describe(&detail());
         let expected = "\
-Name:           hungry
-Namespace:      default
-Kind:           Pod
-API Version:    v1
-UID:            u-1
-Created:        2023-11-14T22:13:20Z (15h ago)
-Labels:         app=hungry
-                t=x
-Annotations:    <none>
-Finalizers:     <none>
-Controlled By:  ReplicaSet/web-1
-Status:         Pending
-Node:           <none>
-IPs:            <none>
-Host IP:        <none>
-QoS Class:      Burstable
+Name:            hungry
+Namespace:       default
+Kind:            Pod
+API Version:     v1
+UID:             u-1
+Created:         2023-11-14T22:13:20Z (15h ago)
+Labels:          app=hungry
+                 t=x
+Annotations:     <none>
+Finalizers:      <none>
+Controlled By:   ReplicaSet/web-1
+Status:          Pending
+Node:            <none>
+IPs:             <none>
+Host IP:         <none>
+QoS Class:       Burstable
 Service Account: default
 Containers:
   hungry:
-    Image:          nginx:1.27
-    State:          Waiting: ContainerCreating
-    Last State:     Terminated: Error (exit code 1), 5m ago
-    Ready:          False
-    Restarts:       2
-    Requests:       memory=100Gi
-    Limits:         <none>
-    Ports:          80/TCP (http)
-    Liveness:       http-get :80/ delay=0s
-    Environment:    MODE
-                    PASSWORD (secret:creds/pw)
+    Image:           nginx:1.27
+    State:           Waiting: ContainerCreating
+    Last State:      Terminated: Error (exit code 1), 5m ago
+    Ready:           False
+    Restarts:        2
+    Requests:        memory=100Gi
+    Limits:          <none>
+    Ports:           80/TCP (http)
+    Liveness:        http-get :80/ delay=0s
+    Environment:     MODE
+                     PASSWORD (secret:creds/pw)
 Conditions:
   Type          Status  Reason         Age  Message
   PodScheduled  False   Unschedulable  15h  0/2 nodes are available
@@ -501,7 +501,7 @@ Events:
         }];
         let out = render_describe(&d);
         assert!(out.contains("Data:\n  password: 8 bytes\n"), "{out}");
-        assert!(out.ends_with("Events:         <none>\n"), "{out}");
+        assert!(out.ends_with("Events:          <none>\n"), "{out}");
         assert!(!out.contains("Controlled By"));
         assert!(!out.contains("Conditions"));
     }

@@ -3,7 +3,8 @@
 use crate::{
     exec_command, format_cpu, format_memory, get_namespaces, get_node_metrics, get_nodes,
     get_pod_logs, get_pod_metrics, get_pods, resources, stream_pod_logs, watch, ForwardStatus,
-    ForwardTarget, LogOptions, PortForward, PortSpec,
+    ForwardTarget, LogOptions, NamespaceInfo, NodeInfo, NodeUsage, PodInfo, PodUsage, PortForward,
+    PortSpec,
 };
 use anyhow::{Context, Result};
 use kube::Client;
@@ -11,39 +12,88 @@ use kube::Client;
 /// List pods, optionally scoped to one namespace (CLI output).
 pub async fn list_pods(client: &Client, namespace: Option<&str>) -> Result<()> {
     let pods = get_pods(client, namespace).await?;
-    println!(
-        "{:<50} {:<20} {:<12} {:<10} {}",
-        "NAME", "NAMESPACE", "PHASE", "NODE", "AGE"
-    );
-    for pod in pods {
-        println!(
-            "{:<50} {:<20} {:<12} {:<10} {}",
-            pod.name, pod.namespace, pod.phase, pod.node, pod.age
-        );
-    }
+    print!("{}", pods_table(&pods));
     Ok(())
+}
+
+/// Build a table (header first) and size its columns to their content, as
+/// `kubeloupe get` does.
+fn table<T>(header: &[&str], items: &[T], cells: impl Fn(&T) -> Vec<String>) -> String {
+    let mut rows = vec![header.iter().map(|h| h.to_string()).collect()];
+    rows.extend(items.iter().map(cells));
+    resources::align_columns(&rows)
+}
+
+fn pods_table(pods: &[PodInfo]) -> String {
+    table(&["NAME", "NAMESPACE", "PHASE", "NODE", "AGE"], pods, |p| {
+        vec![
+            p.name.clone(),
+            p.namespace.clone(),
+            p.phase.clone(),
+            p.node.clone(),
+            p.age.clone(),
+        ]
+    })
+}
+
+fn namespaces_table(namespaces: &[NamespaceInfo]) -> String {
+    table(&["NAME", "STATUS", "AGE"], namespaces, |n| {
+        vec![n.name.clone(), n.status.clone(), n.age.clone()]
+    })
+}
+
+fn nodes_table(nodes: &[NodeInfo]) -> String {
+    table(&["NAME", "READY", "VERSION", "AGE"], nodes, |n| {
+        vec![
+            n.name.clone(),
+            n.ready.clone(),
+            n.version.clone(),
+            n.age.clone(),
+        ]
+    })
+}
+
+fn top_pods_table(usages: &[PodUsage]) -> String {
+    table(&["NAME", "NAMESPACE", "CPU", "MEMORY"], usages, |u| {
+        vec![
+            u.name.clone(),
+            u.namespace.clone(),
+            format_cpu(u.cpu_millicores),
+            format_memory(u.memory_bytes),
+        ]
+    })
+}
+
+/// Usage, and `usage/capacity` when the capacity is known.
+fn of_capacity(used: u64, capacity: u64, format: fn(u64) -> String) -> String {
+    if capacity > 0 {
+        format!("{}/{}", format(used), format(capacity))
+    } else {
+        format(used)
+    }
+}
+
+fn top_nodes_table(usages: &[NodeUsage]) -> String {
+    table(&["NAME", "CPU", "MEMORY"], usages, |u| {
+        vec![
+            u.name.clone(),
+            of_capacity(u.cpu_millicores, u.cpu_capacity_millicores, format_cpu),
+            of_capacity(u.memory_bytes, u.memory_capacity_bytes, format_memory),
+        ]
+    })
 }
 
 /// List all namespaces in the cluster (CLI output).
 pub async fn list_namespaces(client: &Client) -> Result<()> {
     let namespaces = get_namespaces(client).await?;
-    println!("{:<30} {:<10} {}", "NAME", "STATUS", "AGE");
-    for ns in namespaces {
-        println!("{:<30} {:<10} {}", ns.name, ns.status, ns.age);
-    }
+    print!("{}", namespaces_table(&namespaces));
     Ok(())
 }
 
 /// List all nodes in the cluster (CLI output).
 pub async fn list_nodes(client: &Client) -> Result<()> {
     let nodes = get_nodes(client).await?;
-    println!("{:<40} {:<12} {:<12} {}", "NAME", "READY", "VERSION", "AGE");
-    for node in nodes {
-        println!(
-            "{:<40} {:<12} {:<12} {}",
-            node.name, node.ready, node.version, node.age
-        );
-    }
+    print!("{}", nodes_table(&nodes));
     Ok(())
 }
 
@@ -84,21 +134,7 @@ pub async fn print_top_pods(client: &Client, namespace: Option<&str>) -> Result<
                 "Metrics API not available on this cluster (is metrics-server installed?)"
             )
         }
-        Some(usages) => {
-            println!(
-                "{:<50} {:<20} {:<10} {}",
-                "NAME", "NAMESPACE", "CPU", "MEMORY"
-            );
-            for u in usages {
-                println!(
-                    "{:<50} {:<20} {:<10} {}",
-                    u.name,
-                    u.namespace,
-                    format_cpu(u.cpu_millicores),
-                    format_memory(u.memory_bytes)
-                );
-            }
-        }
+        Some(usages) => print!("{}", top_pods_table(&usages)),
     }
     Ok(())
 }
@@ -111,30 +147,7 @@ pub async fn print_top_nodes(client: &Client) -> Result<()> {
                 "Metrics API not available on this cluster (is metrics-server installed?)"
             )
         }
-        Some(usages) => {
-            println!("{:<40} {:<16} {}", "NAME", "CPU", "MEMORY");
-            for u in usages {
-                let cpu = if u.cpu_capacity_millicores > 0 {
-                    format!(
-                        "{}/{}",
-                        format_cpu(u.cpu_millicores),
-                        format_cpu(u.cpu_capacity_millicores)
-                    )
-                } else {
-                    format_cpu(u.cpu_millicores)
-                };
-                let mem = if u.memory_capacity_bytes > 0 {
-                    format!(
-                        "{}/{}",
-                        format_memory(u.memory_bytes),
-                        format_memory(u.memory_capacity_bytes)
-                    )
-                } else {
-                    format_memory(u.memory_bytes)
-                };
-                println!("{:<40} {:<16} {}", u.name, cpu, mem);
-            }
-        }
+        Some(usages) => print!("{}", top_nodes_table(&usages)),
     }
     Ok(())
 }
@@ -255,4 +268,104 @@ pub async fn watch_and_print(
     let (_store, updates) = watch::watch_resource(client, &prober, kind, namespace);
     run_batched(updates, DEFAULT_FLUSH, print).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Check that every row's cells start in the column of their header word,
+    /// and that no line has trailing whitespace.
+    fn assert_aligned(out: &str, header: &[&str], rows: &[&[&str]]) {
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), rows.len() + 1, "{out}");
+        let cols: Vec<usize> = header.iter().map(|w| lines[0].find(w).unwrap()).collect();
+        for (line, cells) in lines[1..].iter().zip(rows) {
+            for (col, cell) in cols.iter().zip(cells.iter()) {
+                assert_eq!(&line[*col..*col + cell.len()], *cell, "{out}");
+            }
+        }
+        assert!(out.lines().all(|l| l == l.trim_end()), "{out}");
+    }
+
+    #[test]
+    fn pods_table_lines_up_long_names() {
+        let pod = |name: &str, node: &str| PodInfo {
+            created: 0,
+            name: name.into(),
+            namespace: "kube-system".into(),
+            phase: "Running".into(),
+            node: node.into(),
+            age: "2d".into(),
+        };
+        let long = "kube-controller-manager-kubeloupe-test-control-plane-with-more";
+        let node = "ip-10-0-1-23.eu-west-1.compute.internal";
+        let out = pods_table(&[pod("hungry", ""), pod(long, node)]);
+        assert_aligned(
+            &out,
+            &["NAME", "NAMESPACE", "PHASE", "NODE", "AGE"],
+            &[
+                &["hungry", "kube-system", "Running", "", "2d"],
+                &[long, "kube-system", "Running", node, "2d"],
+            ],
+        );
+    }
+
+    #[test]
+    fn namespaces_and_nodes_tables_line_up() {
+        let ns = NamespaceInfo {
+            created: 0,
+            name: "a-namespace-name-longer-than-thirty-characters".into(),
+            status: "Terminating".into(),
+            age: "1d".into(),
+        };
+        assert_aligned(
+            &namespaces_table(std::slice::from_ref(&ns)),
+            &["NAME", "STATUS", "AGE"],
+            &[&[&ns.name, "Terminating", "1d"]],
+        );
+        let node = NodeInfo {
+            created: 0,
+            name: "gke-cluster-1-default-pool-0123abcd-wxyz-and-some-more".into(),
+            ready: "True".into(),
+            version: "v1.31.0-gke.1234567".into(),
+            age: "9d".into(),
+        };
+        assert_aligned(
+            &nodes_table(std::slice::from_ref(&node)),
+            &["NAME", "READY", "VERSION", "AGE"],
+            &[&[&node.name, "True", "v1.31.0-gke.1234567", "9d"]],
+        );
+    }
+
+    #[test]
+    fn top_tables_line_up() {
+        let pod = PodUsage {
+            namespace: "a-long-namespace-name-here".into(),
+            name: "a-pod-name-that-is-much-longer-than-fifty-characters-x".into(),
+            cpu_millicores: 1500,
+            memory_bytes: 64 * 1024 * 1024,
+            containers: vec![],
+        };
+        let (cpu, mem) = (format_cpu(1500), format_memory(64 * 1024 * 1024));
+        assert_aligned(
+            &top_pods_table(std::slice::from_ref(&pod)),
+            &["NAME", "NAMESPACE", "CPU", "MEMORY"],
+            &[&[&pod.name, &pod.namespace, &cpu, &mem]],
+        );
+        let node = NodeUsage {
+            name: "ip-10-0-1-23.eu-west-1.compute.internal".into(),
+            cpu_millicores: 250,
+            cpu_capacity_millicores: 4000,
+            memory_bytes: 1024 * 1024 * 1024,
+            memory_capacity_bytes: 0,
+        };
+        let cpu = format!("{}/{}", format_cpu(250), format_cpu(4000));
+        let mem = format_memory(1024 * 1024 * 1024);
+        assert_aligned(
+            &top_nodes_table(std::slice::from_ref(&node)),
+            &["NAME", "CPU", "MEMORY"],
+            &[&[&node.name, &cpu, &mem]],
+        );
+    }
 }
