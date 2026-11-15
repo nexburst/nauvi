@@ -204,15 +204,30 @@
   });
 </script>
 
-<div class="terminal" data-testid="terminal" bind:this={host}></div>
+<!-- xterm's fit addon sizes the terminal from its parent's computed height
+     and width, which with `box-sizing: border-box` include the parent's
+     padding and border: the padding stays on the outer box, so the last row
+     is not cut in half (#181). -->
+<div class="terminal" data-testid="terminal">
+  <div class="screen" bind:this={host}></div>
+</div>
 
 <style>
   .terminal {
     flex: 1;
     min-height: 0;
+    display: flex;
+    flex-direction: column;
     padding: 8px 12px;
     background: #0d1013;
     border-top: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .screen {
+    flex: 1;
+    min-height: 0;
+    padding: 0;
+    border: 0;
     overflow: hidden;
   }
 </style>

@@ -1,7 +1,8 @@
 // QA area 4 (#83): the bottom dock with several terminals and log tabs.
 // Checks (#67): two terminals and a log tab at once; resizing and
 // maximizing the dock refits xterm and the shell gets the new size
-// (`stty size`); Ctrl+` inside a shell toggles the dock and sends nothing to
+// (`stty size`), and at the default height the last row is fully visible
+// (#181); Ctrl+` inside a shell toggles the dock and sends nothing to
 // it; an 11th log tab shows the cap message; switching context closes every
 // tab and no stream or session keeps running.
 // Checks (#19): close a terminal tab and open it again; switching views
@@ -122,6 +123,38 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     await terminal(app).waitFor("local-42");
     assert.equal(await terminal(app).run("echo still-$((1+1))"), "still-2");
     await activateTab(app, "Shell: shell");
+  });
+
+  it("at the default dock height the shell's last row is fully visible (#181)", T, async () => {
+    const { app } = s;
+    const root = paneTerminal(shellTab);
+    const pod = terminal(app, root);
+    const [rows] = await pod.size();
+    // Fill the screen and put a marker on the last row, where vim's status
+    // line and htop's key bar go (split, so the command line never matches).
+    await pod.type(`clear; i=1; while [ $i -lt ${rows} ]; do echo row-$i; i=$((i+1)); done; printf '%s%s' LAST-ROW '-MARK'`);
+    const screen = await pod.waitFor(/LAST-ROW-MARK/, { message: "the marker on the last row" });
+    const lines = screen.split("\n");
+    const g = await app.js(
+      `const box = document.querySelector(arguments[0]);
+       const st = getComputedStyle(box);
+       const b = box.getBoundingClientRect();
+       const sc = box.querySelector('.xterm-screen').getBoundingClientRect();
+       const rows = box.querySelector('.xterm-rows').children;
+       const last = rows[rows.length - 1].getBoundingClientRect();
+       return { rendered: rows.length, contentBottom: b.bottom - parseFloat(st.paddingBottom) - parseFloat(st.borderBottomWidth),
+                screenBottom: sc.bottom, lastTop: last.top, lastBottom: last.bottom, boxBottom: b.bottom };`,
+      root,
+    );
+    console.log(`default dock: stty ${rows} rows; geometry ${JSON.stringify(g)}; last line ${JSON.stringify(lines.at(-1))}`);
+    await app.shot("dock-default-last-row");
+    assert.equal(g.rendered, rows, "xterm draws as many rows as the PTY has");
+    assert.match(lines[rows - 1] ?? "", /LAST-ROW-MARK/, "the marker is on the last row");
+    assert.ok(g.lastBottom <= g.contentBottom + 0.5, `the last row ends inside the dock (${g.lastBottom} > ${g.contentBottom})`);
+    assert.ok(g.screenBottom <= g.contentBottom + 0.5, `the screen ends inside the dock (${g.screenBottom} > ${g.contentBottom})`);
+    await pressCtrl(app, "c");
+    await pod.type("clear");
+    await pod.waitForPrompt();
   });
 
   it("resizing and maximizing the dock refits xterm and the PTY", T, async () => {
