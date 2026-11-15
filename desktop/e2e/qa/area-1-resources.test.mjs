@@ -85,7 +85,18 @@ spec:
 `;
 
 /** Kinds that fail for a known, filed reason; checked by their own todo test. */
-const KNOWN = { Componentstatuses: "#95: kinds without the watch verb never list" };
+const KNOWN = {};
+
+/** The header status of a kind without the watch verb, listed every 30 s (#95). */
+const POLLING = "Not live: refreshed every 30 s";
+
+/** Wait until the table is live, or polled for a kind that cannot be watched. */
+function waitListed(app, timeout) {
+  return app.waitFor(async () => ["Live", POLLING].includes(await app.statusText()), {
+    timeout,
+    message: `header status "Live" or "${POLLING}"`,
+  });
+}
 
 /** Open a kind and return what is wrong with its table, or "". */
 async function kindProblem(app, label) {
@@ -93,7 +104,7 @@ async function kindProblem(app, label) {
   await app.nav(label);
   try {
     await app.find(By.css(`[data-testid="resource-table"] [role="grid"][aria-label=${JSON.stringify(label)}]`));
-    await waitLive(app, 30_000);
+    await waitListed(app, 30_000);
   } catch {
     await app.shot(`kind-${label}`);
     return `${label}: ${await app.statusText().catch(() => "?")} ${await bannerText(app)}`;
@@ -199,12 +210,23 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     assert.deepEqual(problems, []);
   });
 
-  it("Componentstatuses lists (no watch verb)", { ...T, todo: KNOWN.Componentstatuses }, async () => {
+  it("Component Statuses (no watch verb) lists and says it is not live", T, async () => {
     const { app } = s;
-    assert.equal(await kindProblem(app, "Componentstatuses"), "");
+    // The label is "Componentstatuses" until the sidebar names are fixed (#96).
+    const label = await app.js(
+      `document.querySelectorAll("nav details").forEach((d) => (d.open = true));
+       return [...document.querySelectorAll("nav button")]
+         .map((b) => b.childNodes[0]?.textContent.trim() ?? "")
+         .find((l) => /^component ?statuses$/i.test(l)) ?? "";`,
+    );
+    assert.ok(label, "Component Statuses in the sidebar");
+    assert.equal(await kindProblem(app, label), "");
     await app.waitFor(async () => (await tableData(app)).rows.some((r) => r.Name === "scheduler"), {
       message: "the scheduler row",
     });
+    assert.equal(await app.statusText(), POLLING);
+    assert.equal(await bannerText(app), "");
+    await app.shot("componentstatuses-polled");
   });
 
   it("a new CRD shows under Custom Resources by API group after Refresh", T, async () => {

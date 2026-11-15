@@ -1856,7 +1856,13 @@ export type WatchState =
  *  The server refused the list or watch (403). Retrying would not help,
  *  so the watch stops; `error` is the server's message.
  */
-{ state: "forbidden"; error: string };
+{ state: "forbidden"; error: string } | 
+/**
+ *  The kind cannot be watched (no `watch` verb), so it is listed again
+ *  every `interval_secs` seconds instead ([`crate::poll`]). Changes show
+ *  up late: the table is not live.
+ */
+{ state: "polling"; interval_secs: number };
 
 /**  Payload of the `watch-state` event. */
 export type WatchStateChanged = {
