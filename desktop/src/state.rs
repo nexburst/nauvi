@@ -4,13 +4,14 @@
 //! [`AppState`] holds the sessions by window label; commands get the
 //! calling window's session through the [`Cluster`] argument.
 
+use crate::catalog::KubeconfigSources;
 use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
 use kube::api::TerminalSize;
 use kube::Client;
-use kubeloupe::client_for_context_with;
 use kubeloupe::resources::ResourceKind;
 use kubeloupe::UsageHistory;
+use kubeloupe::{client_for_context_with, client_for_target, ContextTarget};
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -63,8 +64,10 @@ pub(crate) struct ForwardSession {
 /// One window's connection to a cluster, and everything started from it.
 #[derive(Default)]
 pub(crate) struct ClusterSession {
-    /// Selected context (`None` = the kubeconfig's current-context).
+    /// Selected context id (`None` = the kubeconfig's current-context).
     pub(crate) context: Mutex<Option<String>>,
+    /// Where context ids are looked up (shared by all windows).
+    sources: Arc<KubeconfigSources>,
     /// Client for the selected context, built lazily and dropped when the
     /// context changes. `Client` is cheap to clone.
     client: tokio::sync::Mutex<Option<Client>>,
@@ -94,9 +97,10 @@ pub(crate) struct ClusterSession {
 }
 
 impl ClusterSession {
-    pub(crate) fn new(context: Option<String>) -> Self {
+    pub(crate) fn new(context: Option<String>, sources: Arc<KubeconfigSources>) -> Self {
         Self {
             context: Mutex::new(context),
+            sources,
             ..Default::default()
         }
     }
@@ -123,13 +127,22 @@ impl ClusterSession {
         if let Some(c) = slot.as_ref() {
             return Ok(c.clone());
         }
-        let ctx = self.selected_context();
         // A GUI can't answer an exec plugin's prompts.
-        let c = client_for_context_with(ctx.as_deref(), false)
-            .await
-            .map_err(|e| e.to_string())?;
+        let c = match self.selected_context() {
+            // The default kubeconfig's current-context, or in-cluster config.
+            None => client_for_context_with(None, false).await,
+            Some(id) => client_for_target(&self.sources.resolve(Some(&id))?, false).await,
+        }
+        .map_err(|e| e.to_string())?;
         *slot = Some(c.clone());
         Ok(c)
+    }
+
+    /// The kubeconfig file and context name the selected context connects
+    /// with. Everything that runs outside the client (helm, local shells)
+    /// takes these, so it reaches the same cluster as the app.
+    pub(crate) fn target(&self) -> Result<ContextTarget, String> {
+        self.sources.resolve(self.selected_context().as_deref())
     }
 
     /// Switch to `context`: stop everything of the old one and forget its
@@ -240,6 +253,8 @@ pub(crate) const MAIN_WINDOW: &str = "main";
 /// The sessions of the open windows, by window label.
 #[derive(Default)]
 pub(crate) struct AppState {
+    /// The kubeconfig sources every session looks its context up in.
+    pub(crate) sources: Arc<KubeconfigSources>,
     sessions: Mutex<HashMap<String, Arc<ClusterSession>>>,
     /// Labels of windows that were closed. Labels are never reused, so a
     /// late command from one gets a closed session, not a new live one.
@@ -256,16 +271,16 @@ impl AppState {
             .lock()
             .unwrap()
             .entry(label.to_string())
-            .or_insert_with(|| Arc::new(ClusterSession::default()))
+            .or_insert_with(|| Arc::new(ClusterSession::new(None, self.sources.clone())))
             .clone()
     }
 
     /// Create the session of a new window, connected to `context`.
     pub(crate) fn open(&self, label: &str, context: Option<String>) {
-        self.sessions
-            .lock()
-            .unwrap()
-            .insert(label.to_string(), Arc::new(ClusterSession::new(context)));
+        self.sessions.lock().unwrap().insert(
+            label.to_string(),
+            Arc::new(ClusterSession::new(context, self.sources.clone())),
+        );
     }
 
     /// The window `label` is gone: close its session. Returns the node
@@ -462,7 +477,7 @@ mod tests {
 
     #[test]
     fn switching_context_stops_everything_and_forgets_the_cluster() {
-        let session = ClusterSession::new(Some("a".into()));
+        let session = ClusterSession::new(Some("a".into()), Default::default());
         session.add_watch("w".into(), forever());
         tauri::async_runtime::block_on(session.set_context(Some("b".into())));
         assert!(session.watches.lock().unwrap().is_empty());

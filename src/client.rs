@@ -1,10 +1,10 @@
 //! Building a client for a kubeconfig context, and listing contexts.
 
 use crate::auth::{describe_client_error, prepare_exec, AuthTarget};
+use crate::catalog::ContextTarget;
 use anyhow::{anyhow, Context, Result};
 use kube::config::KubeConfigOptions;
 use kube::Client;
-use serde::Serialize;
 use std::io::IsTerminal;
 use std::path::Path;
 
@@ -117,6 +117,17 @@ pub async fn client_with(
     }
 }
 
+/// Build a client for a catalog context (#78): from the file it came from,
+/// or the default kubeconfig.
+pub async fn client_for_target(target: &ContextTarget, interactive: bool) -> Result<Client> {
+    client_with(
+        target.kubeconfig.as_deref(),
+        Some(&target.context),
+        interactive,
+    )
+    .await
+}
+
 /// Build a client from the current kubeconfig (or in-cluster config).
 pub async fn client() -> Result<Client> {
     client_for_context(None).await
@@ -148,30 +159,6 @@ fn kubeconfig_has_proxy(kubeconfig: &kube::config::Kubeconfig, context: Option<&
         .and_then(|c| c.cluster.as_ref())
         .map(|cluster| cluster.proxy_url.is_some())
         .unwrap_or(false)
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(feature = "specta", derive(specta::Type))]
-pub struct ContextInfo {
-    pub name: String,
-    pub current: bool,
-    /// The context's default namespace (`contexts[].context.namespace`).
-    pub namespace: Option<String>,
-}
-
-/// List the contexts in the kubeconfig and which one is current.
-pub async fn list_contexts() -> Result<Vec<ContextInfo>> {
-    let kubeconfig = kube::config::Kubeconfig::read()?;
-    let current = kubeconfig.current_context.clone().unwrap_or_default();
-    Ok(kubeconfig
-        .contexts
-        .iter()
-        .map(|c| ContextInfo {
-            name: c.name.clone(),
-            current: c.name == current,
-            namespace: c.context.as_ref().and_then(|ctx| ctx.namespace.clone()),
-        })
-        .collect())
 }
 
 #[cfg(test)]
