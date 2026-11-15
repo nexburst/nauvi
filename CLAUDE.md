@@ -2,6 +2,8 @@
 
 Guide for people and coding agents. `AGENTS.md` is a symlink to this file.
 User-facing docs are in `README.md`; the plan is the roadmap issue #24.
+Why things are the way they are: `docs/decisions/`. Setting up (or
+recovering) a development machine: `docs/dev-setup.md`.
 
 ## Layout
 
