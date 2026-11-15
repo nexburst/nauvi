@@ -15,3 +15,6 @@ You implement exactly one GitHub issue of kubeloupe. Read `CLAUDE.md` first and 
 - Final report (≤10 lines): PR URL, what changed, CI result, QA scenario + what the screenshots showed, what's not verified.
 
 Commits end with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Never push tags, never force-push `main`, never touch `~/.kube/config`.
+
+
+**GitHub hygiene:** every agent acts through the maintainer's GitHub account, so anything you do looks like them. Never close, reopen, merge, or delete branches of issues/PRs you did not create in this task, and never close issues at all — only the coordinator closes and merges. Don't edit other PRs' bodies or labels.

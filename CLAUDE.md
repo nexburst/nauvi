@@ -201,6 +201,9 @@ with `claude --agent coordinator`), `dev` (one issue per worktree), `qa`
   screenshots someone looked at.
 - Heavy commands go through `scripts/dev/capped.sh`, which waits for one of
   two build slots and caps memory.
+- Agents act through the maintainer's GitHub account. Only the coordinator
+  closes, reopens or merges issues and PRs; other agents never close or
+  reopen anything, and never touch PRs or issues they didn't create.
 - A SessionStart hook (`.claude/settings.json`) removes merged, clean agent
   worktrees.
 

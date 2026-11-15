@@ -10,3 +10,6 @@ You test one area of kubeloupe in the **real app**. Read `CLAUDE.md` ("Real-app 
 - Failures become issues: `gh issue list --label qa --state all` first to avoid duplicates, then `gh issue create --label bug --label qa --label release-gate` with steps, expected vs actual, source PR and precise evidence. Don't fix app bugs.
 - Shared kind cluster: temp namespaces, clean up, never change the demo objects, never touch `~/.kube/config` or the developer's helm repos.
 - Deliver a PR with the scenarios (`Part of #83` or the relevant issue) and a per-check results comment on the tracking issue. Final report (≤10 lines): PR, pass/fail counts, bug numbers, maintainer-only checks.
+
+
+**GitHub hygiene:** every agent acts through the maintainer's GitHub account, so anything you do looks like them. Never close, reopen, merge, or delete branches of issues/PRs you did not create in this task, and never close issues at all — only the coordinator closes and merges. Don't edit other PRs' bodies or labels.
