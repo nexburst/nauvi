@@ -3,7 +3,7 @@
 use crate::settings::SettingsStore;
 use crate::state::AppState;
 use tauri::Manager;
-use tauri_specta::{collect_commands, collect_events, Builder};
+use tauri_specta::Builder;
 
 mod catalog;
 mod commands;
@@ -15,110 +15,6 @@ mod shell_env;
 mod state;
 mod updater;
 mod windows;
-
-/// The typed command and event registry. Also used to generate
-/// `ui-src/src/lib/bindings.ts`.
-fn specta_builder() -> Builder<tauri::Wry> {
-    Builder::<tauri::Wry>::new()
-        .commands(collect_commands![
-            commands::cluster::cmd_list_namespaces,
-            commands::cluster::cmd_discover,
-            commands::cluster::cmd_check_access,
-            commands::logs::cmd_stream_pod_logs,
-            commands::logs::cmd_stop_logs,
-            commands::logs::cmd_stream_workload_logs,
-            commands::logs::cmd_stream_pod_all_logs,
-            commands::logs::cmd_save_logs,
-            commands::overview::cmd_overview_start,
-            commands::overview::cmd_overview_stop,
-            commands::workloads::cmd_workloads_start,
-            commands::workloads::cmd_workloads_stop,
-            commands::cluster::cmd_default_namespace,
-            commands::cluster::cmd_get_metrics,
-            commands::usage::cmd_usage_history,
-            commands::workload_usage::cmd_workload_usage_history,
-            commands::prometheus::cmd_prometheus_status,
-            commands::watch::cmd_watch_start,
-            commands::watch::cmd_watch_stop,
-            commands::watch::cmd_detail_watch,
-            commands::cluster::cmd_list_contexts,
-            commands::cluster::cmd_set_context,
-            commands::catalog::cmd_kubeconfig_sources,
-            commands::catalog::cmd_add_kubeconfig_source,
-            commands::catalog::cmd_remove_kubeconfig_source,
-            commands::catalog::cmd_paste_kubeconfig,
-            commands::catalog::cmd_check_context,
-            commands::exec::cmd_exec_start,
-            commands::exec::cmd_attach_start,
-            commands::exec::cmd_exec_input,
-            commands::exec::cmd_exec_resize,
-            commands::exec::cmd_exec_close,
-            commands::local_shell::cmd_local_shell_start,
-            commands::local_shell::cmd_local_shell_input,
-            commands::local_shell::cmd_local_shell_resize,
-            commands::local_shell::cmd_local_shell_close,
-            commands::portforward::cmd_portforward_start,
-            commands::portforward::cmd_portforward_stop,
-            commands::portforward::cmd_portforward_list,
-            commands::portforward::cmd_service_ports,
-            commands::resources::cmd_get_resource_detail,
-            commands::resources::cmd_get_related,
-            commands::resources::cmd_get_resource_yaml,
-            commands::resources::cmd_apply_resource_yaml,
-            commands::resources::cmd_delete_resource,
-            commands::resources::cmd_apply_manifests,
-            commands::actions::cmd_run_action,
-            commands::actions::cmd_bulk_delete,
-            commands::actions::cmd_drain_node,
-            commands::actions::cmd_cancel_drain,
-            commands::debug::cmd_debug_start,
-            commands::debug::cmd_node_shell_start,
-            commands::debug::cmd_node_shell_leftovers,
-            commands::debug::cmd_node_shell_cleanup,
-            commands::helm::cmd_helm_list,
-            commands::helm::cmd_helm_charts,
-            commands::helm::cmd_helm_get,
-            commands::helm::cmd_helm_version,
-            commands::helm::cmd_helm_rollback,
-            commands::helm::cmd_helm_uninstall,
-            commands::helm_charts::cmd_helm_repo_list,
-            commands::helm_charts::cmd_helm_repo_add,
-            commands::helm_charts::cmd_helm_repo_remove,
-            commands::helm_charts::cmd_helm_repo_update,
-            commands::helm_charts::cmd_helm_search,
-            commands::helm_charts::cmd_helm_chart_versions,
-            commands::helm_charts::cmd_helm_chart_show,
-            commands::helm_charts::cmd_helm_install,
-            commands::helm_charts::cmd_helm_upgrade,
-            commands::settings::cmd_get_settings,
-            commands::settings::cmd_update_settings,
-            commands::window::cmd_open_window,
-            commands::updater::cmd_update_check,
-            commands::updater::cmd_update_install
-        ])
-        .events(collect_events![
-            commands::watch::WatchBatch,
-            commands::watch::WatchStateChanged,
-            commands::watch::DetailWatchEvent,
-            commands::overview::OverviewChanged,
-            commands::overview::OverviewStateChanged,
-            commands::workloads::WorkloadsChanged,
-            commands::workloads::WorkloadsStateChanged,
-            commands::logs::PodLog,
-            commands::logs::PodLogError,
-            commands::logs::PodLogDone,
-            commands::logs::WorkloadLog,
-            commands::logs::WorkloadNotice,
-            commands::exec::ExecOutput,
-            commands::exec::ExecClosed,
-            commands::actions::DrainProgress,
-            commands::actions::DrainFinished,
-            commands::updater::UpdateProgress,
-            catalog::KubeconfigsChanged
-        ])
-        // Counters and epoch seconds stay far below 2^53.
-        .dangerously_cast_bigints_to_number()
-}
 
 /// Where the generated bindings live.
 const BINDINGS_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/ui-src/src/lib/bindings.ts");
@@ -134,7 +30,7 @@ fn main() {
     #[cfg(unix)]
     shell_env::import_login_shell_env();
 
-    let builder = specta_builder();
+    let builder = commands::specta_builder();
     #[cfg(debug_assertions)]
     export_bindings(&builder);
 
@@ -186,6 +82,6 @@ mod tests {
     /// file changes.
     #[test]
     fn export_typescript_bindings() {
-        export_bindings(&specta_builder());
+        export_bindings(&commands::specta_builder());
     }
 }

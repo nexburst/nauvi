@@ -1,0 +1,53 @@
+/**
+ * The fake backend's command handlers, one file per command module of the
+ * backend (`desktop/src/commands/<module>.rs` -> `<module>.ts`, with `-` for
+ * `_`). This list is sorted, one area per line, with a trailing comma: add a
+ * new area at its sorted place.
+ */
+
+import { actionsHandlers } from "./actions";
+import { catalogHandlers } from "./catalog";
+import { clusterHandlers } from "./cluster";
+import { debugHandlers } from "./debug";
+import { execHandlers } from "./exec";
+import { helmHandlers } from "./helm";
+import { helmChartsHandlers } from "./helm-charts";
+import { localShellHandlers } from "./local-shell";
+import { logsHandlers } from "./logs";
+import { overviewHandlers } from "./overview";
+import { portforwardHandlers } from "./portforward";
+import { prometheusHandlers } from "./prometheus";
+import { resourcesHandlers } from "./resources";
+import { settingsHandlers } from "./settings";
+import type { FakeState, Handlers } from "./state";
+import { updaterHandlers } from "./updater";
+import { usageHandlers } from "./usage";
+import { watchHandlers } from "./watch";
+import { windowHandlers } from "./window";
+import { workloadsHandlers } from "./workloads";
+
+/** Every command's handler. The `Handlers` type makes `npm run check` fail
+ *  while a command in `bindings.ts` has none. */
+export function allHandlers(s: FakeState): Handlers {
+  return {
+    ...actionsHandlers(s),
+    ...catalogHandlers(s),
+    ...clusterHandlers(s),
+    ...debugHandlers(s),
+    ...execHandlers(s),
+    ...helmHandlers(s),
+    ...helmChartsHandlers(s),
+    ...localShellHandlers(s),
+    ...logsHandlers(s),
+    ...overviewHandlers(s),
+    ...portforwardHandlers(s),
+    ...prometheusHandlers(s),
+    ...resourcesHandlers(s),
+    ...settingsHandlers(s),
+    ...updaterHandlers(s),
+    ...usageHandlers(s),
+    ...watchHandlers(s),
+    ...windowHandlers(s),
+    ...workloadsHandlers(s),
+  };
+}

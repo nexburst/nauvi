@@ -1644,7 +1644,12 @@ async fn overview_lists_the_crash_looping_demo_pod_as_a_problem() -> Result<()> 
         },
     )
     .await
-    .with_context(|| format!("demo/crashed is not a problem pod; last problems: {:?}", last.borrow()))?;
+    .with_context(|| {
+        format!(
+            "demo/crashed is not a problem pod; last problems: {:?}",
+            last.borrow()
+        )
+    })?;
     // Between restarts it is briefly Running but not ready, or Error.
     ensure!(
         ["CrashLoopBackOff", "Not ready", "Error"].contains(&crashed.reason.as_str()),
