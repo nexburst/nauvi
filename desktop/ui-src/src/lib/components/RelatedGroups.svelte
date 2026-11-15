@@ -88,6 +88,19 @@
   .scroll-x {
     overflow-x: auto;
   }
+  /* A styled scrollbar takes its own space below the table. WebKitGTK's
+     default overlay scrollbar is drawn over the last row and swallows
+     clicks on its links (#106). */
+  .scroll-x::-webkit-scrollbar {
+    height: 8px;
+  }
+  .scroll-x::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+  }
+  .scroll-x::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+  }
   tr.clickable {
     cursor: pointer;
   }

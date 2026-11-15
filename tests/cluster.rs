@@ -1624,13 +1624,32 @@ async fn live_overview_follows_a_pod_without_polling() -> Result<()> {
 #[ignore]
 async fn overview_lists_the_crash_looping_demo_pod_as_a_problem() -> Result<()> {
     let client = connect().await?;
-    let ov = within("overview", TIMEOUT, get_overview(&client, None)).await?;
-    let pods = ov.pods.context("pods")?;
-    let crashed = pods
-        .problems
-        .iter()
-        .find(|p| p.namespace == "demo" && p.name == "crashed")
-        .with_context(|| format!("demo/crashed is not a problem pod: {:?}", pods.problems))?;
+    // On a fresh cluster demo/crashed may not have crashed yet, and while its
+    // container runs (3 s per loop, no readiness probe) it is Running and
+    // ready, so not a problem: poll until it shows up between two runs.
+    let last = std::cell::RefCell::new(Vec::new());
+    let (pods, crashed) = eventually(
+        "demo/crashed among the overview's problem pods",
+        Duration::from_secs(120),
+        || async {
+            let ov = within("overview", TIMEOUT, get_overview(&client, None)).await?;
+            let pods = ov.pods.context("pods")?;
+            let crashed = pods
+                .problems
+                .iter()
+                .find(|p| p.namespace == "demo" && p.name == "crashed")
+                .cloned();
+            *last.borrow_mut() = pods.problems.clone();
+            Ok(crashed.map(|c| (pods, c)))
+        },
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "demo/crashed is not a problem pod; last problems: {:?}",
+            last.borrow()
+        )
+    })?;
     // Between restarts it is briefly Running but not ready, or Error.
     ensure!(
         ["CrashLoopBackOff", "Not ready", "Error"].contains(&crashed.reason.as_str()),

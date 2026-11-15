@@ -14,15 +14,22 @@
  *     await page.evaluate(() => window.__fake.emitWatchBatch({ deleted: ["demo/web-1"] }));
  *     await page.evaluate(() => window.__fake.calls("cmdStreamPodLogs"));
  *
+ * The handlers live in `fake/`, one file per backend command module
+ * (`desktop/src/commands/helm_charts.rs` -> `fake/helm-charts.ts`), merged
+ * by `fake/index.ts`. What they share (the cluster, the running watches and
+ * streams, helpers like `findRow`) is `FakeState` in `fake/state.ts`.
+ *
  * ## Adding a command
  *
- * 1. Regenerate `bindings.ts` as usual. `npm run check` now fails here:
- *    `HANDLERS` must implement every command in `commands`, with its exact
- *    parameters and return type.
- * 2. Add the handler to `HANDLERS` below. It gets the command's arguments
- *    positionally, like the function in `bindings.ts`, and returns the result
- *    (or throws a string, which is how a Rust `Err(String)` arrives). Keep the
- *    data in `FakeCluster` so tests can change it instead of the handler.
+ * 1. Regenerate `bindings.ts` as usual. `npm run check` now fails in
+ *    `fake/index.ts`: the handlers must implement every command in
+ *    `commands`, with its exact parameters and return type.
+ * 2. Add the handler to the file of its module in `fake/` (a new module: a
+ *    new file like the others, added at its sorted place in `fake/index.ts`).
+ *    It gets the command's arguments positionally, like the function in
+ *    `bindings.ts`, and returns the result (or throws a string, which is how
+ *    a Rust `Err(String)` arrives). Keep the data in `FakeCluster` so tests
+ *    can change it instead of the handler.
  * 3. Write the test in `src/test/e2e/`; `fake.failNext("cmdYourCommand", "...")`
  *    and `fake.calls("cmdYourCommand")` work for every command.
  *
@@ -33,40 +40,19 @@
  */
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import { applyPatch } from "../lib/settings";
-import type { SettingsPatch } from "../lib/settings";
-import { commands, events } from "../lib/bindings";
-import type {
-  ApplyResult,
-  ForwardInfo,
-  DetailState,
-  Overview_Serialize,
-  ResourceKind,
-  ResourceRef,
-  ResourceRow,
-  PrometheusStatus,
-  TaggedLine,
-  UsageHistoryView,
-  UsageRange,
-  WatchBatch,
-  WatchState,
-} from "../lib/bindings";
-import { defaultCluster, detail, makeRow, NO_POD } from "./fixtures/cluster";
-import { workloadsOverview } from "./fixtures/workloads";
-import { NO_RELATED } from "./fixtures/related";
-import { helmGet, helmList, helmRollback, helmUninstall } from "./fixtures/helm";
-import { chartVersions, deploy, repoAdd, repoRemove, repoUpdate, search, show } from "./fixtures/helmCharts";
-import { NO_REFERENCE, prometheusFixture } from "./fixtures/usage";
-import { available } from "./fixtures/updates";
-import { connected, fullContext } from "./fixtures/catalog";
+import { events } from "../lib/bindings";
+import type { DetailState, Overview_Serialize, TaggedLine, WatchBatch, WatchState } from "../lib/bindings";
+import { defaultCluster } from "./fixtures/cluster";
 import type { FakeCluster } from "./fixtures/cluster";
+import { available } from "./fixtures/updates";
+import { prometheusFixture } from "./fixtures/usage";
+import { workloadsOverview } from "./fixtures/workloads";
+import { allHandlers } from "./fake";
+import { copy, newState } from "./fake/state";
+import type { CommandName } from "./fake/state";
 
-type Commands = typeof commands;
-export type CommandName = keyof Commands;
-type Result<K extends CommandName> = Awaited<ReturnType<Commands[K]>>;
-type Handler<K extends CommandName> = (...args: Parameters<Commands[K]>) => Result<K> | Promise<Result<K>>;
-/** Every command must have a handler: a new command breaks `npm run check` here. */
-type Handlers = { [K in CommandName]: Handler<K> };
+export type { CommandName } from "./fake/state";
+export { SETTINGS_KEY } from "./fake/state";
 
 /** Raw IPC arguments of one call, keyed like the Rust parameters. */
 export type CallArgs = Record<string, unknown>;
@@ -138,608 +124,12 @@ declare global {
 }
 
 const toCamel = (cmd: string) => cmd.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()) as CommandName;
-const sameResource = (a: ResourceRef, b: ResourceRef) =>
-  a.group === b.group && a.version === b.version && a.kind === b.kind && a.plural === b.plural;
-/** A JSON copy, like an event payload over real IPC. */
-const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
-const rowKey = (namespace: string, name: string) => (namespace ? `${namespace}/${name}` : name);
-/** Where the fake keeps the settings across reloads (the real app: a file). */
-export const SETTINGS_KEY = "kubeloupe-fake-settings";
 
 export function installFakeBackend(cluster: FakeCluster = defaultCluster()): FakeApi {
   const calls = new Map<CommandName, CallArgs[]>();
   const failures = new Map<CommandName, string[]>();
-  const watches: { id: string; kind: ResourceKind; namespace: string | null }[] = [];
-  /** Detail watches by id, with the `kindId|rowKey` they follow. */
-  const detailWatches = new Map<string, string>();
-  let watchSeq = 0;
-  let detailSeq = 0;
-  let drainSeq = 0;
-  let sessionSeq = 0;
-  let streamId: number | null = null;
-  /** Running log streams, like the backend's map (with its cap). */
-  const logStreams = new Set<number>();
-  const MAX_LOG_STREAMS = 10;
-  const startStream = (id: number) => {
-    logStreams.delete(id);
-    if (logStreams.size >= MAX_LOG_STREAMS) {
-      throw `Too many log streams: ${MAX_LOG_STREAMS} are already open. Close a log tab to open another.`;
-    }
-    logStreams.add(id);
-    streamId = id;
-    return null;
-  };
-  /** Running overview feeds, and the id of the latest one. */
-  const overviewFeeds = new Set<number>();
-  /** Workloads overview feeds by id, with their namespaces. */
-  const workloadsFeeds = new Map<number, string[]>();
-  let lastWorkloads: number | null = null;
-  let lastOverview: number | null = null;
-  /** Releases a `cmd_update_install` waiting half way through its download. */
-  let finishDownload: (() => void) | null = null;
-  let restarted = false;
-  try {
-    const saved = sessionStorage.getItem(SETTINGS_KEY);
-    if (saved) cluster.settings = JSON.parse(saved) as FakeCluster["settings"];
-  } catch {
-    // Keep the defaults.
-  }
-
-  function kindOf(resource: ResourceRef): ResourceKind {
-    const kind = cluster.kinds.find((k) => sameResource(k.resource, resource));
-    if (!kind) throw `the server could not find the requested resource (${resource.plural})`;
-    return kind;
-  }
-
-  function rowsOf(kind: ResourceKind): ResourceRow[] {
-    return (cluster.rows[kind.id] ??= []);
-  }
-
-  function findRow(resource: ResourceRef, namespace: string, name: string): { kind: ResourceKind; row: ResourceRow } {
-    const kind = kindOf(resource);
-    const row = rowsOf(kind).find((r) => r.key === rowKey(namespace, name));
-    if (!row) throw `${kind.resource.plural} "${name}" not found`;
-    return { kind, row };
-  }
-
-  /** Remove a row and tell the watches of its kind (and the detail watches
-   *  of the object), like the real watches would. */
-  function removeRow(kind: ResourceKind, key: string) {
-    cluster.rows[kind.id] = rowsOf(kind).filter((r) => r.key !== key);
-    for (const w of watches) {
-      if (w.kind.id === kind.id) void events.watchBatch.emit({ id: w.id, snapshot: false, applied: [], deleted: [key] });
-    }
-    for (const [id, of] of detailWatches) {
-      if (of === `${kind.id}|${key}`) void events.detailWatch.emit({ id, state: "deleted" });
-    }
-  }
-
-  function detailOf(resource: ResourceRef, namespace: string, name: string) {
-    const { kind, row } = findRow(resource, namespace, name);
-    const known = cluster.details[`${kind.id}|${row.key}`];
-    if (known) return known;
-    return detail(kind, namespace, name, {
-      uid: `uid-${row.key}`,
-      created: row.created,
-      secret_keys: kind.resource.kind === "Secret" ? [{ key: "password", bytes: 7 }] : [],
-      pod: NO_POD,
-    });
-  }
-
-  function defaultYaml(kind: ResourceKind, row: ResourceRow): string {
-    const r = kind.resource;
-    const lines = [
-      `apiVersion: ${r.group ? `${r.group}/${r.version}` : r.version}`,
-      `kind: ${r.kind}`,
-      "metadata:",
-      `  name: ${row.name}`,
-    ];
-    if (row.namespace) lines.push(`  namespace: ${row.namespace}`);
-    if (r.kind === "Secret") lines.push("type: Opaque", "data:", "  password: <hidden>");
-    return lines.join("\n") + "\n";
-  }
-
-  /** Add (or replace) a row and tell the watches of its kind. */
-  function addRow(kind: ResourceKind, row: ResourceRow) {
-    cluster.rows[kind.id] = [...rowsOf(kind).filter((r) => r.key !== row.key), row];
-    for (const w of watches) {
-      if (w.kind.id === kind.id && (!w.namespace || w.namespace === row.namespace)) {
-        void events.watchBatch.emit({ id: w.id, snapshot: false, applied: [row], deleted: [] });
-      }
-    }
-  }
-
-  /**
-   * A small stand-in for `apply_manifests`: documents split at `---`, the
-   * identity read with regexes (block style, as the templates are written).
-   */
-  function applyManifests(yaml: string, namespace: string, dryRun: boolean, skipInvalid: boolean): ApplyResult[] {
-    const field = (doc: string, re: RegExp) => re.exec(doc)?.[1]?.trim() ?? "";
-    const docs: { line: number; text: string }[] = [];
-    let start = 1;
-    let cur: string[] = [];
-    yaml.split("\n").forEach((l, i) => {
-      if (/^---(\s|$)/.test(l)) {
-        docs.push({ line: start, text: cur.join("\n") });
-        cur = [];
-        start = i + 2;
-      } else cur.push(l);
-    });
-    docs.push({ line: start, text: cur.join("\n") });
-    const planned = docs
-      .filter((d) => d.text.split("\n").some((l) => l.trim() && !l.trim().startsWith("#")))
-      .map((d, i) => {
-        const apiVersion = field(d.text, /^apiVersion:(.*)$/m);
-        const kindName = field(d.text, /^kind:(.*)$/m);
-        const name = field(d.text, /^ {2}name:(.*)$/m);
-        const kind = cluster.kinds.find(
-          (k) =>
-            k.resource.kind === kindName &&
-            (k.resource.group ? `${k.resource.group}/${k.resource.version}` : k.resource.version) === apiVersion,
-        );
-        const ns = kind?.resource.namespaced ? field(d.text, /^ {2}namespace:(.*)$/m) || namespace || "default" : "";
-        const exists = kind ? rowsOf(kind).some((r) => r.key === rowKey(ns, name)) : false;
-        const error = !kind
-          ? `the cluster does not serve ${kindName} in ${apiVersion}`
-          : (cluster.applyErrors[name] ?? "");
-        const result: ApplyResult = {
-          document: i + 1,
-          line: d.line,
-          api_version: apiVersion,
-          kind: kindName,
-          name,
-          namespace: ns,
-          status: error ? "failed" : exists ? "unchanged" : "created",
-          message: error,
-          takeovers: [],
-        };
-        return { result, kind };
-      });
-    const failed = planned.filter((p) => p.result.status === "failed").length;
-    if (dryRun) return planned.map((p) => p.result);
-    if (failed && !skipInvalid) {
-      return planned.map((p) =>
-        p.result.status === "failed"
-          ? p.result
-          : { ...p.result, status: "skipped" as const, message: `not applied: ${failed} document(s) failed validation` },
-      );
-    }
-    for (const p of planned) {
-      if (p.kind && p.result.status === "created") addRow(p.kind, makeRow(cluster.kinds, p.kind.id, p.result.namespace, p.result.name, {}, Math.floor(Date.now() / 1000)));
-    }
-    return planned.map((p) => p.result);
-  }
-
-  /** Set `metadata.resourceVersion` the way the server reports it (after name / namespace). */
-  function withResourceVersion(yaml: string, rv: number): string {
-    const line = `  resourceVersion: "${rv}"\n`;
-    if (/^ {2}resourceVersion: .*\n/m.test(yaml)) return yaml.replace(/^ {2}resourceVersion: .*\n/m, line);
-    return yaml.replace(/^(metadata:\n {2}name: .*\n(?: {2}namespace: .*\n)?)/m, `$1${line}`);
-  }
-
-  /** Like `cmd_prometheus_status`: the current context's setting, else what was detected. */
-  function prometheusStatus(): PrometheusStatus {
-    const ctx = cluster.contexts.find((c) => c.current)?.name ?? "";
-    const setting = (cluster.settings.contexts[ctx]?.prometheus ?? "").trim();
-    if (setting.toLowerCase() === "off") {
-      return { target: "", from_settings: false, note: "Prometheus is turned off for this context in Settings." };
-    }
-    if (setting) {
-      const target = setting.includes(":") ? setting : `${setting}:9090`;
-      return { target, from_settings: true, note: "" };
-    }
-    const p = cluster.prometheus;
-    return { target: p.detected, from_settings: false, note: p.detected ? "" : p.note };
-  }
-
-  function saveSettings(next: FakeCluster["settings"]) {
-    cluster.settings = next;
-    sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(cluster.settings));
-  }
-
-  function addSavedSource(path: string) {
-    saveSettings({ ...cluster.settings, kubeconfig_sources: [...cluster.settings.kubeconfig_sources, path] });
-  }
-
-  /** The namespaces that exist, for installs (`--create-namespace`). */
-  const namespaceNames = () => [
-    ...(cluster.namespaces ?? []).map((n) => n.name),
-    ...cluster.helm.revisions.map((r) => r.namespace),
-  ];
-
-  /** Like `cmd_usage_history`: a Prometheus range, else the live history and why. */
-  function usageHistory(key: string, subject: string, range: UsageRange): UsageHistoryView {
-    const base = cluster.usage[key] ?? {
-      history: { since: 0, samples: [], containers: [] },
-      reference: copy(NO_REFERENCE),
-    };
-    const status = prometheusStatus();
-    const live: UsageHistoryView = {
-      ...copy(base),
-      source: "metrics_server",
-      range: "live",
-      prometheus: status.target,
-      note: "",
-    };
-    if (range === "live") return live;
-    if (!status.target) return { ...live, note: status.note };
-    if (cluster.prometheus.failure) return { ...live, note: cluster.prometheus.failure };
-    const history = cluster.prometheus.series[`${key}|${range}`];
-    if (!history?.samples.length) {
-      const note = `Prometheus at ${status.target} has no CPU and memory samples for ${subject} in the last ${range}.`;
-      return { ...live, note };
-    }
-    return { ...live, history: copy(history), source: "prometheus", range };
-  }
-
-  const HANDLERS: Handlers = {
-    cmdListContexts: () => cluster.contexts.map(fullContext),
-    cmdKubeconfigSources: () => copy(cluster.catalog.sources),
-    // Like the backend: only paths that exist (`catalog.files`), never twice.
-    cmdAddKubeconfigSource: (path) => {
-      const full = path.trim().replace(/^~(?=\/|$)/, "/home/user");
-      if (!full) throw "Type the path of a kubeconfig file or folder.";
-      if (cluster.catalog.sources.some((s) => s.path === full)) throw `${full} is already a source.`;
-      const found = cluster.catalog.files[full];
-      if (!found) throw `cannot add ${full}: No such file or directory (os error 2)`;
-      const folder = full.endsWith("/");
-      cluster.catalog.sources.push({
-        path: full,
-        kind: folder ? "folder" : "file",
-        contexts: found.length,
-        files: 1,
-        error: "",
-      });
-      cluster.contexts.push(...found.map((c) => ({ file: folder ? `${full}config` : full, ...c, source: full })));
-      addSavedSource(full);
-      return copy(cluster.catalog.sources);
-    },
-    cmdRemoveKubeconfigSource: (path) => {
-      if (!cluster.settings.kubeconfig_sources.includes(path)) {
-        throw `${path} was not added in kubeloupe, so it cannot be removed here.`;
-      }
-      cluster.catalog.sources = cluster.catalog.sources.filter((s) => s.path !== path);
-      cluster.contexts = cluster.contexts.filter((c) => c.source !== path);
-      saveSettings({ ...cluster.settings, kubeconfig_sources: cluster.settings.kubeconfig_sources.filter((p) => p !== path) });
-      return copy(cluster.catalog.sources);
-    },
-    // A kubeconfig is recognised by its first context's name.
-    cmdPasteKubeconfig: (yaml, name) => {
-      const first = /contexts:\s*\n-\s*name:\s*"?([^"\n]+)"?/.exec(yaml)?.[1]?.trim();
-      if (!/kind:\s*Config/.test(yaml) || !first) throw "The pasted text is not a kubeconfig: missing contexts";
-      const path = `${cluster.catalog.pastedDir}/${(name.trim() || first).replace(/[^A-Za-z0-9._-]/g, "-")}.yaml`;
-      const id = cluster.contexts.some((c) => c.name === first) ? `${first} (${path.split("/").pop()})` : first;
-      cluster.catalog.sources.push({ path, kind: "pasted", contexts: 1, files: 1, error: "" });
-      cluster.contexts.push({ name: id, context: first, current: false, namespace: null, file: path, source: path });
-      addSavedSource(path);
-      return copy(cluster.catalog.sources);
-    },
-    cmdCheckContext: (name) => copy(cluster.catalog.checks[name] ?? connected(name)),
-    cmdSetContext: (name) => {
-      cluster.contexts = cluster.contexts.map((c) => ({ ...c, current: c.name === name }));
-      // Like the backend: a context switch stops every log stream.
-      logStreams.clear();
-      return null;
-    },
-    cmdListNamespaces: () => cluster.namespaces,
-    cmdDefaultNamespace: () => cluster.defaultNamespace,
-    cmdDiscover: () => cluster.kinds,
-    cmdCheckAccess: (kinds, namespace) =>
-      kinds.map((r) => {
-        const id = kindOf(r).id;
-        const clusterWide = r.namespaced && namespace === null;
-        const allowed = !cluster.denied.includes(id) && !(clusterWide && cluster.deniedClusterWide.includes(id));
-        return { id, allowed };
-      }),
-    cmdOverviewStart: (id) => {
-      overviewFeeds.add(id);
-      lastOverview = id;
-      // Like the backend: the first summary, then "live".
-      setTimeout(() => {
-        if (!overviewFeeds.has(id)) return;
-        void events.overviewUpdate.emit({ id, overview: copy(cluster.overview) });
-        void events.overviewState.emit({ id, state: "live" });
-      }, 0);
-      return null;
-    },
-    cmdOverviewStop: (id) => {
-      overviewFeeds.delete(id);
-      return null;
-    },
-    cmdWorkloadsStart: (id, namespaces) => {
-      workloadsFeeds.set(id, [...namespaces]);
-      lastWorkloads = id;
-      // Like the backend: the first summary, then "live".
-      setTimeout(() => {
-        if (!workloadsFeeds.has(id)) return;
-        void events.workloadsUpdate.emit({ id, overview: workloadsOverview(cluster, namespaces) });
-        void events.workloadsState.emit({ id, state: "live" });
-      }, 0);
-      return null;
-    },
-    cmdWorkloadsStop: (id) => {
-      workloadsFeeds.delete(id);
-      return null;
-    },
-    cmdGetMetrics: (namespace, what) => {
-      const m = cluster.metrics;
-      const pods = what === "pods" ? m.pods.filter((p) => !namespace || p.namespace === namespace) : [];
-      const nodes = what === "nodes" ? m.nodes : [];
-      // Like the backend: the sparklines of just what was returned.
-      const keys = [...pods.map((p) => `${p.namespace}/${p.name}`), ...nodes.map((n) => n.name)];
-      const sparks = Object.fromEntries(keys.filter((k) => k in m.sparks).map((k) => [k, m.sparks[k]]));
-      return { available: m.available, pods, nodes, sparks, since: keys.some((k) => k in m.sparks) ? m.since : 0 };
-    },
-    cmdWorkloadUsageHistory: (kind, namespace, name, range) =>
-      usageHistory(`workloads|${kind}|${namespace}/${name}`, `the pods of this ${kind}`, range),
-    cmdUsageHistory: (what, namespace, name, range) => {
-      const key = what === "pods" ? `pods|${namespace}/${name}` : `nodes|${name}`;
-      return usageHistory(key, what === "pods" ? "this pod" : "this node", range);
-    },
-    cmdPrometheusStatus: () => prometheusStatus(),
-
-    cmdWatchStart: (resource, namespace) => {
-      const kind = kindOf(resource);
-      const id = `watch-${++watchSeq}`;
-      watches.push({ id, kind, namespace });
-      // Like the backend: the full list first, then "live". Sent after the
-      // reply so the store knows the id (it also buffers early events).
-      setTimeout(() => {
-        const denied = namespace
-          ? cluster.deniedNamespaces.includes(namespace)
-          : cluster.deniedClusterWide.includes(kind.id);
-        if (denied) {
-          // Like the backend: a 403 ends the watch with one "forbidden".
-          void events.watchState.emit({ id, state: "forbidden", error: `${kind.resource.plural} is forbidden` });
-          return;
-        }
-        const applied = rowsOf(kind).filter((r) => !namespace || r.namespace === namespace);
-        void events.watchBatch.emit({ id, snapshot: true, applied, deleted: [] });
-        void events.watchState.emit({ id, state: "live" });
-      }, 0);
-      return id;
-    },
-    cmdWatchStop: (id) => {
-      const i = watches.findIndex((w) => w.id === id);
-      if (i >= 0) watches.splice(i, 1);
-      detailWatches.delete(id);
-      return null;
-    },
-    cmdDetailWatch: (resource, namespace, name) => {
-      const { kind, row } = findRow(resource, namespace, name);
-      const id = `detail-${++detailSeq}`;
-      detailWatches.set(id, `${kind.id}|${row.key}`);
-      return id;
-    },
-    cmdStreamPodLogs: (_namespace, _name, _container, _previous, _tail, _since, _timestamps, id) => startStream(id),
-    cmdStreamWorkloadLogs: (_kind, _namespace, _name, _options, id) => startStream(id),
-    cmdStreamPodAllLogs: (_namespace, _name, _options, id) => startStream(id),
-    cmdStopLogs: (id) => {
-      logStreams.delete(id);
-      return null;
-    },
-    cmdSaveLogs: (filename) => `/home/tester/Downloads/${filename}`,
-
-    cmdExecStart: () => `exec-${++sessionSeq}`,
-    // Writes its note into the session before returning the id, like the backend.
-    cmdAttachStart: async (namespace, name, container) => {
-      if (cluster.attachError) throw cluster.attachError;
-      const session = `attach-${++sessionSeq}`;
-      await events.execOutput.emit({
-        session,
-        stream: "stderr",
-        data: `Attached to ${name}/${container ?? "app"} in ${namespace}. Closing this tab detaches. The process keeps running.\r\n`,
-      });
-      return session;
-    },
-    cmdExecInput: () => null,
-    cmdExecResize: () => null,
-    cmdExecClose: () => null,
-    // Writes progress into the session first, like the backend.
-    cmdDebugStart: async (session, namespace, name, target, image) => {
-      await events.execOutput.emit({ session, stream: "stderr", data: `Adding a debug container (${image})…\r\n` });
-      if (cluster.debugError) throw cluster.debugError;
-      await events.execOutput.emit({
-        session,
-        stream: "stderr",
-        data: `Attached to debugger-abcde (target ${target || "first"}) in ${namespace}/${name}\r\n`,
-      });
-      return session;
-    },
-    cmdNodeShellStart: async (session, node, namespace) => {
-      await events.execOutput.emit({ session, stream: "stderr", data: `Starting pod ${namespace}/node-shell-${node}-abcde…\r\n` });
-      if (cluster.nodeShellError) throw cluster.nodeShellError;
-      await events.execOutput.emit({ session, stream: "stdout", data: `root@${node}:/# ` });
-      return session;
-    },
-    cmdNodeShellLeftovers: () => structuredClone(cluster.nodeShellLeftovers),
-    cmdNodeShellCleanup: () => {
-      const n = cluster.nodeShellLeftovers.length;
-      cluster.nodeShellLeftovers = [];
-      return n;
-    },
-    // A local shell at the selected context; `namespace` as asked.
-    cmdLocalShellStart: (namespace) => ({
-      session: `local-${++sessionSeq}`,
-      context: cluster.contexts.find((c) => c.current)?.name ?? "",
-      namespace: namespace ?? "default",
-    }),
-    cmdLocalShellInput: () => null,
-    cmdLocalShellResize: () => null,
-    cmdLocalShellClose: () => null,
-    // Like the backend: no local port means the remote one if >= 1024, else 40000 + it.
-    cmdPortforwardStart: (target, remote, local) => {
-      const same = (f: ForwardInfo) =>
-        f.target.kind === target.kind && f.target.namespace === target.namespace && f.target.name === target.name;
-      const existing = local === null ? cluster.forwards.find((f) => same(f) && f.remote === remote) : undefined;
-      if (existing) return existing;
-      const remotePort = /^\d+$/.test(remote) ? Number(remote) : 8080;
-      const port = local ?? (remotePort >= 1024 ? remotePort : 40000 + remotePort);
-      const localPort = port === 0 ? 45000 + sessionSeq : port;
-      if (local !== null && cluster.forwards.some((f) => f.local_port === localPort)) {
-        throw `local port ${localPort} is already in use: pick another one, or leave it empty for a free one`;
-      }
-      const f: ForwardInfo = {
-        id: `pf-${++sessionSeq}`,
-        target,
-        remote,
-        remote_port: remotePort,
-        local_port: localPort,
-        url: `http://127.0.0.1:${localPort}`,
-        started_at: Date.now(),
-        status: { pod: target.kind === "pod" ? target.name : `${target.name}-1`, connections: 0, total_connections: 0, last_error: "" },
-      };
-      cluster.forwards.push(f);
-      return f;
-    },
-    cmdPortforwardStop: (id) => {
-      cluster.forwards = cluster.forwards.filter((f) => f.id !== id);
-      return null;
-    },
-    // A copy, like real IPC: the app must see a new list after the tests change this one.
-    cmdPortforwardList: () => JSON.parse(JSON.stringify(cluster.forwards)) as ForwardInfo[],
-    cmdServicePorts: (namespace, name) => cluster.servicePorts[`${namespace}/${name}`] ?? [],
-
-    cmdGetResourceDetail: (resource, namespace, name) => detailOf(resource, namespace, name),
-    cmdGetRelated: (resource, namespace, name) => {
-      const { kind, row } = findRow(resource, namespace, name);
-      // A copy, like real IPC: tests change the fixture in place.
-      return structuredClone(cluster.related[`${kind.id}|${row.key}`] ?? NO_RELATED);
-    },
-    cmdGetResourceYaml: (resource, namespace, name, reveal) => {
-      const { kind, row } = findRow(resource, namespace, name);
-      const key = `${kind.id}|${row.key}`;
-      const yaml = (reveal && cluster.revealedYaml[key]) || cluster.yaml[key] || defaultYaml(kind, row);
-      return withResourceVersion(yaml, cluster.resourceVersions[key] ?? 1);
-    },
-    cmdApplyResourceYaml: (resource, namespace, name, yaml, resourceVersion, dryRun) => {
-      const { kind, row } = findRow(resource, namespace, name);
-      const key = `${kind.id}|${row.key}`;
-      const current = String(cluster.resourceVersions[key] ?? 1);
-      if (resourceVersion && resourceVersion !== current) {
-        return { outcome: "conflict", resource_version: current };
-      }
-      // A dry run reports what the save would take over, without using it up.
-      if (dryRun) return { outcome: "applied", takeovers: cluster.nextTakeovers };
-      cluster.yaml[key] = yaml;
-      cluster.resourceVersions[key] = Number(current) + 1;
-      const took = cluster.nextTakeovers;
-      cluster.nextTakeovers = [];
-      return { outcome: "applied", takeovers: took };
-    },
-    cmdApplyManifests: (yaml, namespace, dryRun, skipInvalid) => applyManifests(yaml, namespace, dryRun, skipInvalid),
-    cmdDeleteResource: (resource, namespace, name) => {
-      const { kind, row } = findRow(resource, namespace, name);
-      removeRow(kind, row.key);
-      return null;
-    },
-    cmdRunAction: (resource, namespace, name, action, replicas) => {
-      const { kind, row } = findRow(resource, namespace, name);
-      const label = `${kind.resource.kind.toLowerCase()} ${row.key}`;
-      switch (action) {
-        case "delete":
-        case "forceDelete":
-          removeRow(kind, row.key);
-          return `Deleted ${label}`;
-        case "scale":
-          return `Scaled ${label} to ${replicas}`;
-        default:
-          return `${action} ${label}: done`;
-      }
-    },
-    cmdBulkDelete: (resource, items) => {
-      const kind = kindOf(resource);
-      return items.map(({ namespace, name }) => {
-        const key = rowKey(namespace, name);
-        const error = cluster.bulkErrors[key] ?? "";
-        if (!error) removeRow(kind, key);
-        return { key, error };
-      });
-    },
-    cmdDrainNode: (node) => {
-      const drainId = `drain-${++drainSeq}`;
-      setTimeout(() => {
-        void events.drainProgress.emit({ drainId, event: { type: "cordoned", node } });
-        void events.drainFinished.emit({
-          drainId,
-          error: "",
-          summary: { evicted: 0, failed: 0, skipped: 0, still_terminating: 0 },
-        });
-      }, 0);
-      return drainId;
-    },
-    cmdCancelDrain: () => null,
-
-    cmdHelmList: (namespaces) => helmList(cluster.helm, namespaces),
-    cmdHelmCharts: (keys) =>
-      keys.map((k) => {
-        try {
-          const r = helmGet(cluster.helm, k.namespace, k.name, k.revision, false);
-          const { chart, chart_version, app_version } = r;
-          return { ...k, chart, chart_version, app_version, error: "" };
-        } catch (e) {
-          return { ...k, chart: "", chart_version: "", app_version: "", error: String(e) };
-        }
-      }),
-    cmdHelmGet: (namespace, name, revision, reveal) => helmGet(cluster.helm, namespace, name, revision, reveal),
-    cmdHelmVersion: () => {
-      if (!cluster.helm.version) {
-        throw "helm is not installed or not on PATH. Install it (https://helm.sh/docs/intro/install/) to install, upgrade, roll back or uninstall releases and to browse charts.";
-      }
-      return cluster.helm.version;
-    },
-    cmdHelmRollback: (namespace, name, revision) => helmRollback(cluster.helm, namespace, name, revision),
-    cmdHelmUninstall: (namespace, name) => helmUninstall(cluster.helm, namespace, name),
-    cmdHelmRepoList: () => copy(cluster.helm.charts.repos),
-    cmdHelmRepoAdd: (name, url) => repoAdd(cluster.helm.charts, name.trim(), url.trim()),
-    cmdHelmRepoRemove: (name) => repoRemove(cluster.helm.charts, name),
-    cmdHelmRepoUpdate: (names) => repoUpdate(cluster.helm.charts, names),
-    cmdHelmSearch: (query, allVersions) => search(cluster.helm.charts, query, allVersions),
-    cmdHelmChartVersions: (chart) => chartVersions(cluster.helm.charts, chart),
-    cmdHelmChartShow: (chart, version) => show(cluster.helm.charts, chart, version),
-    cmdHelmInstall: (request) => deploy(cluster.helm, namespaceNames(), "install", request),
-    cmdHelmUpgrade: (request) => deploy(cluster.helm, namespaceNames(), "upgrade", request),
-    cmdGetSettings: () => copy(cluster.settings),
-    cmdUpdateSettings: (patch) => {
-      // The app sends whole values (`SettingsPatch`), like the backend expects.
-      cluster.settings = applyPatch(cluster.settings, patch as SettingsPatch);
-      sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(cluster.settings));
-      return copy(cluster.settings);
-    },
-    cmdUpdateCheck: (startup) => {
-      const u = cluster.update.check;
-      if (startup && !cluster.settings.check_updates) {
-        return {
-          ...copy(u),
-          status: "skipped",
-          version: "",
-          can_install: false,
-          note: "The update check on start is turned off in Settings.",
-        };
-      }
-      return copy(u);
-    },
-    cmdUpdateInstall: async () => {
-      const { check, size } = cluster.update;
-      if (check.status !== "available") throw "There is no update to install. Check for updates first.";
-      if (!check.can_install) {
-        throw `This copy of kubeloupe cannot install updates itself. Download ${check.version} from ${check.release_url}.`;
-      }
-      await events.updateProgress.emit({ phase: "downloading", downloaded: 0, total: size });
-      await events.updateProgress.emit({ phase: "downloading", downloaded: Math.round(size * 0.45), total: size });
-      await new Promise<void>((resolve) => (finishDownload = resolve));
-      await events.updateProgress.emit({ phase: "installing", downloaded: size, total: size });
-      restarted = true;
-      return null;
-    },
-    cmdOpenWindow: (context) => {
-      // The real backend opens a window; here it only remembers it, as the
-      // backend does in the settings.
-      cluster.settings = applyPatch(cluster.settings, { windows: [...cluster.settings.windows, context] });
-      sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(cluster.settings));
-      return null;
-    },
-  };
+  const st = newState(cluster);
+  const HANDLERS = allHandlers(st);
 
   const opened: string[] = [];
 
@@ -774,10 +164,10 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       list.push(error);
       failures.set(cmd, list);
     },
-    lastWatchId: () => (watchSeq ? `watch-${watchSeq}` : null),
-    activeWatches: () => watches.map((w) => ({ id: w.id, namespace: w.namespace })),
-    lastStreamId: () => streamId,
-    activeLogStreams: () => [...logStreams],
+    lastWatchId: () => (st.watchSeq ? `watch-${st.watchSeq}` : null),
+    activeWatches: () => st.watches.map((w) => ({ id: w.id, namespace: w.namespace })),
+    lastStreamId: () => st.streamId,
+    activeLogStreams: () => [...st.logStreams],
     emitWatchBatch: (b) =>
       events.watchBatch.emit({
         id: b.id ?? api.lastWatchId() ?? "",
@@ -786,23 +176,23 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
         deleted: b.deleted ?? [],
       }),
     emitWatchState: (s) => events.watchState.emit({ ...s, id: s.id ?? api.lastWatchId() ?? "" }),
-    lastDetailWatchId: () => (detailSeq ? `detail-${detailSeq}` : null),
-    activeDetailWatches: () => [...detailWatches.keys()],
+    lastDetailWatchId: () => (st.detailSeq ? `detail-${st.detailSeq}` : null),
+    activeDetailWatches: () => [...st.detailWatches.keys()],
     emitDetail: (s) => events.detailWatch.emit({ ...s, id: s.id ?? api.lastDetailWatchId() ?? "" }),
-    lastOverviewId: () => lastOverview,
-    overviewFeeds: () => [...overviewFeeds],
+    lastOverviewId: () => st.lastOverview,
+    overviewFeeds: () => [...st.overviewFeeds],
     emitOverview: (change, id) => {
       Object.assign(cluster.overview, change);
-      return events.overviewUpdate.emit({ id: id ?? lastOverview ?? -1, overview: copy(cluster.overview) });
+      return events.overviewUpdate.emit({ id: id ?? st.lastOverview ?? -1, overview: copy(cluster.overview) });
     },
-    emitOverviewState: (s) => events.overviewState.emit({ ...s, id: s.id ?? lastOverview ?? -1 }),
-    workloadsFeeds: () => [...workloadsFeeds].map(([id, namespaces]) => ({ id, namespaces })),
+    emitOverviewState: (s) => events.overviewState.emit({ ...s, id: s.id ?? st.lastOverview ?? -1 }),
+    workloadsFeeds: () => [...st.workloadsFeeds].map(([id, namespaces]) => ({ id, namespaces })),
     emitWorkloads: () => {
-      const id = lastWorkloads ?? -1;
-      return events.workloadsUpdate.emit({ id, overview: workloadsOverview(cluster, workloadsFeeds.get(id) ?? []) });
+      const id = st.lastWorkloads ?? -1;
+      return events.workloadsUpdate.emit({ id, overview: workloadsOverview(cluster, st.workloadsFeeds.get(id) ?? []) });
     },
-    emitLogLines: (lines, id) => events.podLog.emit({ streamId: id ?? streamId ?? -1, data: lines }),
-    emitTaggedLines: (lines, id) => events.workloadLog.emit({ streamId: id ?? streamId ?? -1, data: lines }),
+    emitLogLines: (lines, id) => events.podLog.emit({ streamId: id ?? st.streamId ?? -1, data: lines }),
+    emitTaggedLines: (lines, id) => events.workloadLog.emit({ streamId: id ?? st.streamId ?? -1, data: lines }),
     opened: () => [...opened],
     installPrometheus: () => {
       cluster.prometheus = prometheusFixture();
@@ -811,13 +201,13 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       cluster.update = available(version, canInstall, note);
     },
     finishUpdateDownload: () => {
-      finishDownload?.();
-      finishDownload = null;
+      st.finishDownload?.();
+      st.finishDownload = null;
     },
-    restarted: () => restarted,
+    restarted: () => st.restarted,
     emitKubeconfigsChanged: () => events.kubeconfigsChanged.emit({ generation: 1 }),
     emitLogEnd: async (error, done = true, id) => {
-      const sid = id ?? streamId ?? -1;
+      const sid = id ?? st.streamId ?? -1;
       if (error) await events.podLogError.emit({ streamId: sid, data: error });
       if (done) await events.podLogDone.emit({ streamId: sid });
     },
