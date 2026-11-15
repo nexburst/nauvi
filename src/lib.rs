@@ -29,6 +29,7 @@ pub mod debug;
 pub mod errors;
 pub mod helm;
 pub mod node_shell;
+pub mod poll;
 pub mod resources;
 pub mod terminal;
 pub mod watch;
