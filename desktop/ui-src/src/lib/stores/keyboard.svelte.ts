@@ -6,7 +6,7 @@
 import type { ResourceKind } from "../bindings";
 import type { ActionTarget } from "../actions";
 import type { Row } from "../columns";
-import { bindingFor, inEditorOrTerminal, isActivatable, isMacPlatform, isTextEntry } from "../keys";
+import { bindingFor, inEditorOrTerminal, isActivatable, isMacPlatform, isTextEntry, leftToTerminal } from "../keys";
 import { actionUi } from "./actions.svelte";
 import { helm, selectRelease } from "./helm.svelte";
 import { catalog } from "./catalog.svelte";
@@ -126,7 +126,9 @@ export function handleKey(e: KeyboardEvent) {
   const hit = bindingFor(e, mac);
   if (!hit) return;
   const target = e.target instanceof Element ? e.target : document.activeElement;
-  if (inEditorOrTerminal(target) && !(hit.binding.inTerminal && target?.closest(".xterm"))) return;
+  const inXterm = !!target?.closest(".xterm");
+  if (inEditorOrTerminal(target) && !(hit.binding.inTerminal && inXterm)) return;
+  if (inXterm && leftToTerminal(hit.binding, hit.index, mac)) return;
   if (isTextEntry(target) && !hit.binding.inInputs) return;
   if (modalOpen()) return;
 
