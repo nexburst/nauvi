@@ -135,11 +135,13 @@
                 onclick={() => togglePin(c.name)}>★</button
               >
             </td>
-            <td class="name">
-              <span class="swatch" style:background={cs.color || "transparent"} aria-hidden="true"></span>
-              <span data-testid="catalog-name">{name}</span>
-              {#if name !== c.name}<span class="muted id">{c.name}</span>{/if}
-              {#if c.current}<span class="badge">this window</span>{/if}
+            <td>
+              <div class="name">
+                <span class="swatch" style:background={cs.color || "transparent"} aria-hidden="true"></span>
+                <span data-testid="catalog-name">{name}</span>
+                {#if c.current}<span class="badge">this window</span>{/if}
+              </div>
+              {#if name !== c.name}<div class="muted id">{c.name}</div>{/if}
             </td>
             <td class="status" data-testid="catalog-status">
               {#if check === "checking"}
@@ -157,7 +159,7 @@
                 <span class="muted">Not checked</span>
               {/if}
             </td>
-            <td class="mono">{c.server || "—"}</td>
+            <td class="mono wrap">{c.server || "—"}</td>
             <td class="mono">{c.user || "—"}</td>
             <td class="mono source" title={c.file}>
               {c.file}
@@ -168,34 +170,36 @@
               {/if}
             </td>
             <td class="muted">{lastUsedText(cs.last_used, now)}</td>
-            <td class="actions">
-              <button type="button" class="btn" disabled={c.current} aria-label="Open {name}" onclick={() => open(c.name)}
-                >Open</button
-              >
-              <button
-                type="button"
-                class="btn"
-                aria-label="Open {name} in new window"
-                onclick={() => openContextWindow(c.name)}>New window</button
-              >
-              <button
-                type="button"
-                class="btn"
-                aria-label="Check {name}"
-                disabled={check === "checking"}
-                onclick={() => checkContext(c.name)}>Check</button
-              >
-              <button
-                type="button"
-                class="btn"
-                aria-label="Settings for {name}"
-                onclick={() => openClusterSettings(c.name)}>Settings</button
-              >
-              {#if c.source}
-                <button type="button" class="btn" aria-label="Remove {name}'s source" onclick={() => askRemove(c.source)}
-                  >Remove</button
+            <td>
+              <div class="actions">
+                <button type="button" class="btn" disabled={c.current} aria-label="Open {name}" onclick={() => open(c.name)}
+                  >Open</button
                 >
-              {/if}
+                <button
+                  type="button"
+                  class="btn"
+                  aria-label="Open {name} in new window"
+                  onclick={() => openContextWindow(c.name)}>New window</button
+                >
+                <button
+                  type="button"
+                  class="btn"
+                  aria-label="Check {name}"
+                  disabled={check === "checking"}
+                  onclick={() => checkContext(c.name)}>Check</button
+                >
+                <button
+                  type="button"
+                  class="btn"
+                  aria-label="Settings for {name}"
+                  onclick={() => openClusterSettings(c.name)}>Settings</button
+                >
+                {#if c.source}
+                  <button type="button" class="btn" aria-label="Remove {name}'s source" onclick={() => askRemove(c.source)}
+                    >Remove</button
+                  >
+                {/if}
+              </div>
             </td>
           </tr>
         {/each}
@@ -334,14 +338,22 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
   }
+  .wrap,
   .source {
-    max-width: 320px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .wrap {
+    max-width: 200px;
+  }
+  .source {
+    max-width: 260px;
   }
   .actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
+    max-width: 230px;
   }
   .sources {
     list-style: none;

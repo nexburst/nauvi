@@ -88,7 +88,7 @@ test("an added kubeconfig file brings its contexts everywhere, disambiguated", a
   await catalogRow(page, "prod (team.yaml)").getByRole("button", { name: "Open prod (team.yaml)", exact: true }).click();
   await expect.poll(() => fake.calls("cmdSetContext")).toEqual([{ name: "prod (team.yaml)" }]);
   await expect(contextSelect(page)).toHaveValue("prod (team.yaml)");
-  await expect(page.getByRole("navigation").getByRole("button", { name: "Overview" })).toHaveClass(/active/);
+  await expect(page.getByRole("navigation").getByRole("button", { name: "Overview", exact: true })).toHaveClass(/active/);
   expect(fake.errors).toEqual([]);
 });
 
