@@ -9,6 +9,7 @@
 
 use super::summary::{self, NodeSummary, PodSummary};
 use super::{EventInfo, Overview, RecentEvents};
+use crate::liveness::Prober;
 use crate::watch::{watch_summaries, Update, WatchState};
 use crate::{get_node_usage_total, is_forbidden};
 use futures::stream::{self, BoxStream, SelectAll};
@@ -44,13 +45,15 @@ pub enum OverviewUpdate {
 
 /// Watch the overview of the cluster. Parts the user may not see
 /// cluster-wide fall back to `namespace` (`None` = the context's
-/// namespace). The stream never ends on its own; drop it to stop.
+/// namespace). `prober` is shared by the connection's watches
+/// ([`crate::liveness`]). The stream never ends on its own; drop it to stop.
 pub fn watch_overview(
     client: &Client,
+    prober: &Prober,
     namespace: Option<&str>,
 ) -> BoxStream<'static, OverviewUpdate> {
     let fallback = namespace.unwrap_or(client.default_namespace()).to_string();
-    let live = Live::new(client.clone(), fallback);
+    let live = Live::new(client.clone(), prober.clone(), fallback);
     stream::unfold(live, |mut live| async move {
         let next = live.next().await;
         Some((next, live))
@@ -84,39 +87,63 @@ where
     }
 }
 
-fn pods_stream(client: &Client, namespace: Option<&str>) -> BoxStream<'static, Msg> {
-    watch_summaries(api::<Pod>(client, namespace), config(), |p: &Pod| {
-        let s = summary::pod_summary(p);
-        (format!("{}/{}", s.namespace, s.name), s)
-    })
+fn pods_stream(
+    client: &Client,
+    prober: &Prober,
+    namespace: Option<&str>,
+) -> BoxStream<'static, Msg> {
+    watch_summaries(
+        api::<Pod>(client, namespace),
+        prober,
+        config(),
+        |p: &Pod| {
+            let s = summary::pod_summary(p);
+            (format!("{}/{}", s.namespace, s.name), s)
+        },
+    )
     .map(Msg::Pods)
     .boxed()
 }
 
-fn events_stream(client: &Client, namespace: Option<&str>) -> BoxStream<'static, Msg> {
+fn events_stream(
+    client: &Client,
+    prober: &Prober,
+    namespace: Option<&str>,
+) -> BoxStream<'static, Msg> {
     let config = config().fields("type=Warning");
-    watch_summaries(api::<Event>(client, namespace), config, |e: &Event| {
-        let info = summary::event_info(e);
-        (info.key.clone(), info)
-    })
+    watch_summaries(
+        api::<Event>(client, namespace),
+        prober,
+        config,
+        |e: &Event| {
+            let info = summary::event_info(e);
+            (info.key.clone(), info)
+        },
+    )
     .map(Msg::Events)
     .boxed()
 }
 
-fn nodes_stream(client: &Client) -> BoxStream<'static, Msg> {
-    watch_summaries(Api::<Node>::all(client.clone()), config(), |n: &Node| {
-        (
-            n.metadata.name.clone().unwrap_or_default(),
-            summary::node_summary(n),
-        )
-    })
+fn nodes_stream(client: &Client, prober: &Prober) -> BoxStream<'static, Msg> {
+    watch_summaries(
+        Api::<Node>::all(client.clone()),
+        prober,
+        config(),
+        |n: &Node| {
+            (
+                n.metadata.name.clone().unwrap_or_default(),
+                summary::node_summary(n),
+            )
+        },
+    )
     .map(Msg::Nodes)
     .boxed()
 }
 
-fn namespaces_stream(client: &Client) -> BoxStream<'static, Msg> {
+fn namespaces_stream(client: &Client, prober: &Prober) -> BoxStream<'static, Msg> {
     watch_summaries(
         Api::<Namespace>::all(client.clone()),
+        prober,
         config(),
         |n: &Namespace| (n.metadata.name.clone().unwrap_or_default(), ()),
     )
@@ -255,6 +282,7 @@ pub(super) fn trim_events(events: &mut HashMap<String, EventInfo>) {
 
 struct Live {
     client: Client,
+    prober: Prober,
     fallback: String,
     streams: SelectAll<BoxStream<'static, Msg>>,
     pods: Part<PodSummary>,
@@ -272,16 +300,17 @@ struct Live {
 }
 
 impl Live {
-    fn new(client: Client, fallback: String) -> Self {
+    fn new(client: Client, prober: Prober, fallback: String) -> Self {
         let streams = stream::select_all([
-            pods_stream(&client, None),
-            events_stream(&client, None),
-            namespaces_stream(&client),
-            nodes_stream(&client),
+            pods_stream(&client, &prober, None),
+            events_stream(&client, &prober, None),
+            namespaces_stream(&client, &prober),
+            nodes_stream(&client, &prober),
             usage_stream(&client),
         ]);
         Self {
             client,
+            prober,
             fallback,
             streams,
             pods: Part::new("Pods", true),
@@ -331,7 +360,7 @@ impl Live {
                 Err(()) => {
                     if self.pods.refused(&fallback) {
                         self.streams
-                            .push(pods_stream(&self.client, Some(&fallback)));
+                            .push(pods_stream(&self.client, &self.prober, Some(&fallback)));
                     }
                     true
                 }
@@ -343,8 +372,11 @@ impl Live {
                 }
                 Err(()) => {
                     if self.events.refused(&fallback) {
-                        self.streams
-                            .push(events_stream(&self.client, Some(&fallback)));
+                        self.streams.push(events_stream(
+                            &self.client,
+                            &self.prober,
+                            Some(&fallback),
+                        ));
                     }
                     true
                 }

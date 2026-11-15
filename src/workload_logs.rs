@@ -7,6 +7,7 @@
 //! when a pod changes) live in the pure [`Tracker`]; [`stream_workload_logs`]
 //! only executes them.
 
+use crate::liveness::Prober;
 use crate::watch::{watch_pod_named, watch_pods_selected, Update};
 use crate::{batch_lines, get_pod_logs, stream_pod_logs_follow, LogOptions};
 use anyhow::{bail, Context, Result};
@@ -564,7 +565,9 @@ where
         "previous logs are not available for workload streams"
     );
     let selector = workload_selector(client, kind, namespace, name).await?;
-    let (store, updates) = watch_pods_selected(client, namespace, &selector);
+    // One watch per stream: its own prober.
+    let prober = Prober::new(client.clone());
+    let (store, updates) = watch_pods_selected(client, &prober, namespace, &selector);
     follow_pods(client, namespace, store, updates, opts, limit, on_event).await
 }
 
@@ -586,7 +589,8 @@ where
         !opts.previous,
         "previous logs are only available for one container at a time"
     );
-    let (store, updates) = watch_pod_named(client, namespace, pod);
+    let prober = Prober::new(client.clone());
+    let (store, updates) = watch_pod_named(client, &prober, namespace, pod);
     follow_pods(
         client,
         namespace,

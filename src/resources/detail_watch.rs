@@ -135,6 +135,7 @@ fn events_of(store: &Store<CoreEvent>, uid: &str) -> Vec<CoreEvent> {
 /// backoff and reported as [`DetailState::Error`]; events are best effort.
 pub async fn run_detail_watch<F>(
     client: Client,
+    prober: crate::liveness::Prober,
     r: ResourceRef,
     namespace: String,
     name: String,
@@ -145,7 +146,7 @@ pub async fn run_detail_watch<F>(
 {
     let api = dyn_api(&client, &r, Some(&namespace));
     let by_name = watcher::Config::default().fields(&format!("metadata.name={name}"));
-    let mut objects = guarded_watcher(api, by_name);
+    let mut objects = guarded_watcher(api, &prober, by_name);
 
     // Events of cluster-scoped objects are filed in some namespace.
     let events_api: Api<CoreEvent> = if namespace.is_empty() || !r.namespaced {
@@ -159,7 +160,7 @@ pub async fn run_detail_watch<F>(
     ));
     let mut writer = reflector::store::Writer::<CoreEvent>::default();
     let store = writer.as_reader();
-    let mut events = guarded_watcher(events_api, about);
+    let mut events = guarded_watcher(events_api, &prober, about);
 
     let mut tracker = DetailTracker::default();
     let mut tick = tokio::time::interval(interval);

@@ -9,7 +9,7 @@
 //! into at most one [`Batch`] per interval, which is what a UI wants instead
 //! of one event per object.
 
-use crate::liveness::{guard_client, Guarded};
+use crate::liveness::{guard_client, Guarded, Prober};
 use crate::resources::{make_row, ResourceKind, ResourceRow};
 use crate::{namespace_info, node_info, pod_info, NamespaceInfo, NodeInfo, PodInfo};
 use futures::stream::{self, BoxStream};
@@ -338,9 +338,11 @@ impl<T> Tracker<T> {
 ///
 /// `dyntype` is the kind's dynamic type (`()` for typed resources, an
 /// `ApiResource` for `DynamicObject`), so one watcher serves both the typed
-/// pod/node/namespace watches and any discovered kind.
+/// pod/node/namespace watches and any discovered kind. `prober` is shared
+/// by every watch of the connection ([`crate::liveness`]).
 pub fn watch_with<K, T>(
     api: Api<K>,
+    prober: &Prober,
     dyntype: K::DynamicType,
     convert: impl Fn(&K) -> T + Send + 'static,
 ) -> (Store<K>, BoxStream<'static, Update<T>>)
@@ -349,12 +351,13 @@ where
     K::DynamicType: Eq + Hash + Clone + Send + Sync + Unpin,
     T: Send + 'static,
 {
-    watch_with_config(api, dyntype, watcher::Config::default(), convert)
+    watch_with_config(api, prober, dyntype, watcher::Config::default(), convert)
 }
 
 /// [`watch_with`] with a custom watcher config (label/field selectors).
 pub fn watch_with_config<K, T>(
     api: Api<K>,
+    prober: &Prober,
     dyntype: K::DynamicType,
     config: watcher::Config,
     convert: impl Fn(&K) -> T + Send + 'static,
@@ -368,7 +371,7 @@ where
     let store = writer.as_reader();
     // What `reflector::reflector` does, outside the guard: the guard starts
     // a new watcher after a lost connection, and the store must outlive it.
-    let events = guarded_watcher(api, config)
+    let events = guarded_watcher(api, prober, config)
         .map(move |event| {
             if let Guarded::Item(Ok(ev)) = &event {
                 writer.apply_watcher_event(ev);
@@ -383,13 +386,13 @@ where
 /// guard when the API server stops answering.
 pub fn guarded_watcher<K>(
     api: Api<K>,
+    prober: &Prober,
     config: watcher::Config,
 ) -> BoxStream<'static, Guarded<Result<Event<K>, watcher::Error>>>
 where
     K: Resource + Clone + DeserializeOwned + Debug + Send + 'static,
 {
-    let client = api.clone().into_client();
-    guard_client(client, move || {
+    guard_client(prober, move || {
         watcher::watcher(api.clone(), config.clone())
             .default_backoff()
             .boxed()
@@ -401,6 +404,7 @@ where
 /// For consumers that fold the updates into their own state (the overview).
 pub fn watch_summaries<K, T>(
     api: Api<K>,
+    prober: &Prober,
     config: watcher::Config,
     convert: impl Fn(&K) -> T + Send + 'static,
 ) -> BoxStream<'static, Update<T>>
@@ -408,7 +412,7 @@ where
     K: Resource + Clone + DeserializeOwned + Debug + Send + 'static,
     T: Send + 'static,
 {
-    track(guarded_watcher(api, config), convert)
+    track(guarded_watcher(api, prober, config), convert)
 }
 
 /// Turn raw watcher events into [`Update`]s: [`WatchState::Connecting`]
@@ -448,12 +452,16 @@ where
 }
 
 /// [`watch_with`] for a typed resource.
-pub fn watch<K, T>(api: Api<K>, convert: fn(&K) -> T) -> (Store<K>, BoxStream<'static, Update<T>>)
+pub fn watch<K, T>(
+    api: Api<K>,
+    prober: &Prober,
+    convert: fn(&K) -> T,
+) -> (Store<K>, BoxStream<'static, Update<T>>)
 where
     K: Resource<DynamicType = ()> + Clone + DeserializeOwned + Debug + Send + Sync + 'static,
     T: Send + 'static,
 {
-    watch_with(api, (), convert)
+    watch_with(api, prober, (), convert)
 }
 
 /// Whether the server can watch `kind`: it lists the `watch` verb.
@@ -466,19 +474,21 @@ pub fn can_watch(kind: &ResourceKind) -> bool {
 /// verb is listed every [`crate::poll::POLL_INTERVAL`] instead.
 pub fn watch_resource(
     client: &Client,
+    prober: &Prober,
     kind: &ResourceKind,
     namespace: Option<&str>,
 ) -> (
     Store<DynamicObject>,
     BoxStream<'static, Update<ResourceRow>>,
 ) {
-    poll_resource(client, kind, namespace, crate::poll::POLL_INTERVAL)
+    poll_resource(client, prober, kind, namespace, crate::poll::POLL_INTERVAL)
 }
 
 /// [`watch_resource`], with the time between lists for a kind that cannot
 /// be watched.
 pub fn poll_resource(
     client: &Client,
+    prober: &Prober,
     kind: &ResourceKind,
     namespace: Option<&str>,
     interval: Duration,
@@ -491,32 +501,35 @@ pub fn poll_resource(
     let resource = kind.resource.clone();
     let convert = move |o: &DynamicObject| make_row(&resource, &columns, o);
     if can_watch(kind) {
-        watch_with(api, kind.resource.api_resource(), convert)
+        watch_with(api, prober, kind.resource.api_resource(), convert)
     } else {
-        crate::poll::poll_with(api, kind.resource.api_resource(), interval, convert)
+        crate::poll::poll_with(api, prober, kind.resource.api_resource(), interval, convert)
     }
 }
 
 pub fn watch_pods(
     client: &Client,
+    prober: &Prober,
     namespace: Option<&str>,
 ) -> (Store<Pod>, BoxStream<'static, Update<PodInfo>>) {
     let api: Api<Pod> = match namespace {
         Some(ns) => Api::namespaced(client.clone(), ns),
         None => Api::all(client.clone()),
     };
-    watch(api, pod_info)
+    watch(api, prober, pod_info)
 }
 
 /// Watch the pods in `namespace` matching a label `selector`.
 pub fn watch_pods_selected(
     client: &Client,
+    prober: &Prober,
     namespace: &str,
     selector: &str,
 ) -> (Store<Pod>, BoxStream<'static, Update<PodInfo>>) {
     let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
     watch_with_config(
         api,
+        prober,
         (),
         watcher::Config::default().labels(selector),
         pod_info,
@@ -527,26 +540,32 @@ pub fn watch_pods_selected(
 /// recreated with the same name).
 pub fn watch_pod_named(
     client: &Client,
+    prober: &Prober,
     namespace: &str,
     name: &str,
 ) -> (Store<Pod>, BoxStream<'static, Update<PodInfo>>) {
     let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
     watch_with_config(
         api,
+        prober,
         (),
         watcher::Config::default().fields(&format!("metadata.name={name}")),
         pod_info,
     )
 }
 
-pub fn watch_nodes(client: &Client) -> (Store<Node>, BoxStream<'static, Update<NodeInfo>>) {
-    watch(Api::all(client.clone()), node_info)
+pub fn watch_nodes(
+    client: &Client,
+    prober: &Prober,
+) -> (Store<Node>, BoxStream<'static, Update<NodeInfo>>) {
+    watch(Api::all(client.clone()), prober, node_info)
 }
 
 pub fn watch_namespaces(
     client: &Client,
+    prober: &Prober,
 ) -> (Store<Namespace>, BoxStream<'static, Update<NamespaceInfo>>) {
-    watch(Api::all(client.clone()), namespace_info)
+    watch(Api::all(client.clone()), prober, namespace_info)
 }
 
 #[cfg(test)]

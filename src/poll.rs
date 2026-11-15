@@ -12,7 +12,7 @@
 //! list that hangs on an API server that stopped answering shows as
 //! Reconnecting too.
 
-use crate::liveness::{guard_client, Guarded};
+use crate::liveness::{guard_client, Guarded, Prober};
 use crate::watch::{Keyed, Update, WatchState};
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
@@ -110,6 +110,7 @@ impl<T: Keyed + Clone> Poller<T> {
 /// stop.
 pub fn poll_with<K, T>(
     api: Api<K>,
+    prober: &Prober,
     dyntype: K::DynamicType,
     interval: Duration,
     convert: impl Fn(&K) -> T + Send + 'static,
@@ -122,10 +123,9 @@ where
     let writer = reflector::store::Writer::new(dyntype);
     let store = writer.as_reader();
     let poller = Poller::new(interval);
-    let client = api.clone().into_client();
     // A guard that lost the connection starts listing again, at once, when
     // the server answers.
-    let lists = guard_client(client, move || lists(api.clone(), interval));
+    let lists = guard_client(prober, move || lists(api.clone(), interval));
     let updates = stream::unfold(
         (lists, writer, poller, convert),
         |(mut lists, mut writer, mut p, convert)| async move {
