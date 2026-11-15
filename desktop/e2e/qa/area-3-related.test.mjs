@@ -8,6 +8,8 @@
 // - Role -> RoleBinding -> ServiceAccount -> back, ClusterRole and its
 //   bindings, a PDB with its pods
 // - "View instances" on a CRD with two served versions
+// - following a link out of a filtered table clears a filter that would hide
+//   the opened object: its row is listed and selected (#108)
 // Everything lives in a temp namespace, plus a uniquely named ClusterRole,
 // ClusterRoleBinding and CRD, deleted afterwards.
 
@@ -222,6 +224,23 @@ async function followFirst(app, group, expectTitle) {
   return name;
 }
 
+/** The opened object's row is in the table, selected, under an empty filter (#108). */
+async function assertOpenedRow(app, ns, name) {
+  const filter = await app.js(`return document.querySelector('input[aria-label="Filter"]').value`);
+  assert.equal(filter, "", "the filter of the previous kind is cleared");
+  await app.waitFor(
+    () =>
+      app.js(
+        `return Array.from(document.querySelectorAll('[data-testid="resource-row"].selected'), (r) =>
+           Array.from(r.querySelectorAll('[role="gridcell"]'), (c) => c.textContent.trim()))
+           .some((cells) => cells[1] === arguments[0] && cells[2] === arguments[1])`,
+        name,
+        ns,
+      ),
+    { message: `the selected row ${ns}/${name} in the table` },
+  );
+}
+
 async function logPanel(app, what) {
   const groups = await relatedGroups(app);
   const summary = await kindSummary(app);
@@ -314,7 +333,8 @@ describe("area 3: related objects and Access Control sections (#64, #87)", { tim
     const g = await waitRelatedGroup(app, "Rules");
     await logPanel(app, "Ingress");
     assert.deepEqual(g.rows[0], ["qa-area3.example", "/", "qa-svc", "80"]);
-    await followFirst(app, "Rules", (n) => `Service ${ns}/${n}`);
+    const svc = await followFirst(app, "Rules", (n) => `Service ${ns}/${n}`);
+    await assertOpenedRow(app, ns, svc);
   });
 
   it("PVC, ConfigMap and Secret: used by the Deployment's pods", T, async () => {
@@ -351,6 +371,7 @@ describe("area 3: related objects and Access Control sections (#64, #87)", { tim
     assert.ok(target, `a group linking qa-app: ${JSON.stringify(groups)}`);
     await openRelated(app, target.title, "qa-app");
     await waitPanelTitle(app, `Deployment ${ns}/qa-app`);
+    await assertOpenedRow(app, ns, "qa-app");
   });
 
   it("Node: its pods and allocated resources; wide tables scroll inside the 420 px panel", T, async () => {

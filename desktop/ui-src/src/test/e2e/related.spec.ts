@@ -118,3 +118,30 @@ test("nothing related shows no summary, and a failed load says so", async ({ pag
   await row(page, "web").click();
   await expect(panel(page)).toContainText("Could not load related objects: replicasets.apps is forbidden");
 });
+
+test("a related link clears a filter that would hide the opened object, and keeps one that shows it", async ({ page }) => {
+  const fake = await openApp(page);
+  const filter = page.getByRole("searchbox", { name: "Filter" });
+
+  // Pods filtered to "web-1"; its ConfigMap "settings" would not match.
+  await openKind(page, "Pods");
+  await filter.fill("web-1");
+  await row(page, "web-1").click();
+  await expect(panel(page).locator(".title")).toHaveText("demo/web-1");
+  await group(page, "ConfigMaps").getByRole("button", { name: "settings" }).click();
+  await expect(panel(page).locator(".title")).toHaveText("ConfigMap demo/settings");
+  await expect(filter).toHaveValue("");
+  await expect(row(page, "settings")).toHaveClass(/selected/);
+  await expect(page.getByText("No items found.")).toHaveCount(0);
+
+  // Deployments filtered to "web": its ReplicaSet web-5d8f still matches.
+  await openKind(page, "Deployments");
+  await filter.fill("web");
+  await row(page, "web").click();
+  await expect(panel(page).locator(".title")).toHaveText("Deployment demo/web");
+  await group(page, "ReplicaSets").getByRole("button", { name: "web-5d8f" }).click();
+  await expect(panel(page).locator(".title")).toHaveText("ReplicaSet demo/web-5d8f");
+  await expect(filter).toHaveValue("web");
+  await expect(row(page, "web-5d8f")).toHaveClass(/selected/);
+  expect(fake.errors).toEqual([]);
+});

@@ -169,6 +169,9 @@ export function canOpenDenied(kind: ResourceKind): boolean {
 /** Open an object in its own kind's view (owner links, related objects). */
 export function openObject(kind: ResourceKind, namespace: string, name: string) {
   whenDiscarded(() => {
+    // The filter is shared by every table: keep it only if the opened
+    // object's row still matches it, so the row is there (and selected).
+    if (!name.toLowerCase().includes(app.search.trim().toLowerCase())) app.search = "";
     setView(kind.id);
     openDetail({ resource: kind.resource, namespace, name });
   });
