@@ -8,7 +8,8 @@
 // view, with the frame times logged; Enter opens the row, Ctrl+2 switches
 // the panel's tab, Esc closes it; Space selects; Delete opens the confirm
 // dialog naming the row; Shift+F10 and the Menu key (sent through XTEST)
-// open the row menu, arrows move in it and Esc closes it.
+// open the row menu, arrows move in it and Esc closes it. Text fields have
+// autocorrect, autocapitalise and spellcheck off (#176).
 
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
@@ -17,7 +18,7 @@ import { byTestId } from "../lib/app.mjs";
 import { deleteNamespace, kubectl, tempNamespace } from "../lib/cluster.mjs";
 import { appPid } from "../lib/dock.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
-import { pickNamespaces } from "../lib/table.mjs";
+import { closeNamespacePicker, openNamespacePicker, pickNamespaces } from "../lib/table.mjs";
 import { cannotCloseLikeUser, pressX11Keys, resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 180_000 };
@@ -268,5 +269,38 @@ describe("area 5: keyboard and command palette", { timeout: 15 * 60_000 }, () =>
       assert.ok(pressX11Keys(pid, "Menu"), "an X11 window to send the key to");
       await sleep(300);
     });
+  });
+
+  it("text fields have autocorrect, autocapitalise and spellcheck off (#176)", T, async () => {
+    const { app } = s;
+    const notPlain = () =>
+      app.js(`
+        const want = { autocapitalize: "off", autocorrect: "off", spellcheck: "false", autocomplete: "off" };
+        const types = ["", "text", "search", "url", "email", "tel", "password", "number"];
+        const bad = [];
+        for (const el of document.querySelectorAll("input, textarea")) {
+          if (el.tagName === "INPUT" && !types.includes((el.getAttribute("type") || "").toLowerCase())) continue;
+          for (const [a, v] of Object.entries(want)) {
+            if (el.getAttribute(a) !== v) bad.push((el.getAttribute("aria-label") || el.className) + ": " + a + "=" + el.getAttribute(a));
+          }
+        }
+        return bad;`);
+    // An earlier check left "web-" in the filter.
+    await app.filter("");
+    await app.js("document.activeElement?.blur()");
+    await press(app, "/");
+    await press(app, "shell demo web");
+    assert.equal(await app.js(`return document.activeElement?.value`), "shell demo web", "the filter keeps what was typed");
+    assert.deepEqual(await notPlain(app), []);
+    await app.shot("filter-typed-lowercase");
+    await app.js("document.activeElement.value = ''; document.activeElement.dispatchEvent(new Event('input', { bubbles: true }))");
+    await app.js("document.activeElement?.blur()");
+    await ctrl(app, "k");
+    await app.find(byTestId("command-palette"));
+    assert.deepEqual(await notPlain(app), [], "the palette's field");
+    await press(app, Key.ESCAPE);
+    await openNamespacePicker(app);
+    assert.deepEqual(await notPlain(app), [], "with the namespace picker open");
+    await closeNamespacePicker(app);
   });
 });
