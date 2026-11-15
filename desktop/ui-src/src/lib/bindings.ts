@@ -109,6 +109,11 @@ export const commands = {
 	 *  the `detail-watch` events; stop it with `cmd_watch_stop`.
 	 */
 	cmdDetailWatch: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_detail_watch", { resource, namespace, name }, options),
+	/**
+	 *  Every context of the catalog (#78): the default kubeconfig's, then those
+	 *  of the added files and folders, each with a unique id (`name`). The
+	 *  calling window's context is `current`.
+	 */
 	cmdListContexts: (options?: InvokeOptions) => __TAURI_INVOKE<ContextInfo_Serialize[]>("cmd_list_contexts", undefined, options),
 	/**
 	 *  Switch the calling window to context `name` (`null`: the kubeconfig's
@@ -116,6 +121,33 @@ export const commands = {
 	 *  other windows are not affected.
 	 */
 	cmdSetContext: (name: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_set_context", { name }, options),
+	/**
+	 *  Every source of contexts: the default kubeconfig's files, then the
+	 *  added ones in order, each with what was read from it or why it could
+	 *  not be.
+	 */
+	cmdKubeconfigSources: (options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_kubeconfig_sources", undefined, options),
+	/**
+	 *  Add a kubeconfig file or a folder of them (`~` expands). Its contexts
+	 *  show up in every window. Returns the sources.
+	 */
+	cmdAddKubeconfigSource: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_add_kubeconfig_source", { path }, options),
+	/**
+	 *  Remove an added source. A pasted kubeconfig's file is deleted too (the
+	 *  app saved it); any other file stays where it is, untouched.
+	 */
+	cmdRemoveKubeconfigSource: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_remove_kubeconfig_source", { path }, options),
+	/**
+	 *  Save a pasted kubeconfig in the app's config directory (readable only by
+	 *  the user) and add it as a source. `name` names the file (`""`: its
+	 *  first context). Returns the sources.
+	 */
+	cmdPasteKubeconfig: (yaml: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_paste_kubeconfig", { yaml, name }, options),
+	/**
+	 *  Log in to context `name`'s cluster and report whether it answers. Never
+	 *  prompts; gives up after 15 s.
+	 */
+	cmdCheckContext: (name: string, options?: InvokeOptions) => __TAURI_INVOKE<ContextCheck>("cmd_check_context", { name }, options),
 	/**
 	 *  Open an interactive shell in a pod. Returns the session id; output
 	 *  arrives as `exec-output` events, `exec-closed` when the shell exits.
@@ -134,7 +166,9 @@ export const commands = {
 	/**
 	 *  Start the user's shell on this machine with `KUBECONFIG` pointing at a
 	 *  temp kubeconfig that selects the app's context and `namespace` (`null`:
-	 *  the context's own). The user's kubeconfig files are not changed.
+	 *  the context's own), followed by the kubeconfig the context comes from.
+	 *  It starts in the cluster's working directory from its settings (#78),
+	 *  else the home directory. The user's kubeconfig files are not changed.
 	 */
 	cmdLocalShellStart: (namespace: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<LocalShellStarted>("cmd_local_shell_start", { namespace, cols, rows }, options),
 	cmdLocalShellInput: (session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_input", { session, data }, options),
@@ -310,6 +344,7 @@ export const events = {
 	drainProgress: makeEvent<DrainProgress, DrainProgress>("drain-progress"),
 	execClosed: makeEvent<ExecClosed, ExecClosed>("exec-closed"),
 	execOutput: makeEvent<ExecOutput, ExecOutput>("exec-output"),
+	kubeconfigsChanged: makeEvent<KubeconfigsChanged, KubeconfigsChanged>("kubeconfigs-changed"),
 	overviewState: makeEvent<OverviewStateChanged, OverviewStateChanged>("overview-state"),
 	overviewUpdate: makeEvent<OverviewChanged_Serialize, OverviewChanged_Deserialize>("overview-update"),
 	podLog: makeEvent<PodLog, PodLog>("pod-log"),
@@ -519,26 +554,80 @@ export type ContainerUsage = {
 	memory_bytes: number,
 };
 
+/**  The result of checking one context. */
+export type ContextCheck = {
+	/**  The context id. */
+	name: string,
+	state: ContextState,
+	/**  The error (`""` when connected). */
+	message: string,
+	/**  The API server's version (`""` unless connected). */
+	version: string,
+};
+
+/**  A context in the catalog. */
 export type ContextInfo = ContextInfo_Serialize | ContextInfo_Deserialize;
 
+/**  A context in the catalog. */
 export type ContextInfo_Deserialize = {
+	/**
+	 *  The context's id: its name, or `name (file)` when an earlier source
+	 *  already has a context of that name. Commands take this id.
+	 */
 	name: string,
+	/**  The context's name in its kubeconfig file. */
+	context: string,
 	current: boolean,
 	/**  The context's default namespace (`contexts[].context.namespace`). */
 	namespace?: string | null,
+	/**  Its cluster's and user's names in the file, and the API server. */
+	cluster: string,
+	user: string,
+	server: string,
+	/**  The file that defines it. */
+	file: string,
+	/**
+	 *  The added source it came from (a file, folder or pasted file);
+	 *  `""` for the default kubeconfig.
+	 */
+	source: string,
 };
 
+/**  A context in the catalog. */
 export type ContextInfo_Serialize = {
+	/**
+	 *  The context's id: its name, or `name (file)` when an earlier source
+	 *  already has a context of that name. Commands take this id.
+	 */
 	name: string,
+	/**  The context's name in its kubeconfig file. */
+	context: string,
 	current: boolean,
 	/**  The context's default namespace (`contexts[].context.namespace`). */
 	namespace: string | null,
+	/**  Its cluster's and user's names in the file, and the API server. */
+	cluster: string,
+	user: string,
+	server: string,
+	/**  The file that defines it. */
+	file: string,
+	/**
+	 *  The added source it came from (a file, folder or pasted file);
+	 *  `""` for the default kubeconfig.
+	 */
+	source: string,
 };
 
-/**  What is remembered per kubeconfig context. */
+/**
+ *  What is remembered per kubeconfig context, by context id (#78), and set
+ *  on its cluster settings page.
+ */
 export type ContextSettings = ContextSettings_Serialize | ContextSettings_Deserialize;
 
-/**  What is remembered per kubeconfig context. */
+/**
+ *  What is remembered per kubeconfig context, by context id (#78), and set
+ *  on its cluster settings page.
+ */
 export type ContextSettings_Deserialize = {
 	/**  The last view: `"overview"` or a kind id (`apps/v1/deployments`). */
 	view?: string,
@@ -551,9 +640,25 @@ export type ContextSettings_Deserialize = {
 	 *  `"off"` turns it off, else `namespace/service:port`.
 	 */
 	prometheus?: string,
+	/**  Shown instead of the context id (`""`: the id). */
+	display_name?: string,
+	/**  A CSS colour marking the cluster (`""`: none). */
+	color?: string,
+	/**
+	 *  The namespace to start in when none is remembered (`""`: all
+	 *  namespaces if allowed, else the context's own).
+	 */
+	default_namespace?: string,
+	/**  Where local shells start (`""`: the home directory; `~` expands). */
+	shell_cwd?: string,
+	/**  When a window last connected to it, epoch milliseconds (0: never). */
+	last_used?: number,
 };
 
-/**  What is remembered per kubeconfig context. */
+/**
+ *  What is remembered per kubeconfig context, by context id (#78), and set
+ *  on its cluster settings page.
+ */
 export type ContextSettings_Serialize = {
 	/**  The last view: `"overview"` or a kind id (`apps/v1/deployments`). */
 	view: string,
@@ -566,7 +671,26 @@ export type ContextSettings_Serialize = {
 	 *  `"off"` turns it off, else `namespace/service:port`.
 	 */
 	prometheus: string,
+	/**  Shown instead of the context id (`""`: the id). */
+	display_name: string,
+	/**  A CSS colour marking the cluster (`""`: none). */
+	color: string,
+	/**
+	 *  The namespace to start in when none is remembered (`""`: all
+	 *  namespaces if allowed, else the context's own).
+	 */
+	default_namespace: string,
+	/**  Where local shells start (`""`: the home directory; `~` expands). */
+	shell_cwd: string,
+	/**  When a window last connected to it, epoch milliseconds (0: never). */
+	last_used: number,
 };
+
+export type ContextState = "connected" | 
+/**  The credentials or the exec plugin failed. */
+"auth_error" | "certificate_error" | "unreachable" | 
+/**  The kubeconfig entry itself is broken (no cluster, unreadable file). */
+"invalid";
 
 /**  What a detail watch reports. */
 export type DetailState = 
@@ -934,6 +1058,14 @@ export type KindSettings_Serialize = {
 	sort_desc: boolean,
 	/**  Keys of the columns the user hid. */
 	hidden: string[],
+};
+
+/**
+ *  Sent to every window when a kubeconfig source changes (a file edited,
+ *  added to a folder, or a source added or removed).
+ */
+export type KubeconfigsChanged = {
+	generation: number,
 };
 
 /**
@@ -1464,6 +1596,7 @@ export type SettingsPatch_Deserialize = {
 	contexts?: { [key in string]: ContextSettings_Deserialize } | null,
 	kinds?: { [key in string]: KindSettings_Deserialize } | null,
 	windows?: string[] | null,
+	favourites?: string[] | null,
 };
 
 /**
@@ -1480,6 +1613,7 @@ export type SettingsPatch_Serialize = {
 	contexts?: { [key in string]: ContextSettings_Serialize } | null,
 	kinds?: { [key in string]: KindSettings_Serialize } | null,
 	windows?: string[] | null,
+	favourites?: string[] | null,
 };
 
 export type Settings_Deserialize = {
@@ -1502,6 +1636,16 @@ export type Settings_Deserialize = {
 	 *  current-context). Kept up to date by the backend.
 	 */
 	windows?: string[],
+	/**
+	 *  Kubeconfig files and folders added in the catalog (#78), pasted
+	 *  files included. Changed only through the catalog commands.
+	 */
+	kubeconfig_sources?: string[],
+	/**
+	 *  Pinned context ids, in order: first in the context selector and the
+	 *  palette.
+	 */
+	favourites?: string[],
 };
 
 export type Settings_Serialize = {
@@ -1524,7 +1668,40 @@ export type Settings_Serialize = {
 	 *  current-context). Kept up to date by the backend.
 	 */
 	windows: string[],
+	/**
+	 *  Kubeconfig files and folders added in the catalog (#78), pasted
+	 *  files included. Changed only through the catalog commands.
+	 */
+	kubeconfig_sources: string[],
+	/**
+	 *  Pinned context ids, in order: first in the context selector and the
+	 *  palette.
+	 */
+	favourites: string[],
 };
+
+/**  One source of contexts, for the catalog's list of sources. */
+export type SourceInfo = {
+	path: string,
+	kind: SourceKind,
+	/**  Contexts it brought in (duplicates of earlier sources included). */
+	contexts: number,
+	/**  Kubeconfig files read (a folder may hold several). */
+	files: number,
+	/**  Why it could not be read (`""`: it was read). */
+	error: string,
+};
+
+/**  Where a source of contexts comes from. */
+export type SourceKind = 
+/**  A file of the default kubeconfig (`KUBECONFIG` or `~/.kube/config`). */
+"kubeconfig" | 
+/**  A kubeconfig file the user added. */
+"file" | 
+/**  A folder the user added: every kubeconfig file in it. */
+"folder" | 
+/**  A kubeconfig pasted into the app, saved in its config directory. */
+"pasted";
 
 /**  A downsampled series for a table cell's sparkline. */
 export type Spark = {

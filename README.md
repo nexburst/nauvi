@@ -114,6 +114,19 @@ Svelte) and a CLI, both built on the same Rust core.
   with its context, and has its own watches, logs, terminals and port
   forwards: switching or closing one window leaves the others alone. The
   windows open when you quit are reopened on the next start.
+- **Cluster catalog** (the grid button next to the context selector, or
+  "Go to Cluster catalog" in the palette): every context with its API
+  server, user, source file, last use and status (connected, login failed,
+  certificate problem, unreachable), checked when the catalog opens. Add more
+  kubeconfig files or a folder of them (watched for changes), or paste a
+  kubeconfig (saved as `kubeconfigs/<name>.yaml`, mode 0600, in the app's
+  config directory). Each added file connects on its own; a context whose
+  name is already taken shows up as `name (file name)`. Pin clusters to put
+  them first in the context selector and the palette. Each cluster's
+  Settings page has its display name and colour, default and accessible
+  namespaces, Prometheus Service and the local terminal's working directory.
+  kubeloupe only reads your kubeconfig files; removing an added file or
+  folder leaves it as it is.
 - **Remembers where you were**: the last context, and per context the view
   and namespaces; per kind the table sort and hidden columns (Columns
   button); the detail panel width (drag its left edge). The Settings page

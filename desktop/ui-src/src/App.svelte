@@ -26,6 +26,10 @@
   import HelmConfirm from "./lib/components/helm/HelmConfirm.svelte";
   import { helm } from "./lib/stores/helm.svelte";
   import { HELM_VIEW } from "./lib/helm";
+  import { CATALOG_VIEW } from "./lib/catalog";
+  import CatalogView from "./lib/components/catalog/CatalogView.svelte";
+  import ClusterSettings from "./lib/components/catalog/ClusterSettings.svelte";
+  import { catalog, listenKubeconfigs } from "./lib/stores/catalog.svelte";
   import HelmChartsView from "./lib/components/helm/HelmChartsView.svelte";
   import HelmChartDetail from "./lib/components/helm/HelmChartDetail.svelte";
   import HelmDeployDialog from "./lib/components/helm/HelmDeployDialog.svelte";
@@ -57,6 +61,7 @@
     const unlisten = live.listen();
     const unlistenDrain = listenDrain();
     const unlistenUpdates = listenUpdates();
+    const unlistenKubeconfigs = listenKubeconfigs();
     // The update check waits for the settings (its on/off switch).
     void startApp().then(() => {
       void checkLeftovers();
@@ -66,6 +71,7 @@
       unlisten.then((un) => un());
       unlistenDrain.then((un) => un());
       unlistenUpdates.then((un) => un());
+      unlistenKubeconfigs.then((un) => un());
     };
   });
 
@@ -92,7 +98,7 @@
 <div class="main" class:hidden={dock.maximized}>
   <Sidebar />
   <section class="content">
-    {#if app.view !== "overview" && app.view !== PORT_FORWARDS_VIEW}
+    {#if app.view !== "overview" && app.view !== PORT_FORWARDS_VIEW && app.view !== CATALOG_VIEW}
       <Toolbar />
     {/if}
     <ErrorBanner />
@@ -101,6 +107,8 @@
     <NodeShellLeftovers />
     {#if !app.ready}
       <!-- Restoring the remembered context and namespaces. -->
+    {:else if app.view === CATALOG_VIEW}
+      <CatalogView />
     {:else if app.view === "overview"}
       <Overview />
     {:else if app.view === HELM_VIEW}
@@ -160,6 +168,11 @@
 {/if}
 {#if keyboard.settings}
   <SettingsDialog />
+{/if}
+{#if catalog.settingsFor !== null}
+  {#key catalog.settingsFor}
+    <ClusterSettings id={catalog.settingsFor} />
+  {/key}
 {/if}
 
 <style>
