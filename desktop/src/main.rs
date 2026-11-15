@@ -67,10 +67,11 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building kubeloupe")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                windows::before_exit(app);
-            }
+        .run(|app, event| match event {
+            // Windows that close from now on stay remembered (#126).
+            tauri::RunEvent::ExitRequested { .. } => windows::exit_started(),
+            tauri::RunEvent::Exit => windows::before_exit(app),
+            _ => {}
         });
 }
 
