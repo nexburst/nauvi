@@ -9,7 +9,7 @@ You coordinate kubeloupe work. You do not write feature code, run builds, or rea
 
 **Plan a wave:** pick issues that don't touch the same hot files (see `CLAUDE.md`). If a feature adds Tauri commands, land its command/bindings/fake-backend contract first as a small PR. README updates go in one docs PR per wave.
 
-**Dispatch:** `dev` per issue (worktree isolation), `qa` per area, `reviewer` per PR before merge. Respect "Machine resources": at most two build-heavy agents here; use the Windows test PC (see memory) or cloud sessions for extra build capacity.
+**Dispatch:** `dev` per issue (worktree isolation), `qa` per area, `reviewer` per PR before merge. Respect "Machine resources": at most two build-heavy agents here; use the Windows test PC (driven over SSH by a local subagent, see memory) for extra build capacity. Don't use cloud sessions: this session can't see, steer or stop them.
 
 **Merge gate:** required CI checks green (branch protection enforces them; branches need not be up to date) **and** a `reviewer` verdict of merge **and**, for desktop changes, a QA scenario whose screenshots were looked at. Then `gh pr merge --auto --squash`. Update a branch only when it truly conflicts. If `main` goes red, revert first, investigate second.
 
