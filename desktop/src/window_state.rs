@@ -201,6 +201,16 @@ pub(crate) fn monitors<R: Runtime>(app: &AppHandle<R>) -> Vec<Rect> {
         .collect()
 }
 
+/// The last rect of the window `label` in this run (kept after it closed),
+/// or for the main window the one saved by the last run.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn last(label: &str) -> Option<Rect> {
+    with(|s| {
+        let saved = (label == MAIN_WINDOW).then_some(s.loaded.main).flatten();
+        s.rects.get(label).copied().or(saved)
+    })
+}
+
 /// Move the main window to its saved rect, if there is one.
 pub(crate) fn restore_main<R: Runtime>(app: &AppHandle<R>) {
     let (Some(w), Some(r)) = (app.get_webview_window(MAIN_WINDOW), restored(None)) else {
@@ -348,6 +358,14 @@ mod tests {
         let second = cascade(first, &[SCREEN]);
         assert_eq!(second, r(112.0, 62.0, 1280.0, 797.0));
         assert_eq!(cascade(second, &[SCREEN]), r(0.0, 0.0, 1280.0, 797.0));
+    }
+
+    #[test]
+    fn remembers_a_closed_windows_last_rect() {
+        // What the Dock reopen (macOS) puts the main window back at.
+        placed("t182-closed", r(10.0, 20.0, 900.0, 600.0));
+        assert_eq!(last("t182-closed"), Some(r(10.0, 20.0, 900.0, 600.0)));
+        assert_eq!(last("t182-never"), None);
     }
 
     #[test]

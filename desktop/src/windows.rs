@@ -253,8 +253,20 @@ pub(crate) fn reopen(app: &AppHandle) {
         return;
     };
     app.state::<AppState>().reopen(MAIN_WINDOW);
-    let built =
-        WebviewWindowBuilder::from_config(app, &config).and_then(|b| b.title(title(None)).build());
+    // Where the main window was when it closed (#182).
+    let rect = window_state::last(MAIN_WINDOW)
+        .map(|r| window_state::on_screen(r, &window_state::monitors(app)));
+    let built = WebviewWindowBuilder::from_config(app, &config).and_then(|b| {
+        let b = b.title(title(None));
+        match rect {
+            Some(r) => b.inner_size(r.width, r.height).position(r.x, r.y),
+            None => b,
+        }
+        .build()
+    });
+    if let (Ok(_), Some(r)) = (&built, rect) {
+        window_state::placed(MAIN_WINDOW, r);
+    }
     if let Err(e) = built {
         eprintln!("kubeloupe: could not open a window: {e}");
     }
