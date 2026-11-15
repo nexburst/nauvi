@@ -212,7 +212,7 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
 
   it("Component Statuses (no watch verb) lists and says it is not live", T, async () => {
     const { app } = s;
-    // The label is "Componentstatuses" until the sidebar names are fixed (#96).
+    // Matches the label before and after the sidebar-name fix (#96).
     const label = await app.js(
       `document.querySelectorAll("nav details").forEach((d) => (d.open = true));
        return [...document.querySelectorAll("nav button")]
@@ -227,6 +227,45 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     assert.equal(await app.statusText(), POLLING);
     assert.equal(await bannerText(app), "");
     await app.shot("componentstatuses-polled");
+  });
+
+  it("sidebar names are readable, unique and fit the sidebar (#96)", T, async () => {
+    const { app } = s;
+    await app.js(`document.querySelectorAll("nav details").forEach((d) => (d.open = true))`);
+    const kinds = await app.js(
+      `const nav = document.querySelector("nav").getBoundingClientRect();
+       return Array.from(document.querySelectorAll("nav button.kind"), (b) => {
+         const label = b.querySelector(".label");
+         return {
+           label: label.textContent.trim(),
+           title: b.title,
+           clipped: label.scrollHeight > label.clientHeight + 1 || label.scrollWidth > label.clientWidth + 1,
+           wrapped: label.getClientRects().length > 0 && label.clientHeight > 1.5 * parseFloat(getComputedStyle(label).lineHeight),
+           inside: b.getBoundingClientRect().right <= nav.right + 0.5,
+         };
+       });`,
+    );
+    const labels = kinds.map((k) => k.label);
+    console.log(`sidebar kinds: ${labels.join(", ")}`);
+    const dupes = labels.filter((l, i) => labels.indexOf(l) !== i);
+    assert.deepEqual(dupes, [], "two sidebar entries with the same name");
+    for (const name of ["Component Statuses", "Controller Revisions", "Mutating Admission Policies", "Node Metrics", "Pod Metrics"]) {
+      assert.ok(labels.includes(name), `"${name}" in the sidebar`);
+    }
+    // No run-together plural like "Componentstatuses" or "Csinodes".
+    const runTogether = labels.filter((l) => /^[A-Z][a-z]{13,}$/.test(l) || /^Csi|^Api[a-z]|^Ip[a-z]/.test(l));
+    assert.deepEqual(runTogether, []);
+    // Long names wrap onto a second line; every built-in name fits in full.
+    assert.deepEqual(
+      kinds.filter((k) => !k.inside || k.clipped).map((k) => k.label),
+      [],
+      "every label in full inside the sidebar",
+    );
+    console.log(`wrapped: ${kinds.filter((k) => k.wrapped).map((k) => k.label).join(", ")}`);
+    for (const k of kinds) assert.ok(k.title.startsWith(`${k.label}: `), `tooltip of ${k.label}: ${k.title}`);
+    const long = await app.find(app.navButton("Validating Admission Policy Bindings"));
+    await app.js("arguments[0].scrollIntoView({ block: 'center' })", long);
+    await app.shot("sidebar-names");
   });
 
   it("a new CRD shows under Custom Resources by API group after Refresh", T, async () => {

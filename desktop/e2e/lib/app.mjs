@@ -320,9 +320,11 @@ export class App {
     return (await this.driver.findElement(byTestId("connection-status"))).getText();
   }
 
-  /** The sidebar button of a kind (or Overview), by its label (a count or problem badge may follow it). */
+  /** The sidebar button of a kind (or Overview), by its label (in a span for kinds; a count or problem badge may follow it). */
   navButton(label) {
-    return By.xpath(`//nav//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)}]`);
+    return By.xpath(
+      `//nav//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)} or normalize-space(span[1])=${xq(label)}]`,
+    );
   }
 
   /** Click a kind (or Overview) in the sidebar. */
