@@ -4,12 +4,21 @@
   import { app } from "../../stores/app.svelte";
   import { checkHelm, helm, loadReleases, resetHelmView, selectRelease } from "../../stores/helm.svelte";
   import { ageOf, chartLabel, releaseKey, statusClass, visibleReleases } from "../../helm";
+  import { watchGutter } from "../../scrollGutter";
 
   /** The Helm releases table. Rows come from labels; charts fill in after. */
 
   const ROW_HEIGHT = 32;
   const template = "minmax(140px, 2fr) minmax(100px, 1fr) 80px minmax(140px, 1.5fr) 110px 120px 80px";
   const HEADERS = ["Name", "Namespace", "Revision", "Chart", "App version", "Status", "Updated"];
+
+  // The header leaves the space the rows' scrollbar takes, so its columns
+  // stay over the cells (#123).
+  let scrollEl = $state<HTMLDivElement | null>(null);
+  let gutter = $state(0);
+  $effect(() => {
+    if (scrollEl) return watchGutter(scrollEl, (px) => (gutter = px));
+  });
 
   let now = $state(Date.now());
   onMount(() => {
@@ -47,12 +56,12 @@
   {/each}
 
   <div class="grid" role="grid" aria-label="Helm releases" aria-rowcount={visible.length + 1}>
-    <div class="head" role="row" style:grid-template-columns={template}>
+    <div class="head" role="row" style:grid-template-columns={template} style:padding-right="{gutter}px">
       {#each HEADERS as h (h)}
         <div class="th" role="columnheader">{h}</div>
       {/each}
     </div>
-    <VirtualList count={visible.length} rowHeight={ROW_HEIGHT} {getKey}>
+    <VirtualList count={visible.length} rowHeight={ROW_HEIGHT} {getKey} bind:scrollEl>
       {#snippet row(i)}
         {@const r = visible[i]}
         {#if r}
@@ -111,6 +120,10 @@
   .grid {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    /* Columns wider than the table are cut off here, like the rows in the
+       scroller; unclipped, the header paints over the detail panel (#123). */
+    overflow: hidden;
     display: flex;
     flex-direction: column;
   }
@@ -118,7 +131,6 @@
     display: grid;
     height: 28px;
     flex-shrink: 0;
-    padding-right: 15px;
     border-bottom: 1px solid var(--border);
     align-items: center;
   }
