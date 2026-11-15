@@ -1,8 +1,11 @@
-//! Changing releases through the `helm` CLI: rollback and uninstall.
+//! Changing releases through the `helm` CLI: rollback and uninstall (and,
+//! through [`run_helm_with_input`], the `repo` and `deploy` modules).
 //!
 //! Reading releases is native (see the parent module); writing them is left
 //! to Helm itself, which knows how to render, hook and record a revision.
-//! The binary is `helm` on `PATH`, or `KUBELOUPE_HELM` if set.
+//! The binary is `helm` on `PATH`, or `KUBELOUPE_HELM` if set. Helm reads its
+//! repositories from its own configuration (`HELM_REPOSITORY_CONFIG`,
+//! `HELM_CONFIG_HOME`, ...), which the child process inherits.
 
 use super::check_release_name;
 use anyhow::{anyhow, bail, Result};
@@ -23,7 +26,7 @@ pub struct HelmTarget {
 }
 
 impl HelmTarget {
-    fn args(&self) -> Vec<String> {
+    pub(crate) fn args(&self) -> Vec<String> {
         let mut out = Vec::new();
         if let Some(ctx) = &self.context {
             out.push("--kube-context".to_string());
@@ -44,7 +47,7 @@ fn helm_binary() -> String {
         .unwrap_or_else(|| "helm".to_string())
 }
 
-const NOT_INSTALLED: &str = "helm is not installed or not on PATH. Install it (https://helm.sh/docs/intro/install/) to roll back or uninstall releases.";
+const NOT_INSTALLED: &str = "helm is not installed or not on PATH. Install it (https://helm.sh/docs/intro/install/) to install, upgrade, roll back or uninstall releases and to browse charts.";
 
 /// Helm's own error text without its `Error: ` prefix, else the exit status.
 fn failure_text(stderr: &str, status: std::process::ExitStatus) -> String {
@@ -58,11 +61,34 @@ fn failure_text(stderr: &str, status: std::process::ExitStatus) -> String {
 }
 
 async fn run_helm(args: &[String]) -> Result<String> {
+    run_helm_with_input(args, None).await
+}
+
+/// Run helm with `args`, writing `input` to its stdin (for `--values -`).
+/// Returns its stdout, trimmed; fails with helm's own error text.
+pub(crate) async fn run_helm_with_input(args: &[String], input: Option<&str>) -> Result<String> {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
     let mut cmd = Command::new(helm_binary());
     cmd.args(args)
-        .stdin(std::process::Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .kill_on_drop(true);
-    let out = match tokio::time::timeout(HELM_TIMEOUT, cmd.output()).await {
+    let run = async {
+        let mut child = cmd.spawn()?;
+        if let (Some(text), Some(mut stdin)) = (input, child.stdin.take()) {
+            // A helm that exits early closes the pipe; its stderr says why.
+            let _ = stdin.write_all(text.as_bytes()).await;
+            drop(stdin);
+        }
+        child.wait_with_output().await
+    };
+    let out = match tokio::time::timeout(HELM_TIMEOUT, run).await {
         Err(_) => bail!("helm did not finish within {} s", HELM_TIMEOUT.as_secs()),
         Ok(Err(e)) if e.kind() == std::io::ErrorKind::NotFound => bail!(NOT_INSTALLED),
         Ok(Err(e)) => return Err(anyhow!(e).context("cannot run helm")),
@@ -96,7 +122,7 @@ fn uninstall_args(target: &HelmTarget, namespace: &str, name: &str) -> Vec<Strin
     args
 }
 
-fn check_namespace(namespace: &str) -> Result<()> {
+pub(crate) fn check_namespace(namespace: &str) -> Result<()> {
     if namespace.is_empty() || namespace.starts_with('-') {
         bail!("{namespace:?} is not a valid namespace");
     }

@@ -7,6 +7,7 @@
   import { chartLabel, rollbackTargets, statusClass } from "../../helm";
   import { kindOf, openObject } from "../../stores/app.svelte";
   import { helm, requestHelmAction, selectRelease } from "../../stores/helm.svelte";
+  import { openDeploy } from "../../stores/helmCharts.svelte";
   import type { HelmSelection } from "../../stores/helm.svelte";
   import { registerTabs } from "../../stores/keyboard.svelte";
 
@@ -79,6 +80,28 @@
     rollback(to);
   }
 
+  /** Upgrade from the newest revision: its chart, version and user values. */
+  async function upgrade() {
+    if (!release) return;
+    let current = release;
+    if (!isNewest) {
+      try {
+        current = await commands.cmdHelmGet(release.namespace, release.name, 0, false);
+      } catch (e) {
+        loadError = String(e);
+        return;
+      }
+    }
+    openDeploy({
+      mode: "upgrade",
+      chart: current.chart,
+      version: current.chart_version,
+      namespace: current.namespace,
+      name: current.name,
+      values: current.values,
+    });
+  }
+
   function uninstall() {
     if (!release) return;
     requestHelmAction({
@@ -119,6 +142,13 @@
       disabled={!canRollback || !!helmBlocked}
       title={helmBlocked || (canRollback ? "Roll back with helm" : "There is no other revision to roll back to")}
       onclick={rollbackDefault}>{isNewest || !release ? "Rollback…" : `Roll back to ${release.revision}…`}</button
+    >
+    <button
+      type="button"
+      class="btn"
+      disabled={!release || !!helmBlocked}
+      title={helmBlocked || "Upgrade with edited values or another chart version (dry run first)"}
+      onclick={upgrade}>Upgrade…</button
     >
     <button
       type="button"

@@ -24,6 +24,11 @@
   import HelmConfirm from "./lib/components/helm/HelmConfirm.svelte";
   import { helm } from "./lib/stores/helm.svelte";
   import { HELM_VIEW } from "./lib/helm";
+  import HelmChartsView from "./lib/components/helm/HelmChartsView.svelte";
+  import HelmChartDetail from "./lib/components/helm/HelmChartDetail.svelte";
+  import HelmDeployDialog from "./lib/components/helm/HelmDeployDialog.svelte";
+  import { charts } from "./lib/stores/helmCharts.svelte";
+  import { HELM_CHARTS_VIEW } from "./lib/helmCharts";
   import { dock } from "./lib/stores/dock.svelte";
   import { isPod } from "./lib/columns";
   import {
@@ -89,6 +94,8 @@
       <Overview />
     {:else if app.view === HELM_VIEW}
       <HelmView />
+    {:else if app.view === HELM_CHARTS_VIEW}
+      <HelmChartsView />
     {:else if app.view === PORT_FORWARDS_VIEW}
       <PortForwards />
     {:else if kind}
@@ -113,11 +120,21 @@
       <HelmDetail target={helm.selected} />
     {/key}
   {/if}
+  {#if app.view === HELM_CHARTS_VIEW && charts.selected}
+    {#key charts.selected}
+      <HelmChartDetail chart={charts.selected} />
+    {/key}
+  {/if}
 </div>
 <Dock />
 <Footer />
 <ActionDialog />
 <HelmConfirm />
+{#if charts.deploy}
+  {#key charts.deploy}
+    <HelmDeployDialog target={charts.deploy} />
+  {/key}
+{/if}
 {#if createUi.open}
   <CreateDialog />
 {/if}

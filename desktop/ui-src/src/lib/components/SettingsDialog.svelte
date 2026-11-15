@@ -7,6 +7,8 @@
   import { currentContextName } from "../stores/app.svelte";
   import { closeSettings } from "../stores/keyboard.svelte";
   import { applyAppearance, contextSettings, settings, updateContext, updateSettings } from "../stores/settings.svelte";
+  import HelmRepos from "./helm/HelmRepos.svelte";
+  import { loadCharts } from "../stores/helmCharts.svelte";
 
   /** The Settings page (gear in the header, Mod+, or the palette). Every
    *  change applies and is saved at once. */
@@ -63,7 +65,10 @@
     await checkPrometheus(false);
   }
 
-  onMount(() => void checkPrometheus(false));
+  onMount(() => {
+    void checkPrometheus(false);
+    void loadCharts();
+  });
 
   function focus(node: HTMLElement) {
     node.focus();
@@ -163,6 +168,12 @@
         Usage charts show 1h, 6h and 24h from Prometheus, through the API server's service proxy. Leave empty to detect
         it, type namespace/service:port to choose one, or off to use only metrics-server.
       </p>
+    </fieldset>
+
+    <fieldset data-testid="helm-repo-settings">
+      <legend>Helm repositories</legend>
+      <HelmRepos />
+      <p class="muted hint">Shared with the helm command line (its repositories.yaml). Charts are under Helm → Charts.</p>
     </fieldset>
 
     <fieldset>

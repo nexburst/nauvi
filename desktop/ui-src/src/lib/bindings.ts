@@ -228,6 +228,36 @@ export const commands = {
 	cmdHelmRollback: (namespace: string, name: string, revision: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_rollback", { namespace, name, revision }, options),
 	/**  `helm uninstall <name>`; returns a short summary. */
 	cmdHelmUninstall: (namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_uninstall", { namespace, name }, options),
+	/**  The configured chart repositories. */
+	cmdHelmRepoList: (options?: InvokeOptions) => __TAURI_INVOKE<HelmRepo[]>("cmd_helm_repo_list", undefined, options),
+	/**  `helm repo add`; returns a short summary. */
+	cmdHelmRepoAdd: (name: string, url: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_repo_add", { name, url }, options),
+	/**  `helm repo remove`; returns a short summary. */
+	cmdHelmRepoRemove: (name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_repo_remove", { name }, options),
+	/**
+	 *  `helm repo update` for `names` (empty: all). Unreachable repositories
+	 *  come back in `failed`.
+	 */
+	cmdHelmRepoUpdate: (names: string[], options?: InvokeOptions) => __TAURI_INVOKE<HelmRepoUpdate>("cmd_helm_repo_update", { names }, options),
+	/**
+	 *  Charts in the repositories matching `query`: the newest version of
+	 *  each, or every version with `all_versions`.
+	 */
+	cmdHelmSearch: (query: string, allVersions: boolean, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_search", { query, allVersions }, options),
+	/**
+	 *  Every version of `chart` (`repo/chart`, or a bare name in any
+	 *  repository), newest first.
+	 */
+	cmdHelmChartVersions: (chart: string, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_chart_versions", { chart }, options),
+	/**
+	 *  A chart version's metadata, README and default values (`version` empty:
+	 *  the newest).
+	 */
+	cmdHelmChartShow: (chart: string, version: string, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartDetails>("cmd_helm_chart_show", { chart, version }, options),
+	/**  `helm install` (or its dry run) into the window's cluster. */
+	cmdHelmInstall: (request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_install", { request }, options),
+	/**  `helm upgrade` (or its dry run) of a release in the window's cluster. */
+	cmdHelmUpgrade: (request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_upgrade", { request }, options),
 	/**  The settings, as loaded on start and changed since. */
 	cmdGetSettings: (options?: InvokeOptions) => __TAURI_INVOKE<Settings_Serialize>("cmd_get_settings", undefined, options),
 	/**
@@ -651,6 +681,21 @@ export type ForwardTarget = {
 	name: string,
 };
 
+/**  What `helm show` tells about one chart version. */
+export type HelmChartDetails = {
+	/**  `repo/chart`, as asked. */
+	chart: string,
+	version: string,
+	app_version: string,
+	description: string,
+	/**  The chart's home page; empty if it names none. */
+	home: string,
+	/**  `README.md`; empty if the chart has none. */
+	readme: string,
+	/**  The chart's default `values.yaml`. */
+	values: string,
+};
+
 /**  The chart of one revision, for the list's chart columns. */
 export type HelmChartInfo = {
 	namespace: string,
@@ -661,6 +706,63 @@ export type HelmChartInfo = {
 	app_version: string,
 	/**  Why the payload could not be read; empty on success. */
 	error: string,
+};
+
+/**  One version of a chart in a repository, as `helm search repo` lists it. */
+export type HelmChartVersion = {
+	/**  `repo/chart`. */
+	name: string,
+	version: string,
+	app_version: string,
+	description: string,
+};
+
+/**  What to install or upgrade, and how. */
+export type HelmDeployRequest = {
+	/**  The release name. */
+	name: string,
+	namespace: string,
+	/**  `repo/chart` (or a chart directory or archive, from the CLI). */
+	chart: string,
+	/**  The chart version; empty for the newest. */
+	version: string,
+	/**
+	 *  The user values as YAML: on an upgrade they replace the release's
+	 *  values (`--reset-values`). Empty: the chart defaults.
+	 */
+	values: string,
+	/**  Install only: create the namespace if it does not exist. */
+	create_namespace: boolean,
+	/**
+	 *  Render and validate against the cluster (`--dry-run=server`) without
+	 *  changing anything.
+	 */
+	dry_run: boolean,
+	/**  Show Secret values in the returned manifest. */
+	reveal: boolean,
+};
+
+/**  The release helm installed, upgraded or (dry run) would have. */
+export type HelmDeployResult = {
+	name: string,
+	namespace: string,
+	revision: number,
+	/**  `deployed`, or `pending-install` / `pending-upgrade` for a dry run. */
+	status: string,
+	chart: string,
+	chart_version: string,
+	app_version: string,
+	notes: string,
+	/**
+	 *  The rendered manifest (without hooks, like a stored release's);
+	 *  Secret values hidden unless revealed.
+	 */
+	manifest: string,
+	secrets_hidden: boolean,
+	resources: HelmResource[],
+	dry_run: boolean,
+	/**  One line for a notice. */
+	summary: string,
 };
 
 /**  One revision of a release, decoded. */
@@ -711,6 +813,23 @@ export type HelmReleaseRow = {
 	storage: HelmStorage,
 	/**  Every stored revision, newest first. */
 	history: HelmRevision[],
+};
+
+/**  One configured chart repository. */
+export type HelmRepo = {
+	name: string,
+	url: string,
+};
+
+/**
+ *  The outcome of `helm repo update`: helm reports an unreachable
+ *  repository but carries on with the others.
+ */
+export type HelmRepoUpdate = {
+	/**  The repositories whose index was downloaded. */
+	updated: string[],
+	/**  One plain sentence per repository that could not be updated. */
+	failed: string[],
 };
 
 /**  One object of a release's manifest. */
