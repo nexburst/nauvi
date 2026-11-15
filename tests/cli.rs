@@ -157,7 +157,7 @@ fn cli_yaml_of_a_deployment() {
 #[ignore]
 fn cli_describe_shows_failed_scheduling() {
     let out = on_cluster(&["describe", "pod/hungry", "-n", "default"]);
-    assert!(out.starts_with("Name:           hungry\n"), "{out}");
+    assert!(out.starts_with("Name:            hungry\n"), "{out}");
     assert!(out.contains("PodScheduled  False"), "{out}");
     assert!(out.contains("FailedScheduling"), "{out}");
     assert!(out.contains("Containers:\n  hungry:\n    Image:"), "{out}");
