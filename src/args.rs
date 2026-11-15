@@ -8,7 +8,11 @@ use kubeloupe::OutputFormat;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(name = "kubeloupe", about = "A Lens alternative written in Rust")]
+#[command(
+    name = "kubeloupe",
+    version,
+    about = "A Lens alternative written in Rust"
+)]
 pub struct Cli {
     /// Kubeconfig context to use (default: the current context)
     #[arg(long, global = true, value_name = "NAME")]
