@@ -13,7 +13,8 @@ const saved = (page: Page, id: string) =>
 
 async function openSettingsFor(page: Page, id: string) {
   await page.getByRole("button", { name: "Cluster catalog" }).click();
-  await page.getByRole("button", { name: `Settings for ${id}`, exact: true }).click();
+  await page.getByRole("button", { name: `More actions for ${id}`, exact: true }).click();
+  await page.getByRole("menuitem", { name: "Settings…" }).click();
   await expect(dialog(page)).toBeVisible();
 }
 

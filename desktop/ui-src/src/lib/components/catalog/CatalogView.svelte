@@ -1,7 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { ContextInfo, SourceInfo } from "../../bindings";
-  import { displayName, filterContexts, lastUsedText, orderContexts, SOURCE_LABELS, STATE_LABELS } from "../../catalog";
+  import {
+    displayName,
+    filterContexts,
+    lastUsedText,
+    orderContexts,
+    pathParts,
+    SOURCE_LABELS,
+    STATE_LABELS,
+  } from "../../catalog";
   import { app, openContextWindow, switchContext } from "../../stores/app.svelte";
   import {
     catalog,
@@ -17,6 +25,8 @@
   import { contextSettings, settings } from "../../stores/settings.svelte";
   import { confirmDiscard } from "../../stores/unsaved.svelte";
   import AddSource from "./AddSource.svelte";
+  import ContextMenu from "../ContextMenu.svelte";
+  import type { MenuItem } from "../ContextMenu.svelte";
 
   /** The cluster catalog (#78): every context from every kubeconfig source,
    *  with its status, pin, source file and last use. Opening it checks
@@ -26,6 +36,8 @@
   /** The source a Remove is waiting to be confirmed for. */
   let removing = $state<SourceInfo | null>(null);
   const now = Date.now();
+  /** The row's "More actions" menu (#179): where it opens and what it offers. */
+  let menu = $state<{ x: number; y: number; title: string; items: MenuItem[]; context: string } | null>(null);
 
   onMount(() => {
     void loadSources();
@@ -61,6 +73,23 @@
   }
 
   const removable = (s: SourceInfo) => s.kind !== "kubeconfig";
+
+  /** Open (or close) the row's menu below its "More" button. */
+  function showMenu(e: MouseEvent, c: ContextInfo, name: string) {
+    if (menu?.context === c.name) {
+      menu = null;
+      return;
+    }
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const source = c.source;
+    const items: MenuItem[] = [
+      { label: "Open in new window", run: () => void openContextWindow(c.name) },
+      { label: "Check connection", run: () => void checkContext(c.name) },
+      { label: "Settings…", run: () => openClusterSettings(c.name) },
+    ];
+    if (source) items.push({ label: "Remove source…", danger: true, run: () => askRemove(source) });
+    menu = { x: r.left, y: r.bottom + 2, title: name, items, context: c.name };
+  }
 </script>
 
 <div class="catalog" data-testid="catalog">
@@ -104,14 +133,24 @@
       No contexts yet. Add a kubeconfig file or folder, or paste a kubeconfig, to connect to a cluster.
     </p>
   {:else}
+    <!-- Fixed columns (#179): long text is cut or wrapped inside its column
+         instead of pushing the actions out of the window. -->
     <table aria-label="Clusters">
+      <colgroup>
+        <col class="c-pin" />
+        <col class="c-name" />
+        <col class="c-status" />
+        <col class="c-server" />
+        <col class="c-source" />
+        <col class="c-used" />
+        <col class="c-actions" />
+      </colgroup>
       <thead>
         <tr>
           <th><span class="hidden">Pinned</span></th>
           <th>Name</th>
           <th>Status</th>
-          <th>Server</th>
-          <th>User</th>
+          <th>Server · user</th>
           <th>Source</th>
           <th>Last used</th>
           <th><span class="hidden">Actions</span></th>
@@ -153,16 +192,21 @@
                   title={check.message || check.version}>{STATE_LABELS[check.state]}</span
                 >
                 {#if check.state !== "connected"}
-                  <div class="why muted" data-testid="catalog-status-message">{check.message}</div>
+                  <div class="why muted" data-testid="catalog-status-message" title={check.message}>{check.message}</div>
                 {/if}
               {:else}
                 <span class="muted">Not checked</span>
               {/if}
             </td>
-            <td class="mono wrap">{c.server || "—"}</td>
-            <td class="mono">{c.user || "—"}</td>
-            <td class="mono source" title={c.file}>
-              {c.file}
+            <td class="mono">
+              <div class="clip" data-testid="catalog-server" title={c.server || undefined}>{c.server || "—"}</div>
+              <div class="clip muted user" data-testid="catalog-user" title={c.user || undefined}>{c.user || "—"}</div>
+            </td>
+            <td class="mono" data-testid="catalog-file" title={c.file}>
+              <!-- Wraps between folders only (#179). -->
+              <div class="source">
+                {#each pathParts(c.file) as part, i (i)}<span class="part">{part}</span><wbr />{/each}
+              </div>
               {#if c.source}
                 <div class="muted kind">
                   {SOURCE_LABELS[catalog.sources.find((s) => s.path === c.source)?.kind ?? "file"]}
@@ -177,34 +221,23 @@
                 >
                 <button
                   type="button"
-                  class="btn"
-                  aria-label="Open {name} in new window"
-                  onclick={() => openContextWindow(c.name)}>New window</button
+                  class="btn more"
+                  aria-label="More actions for {name}"
+                  title="New window, check, settings, remove"
+                  aria-haspopup="menu"
+                  aria-expanded={menu?.context === c.name}
+                  onclick={(e) => showMenu(e, c, name)}>⋯</button
                 >
-                <button
-                  type="button"
-                  class="btn"
-                  aria-label="Check {name}"
-                  disabled={check === "checking"}
-                  onclick={() => checkContext(c.name)}>Check</button
-                >
-                <button
-                  type="button"
-                  class="btn"
-                  aria-label="Settings for {name}"
-                  onclick={() => openClusterSettings(c.name)}>Settings</button
-                >
-                {#if c.source}
-                  <button type="button" class="btn" aria-label="Remove {name}'s source" onclick={() => askRemove(c.source)}
-                    >Remove</button
-                  >
-                {/if}
               </div>
             </td>
           </tr>
         {/each}
       </tbody>
     </table>
+  {/if}
+
+  {#if menu}
+    <ContextMenu x={menu.x} y={menu.y} title={menu.title} items={menu.items} onclose={() => (menu = null)} />
   {/if}
 
   <h3>Kubeconfig sources</h3>
@@ -279,9 +312,37 @@
   }
   table {
     font-size: 13px;
+    table-layout: fixed;
+    min-width: 860px;
+  }
+  .c-pin {
+    width: 32px;
+  }
+  .c-name {
+    width: 16%;
+  }
+  .c-status {
+    width: 18%;
+  }
+  .c-server {
+    width: 20%;
+  }
+  .c-source {
+    width: 22%;
+  }
+  .c-used {
+    width: 10%;
+  }
+  .c-actions {
+    width: 108px;
   }
   td {
     vertical-align: top;
+    overflow: hidden;
+  }
+  th {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   tr.current {
     background: var(--bg-hover);
@@ -301,8 +362,11 @@
   }
   .name {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
+    gap: 2px 6px;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .swatch {
     width: 10px;
@@ -315,9 +379,15 @@
   .why {
     font-size: 11px;
   }
+  /* Two lines at most; the full message is in the tooltip (#179). */
   .why {
     white-space: normal;
-    max-width: 280px;
+    overflow-wrap: break-word;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
   }
   .badge {
     font-size: 10px;
@@ -338,22 +408,30 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
     font-size: 12px;
   }
-  .wrap,
+  /* One line, cut with an ellipsis; the full text is in the tooltip (#179). */
+  .clip {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .user {
+    font-size: 11px;
+    margin-top: 2px;
+  }
+  /* Breaks only at the <wbr> after each folder, never inside a name. */
   .source {
     white-space: normal;
-    overflow-wrap: anywhere;
   }
-  .wrap {
-    max-width: 200px;
-  }
-  .source {
-    max-width: 260px;
+  .source .part {
+    white-space: nowrap;
   }
   .actions {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 4px;
-    max-width: 230px;
+  }
+  .more {
+    padding-inline: 8px;
   }
   .sources {
     list-style: none;

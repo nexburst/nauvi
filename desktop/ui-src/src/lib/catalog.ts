@@ -87,6 +87,14 @@ export function filterContexts<T extends ContextInfo>(
   );
 }
 
+/**
+ * A path cut after each `/` or `\`, so the catalog can let it wrap only
+ * between folders, never inside a name (#179). Joined, the parts are `path`.
+ */
+export function pathParts(path: string): string[] {
+  return path.match(/[^/\\]*[/\\]|[^/\\]+$/g) ?? [path];
+}
+
 /** Run `fn` on every item, at most `limit` at a time. */
 export async function runLimited<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>) {
   let next = 0;
