@@ -242,6 +242,9 @@ pub async fn exec_in_pod(
     )
     .await?;
     print!("{}", result.stdout);
+    // stdout is line-buffered: without this, output that doesn't end with a
+    // newline would only appear at exit, after our `error:` line on stderr.
+    std::io::Write::flush(&mut std::io::stdout())?;
     eprint!("{}", result.stderr);
     if result.success {
         return Ok(());
