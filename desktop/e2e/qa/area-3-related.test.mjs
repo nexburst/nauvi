@@ -378,12 +378,16 @@ describe("area 3: related objects and Access Control sections (#64, #87)", { tim
     await waitRelatedGroup(app, "Role bindings");
     await logPanel(app, "Role");
     await followFirst(app, "Role bindings", (n) => `RoleBinding ${ns}/${n}`);
+    await app.waitFor(async () => (await relatedGroups(app)).some((g) => g.links.includes("qa-sa")), {
+      message: "the RoleBinding's subjects",
+    });
     const groups = await logPanel(app, "RoleBinding");
     const sa = groups.find((g) => g.links.includes("qa-sa"));
     assert.ok(sa, "a group linking qa-sa");
     assert.ok(groups.some((g) => g.rows.some((r) => r.includes("qa-area3-user"))), "the User subject is listed");
     await openRelated(app, sa.title, "qa-sa");
     await waitPanelTitle(app, `ServiceAccount ${ns}/qa-sa`);
+    await waitRelatedGroup(app, "Cluster role bindings");
     const saGroups = await logPanel(app, "ServiceAccount");
     for (const t of ["Role bindings", "Cluster role bindings"]) assert.ok(titles(saGroups).includes(t), `group ${t}`);
     assert.ok(
@@ -392,7 +396,10 @@ describe("area 3: related objects and Access Control sections (#64, #87)", { tim
     );
     await openRelated(app, "Role bindings", "qa-rb");
     await waitPanelTitle(app, `RoleBinding ${ns}/qa-rb`);
-    const back = (await relatedGroups(app)).find((g) => g.links.includes("qa-role"));
+    const back = await app.waitFor(
+      async () => (await relatedGroups(app)).find((g) => g.links.includes("qa-role")),
+      { message: "the RoleBinding's Role" },
+    );
     await openRelated(app, back.title, "qa-role");
     await waitPanelTitle(app, `Role ${ns}/qa-role`);
   });
