@@ -59,12 +59,40 @@ Keep these somewhere safe outside git; the repo is public.
 
 | What | Where it lives | If lost |
 |---|---|---|
-| Tauri updater signing key + password (`cargo tauri signer generate`) | a password manager; a copy is in the repo's Actions secrets (usable by CI, not readable) | installed apps can't verify updates signed with a new key: they would need a manual reinstall |
+| Tauri updater signing key + password (`cargo tauri signer generate`) | 1Password, vault `dev` (see below); a copy is in the repo's Actions secrets (usable by CI, not readable) | installed apps can't verify updates signed with a new key: they would need a manual reinstall |
 | SSH keys, `gh` login | password manager / regenerate | re-create and re-authorize |
 | Claude Code memory notes and machine-specific details (other test machines, addresses) | the maintainer's private backup | agents relearn lessons; `CLAUDE.md` and `docs/decisions/` hold the important ones |
 | Conversation transcripts | local only | not needed: issues and PRs are the record |
 
-## 6. Other test machines
+## 6. Secrets with 1Password
+
+The maintainer keeps secrets in 1Password, vault `dev`:
+
+- `kubeloupe updater key` (document): the minisign private key, encrypted
+- `kubeloupe updater key password` (password, field `password`)
+
+Install the 1Password desktop app and CLI (`op`), sign in in the app, and turn
+on **Settings → Developer → Integrate with 1Password CLI**. Then every `op`
+command asks the maintainer to approve it in the app: agents can run commands
+that *use* a secret, but never see it and never run them unapproved.
+
+Examples:
+
+```sh
+# Re-upload the CI signing secrets (e.g. after rotating the key)
+op document get "kubeloupe updater key" --vault dev | gh secret set TAURI_SIGNING_PRIVATE_KEY
+op read "op://dev/kubeloupe updater key password/password" | gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+
+# Sign a local build with the updater key, without writing it to disk
+TAURI_SIGNING_PRIVATE_KEY="$(op document get 'kubeloupe updater key' --vault dev)" \
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(op read 'op://dev/kubeloupe updater key password/password')" \
+  cargo tauri build
+```
+
+Never paste the 1Password Secret Key or account password into a terminal or
+chat that an agent can read; only the 1Password app should see them.
+
+## 7. Other test machines
 
 A Windows machine reachable over SSH works as the Windows test PC (build,
 unit tests, WebDriver runs against WebView2): install Git, the Visual Studio
