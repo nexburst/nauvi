@@ -1,5 +1,6 @@
 import type { Column, Ctx, Row } from "./columns";
 import type { Entry } from "./stores/keyed.svelte";
+import { matchesStatus } from "./workloads";
 
 export interface Sort {
   key: string;
@@ -9,7 +10,8 @@ export interface Sort {
 const cmp = <V extends string | number>(a: V, b: V): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /**
- * Filter by the search text and sort. Without an explicit sort rows are in
+ * Filter by the search text and the status filter (`status`, a
+ * `ResourceRow.status`; `""` = any), and sort. Without an explicit sort rows are in
  * key order (`namespace/name`), as in the old UI.
  */
 export function visibleEntries(
@@ -18,9 +20,13 @@ export function visibleEntries(
   sort: Sort | null,
   columns: Column[],
   ctx: Ctx,
+  status = "",
 ): Entry<Row>[] {
   const q = search.trim().toLowerCase();
-  const filtered = q ? entries.filter((e) => e.hay.includes(q)) : entries.slice();
+  const filtered =
+    q || status
+      ? entries.filter((e) => matchesStatus(e.row, status) && (!q || e.hay.includes(q)))
+      : entries.slice();
   const col = sort ? columns.find((c) => c.key === sort.key) : undefined;
   if (!col || !sort) {
     return filtered.sort((a, b) => cmp(a.key, b.key));

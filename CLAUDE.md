@@ -135,6 +135,10 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
 - `tests/helm_cluster.rs` needs `helm` (on `PATH`, or the binary in
   `KUBELOUPE_HELM`); it skips without it, except in CI. It installs
   `scripts/test-cluster/charts/demo-chart` in a temporary namespace.
+  `tests/helm_charts_cluster.rs` serves that chart as a repository on
+  127.0.0.1 and sets `HELM_CONFIG_HOME`/`HELM_CACHE_HOME`/`HELM_DATA_HOME` to
+  temporary directories: tests must never change the developer's own helm
+  repositories.
 - The demo objects are shared: don't change `demo/web`, `demo/logger`,
   `demo/crashed`, `demo/multi` or `default/hungry`.
 - Node-level tests (cordon, drain) affect the whole cluster. They restore the

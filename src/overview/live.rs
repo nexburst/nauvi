@@ -58,7 +58,7 @@ pub fn watch_overview(
     .boxed()
 }
 
-type Keyed<T> = (String, T);
+pub(super) type Keyed<T> = (String, T);
 
 enum Msg {
     Pods(Update<Keyed<PodSummary>>),
@@ -70,11 +70,11 @@ enum Msg {
 
 /// Watch config for the overview: the initial list may come from the API
 /// server's watch cache (`resourceVersion=0`) instead of etcd.
-fn config() -> watcher::Config {
+pub(super) fn config() -> watcher::Config {
     watcher::Config::default().any_semantic()
 }
 
-fn api<K>(client: &Client, namespace: Option<&str>) -> Api<K>
+pub(super) fn api<K>(client: &Client, namespace: Option<&str>) -> Api<K>
 where
     K: kube::Resource<Scope = k8s_openapi::NamespaceResourceScope, DynamicType = ()>,
 {
@@ -141,22 +141,22 @@ fn usage_stream(client: &Client) -> BoxStream<'static, Msg> {
 }
 
 /// One watched part of the overview.
-struct Part<T> {
+pub(super) struct Part<T> {
     what: &'static str,
     namespaced: bool,
-    items: HashMap<String, T>,
+    pub(super) items: HashMap<String, T>,
     /// The namespace it was narrowed to after a 403 across the cluster.
-    scope: Option<String>,
+    pub(super) scope: Option<String>,
     /// The first full list arrived.
     synced: bool,
     /// Refused everywhere it was tried: left out.
-    denied: bool,
+    pub(super) denied: bool,
     /// The watch is failing and retrying.
-    error: Option<String>,
+    pub(super) error: Option<String>,
 }
 
 impl<T> Part<T> {
-    fn new(what: &'static str, namespaced: bool) -> Self {
+    pub(super) fn new(what: &'static str, namespaced: bool) -> Self {
         Self {
             what,
             namespaced,
@@ -170,7 +170,7 @@ impl<T> Part<T> {
 
     /// Fold in an update. Returns whether the items changed, or `Err` if
     /// the watch was refused (and has ended).
-    fn apply(&mut self, update: Update<Keyed<T>>) -> Result<bool, ()> {
+    pub(super) fn apply(&mut self, update: Update<Keyed<T>>) -> Result<bool, ()> {
         match update {
             Update::Snapshot(items) => {
                 self.items = items.into_iter().collect();
@@ -200,7 +200,7 @@ impl<T> Part<T> {
     /// After a 403: narrow to `fallback` (returns true: start a watch
     /// there) or, if that was already tried or the part is cluster-scoped,
     /// leave the part out.
-    fn refused(&mut self, fallback: &str) -> bool {
+    pub(super) fn refused(&mut self, fallback: &str) -> bool {
         self.items.clear();
         self.synced = false;
         self.error = None;
@@ -213,7 +213,7 @@ impl<T> Part<T> {
         }
     }
 
-    fn ready(&self) -> bool {
+    pub(super) fn ready(&self) -> bool {
         self.synced || self.denied
     }
 
@@ -222,7 +222,7 @@ impl<T> Part<T> {
     }
 
     /// Why the part is narrowed or missing, if it is.
-    fn note(&self, fallback: &str) -> Option<String> {
+    pub(super) fn note(&self, fallback: &str) -> Option<String> {
         let what = self.what;
         match (self.denied, self.namespaced, &self.scope) {
             (true, true, _) => Some(format!(
@@ -241,7 +241,7 @@ impl<T> Part<T> {
 }
 
 /// Drop the oldest events beyond [`MAX_EVENTS_KEPT`].
-fn trim_events(events: &mut HashMap<String, EventInfo>) {
+pub(super) fn trim_events(events: &mut HashMap<String, EventInfo>) {
     if events.len() <= MAX_EVENTS_KEPT {
         return;
     }

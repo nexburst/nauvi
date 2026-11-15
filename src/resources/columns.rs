@@ -905,6 +905,9 @@ pub fn make_row(r: &ResourceRef, columns: &[ColumnDef], obj: &DynamicObject) -> 
         namespace,
         created,
         cells,
+        status: super::classify(&r.group, &r.kind, &value)
+            .map(|s| s.as_str().to_string())
+            .unwrap_or_default(),
     }
 }
 #[cfg(test)]

@@ -55,7 +55,7 @@ test("coming back to the overview starts one new feed in the current namespace",
   // The namespace control is in the toolbar of the table views.
   await openKind(page, "Pods");
   await toggleNamespaces(page, "demo");
-  await page.getByRole("navigation").getByRole("button", { name: "Overview" }).click();
+  await page.getByRole("navigation").getByRole("button", { name: "Overview", exact: true }).click();
   await expect(card(page, "Pods")).toHaveText("5");
   // One start per visit, each stopped when leaving.
   expect(await fake.calls("cmdOverviewStart")).toHaveLength(2);

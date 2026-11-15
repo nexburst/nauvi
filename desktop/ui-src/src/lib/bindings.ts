@@ -53,6 +53,13 @@ export const commands = {
 	cmdOverviewStart: (id: number, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_start", { id, namespace }, options),
 	cmdOverviewStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_stop", { id }, options),
 	/**
+	 *  Start the Workloads overview feed `id` (chosen by the UI) for
+	 *  `namespaces` (empty: all namespaces). Replaces a feed with the same id;
+	 *  the UI starts a new one when the namespace selection changes.
+	 */
+	cmdWorkloadsStart: (id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_start", { id, namespaces }, options),
+	cmdWorkloadsStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_stop", { id }, options),
+	/**
 	 *  The namespace to start on: `null` (all namespaces) if the user may list
 	 *  pods cluster-wide, otherwise the context's namespace or the first one
 	 *  they can access.
@@ -75,6 +82,16 @@ export const commands = {
 	 *  saying why.
 	 */
 	cmdUsageHistory: (what: MetricsKind, namespace: string | null, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_usage_history", { what, namespace, name, range }, options),
+	/**
+	 *  The summed usage history of a workload's pods (`kind` is Deployment,
+	 *  StatefulSet, DaemonSet, ReplicaSet or Job), for the charts in its detail
+	 *  panel, with their summed requests and limits. Polled while the panel is
+	 *  open; it samples the pods itself when no table did lately.
+	 * 
+	 *  A `range` other than `live` asks Prometheus, as `cmd_usage_history`
+	 *  does, and falls back to the metrics-server history with a `note`.
+	 */
+	cmdWorkloadUsageHistory: (kind: string, namespace: string, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_workload_usage_history", { kind, namespace, name, range }, options),
 	/**
 	 *  Which Prometheus the usage charts use for the selected context, or why
 	 *  there is none. `redetect` looks again instead of using the cached answer.
@@ -228,6 +245,36 @@ export const commands = {
 	cmdHelmRollback: (namespace: string, name: string, revision: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_rollback", { namespace, name, revision }, options),
 	/**  `helm uninstall <name>`; returns a short summary. */
 	cmdHelmUninstall: (namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_uninstall", { namespace, name }, options),
+	/**  The configured chart repositories. */
+	cmdHelmRepoList: (options?: InvokeOptions) => __TAURI_INVOKE<HelmRepo[]>("cmd_helm_repo_list", undefined, options),
+	/**  `helm repo add`; returns a short summary. */
+	cmdHelmRepoAdd: (name: string, url: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_repo_add", { name, url }, options),
+	/**  `helm repo remove`; returns a short summary. */
+	cmdHelmRepoRemove: (name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_repo_remove", { name }, options),
+	/**
+	 *  `helm repo update` for `names` (empty: all). Unreachable repositories
+	 *  come back in `failed`.
+	 */
+	cmdHelmRepoUpdate: (names: string[], options?: InvokeOptions) => __TAURI_INVOKE<HelmRepoUpdate>("cmd_helm_repo_update", { names }, options),
+	/**
+	 *  Charts in the repositories matching `query`: the newest version of
+	 *  each, or every version with `all_versions`.
+	 */
+	cmdHelmSearch: (query: string, allVersions: boolean, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_search", { query, allVersions }, options),
+	/**
+	 *  Every version of `chart` (`repo/chart`, or a bare name in any
+	 *  repository), newest first.
+	 */
+	cmdHelmChartVersions: (chart: string, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_chart_versions", { chart }, options),
+	/**
+	 *  A chart version's metadata, README and default values (`version` empty:
+	 *  the newest).
+	 */
+	cmdHelmChartShow: (chart: string, version: string, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartDetails>("cmd_helm_chart_show", { chart, version }, options),
+	/**  `helm install` (or its dry run) into the window's cluster. */
+	cmdHelmInstall: (request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_install", { request }, options),
+	/**  `helm upgrade` (or its dry run) of a release in the window's cluster. */
+	cmdHelmUpgrade: (request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_upgrade", { request }, options),
 	/**  The settings, as loaded on start and changed since. */
 	cmdGetSettings: (options?: InvokeOptions) => __TAURI_INVOKE<Settings_Serialize>("cmd_get_settings", undefined, options),
 	/**
@@ -273,6 +320,8 @@ export const events = {
 	watchState: makeEvent<WatchStateChanged, WatchStateChanged>("watch-state"),
 	workloadLog: makeEvent<WorkloadLog, WorkloadLog>("workload-log"),
 	workloadNotice: makeEvent<WorkloadNotice, WorkloadNotice>("workload-notice"),
+	workloadsState: makeEvent<WorkloadsStateChanged, WorkloadsStateChanged>("workloads-state"),
+	workloadsUpdate: makeEvent<WorkloadsChanged, WorkloadsChanged>("workloads-update"),
 };
 
 /* Types */
@@ -664,6 +713,21 @@ export type ForwardTarget = {
 	name: string,
 };
 
+/**  What `helm show` tells about one chart version. */
+export type HelmChartDetails = {
+	/**  `repo/chart`, as asked. */
+	chart: string,
+	version: string,
+	app_version: string,
+	description: string,
+	/**  The chart's home page; empty if it names none. */
+	home: string,
+	/**  `README.md`; empty if the chart has none. */
+	readme: string,
+	/**  The chart's default `values.yaml`. */
+	values: string,
+};
+
 /**  The chart of one revision, for the list's chart columns. */
 export type HelmChartInfo = {
 	namespace: string,
@@ -674,6 +738,63 @@ export type HelmChartInfo = {
 	app_version: string,
 	/**  Why the payload could not be read; empty on success. */
 	error: string,
+};
+
+/**  One version of a chart in a repository, as `helm search repo` lists it. */
+export type HelmChartVersion = {
+	/**  `repo/chart`. */
+	name: string,
+	version: string,
+	app_version: string,
+	description: string,
+};
+
+/**  What to install or upgrade, and how. */
+export type HelmDeployRequest = {
+	/**  The release name. */
+	name: string,
+	namespace: string,
+	/**  `repo/chart` (or a chart directory or archive, from the CLI). */
+	chart: string,
+	/**  The chart version; empty for the newest. */
+	version: string,
+	/**
+	 *  The user values as YAML: on an upgrade they replace the release's
+	 *  values (`--reset-values`). Empty: the chart defaults.
+	 */
+	values: string,
+	/**  Install only: create the namespace if it does not exist. */
+	create_namespace: boolean,
+	/**
+	 *  Render and validate against the cluster (`--dry-run=server`) without
+	 *  changing anything.
+	 */
+	dry_run: boolean,
+	/**  Show Secret values in the returned manifest. */
+	reveal: boolean,
+};
+
+/**  The release helm installed, upgraded or (dry run) would have. */
+export type HelmDeployResult = {
+	name: string,
+	namespace: string,
+	revision: number,
+	/**  `deployed`, or `pending-install` / `pending-upgrade` for a dry run. */
+	status: string,
+	chart: string,
+	chart_version: string,
+	app_version: string,
+	notes: string,
+	/**
+	 *  The rendered manifest (without hooks, like a stored release's);
+	 *  Secret values hidden unless revealed.
+	 */
+	manifest: string,
+	secrets_hidden: boolean,
+	resources: HelmResource[],
+	dry_run: boolean,
+	/**  One line for a notice. */
+	summary: string,
 };
 
 /**  One revision of a release, decoded. */
@@ -726,6 +847,23 @@ export type HelmReleaseRow = {
 	history: HelmRevision[],
 };
 
+/**  One configured chart repository. */
+export type HelmRepo = {
+	name: string,
+	url: string,
+};
+
+/**
+ *  The outcome of `helm repo update`: helm reports an unreachable
+ *  repository but carries on with the others.
+ */
+export type HelmRepoUpdate = {
+	/**  The repositories whose index was downloaded. */
+	updated: string[],
+	/**  One plain sentence per repository that could not be updated. */
+	failed: string[],
+};
+
 /**  One object of a release's manifest. */
 export type HelmResource = {
 	api_version: string,
@@ -763,6 +901,19 @@ export type HelmRevisionKey = {
  *  ConfigMap one.
  */
 export type HelmStorage = "secret" | "configmap";
+
+/**  The counts of one workload kind. */
+export type KindCounts = {
+	/**  API group ("" for pods) and kind, to find the kind's table. */
+	group: string,
+	kind: string,
+	total: number,
+	/**
+	 *  Every status the kind uses, in card order, zeros included (except an
+	 *  `Unknown` with no pods).
+	 */
+	statuses: StatusCount[],
+};
 
 /**  What is remembered per kind (by kind id). */
 export type KindSettings = KindSettings_Serialize | KindSettings_Deserialize;
@@ -1098,6 +1249,22 @@ export type ProblemPod = {
 	created: number,
 };
 
+/**
+ *  A workload worth looking at: not all replicas ready, a failed job, a
+ *  suspended cron job.
+ */
+export type ProblemWorkload = {
+	group: string,
+	kind: string,
+	namespace: string,
+	name: string,
+	status: WorkloadStatus,
+	/**  "1/3 ready", "BackoffLimitExceeded", "Suspended". */
+	reason: string,
+	/**  Unix seconds. */
+	created: number,
+};
+
 /**  What the app shows about Prometheus in Settings. */
 export type PrometheusStatus = {
 	/**  `namespace/service:port`, or "" when there is none. */
@@ -1239,6 +1406,12 @@ export type ResourceRow = {
 	created: number,
 	cells: string[],
 	/**
+	 *  The workload status the Workloads overview counts this object under
+	 *  ([`WorkloadStatus::as_str`]), so a click on a count can filter the
+	 *  table; "" for kinds that are not workloads.
+	 */
+	status: string,
+	/**
 	 *  Why the object needs attention (`CrashLoopBackOff`, `1 of 3 ready`);
 	 *  empty if it is fine ([`problems::row_problem`]).
 	 */
@@ -1369,6 +1542,12 @@ export type StateInfo = {
 	exit_code: number,
 	/**  Age of the start (running) or the finish (terminated). */
 	since: string,
+};
+
+/**  How many objects of one status. */
+export type StatusCount = {
+	status: WorkloadStatus,
+	count: number,
 };
 
 /**  A log line and where it came from. */
@@ -1557,6 +1736,68 @@ export type WorkloadNoticeKind =
 "failed" | 
 /**  More containers match than the stream limit: `skipped` are waiting. */
 "truncated";
+
+/**
+ *  How a workload object counts. Not every kind uses every status: see
+ *  [`statuses_of`].
+ */
+export type WorkloadStatus = 
+/**
+ *  Pods: phase Running without a waiting error. Controllers: every
+ *  desired replica ready. Jobs: still running. Cron jobs: a job is
+ *  active.
+ */
+"Running" | 
+/**  Pods: phase Pending. Controllers: some replicas not ready yet. */
+"Pending" | 
+/**
+ *  Pods: a container waits on an error (CrashLoopBackOff,
+ *  ImagePullBackOff, ...).
+ */
+"Error" | 
+/**
+ *  Pods: phase Failed. Controllers: a rollout past its deadline or a
+ *  replica that could not be created. Jobs: the Failed condition.
+ */
+"Failed" | 
+/**  Pods: phase Succeeded. Jobs: complete. */
+"Succeeded" | 
+/**  Jobs and cron jobs with `spec.suspend`. */
+"Suspended" | 
+/**  Cron jobs waiting for their next run. */
+"Scheduled" | 
+/**  A pod phase this version does not know. */
+"Unknown";
+
+/**
+ *  A new Workloads overview for the feed `id` (sent when it changed, at
+ *  most about once a second).
+ */
+export type WorkloadsChanged = {
+	id: number,
+	overview: WorkloadsOverview,
+};
+
+/**  The Workloads overview of the selected namespaces. */
+export type WorkloadsOverview = {
+	/**
+	 *  In sidebar order. A kind the user may not list anywhere in the scope
+	 *  is left out, with a note.
+	 */
+	kinds: KindCounts[],
+	/**  Failed first, then the oldest; at most [`MAX_PROBLEMS`]. */
+	problems: ProblemWorkload[],
+	problems_total: number,
+	/**  Warning events about workload objects, newest first. */
+	events: EventInfo[],
+	/**  What is missing or narrowed, and why. */
+	notes: string[],
+};
+
+/**  Connection state of the Workloads overview feed `id`. */
+export type WorkloadsStateChanged = {
+	id: number,
+} & WatchState;
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

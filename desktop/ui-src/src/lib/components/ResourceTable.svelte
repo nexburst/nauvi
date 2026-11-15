@@ -27,6 +27,8 @@
     metrics: Metrics;
     now: number;
     search?: string;
+    /** Only rows of this `ResourceRow.status` ("" = all). */
+    status?: string;
     /** Key of the highlighted row, if any. */
     selectedKey?: string | null;
     onselect?: (row: Row) => void;
@@ -41,6 +43,7 @@
     metrics,
     now,
     search = "",
+    status = "",
     selectedKey = null,
     onselect,
     oncount,
@@ -59,7 +62,7 @@
 
   // Re-evaluated when the rows, the filter, the sort, or (only when sorting by
   // a metric / age column) the metrics or clock change.
-  const visible = $derived(visibleEntries(store.entries, search, sort, columns, { metrics, now }));
+  const visible = $derived(visibleEntries(store.entries, search, sort, columns, { metrics, now }, status));
   const getKey = $derived((i: number) => visible[i]?.key ?? i);
 
   $effect(() => {
