@@ -141,7 +141,7 @@ pub async fn discover(client: &Client) -> Result<Vec<ResourceKind>> {
                 .unwrap_or_default();
             kinds.push(ResourceKind {
                 id: resource.id(),
-                label: spec.map_or_else(|| title_case(&r.name), |s| s.label.to_string()),
+                label: spec.map_or_else(|| kind_label(&r.kind, &r.name), |s| s.label.to_string()),
                 category: match spec {
                     Some(s) => s.category,
                     None if crd => Category::Custom,
@@ -173,14 +173,83 @@ pub async fn discover(client: &Client) -> Result<Vec<ResourceKind>> {
             (&a.resource.group, &a.resource.kind).cmp(&(&b.resource.group, &b.resource.kind))
         }
     });
+    disambiguate_labels(&mut kinds);
     Ok(kinds)
 }
 
-fn title_case(s: &str) -> String {
-    let mut c = s.chars();
+/// A sidebar label for a kind that has no entry in the column registry: the
+/// kind split into words, with its last word made plural the way the API's
+/// plural spells it. `ComponentStatus`/`componentstatuses` -> "Component
+/// Statuses", `CSIStorageCapacity`/`csistoragecapacities` -> "CSI Storage
+/// Capacities". A kind whose plural is not the kind plus an ending
+/// (`NodeMetrics`/`nodes`) keeps the kind's own words: "Node Metrics".
+fn kind_label(kind: &str, plural: &str) -> String {
+    if kind.is_empty() {
+        return plural.to_string();
+    }
+    let lower = kind.to_lowercase();
+    // The ASCII prefix the kind and the plural share.
+    let common = lower
+        .bytes()
+        .zip(plural.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let dropped = lower.len() - common;
+    if kind.is_ascii() && plural.is_ascii() && dropped <= 1 && common > 0 {
+        // `Status` + "es", `Policy` -> `Polic` + "ies", `Endpoints` + "".
+        // Split before adding the ending, so `ServiceCIDR` + "s" stays one word.
+        format!("{}{}", split_words(&kind[..common]), &plural[common..])
+    } else {
+        split_words(kind)
+    }
+}
+
+/// `ComponentStatuses` -> "Component Statuses", `CSIDrivers` -> "CSI
+/// Drivers", `IPAddresses` -> "IP Addresses".
+fn split_words(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len() + 4);
+    for (i, &c) in chars.iter().enumerate() {
+        if i > 0 && c.is_uppercase() {
+            let prev = chars[i - 1];
+            let next_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
+            // A new word after a lowercase letter or digit, or the last
+            // capital of an acronym when a lowercase letter follows.
+            if prev.is_lowercase() || prev.is_ascii_digit() || (prev.is_uppercase() && next_lower) {
+                out.push(' ');
+            }
+        }
+        out.push(c);
+    }
+    let mut c = out.chars();
     c.next()
         .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
         .unwrap_or_default()
+}
+
+/// No two sidebar entries share a label: a kind (outside the registry)
+/// whose label another kind already has gets its API group added, e.g. a
+/// CRD named `Pod` in `example.com` becomes "Pods (example.com)". Kinds are
+/// told apart by group, version and resource, never by label; registry
+/// kinds come first and keep theirs.
+fn disambiguate_labels(kinds: &mut [ResourceKind]) {
+    let mut seen: HashMap<String, (String, String, String)> = HashMap::new();
+    for k in kinds.iter_mut() {
+        let id = (
+            k.resource.group.clone(),
+            k.resource.version.clone(),
+            k.resource.plural.clone(),
+        );
+        if seen.get(&k.label).is_some_and(|other| *other != id) {
+            let group = if k.resource.group.is_empty() {
+                "core"
+            } else {
+                &k.resource.group
+            };
+            k.label = format!("{} ({group})", k.label);
+        }
+        seen.entry(k.label.clone()).or_insert(id);
+    }
 }
 
 /// Whether the current user may `list` `resource` in `group`, in
@@ -318,6 +387,73 @@ mod tests {
             "Widget"
         );
         assert!(resolve_kind(&kinds, "nope").is_none());
+    }
+
+    #[test]
+    fn labels_come_from_the_kind_with_the_plural_ending() {
+        for (kind, plural, label) in [
+            ("ComponentStatus", "componentstatuses", "Component Statuses"),
+            ("PodTemplate", "podtemplates", "Pod Templates"),
+            (
+                "ReplicationController",
+                "replicationcontrollers",
+                "Replication Controllers",
+            ),
+            (
+                "MutatingAdmissionPolicy",
+                "mutatingadmissionpolicies",
+                "Mutating Admission Policies",
+            ),
+            (
+                "MutatingAdmissionPolicyBinding",
+                "mutatingadmissionpolicybindings",
+                "Mutating Admission Policy Bindings",
+            ),
+            (
+                "PriorityLevelConfiguration",
+                "prioritylevelconfigurations",
+                "Priority Level Configurations",
+            ),
+            (
+                "VolumeAttributesClass",
+                "volumeattributesclasses",
+                "Volume Attributes Classes",
+            ),
+            (
+                "CSIStorageCapacity",
+                "csistoragecapacities",
+                "CSI Storage Capacities",
+            ),
+            ("CSINode", "csinodes", "CSI Nodes"),
+            ("IPAddress", "ipaddresses", "IP Addresses"),
+            ("APIService", "apiservices", "API Services"),
+            ("ServiceCIDR", "servicecidrs", "Service CIDRs"),
+            ("NodeMetrics", "nodes", "Node Metrics"),
+            ("PodMetrics", "pods", "Pod Metrics"),
+            ("Endpoints", "endpoints", "Endpoints"),
+            ("Gadget", "gadgets", "Gadgets"),
+            ("Leaf", "leaves", "Leaves"),
+            ("Foo", "bars", "Foo"),
+            ("widget", "widgets", "Widgets"),
+        ] {
+            assert_eq!(kind_label(kind, plural), label, "{kind}/{plural}");
+        }
+    }
+
+    #[test]
+    fn same_labels_get_the_group_but_the_same_resource_does_not() {
+        let mut kinds = vec![
+            kind("", "Pod", "pods", &[]),
+            kind("example.com", "Pod", "pods", &[]),
+            kind("other.io", "Widget", "widgets", &[]),
+        ];
+        for k in &mut kinds {
+            k.label = "Pods".into();
+        }
+        kinds[2].label = "Widgets".into();
+        disambiguate_labels(&mut kinds);
+        let labels: Vec<_> = kinds.iter().map(|k| k.label.as_str()).collect();
+        assert_eq!(labels, ["Pods", "Pods (example.com)", "Widgets"]);
     }
 
     #[test]

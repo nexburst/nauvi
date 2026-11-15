@@ -612,6 +612,39 @@ where
 
 #[tokio::test]
 #[ignore]
+async fn discovered_kinds_have_readable_unique_labels() -> Result<()> {
+    // #96: labels from the kind ("Component Statuses", not
+    // "Componentstatuses"), and no two kinds with the same label.
+    let client = connect().await?;
+    let kinds = within("discover", TIMEOUT, resources::discover(&client)).await?;
+    let label = |group: &str, plural: &str| {
+        kinds
+            .iter()
+            .find(|k| k.resource.group == group && k.resource.plural == plural)
+            .map(|k| k.label.clone())
+    };
+    ensure!(
+        label("", "componentstatuses").as_deref() == Some("Component Statuses"),
+        "{:?}",
+        label("", "componentstatuses")
+    );
+    ensure!(label("apps", "controllerrevisions").as_deref() == Some("Controller Revisions"));
+    if let Some(l) = label("metrics.k8s.io", "pods") {
+        ensure!(l == "Pod Metrics", "{l}");
+    }
+    let mut seen = BTreeSet::new();
+    for k in &kinds {
+        ensure!(
+            seen.insert(k.label.clone()),
+            "two kinds labelled {}",
+            k.label
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
 async fn discovery_finds_builtins_and_a_crd() -> Result<()> {
     with_widget_crd(|client, widget| async move {
         let kinds = resources::discover(&client).await?;

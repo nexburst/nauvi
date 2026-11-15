@@ -85,7 +85,8 @@ spec:
 `;
 
 /** Kinds that fail for a known, filed reason; checked by their own todo test. */
-const KNOWN = { Componentstatuses: "#95: kinds without the watch verb never list" };
+const NO_WATCH = "#95: kinds without the watch verb never list";
+const KNOWN = { "Component Statuses": NO_WATCH, "Node Metrics": NO_WATCH, "Pod Metrics": NO_WATCH };
 
 /** Open a kind and return what is wrong with its table, or "". */
 async function kindProblem(app, label) {
@@ -199,12 +200,51 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     assert.deepEqual(problems, []);
   });
 
-  it("Componentstatuses lists (no watch verb)", { ...T, todo: KNOWN.Componentstatuses }, async () => {
+  it("Component Statuses lists (no watch verb)", { ...T, todo: NO_WATCH }, async () => {
     const { app } = s;
-    assert.equal(await kindProblem(app, "Componentstatuses"), "");
+    assert.equal(await kindProblem(app, "Component Statuses"), "");
     await app.waitFor(async () => (await tableData(app)).rows.some((r) => r.Name === "scheduler"), {
       message: "the scheduler row",
     });
+  });
+
+  it("sidebar names are readable, unique and fit the sidebar (#96)", T, async () => {
+    const { app } = s;
+    await app.js(`document.querySelectorAll("nav details").forEach((d) => (d.open = true))`);
+    const kinds = await app.js(
+      `const nav = document.querySelector("nav").getBoundingClientRect();
+       return Array.from(document.querySelectorAll("nav button.kind"), (b) => {
+         const label = b.querySelector(".label");
+         return {
+           label: label.textContent.trim(),
+           title: b.title,
+           cut: label.scrollWidth > label.clientWidth,
+           ellipsis: getComputedStyle(label).textOverflow,
+           inside: b.getBoundingClientRect().right <= nav.right + 0.5,
+         };
+       });`,
+    );
+    const labels = kinds.map((k) => k.label);
+    console.log(`sidebar kinds: ${labels.join(", ")}`);
+    const dupes = labels.filter((l, i) => labels.indexOf(l) !== i);
+    assert.deepEqual(dupes, [], "two sidebar entries with the same name");
+    for (const name of ["Component Statuses", "Controller Revisions", "Mutating Admission Policies", "Node Metrics", "Pod Metrics"]) {
+      assert.ok(labels.includes(name), `"${name}" in the sidebar`);
+    }
+    // No run-together plural like "Componentstatuses" or "Csinodes".
+    const runTogether = labels.filter((l) => /^[A-Z][a-z]{13,}$/.test(l) || /^Csi|^Api[a-z]|^Ip[a-z]/.test(l));
+    assert.deepEqual(runTogether, []);
+    assert.deepEqual(
+      kinds.filter((k) => !k.inside || k.ellipsis !== "ellipsis").map((k) => k.label),
+      [],
+      "every label ends in an ellipsis inside the sidebar",
+    );
+    const cut = kinds.filter((k) => k.cut);
+    console.log(`cut off: ${cut.map((k) => k.label).join(", ")}`);
+    for (const k of cut) assert.ok(k.title.startsWith(`${k.label}: `), `tooltip of ${k.label}: ${k.title}`);
+    const long = await app.find(app.navButton("Validating Admission Policy Bindings"));
+    await app.js("arguments[0].scrollIntoView({ block: 'center' })", long);
+    await app.shot("sidebar-names");
   });
 
   it("a new CRD shows under Custom Resources by API group after Refresh", T, async () => {

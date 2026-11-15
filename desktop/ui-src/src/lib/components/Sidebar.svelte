@@ -54,6 +54,12 @@
   const definitions = $derived((byCategory.get("custom") ?? []).filter((k) => isCrdDefinitions(k.resource)));
   const other = $derived(byGroup("other"));
 
+  /** The tooltip of a kind: its full label (it may be cut off) and API identity. */
+  function kindTitle(kind: ResourceKind): string {
+    const r = kind.resource;
+    return `${kind.label}: ${r.kind} (${r.group ? `${r.group}/` : ""}${r.version})`;
+  }
+
   function open(kind: ResourceKind) {
     if (!kinds.denied.has(kind.id) || canOpenDenied(kind)) setView(kind.id);
   }
@@ -63,13 +69,13 @@
   {@const denied = kinds.denied.has(kind.id)}
   <button
     type="button"
+    class="kind"
     class:active={app.view === kind.id}
     class:denied
     aria-disabled={denied && !canOpenDenied(kind)}
-    title={denied ? deniedReason(kind) : kind.resource.kind}
+    title={denied ? deniedReason(kind) : kindTitle(kind)}
     onclick={() => open(kind)}
-  >
-    {kind.label}{#if problems.byKind[kind.id]}{@const b = problems.byKind[kind.id]}<span
+    ><span class="label">{kind.label}</span>{#if problems.byKind[kind.id]}{@const b = problems.byKind[kind.id]}<span
         class="problems"
         class:stale={!b.live}
         data-testid="problem-badge"
@@ -195,6 +201,25 @@
   button:hover {
     background: var(--bg-hover);
     color: var(--text);
+  }
+  /* A kind's button: its label is cut off with an ellipsis (the full name
+     is in the tooltip); a badge after it stays visible. */
+  button.kind {
+    display: flex;
+    align-items: center;
+    /* A button sizes to its content; this keeps it inside the sidebar. */
+    width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+  }
+  .label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .problems {
+    flex-shrink: 0;
   }
   button.active {
     background: var(--bg-hover);
