@@ -4,42 +4,12 @@
 // applies and survives a restart.
 
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { byTestId } from "../lib/app.mjs";
-import { appSession } from "../lib/qa.mjs";
+import { appSession, unreachableKubeconfig } from "../lib/qa.mjs";
 
 const T = { timeout: 120_000 };
-
-/** A kubeconfig whose only context points at a closed local port. */
-function unreachableKubeconfig() {
-  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-kc-"));
-  const path = join(dir, "kubeconfig");
-  writeFileSync(
-    path,
-    `apiVersion: v1
-kind: Config
-clusters:
-  - name: nowhere
-    cluster:
-      server: https://127.0.0.1:1
-contexts:
-  - name: qa-unreachable
-    context:
-      cluster: nowhere
-      user: nobody
-current-context: qa-unreachable
-users:
-  - name: nobody
-    user:
-      token: not-a-token
-`,
-  );
-  return path;
-}
 
 const theme = (app) => app.js("return document.documentElement.dataset.theme ?? ''");
 
@@ -52,8 +22,14 @@ describe("startup without a reachable cluster, settings and theme", { timeout: 1
     const text = await app.js("return arguments[0].innerText", banner);
     console.log(`banner: ${text}`);
     assert.match(text, /127\.0\.0\.1:1|reach|connect/i);
+    // The status check can finish after the discovery banner (on Windows a
+    // refused connect takes about 2 s, after its SYN retries).
     const dot = await app.find(By.css("header .dot"));
-    assert.match(await dot.getAttribute("class"), /error/);
+    await app.waitFor(async () => /\berror\b/.test(await dot.getAttribute("class")), {
+      timeout: 60_000,
+      message: "the red status dot",
+    });
+    await app.shot("unreachable");
   });
 
   it("opens Settings and switches to the Light theme", T, async () => {

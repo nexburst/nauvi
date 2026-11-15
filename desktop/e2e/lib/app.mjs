@@ -15,7 +15,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Builder, By, Key } from "selenium-webdriver";
 import { createProfile } from "./profile.mjs";
@@ -53,7 +53,7 @@ function testKubeconfig(contexts = [CONTEXT]) {
   // kubectl merges KUBECONFIG lists; the first file's current-context wins.
   const merged = execFileSync("kubectl", ["config", "view", "--flatten"], {
     encoding: "utf8",
-    env: { ...process.env, KUBECONFIG: parts.join(":") },
+    env: { ...process.env, KUBECONFIG: parts.join(delimiter) },
   });
   const path = join(dir, "kubeconfig");
   writeFileSync(path, merged, { mode: 0o600 });
@@ -161,6 +161,15 @@ async function startSession(name, opts) {
     ...(opts.shellEnv ? {} : { KUBELOUPE_NO_SHELL_ENV: "1" }),
     ...opts.env,
   };
+  // Windows names are case-insensitive: a PATH from `opts.env` must replace
+  // the inherited `Path`, not sit next to it.
+  if (WINDOWS) {
+    for (const key of Object.keys(opts.env ?? {})) {
+      for (const other of Object.keys(env)) {
+        if (other !== key && other.toLowerCase() === key.toLowerCase()) delete env[other];
+      }
+    }
+  }
   const log = createWriteStream(join(ARTIFACTS, `${name}-app.log`), { flags: "a" });
   // Its own process group: WebKitWebDriver and the app inherit it, and ending
   // the session does not always stop the app, so stop() kills the group.
