@@ -4,7 +4,7 @@
 
 use crate::settings::{SettingsPatch, SettingsStore};
 use crate::state::{AppState, SessionCleanup, MAIN_WINDOW};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -14,6 +14,17 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 const LABEL_PREFIX: &str = "cluster-";
 
 static NEXT_WINDOW: AtomicU64 = AtomicU64::new(1);
+
+/// Set once the app has started to exit (the last window closed, an
+/// `ExitRequested`, or `before_exit`): from then on a closing window is part
+/// of the exit and stays remembered (#126).
+static EXITING: AtomicBool = AtomicBool::new(false);
+
+/// How long a closed extra window stays remembered before it is forgotten.
+/// When the session logs out or the window manager closes all windows, the
+/// other windows close within milliseconds, the app exits and the list of
+/// windows open when the exit began is kept (#126).
+const FORGET_DELAY: Duration = Duration::from_secs(2);
 
 /// The window title: the context's name, or the kubeconfig's
 /// current-context when `context` is `None`.
@@ -144,16 +155,42 @@ fn restorable(remembered: &[String], contexts: &[String]) -> Vec<String> {
 
 /// The window `label` is gone: stop everything it started. If it was the
 /// last window (the app is quitting), wait briefly for its node shell pods
-/// to be deleted and keep the remembered windows as they are.
+/// to be deleted and keep the remembered windows as they are. Otherwise
+/// forget it after `FORGET_DELAY`, unless the app exits by then: windows
+/// close one after another when the session logs out, in an order the app
+/// doesn't choose, and only a window the user closed alone is forgotten.
 pub(crate) fn window_destroyed(app: &AppHandle, label: &str) {
     let cleanups = app.state::<AppState>().close(label);
     let others = app.webview_windows().keys().any(|l| l != label);
     if others {
         crate::state::spawn_cleanups(cleanups);
-        remember_windows(app, label);
+        if !EXITING.load(Ordering::SeqCst) {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(FORGET_DELAY).await;
+                let left = app.webview_windows().len();
+                if forget_closed_window(EXITING.load(Ordering::SeqCst), left) {
+                    // `close` above already dropped the window from the state.
+                    remember_windows(&app, "");
+                }
+            });
+        }
     } else {
+        exit_started();
         run_cleanups_now(cleanups);
     }
+}
+
+/// After `FORGET_DELAY`: forget a closed extra window only if the app is
+/// still running with a window open, i.e. the user closed that one window.
+fn forget_closed_window(exiting: bool, windows_left: usize) -> bool {
+    !exiting && windows_left > 0
+}
+
+/// The app is exiting (`RunEvent::ExitRequested`, e.g. Cmd+Q or the last
+/// window closed): windows closing from now on stay remembered.
+pub(crate) fn exit_started() {
+    EXITING.store(true, Ordering::SeqCst);
 }
 
 /// Run node shell cleanups and wait for them, bounded, so a dead cluster
@@ -163,6 +200,7 @@ pub(crate) fn window_destroyed(app: &AppHandle, label: &str) {
 /// open (kill the local shells, delete their temp kubeconfigs and the node
 /// shell pods).
 pub(crate) fn before_exit(app: &AppHandle) {
+    exit_started();
     if let Some(store) = app.try_state::<Arc<SettingsStore>>() {
         store.flush();
     }
@@ -207,6 +245,23 @@ mod tests {
         let remembered = vec!["staging".to_string(), "gone".to_string(), String::new()];
         let contexts = vec!["staging".to_string(), "prod".to_string()];
         assert_eq!(restorable(&remembered, &contexts), vec!["staging", ""]);
+    }
+
+    #[test]
+    fn forgets_a_window_closed_alone() {
+        // The user closed one extra window; the others are still open.
+        assert!(forget_closed_window(false, 1));
+        assert!(forget_closed_window(false, 3));
+    }
+
+    #[test]
+    fn keeps_windows_closed_by_the_exit() {
+        // All windows closed together (logout, "close all"): none left.
+        assert!(!forget_closed_window(false, 0));
+        // Cmd+Q, or the last window closed in the meantime.
+        assert!(!forget_closed_window(true, 0));
+        // Exiting while a window is still being torn down.
+        assert!(!forget_closed_window(true, 1));
     }
 
     #[test]
