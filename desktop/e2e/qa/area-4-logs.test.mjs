@@ -387,7 +387,8 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
         samples.push(await logStatus(app, sid));
       }
       console.log(`status samples: ${JSON.stringify(samples)}`);
-      for (const st of samples) assert.match(st, /^(paused · )?50,000\+ lines$/, `status "${st}"`);
+      // The thousands separator follows the locale: none under LANG=C (CI).
+      for (const st of samples) assert.match(st, /^(paused · )?50[,.\u00a0\u202f ]?000\+ lines$/, `status "${st}"`);
       // Frames per second over 2 s while the lines pour in.
       const fps = await app.driver.executeAsyncScript(`
         const done = arguments[arguments.length - 1];
