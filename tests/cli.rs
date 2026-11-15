@@ -47,6 +47,17 @@ fn completions_need_no_cluster() {
 }
 
 #[test]
+fn exec_help_documents_the_exit_code() {
+    let out = kubeloupe(&["exec", "--help"]);
+    assert!(out.status.success());
+    let help = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        help.contains("Exits with the command's exit code"),
+        "{help}"
+    );
+}
+
+#[test]
 fn errors_go_to_stderr_with_a_failing_exit_code() {
     let out = kubeloupe(&["--kubeconfig", "/nonexistent/kubeconfig", "get", "pods"]);
     assert_eq!(out.status.code(), Some(1));

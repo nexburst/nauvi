@@ -198,7 +198,21 @@ fn target_label(t: &ForwardTarget) -> String {
     format!("{}/{}", t.kind.short(), t.name)
 }
 
-/// Run a command in a pod and print its output (CLI output).
+/// A remote command that ran and exited non-zero: the CLI exits with its
+/// code, like `kubectl exec`.
+#[derive(Debug)]
+pub struct RemoteExit(pub i32);
+
+impl std::fmt::Display for RemoteExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "command terminated with exit code {}", self.0)
+    }
+}
+
+impl std::error::Error for RemoteExit {}
+
+/// Run a command in a pod and print its output (CLI output). A command that
+/// exits non-zero becomes a [`RemoteExit`] error with its exit code.
 pub async fn exec_in_pod(
     client: &Client,
     namespace: Option<&str>,
@@ -216,10 +230,25 @@ pub async fn exec_in_pod(
     .await?;
     print!("{}", result.stdout);
     eprint!("{}", result.stderr);
-    if !result.success {
-        anyhow::bail!("command exited with a non-zero status");
+    if result.success {
+        return Ok(());
     }
-    Ok(())
+    // Our `error:` line starts a line of its own, also when the output did
+    // not end one (on a terminal both streams share the screen).
+    let stdout_open =
+        std::io::IsTerminal::is_terminal(&std::io::stdout()) && !ends_line(&result.stdout);
+    if !ends_line(&result.stderr) || stdout_open {
+        eprintln!();
+    }
+    if !result.error.is_empty() {
+        anyhow::bail!("{}", result.error);
+    }
+    Err(RemoteExit(result.exit_code).into())
+}
+
+/// Whether printing `s` leaves the cursor at the start of a line.
+fn ends_line(s: &str) -> bool {
+    s.is_empty() || s.ends_with('\n')
 }
 
 /// Print live changes to any resource type until interrupted.
