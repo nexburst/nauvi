@@ -42,7 +42,7 @@ export function closeAllDockTabs() {
   dock.maximized = false;
 }
 
-/** Ctrl+`: show or hide the dock's contents. */
+/** Ctrl+` or Mod+J: show or hide the dock's contents. */
 export function toggleDock() {
   if (dock.tabs.length === 0) return;
   dock.expanded = !dock.expanded;

@@ -251,3 +251,47 @@ test("keys are ignored inside the terminal", async ({ page }) => {
   await expect(term).toBeVisible();
   expect(await fake.calls("cmdExecClose")).toHaveLength(0);
 });
+
+test("the dock keys work where the backtick is a dead key, and Mod+J does too", async ({ page }) => {
+  const fake = await openApp(page);
+  await openKind(page, "Pods");
+  await row(page, "web-1").click();
+  await panel(page).getByRole("button", { name: "Open terminal" }).click();
+  const term = page.getByTestId("dock").locator(".xterm").first();
+  await expect(term).toBeVisible();
+  await term.click();
+  await expect(page.locator(".xterm-helper-textarea").first()).toBeFocused();
+
+  // Spanish / Latin American layouts: Ctrl+that key has key "Dead", code "Backquote".
+  const deadKey = (shiftKey: boolean) =>
+    page.evaluate((shiftKey) => {
+      const init = { key: "Dead", code: "Backquote", ctrlKey: true, shiftKey, bubbles: true, cancelable: true };
+      (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", init));
+    }, shiftKey);
+  await deadKey(false);
+  await expect(term).toBeHidden();
+  // Focus is no longer in the terminal: Mod+J shows the dock again.
+  await grid(page).focus();
+  await page.keyboard.press("ControlOrMeta+j");
+  await expect(term).toBeVisible();
+
+  // Inside the terminal Ctrl+J is the shell's (LF: fzf, vim, emacs).
+  await term.click();
+  await page.keyboard.press("Control+j");
+  await expect.poll(async () => (await fake.calls("cmdExecInput")).map((c) => c.data).join("")).toBe("\n");
+  await expect(term).toBeVisible();
+
+  await deadKey(true);
+  await expect.poll(async () => (await fake.calls("cmdLocalShellStart")).length).toBe(1);
+  await grid(page).focus();
+  await page.keyboard.press("ControlOrMeta+Shift+j");
+  await expect.poll(async () => (await fake.calls("cmdLocalShellStart")).length).toBe(2);
+  // Only that LF reached the pod's shell.
+  expect((await fake.calls("cmdExecInput")).map((c) => c.data).join("")).toBe("\n");
+
+  await grid(page).focus();
+  await page.keyboard.press("?");
+  await expect(help(page)).toContainText(/Ctrl\+`|⌃`/);
+  await expect(help(page)).toContainText(/Ctrl\+J|⌘J/);
+  await expect(help(page)).toContainText(/Ctrl\+Shift\+J|⇧⌘J/);
+});

@@ -4,11 +4,12 @@
   import { activateDockTab, closeDockTab, dock, toggleDock, toggleMaximized } from "../stores/dock.svelte";
   import { setDockHeight } from "../stores/settings.svelte";
   import { openLocalShell } from "../stores/localShell";
+  import { isMacPlatform, shortcutHint } from "../keys";
 
   /** Room kept for the header and the tables above a resized dock. */
   const KEEP_ABOVE = 160;
-  const NEW_SHELL_SHORTCUT = "Ctrl+Shift+`";
-  const SHORTCUT = "Ctrl+\u0060";
+  const NEW_SHELL_SHORTCUT = shortcutHint("newLocalShell", isMacPlatform());
+  const SHORTCUT = shortcutHint("toggleDock", isMacPlatform());
 
   let drag: { y: number; height: number } | null = null;
 

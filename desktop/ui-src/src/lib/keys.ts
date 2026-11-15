@@ -31,6 +31,19 @@ export interface Key {
   shift?: boolean;
   /** Only on macOS (true) or only elsewhere (false). */
   mac?: boolean;
+  /**
+   * `KeyboardEvent.code`, the physical key, also accepted for `ctrl` keys:
+   * where the backtick is a dead key (Spanish, Latin American, German...),
+   * Ctrl+that key has another `key` ("Dead", "<", "^") but still this code.
+   */
+  code?: string;
+  /** How the help overlay names the key, when `key` is not what is printed on it. */
+  name?: string;
+  /**
+   * false: this key of an `inTerminal` binding is left to the shell outside
+   * macOS (Ctrl+J is LF, which fzf, vim and emacs use; ⌘J never reaches it).
+   */
+  terminal?: false;
 }
 
 export interface Binding {
@@ -101,7 +114,11 @@ export const KEYMAP: Binding[] = [
   },
   {
     command: "toggleDock",
-    keys: [{ key: "`", ctrl: true }],
+    // Mod+J (as in VS Code) for layouts with no Backquote key at all.
+    keys: [
+      { key: "`", code: "Backquote", ctrl: true },
+      { key: "j", mod: true, terminal: false },
+    ],
     label: "Show or hide the dock (logs and terminals)",
     group: "General",
     inInputs: true,
@@ -112,8 +129,10 @@ export const KEYMAP: Binding[] = [
   {
     command: "newLocalShell",
     // Shift+` types `~` on a US layout, so that is the key the event has.
-    keys: [{ key: "~", ctrl: true, shift: true }],
-    display: ["Ctrl+Shift+`"],
+    keys: [
+      { key: "~", code: "Backquote", ctrl: true, shift: true, name: "`" },
+      { key: "j", mod: true, shift: true, terminal: false },
+    ],
     label: "New local terminal (kubectl on this machine, at the app's context and namespace)",
     group: "General",
     inInputs: true,
@@ -128,6 +147,7 @@ export function isMacPlatform(): boolean {
 
 export interface KeyEventLike {
   key: string;
+  code?: string;
   ctrlKey: boolean;
   metaKey: boolean;
   altKey: boolean;
@@ -136,7 +156,12 @@ export interface KeyEventLike {
 
 function matchesKey(e: KeyEventLike, k: Key, mac: boolean): boolean {
   if (k.mac !== undefined && k.mac !== mac) return false;
-  if (k.ctrl) return e.ctrlKey && !e.metaKey && !e.altKey && e.key === k.key;
+  if (k.ctrl) {
+    if (!e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (e.key === k.key) return true;
+    // By the physical key, Shift must be as asked: Ctrl+Shift+` is another binding.
+    return !!k.code && e.code === k.code && !!k.shift === e.shiftKey;
+  }
   const modDown = mac ? e.metaKey : e.ctrlKey;
   const otherDown = mac ? e.ctrlKey : e.metaKey;
   if (!!k.mod !== modDown || otherDown || e.altKey) return false;
@@ -167,18 +192,35 @@ const KEY_NAMES: Record<string, string> = {
 
 /** "Ctrl+K" / "⌘K": one key as the help overlay shows it. */
 export function formatKey(k: Key, mac: boolean): string {
-  const name = KEY_NAMES[k.key] ?? (k.key.length === 1 ? k.key.toUpperCase() : k.key);
-  const parts = [k.mod ? (mac ? "⌘" : "Ctrl") : "", k.ctrl ? (mac ? "⌃" : "Ctrl") : "", k.shift ? (mac ? "⇧" : "Shift") : "", name].filter(Boolean);
-  return parts.join(mac ? "" : "+");
+  const name = k.name ?? KEY_NAMES[k.key] ?? (k.key.length === 1 ? k.key.toUpperCase() : k.key);
+  // macOS writes ⌃⇧⌘K; elsewhere it is Ctrl+Shift+K.
+  const parts = mac
+    ? [k.ctrl ? "⌃" : "", k.shift ? "⇧" : "", k.mod ? "⌘" : "", name]
+    : [k.mod || k.ctrl ? "Ctrl" : "", k.shift ? "Shift" : "", name];
+  return parts.filter(Boolean).join(mac ? "" : "+");
 }
 
 /** Every way to press `b`, for the help overlay. */
 export function formatBinding(b: Binding, mac: boolean): string[] {
   if (b.display) return b.display.map((d) => d.replace("Mod+", mac ? "⌘" : "Ctrl+"));
   // `?` is typed with Shift anyway; lower-case letters read better as typed.
-  return b.keys
+  // On macOS ⌘J comes first: which key ⌃` names depends on the keyboard
+  // (left of 1, or next to the left Shift on ISO keyboards).
+  const keys = mac ? [...b.keys].sort((x, y) => Number(!!x.ctrl) - Number(!!y.ctrl)) : b.keys;
+  return keys
     .filter((k) => k.mac === undefined || k.mac === mac)
     .map((k) => (!k.mod && !k.ctrl && k.key.length === 1 && k.key !== " " ? k.key : formatKey(k, mac)));
+}
+
+/** "Ctrl+` or Ctrl+J": a command's keys for a tooltip. */
+export function shortcutHint(command: Command, mac: boolean): string {
+  const b = KEYMAP.find((x) => x.command === command);
+  return b ? formatBinding(b, mac).join(" or ") : "";
+}
+
+/** Whether the key `hit` matched goes to the terminal instead of the app. */
+export function leftToTerminal(binding: Binding, index: number, mac: boolean): boolean {
+  return binding.keys[index]?.terminal === false && !mac;
 }
 
 /** Where typing goes: shortcuts stay out of the way there. */

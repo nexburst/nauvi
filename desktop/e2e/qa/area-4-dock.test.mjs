@@ -2,8 +2,9 @@
 // Checks (#67): two terminals and a log tab at once; resizing and
 // maximizing the dock refits xterm and the shell gets the new size
 // (`stty size`), and at the default height the last row is fully visible
-// (#181); Ctrl+` inside a shell toggles the dock and sends nothing to
-// it; an 11th log tab shows the cap message; switching context closes every
+// (#181); Ctrl+` and Ctrl+(dead Backquote) inside a shell toggle the dock
+// and send nothing to it, while Ctrl+J reaches the shell (#175); an 11th
+// log tab shows the cap message; switching context closes every
 // tab and no stream or session keeps running.
 // Checks (#19): close a terminal tab and open it again; switching views
 // keeps the dock (the panel and its streams were replaced by dock tabs in #67).
@@ -210,6 +211,27 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     await app.waitFor(() => app.js(`return !document.querySelector('[data-testid="dock"]').classList.contains('collapsed')`), {
       message: "the dock to expand",
     });
+    // #175: Ctrl+the Backquote key on layouts where it is a dead key (key
+    // "Dead", code "Backquote"; WebDriver can only synthesise it).
+    const collapsed = () => app.js(`return document.querySelector('[data-testid="dock"]').classList.contains('collapsed')`);
+    const deadKey = `const init = { key: "Dead", code: "Backquote", ctrlKey: true, bubbles: true, cancelable: true };
+       (document.activeElement || document.body).dispatchEvent(new KeyboardEvent("keydown", init));`;
+    await app.js(deadKey);
+    await app.waitFor(collapsed, { message: "Ctrl+(dead Backquote) to collapse the dock" });
+    await app.js(deadKey);
+    await app.waitFor(async () => !(await collapsed()), { message: "Ctrl+(dead Backquote) to expand the dock" });
+    // Ctrl+J toggles the dock only outside the terminal (on Linux and
+    // Windows): inside it is LF, which fzf, vim and emacs use.
+    await pod.type("jj", { enter: false });
+    await pressCtrl(app, "j");
+    await pod.waitFor(/^jj\s*\njj\s*$/m, { message: "Ctrl+J reaching cat -v as a newline" });
+    assert.equal(await collapsed(), false, "Ctrl+J in the terminal leaves the dock open");
+    await app.shot("ctrl-j-in-shell");
+    await app.js("document.activeElement?.blur()");
+    await pressCtrl(app, "j");
+    await app.waitFor(collapsed, { message: "Ctrl+J outside the terminal to collapse the dock" });
+    await pressCtrl(app, "j");
+    await app.waitFor(async () => !(await collapsed()), { message: "Ctrl+J outside the terminal to expand the dock" });
     await pod.type("zz");
     const screen = await pod.waitFor(/^zz\s*$/m, { message: "cat -v echoing zz" });
     assert.ok(!/\^@/.test(screen), "no NUL (^@) reached the shell");

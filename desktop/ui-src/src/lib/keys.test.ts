@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bindingFor, formatBinding, KEYMAP } from "./keys";
+import { bindingFor, formatBinding, KEYMAP, leftToTerminal, shortcutHint } from "./keys";
 import type { KeyEventLike } from "./keys";
 
 const press = (key: string, mods: Partial<KeyEventLike> = {}): KeyEventLike => ({
@@ -66,6 +66,37 @@ describe("bindingFor", () => {
     expect(command(press("~", { shiftKey: true }))).toBeNull();
   });
 
+  it("takes the Backquote key where the backtick is a dead key", () => {
+    // Spanish / Latin American / German: the key has no plain `.
+    expect(command(press("Dead", { code: "Backquote", ctrlKey: true }))).toBe("toggleDock");
+    expect(command(press("<", { code: "Backquote", ctrlKey: true }), true)).toBe("toggleDock");
+    expect(command(press("Dead", { code: "Backquote", ctrlKey: true, shiftKey: true }))).toBe("newLocalShell");
+    expect(command(press(">", { code: "Backquote", ctrlKey: true, shiftKey: true }), true)).toBe("newLocalShell");
+    expect(command(press("Dead", { code: "Backquote" }))).toBeNull();
+    expect(command(press("Dead", { code: "Backquote", ctrlKey: true, altKey: true }))).toBeNull();
+    expect(command(press("Dead", { code: "Backquote", metaKey: true }), true)).toBeNull();
+  });
+
+  it("also takes Mod+J and Mod+Shift+J, which every layout can type", () => {
+    expect(command(press("j", { ctrlKey: true }))).toBe("toggleDock");
+    expect(command(press("j", { metaKey: true }), true)).toBe("toggleDock");
+    expect(command(press("J", { ctrlKey: true, shiftKey: true }))).toBe("newLocalShell");
+    expect(command(press("J", { metaKey: true, shiftKey: true }), true)).toBe("newLocalShell");
+    expect(command(press("j", { ctrlKey: true }), true)).toBeNull();
+  });
+
+  it("leaves Ctrl+J to the shell inside a terminal, except ⌘J on macOS", () => {
+    const hit = (e: KeyEventLike, mac: boolean) => {
+      const h = bindingFor(e, mac)!;
+      return leftToTerminal(h.binding, h.index, mac);
+    };
+    expect(hit(press("j", { ctrlKey: true }), false)).toBe(true);
+    expect(hit(press("J", { ctrlKey: true, shiftKey: true }), false)).toBe(true);
+    expect(hit(press("j", { metaKey: true }), true)).toBe(false);
+    expect(hit(press("`", { ctrlKey: true }), false)).toBe(false);
+    expect(hit(press("Dead", { code: "Backquote", ctrlKey: true }), false)).toBe(false);
+  });
+
   it("leaves Space with Shift alone", () => {
     expect(command(press(" "))).toBe("toggleRow");
     expect(command(press(" ", { shiftKey: true }))).toBeNull();
@@ -83,8 +114,11 @@ describe("formatBinding", () => {
     expect(formatBinding(of("deleteRows"), false)).toEqual(["Delete"]);
     expect(formatBinding(of("deleteRows"), true)).toEqual(["Delete", "⌘Backspace"]);
     expect(formatBinding(of("toggleRow"), false)).toEqual(["Space"]);
-    expect(formatBinding(of("toggleDock"), false)).toEqual(["Ctrl+`"]);
-    expect(formatBinding(of("toggleDock"), true)).toEqual(["⌃`"]);
+    expect(formatBinding(of("toggleDock"), false)).toEqual(["Ctrl+`", "Ctrl+J"]);
+    expect(formatBinding(of("toggleDock"), true)).toEqual(["⌘J", "⌃`"]);
+    expect(formatBinding(of("newLocalShell"), false)).toEqual(["Ctrl+Shift+`", "Ctrl+Shift+J"]);
+    expect(formatBinding(of("newLocalShell"), true)).toEqual(["⇧⌘J", "⌃⇧`"]);
+    expect(shortcutHint("toggleDock", true)).toBe("⌘J or ⌃`");
   });
 
   it("covers every binding with a label", () => {
