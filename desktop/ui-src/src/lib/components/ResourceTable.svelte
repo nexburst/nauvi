@@ -4,6 +4,7 @@
   import ContextMenu from "./ContextMenu.svelte";
   import Sparkline from "./Sparkline.svelte";
   import { clockTime } from "../usage";
+  import { watchGutter } from "../scrollGutter";
   import type { MenuItem } from "./ContextMenu.svelte";
   import { replicasFromRow } from "../actions";
   import { rangeKeys } from "../selection";
@@ -51,6 +52,14 @@
   }: Props = $props();
 
   const ROW_HEIGHT = 28;
+
+  // The header leaves the width of the scroller's scrollbar, so its columns
+  // stay over the cells: 15 px in Chromium, 0 with WebKitGTK's overlay
+  // scrollbars (#140).
+  let gutter = $state(0);
+  $effect(() => {
+    if (scrollEl) return watchGutter(scrollEl, (px) => (gutter = px));
+  });
 
   // The columns the user has not hidden (column chooser in the toolbar),
   // and the sort, both remembered per kind.
@@ -263,7 +272,7 @@
     aria-activedescendant={focusedIndex >= 0 ? rowId(focusedIndex) : undefined}
     bind:this={gridEl}
   >
-    <div class="head" role="row" aria-rowindex={1} style:grid-template-columns={template}>
+    <div class="head" role="row" aria-rowindex={1} style:grid-template-columns={template} style:padding-right="{gutter}px">
       <div class="th check" role="columnheader">
         <input
           type="checkbox"
@@ -279,9 +288,10 @@
           class="th"
           role="columnheader"
           aria-sort={sort?.key === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
+          title={col.label}
           onclick={() => toggleSort(col.key)}
         >
-          {col.label}
+          <span class="label">{col.label}</span>
           {#if sort?.key === col.key}<span class="arrow">{sort.dir === "asc" ? "▲" : "▼"}</span>{/if}
         </button>
       {/each}
@@ -384,12 +394,16 @@
     display: grid;
     height: 28px;
     flex-shrink: 0;
-    /* Match the scroller's reserved scrollbar gutter. */
-    padding-right: 15px;
     border-bottom: 1px solid var(--border);
     background: var(--bg);
   }
   .th {
+    /* A label wider than its column is cut with an ellipsis, like the cells
+       below it, instead of running into the next header (#140). */
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    overflow: hidden;
     text-align: left;
     padding: 0 10px;
     background: transparent;
@@ -402,10 +416,16 @@
     cursor: pointer;
     white-space: nowrap;
   }
+  .label {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .th:hover {
     color: var(--text);
   }
   .arrow {
+    flex-shrink: 0;
     font-size: 9px;
     margin-left: 4px;
   }
