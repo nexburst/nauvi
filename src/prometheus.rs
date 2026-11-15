@@ -297,12 +297,12 @@ impl UsageRange {
 
 /// The window of a `rate()` at this step: two steps, and at least 2 minutes
 /// so it spans several scrapes at the usual 30 s interval.
-fn rate_window(step: u64) -> String {
+pub(crate) fn rate_window(step: u64) -> String {
     format!("{}s", (2 * step).max(120))
 }
 
 /// Quote a label value for PromQL.
-fn quote(v: &str) -> String {
+pub(crate) fn quote(v: &str) -> String {
     format!("\"{}\"", v.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
@@ -578,21 +578,51 @@ pub async fn prometheus_usage(
     range: UsageRange,
     now_secs: u64,
 ) -> Result<SeriesView> {
-    let (span, step) = range
-        .span()
-        .ok_or_else(|| anyhow!("The live range comes from metrics-server, not Prometheus"))?;
-    // On a 30 s grid, so polls close together ask the same thing. Not on
-    // the step's own grid: at 24h that could leave out the last 12 minutes.
-    let end = now_secs - now_secs % 30;
-    let start = end.saturating_sub(span);
+    let step = range_step(range)?;
     let (cpu_q, mem_q) = match namespace {
         Some(ns) => pod_queries(ns, name, step),
         None => node_queries(name, step),
     };
+    let queries = (cpu_q.as_str(), mem_q.as_str());
+    query_usage(
+        client,
+        target,
+        queries,
+        range,
+        now_secs,
+        namespace.is_some(),
+    )
+    .await
+}
+
+/// The step between points of a Prometheus range; an error for `live`.
+pub(crate) fn range_step(range: UsageRange) -> Result<u64> {
+    range
+        .span()
+        .map(|(_, step)| step)
+        .ok_or_else(|| anyhow!("The live range comes from metrics-server, not Prometheus"))
+}
+
+/// Run a CPU (cores) and a memory (bytes) query over `range`, ending at
+/// `now_secs`, into a [`SeriesView`] ([`to_series_view`]).
+pub(crate) async fn query_usage(
+    client: &Client,
+    target: &PrometheusTarget,
+    (cpu_q, mem_q): (&str, &str),
+    range: UsageRange,
+    now_secs: u64,
+    by_container: bool,
+) -> Result<SeriesView> {
+    let step = range_step(range)?;
+    let span = range.span().map(|(span, _)| span).unwrap_or_default();
+    // On a 30 s grid, so polls close together ask the same thing. Not on
+    // the step's own grid: at 24h that could leave out the last 12 minutes.
+    let end = now_secs - now_secs % 30;
+    let start = end.saturating_sub(span);
     let both = async {
         futures::try_join!(
-            query_range(client, target, &cpu_q, start, end, step),
-            query_range(client, target, &mem_q, start, end, step),
+            query_range(client, target, cpu_q, start, end, step),
+            query_range(client, target, mem_q, start, end, step),
         )
     };
     let (cpu, memory) = tokio::time::timeout(QUERY_TIMEOUT, both)
@@ -604,7 +634,7 @@ pub async fn prometheus_usage(
                 QUERY_TIMEOUT.as_secs()
             )
         })??;
-    Ok(to_series_view(&cpu, &memory, namespace.is_some()))
+    Ok(to_series_view(&cpu, &memory, by_container))
 }
 
 #[cfg(test)]

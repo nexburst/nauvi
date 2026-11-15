@@ -37,6 +37,15 @@ Svelte) and a CLI, both built on the same Rust core.
   running), problem pods, CPU/memory/pod capacity against requests and usage,
   and the newest warning events, each linking to its object. Kept live by
   watches, not by re-listing the cluster.
+- **Workloads → Overview**: Pods, Deployments, DaemonSets, StatefulSets,
+  ReplicaSets, Jobs and CronJobs counted by status (running, pending, failed,
+  succeeded, suspended, ...) in the selected namespaces, live. A click on a
+  count opens that kind's table showing just those rows. It also lists the
+  problem workloads (not all replicas ready, failed jobs, suspended cron jobs)
+  and the newest warnings about workloads. The detail panels of Deployments,
+  StatefulSets, DaemonSets, ReplicaSets and Jobs chart the summed CPU and
+  memory of their pods against their summed requests and limits, from the
+  metrics-server history or Prometheus.
 - **Details** for any object. For pods: live logs (pick the container, or the
   previous instance of a crashed one) and an interactive terminal (pod exec).
 - **Port forwards** to pods, Services and workloads, on a chosen or automatic

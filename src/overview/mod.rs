@@ -5,12 +5,20 @@
 //! the initial list happens once, then only changes arrive, and the summary
 //! is recomputed from the watched state at most once a second.
 //! [`get_overview`] is the one-shot form (the first summary).
+//!
+//! The Workloads overview ([`watch_workloads`]) is built the same way, per
+//! selected namespace: status counts per workload kind, problem workloads
+//! and warning events about workloads.
 
 mod live;
 mod summary;
+mod workloads;
+mod workloads_live;
 
 pub use live::{watch_overview, OverviewUpdate};
 pub use summary::{pod_problem, pod_status, PENDING_TOO_LONG_SECS};
+pub use workloads::{KindCounts, ProblemWorkload, StatusCount, WorkloadsOverview};
+pub use workloads_live::{watch_workloads, WorkloadsUpdate};
 
 use anyhow::{bail, Result};
 use futures::StreamExt;
@@ -149,4 +157,23 @@ pub async fn get_overview(client: &Client, namespace: Option<&str>) -> Result<Ov
         }
     }
     bail!("the overview watch ended before its first summary")
+}
+
+/// Fetch the Workloads overview of `namespaces` (empty: all) once: the
+/// first summary of [`watch_workloads`].
+pub async fn get_workloads_overview(
+    client: &Client,
+    namespaces: &[String],
+) -> Result<WorkloadsOverview> {
+    let mut updates = watch_workloads(client, namespaces);
+    while let Some(update) = updates.next().await {
+        match update {
+            WorkloadsUpdate::Summary(overview) => return Ok(*overview),
+            WorkloadsUpdate::State(crate::watch::WatchState::Reconnecting { error }) => {
+                bail!(error)
+            }
+            WorkloadsUpdate::State(_) => {}
+        }
+    }
+    bail!("the workloads overview watch ended before its first summary")
 }

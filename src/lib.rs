@@ -19,6 +19,7 @@ mod prometheus;
 mod shell_kubeconfig;
 mod usage_history;
 mod usage_reference;
+mod workload_usage;
 
 pub mod actions;
 pub mod attach;
@@ -50,3 +51,4 @@ pub use shell_kubeconfig::*;
 pub use usage_history::*;
 pub use usage_reference::*;
 pub use workload_logs::*;
+pub use workload_usage::*;

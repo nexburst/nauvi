@@ -7,15 +7,24 @@
   import { fallbackNote, refLines, USAGE_RANGES, usageSourceText } from "../usage";
   import type { ChartLine } from "../usage";
 
-  /** CPU and memory charts of a pod or node (#47), from the usage history the
+  /** CPU and memory charts of a pod or node (#47), or of all the pods of a
+   *  workload (`workload`: its kind, #79), from the usage history the
    *  backend keeps while metrics are on screen, or from Prometheus over
    *  1h, 6h or 24h when the context has one. Pods also show each
-   *  container, nodes their allocatable. */
-  let { what, namespace, name }: { what: MetricsKind; namespace: string | null; name: string } = $props();
+   *  container, nodes their allocatable, workloads their pods' summed
+   *  requests and limits. */
+  let {
+    what = "pods",
+    workload = "",
+    namespace,
+    name,
+  }: { what?: MetricsKind; workload?: string; namespace: string | null; name: string } = $props();
 
   // The panel is remounted for every object, so the props are fixed here.
   // svelte-ignore state_referenced_locally
-  const feed = new UsageFeed(what, namespace, name);
+  const feed = new UsageFeed(workload ? { workload, namespace: namespace ?? "", name } : { what, namespace, name });
+  // svelte-ignore state_referenced_locally
+  const subject = workload ? `the pods of this ${workload}` : what === "pods" ? "this pod" : "this node";
   onMount(() => feed.start());
   onDestroy(() => feed.stop());
 
@@ -24,7 +33,7 @@
   const lines = $derived.by((): ChartLine[] => {
     const h = data?.history;
     if (!h) return [];
-    const total = { name: what === "pods" ? "pod" : "node", samples: h.samples };
+    const total = { name: workload ? "pods" : what === "pods" ? "pod" : "node", samples: h.samples };
     // One container is the pod itself; more get a line each.
     return h.containers.length > 1 ? [total, ...h.containers] : [total];
   });
@@ -54,7 +63,7 @@
     <p class="muted small">{feed.error ? `Could not load usage: ${feed.error}` : "Loading…"}</p>
   {:else if data.history.samples.length === 0}
     <p class="muted small" data-testid="usage-empty">
-      No usage yet. metrics-server has no sample for this {what === "pods" ? "pod" : "node"}, or is not installed.
+      No usage yet. metrics-server has no sample for {subject}, or is not installed.
     </p>
   {:else}
     <p class="muted small" data-testid={data.source === "prometheus" ? "usage-source" : "usage-since"}>

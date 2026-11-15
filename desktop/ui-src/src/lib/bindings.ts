@@ -53,6 +53,13 @@ export const commands = {
 	cmdOverviewStart: (id: number, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_start", { id, namespace }, options),
 	cmdOverviewStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_stop", { id }, options),
 	/**
+	 *  Start the Workloads overview feed `id` (chosen by the UI) for
+	 *  `namespaces` (empty: all namespaces). Replaces a feed with the same id;
+	 *  the UI starts a new one when the namespace selection changes.
+	 */
+	cmdWorkloadsStart: (id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_start", { id, namespaces }, options),
+	cmdWorkloadsStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_stop", { id }, options),
+	/**
 	 *  The namespace to start on: `null` (all namespaces) if the user may list
 	 *  pods cluster-wide, otherwise the context's namespace or the first one
 	 *  they can access.
@@ -75,6 +82,16 @@ export const commands = {
 	 *  saying why.
 	 */
 	cmdUsageHistory: (what: MetricsKind, namespace: string | null, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_usage_history", { what, namespace, name, range }, options),
+	/**
+	 *  The summed usage history of a workload's pods (`kind` is Deployment,
+	 *  StatefulSet, DaemonSet, ReplicaSet or Job), for the charts in its detail
+	 *  panel, with their summed requests and limits. Polled while the panel is
+	 *  open; it samples the pods itself when no table did lately.
+	 * 
+	 *  A `range` other than `live` asks Prometheus, as `cmd_usage_history`
+	 *  does, and falls back to the metrics-server history with a `note`.
+	 */
+	cmdWorkloadUsageHistory: (kind: string, namespace: string, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_workload_usage_history", { kind, namespace, name, range }, options),
 	/**
 	 *  Which Prometheus the usage charts use for the selected context, or why
 	 *  there is none. `redetect` looks again instead of using the cached answer.
@@ -308,6 +325,8 @@ export const events = {
 	watchState: makeEvent<WatchStateChanged, WatchStateChanged>("watch-state"),
 	workloadLog: makeEvent<WorkloadLog, WorkloadLog>("workload-log"),
 	workloadNotice: makeEvent<WorkloadNotice, WorkloadNotice>("workload-notice"),
+	workloadsState: makeEvent<WorkloadsStateChanged, WorkloadsStateChanged>("workloads-state"),
+	workloadsUpdate: makeEvent<WorkloadsChanged, WorkloadsChanged>("workloads-update"),
 };
 
 /* Types */
@@ -888,6 +907,19 @@ export type HelmRevisionKey = {
  */
 export type HelmStorage = "secret" | "configmap";
 
+/**  The counts of one workload kind. */
+export type KindCounts = {
+	/**  API group ("" for pods) and kind, to find the kind's table. */
+	group: string,
+	kind: string,
+	total: number,
+	/**
+	 *  Every status the kind uses, in card order, zeros included (except an
+	 *  `Unknown` with no pods).
+	 */
+	statuses: StatusCount[],
+};
+
 /**  What is remembered per kind (by kind id). */
 export type KindSettings = KindSettings_Serialize | KindSettings_Deserialize;
 
@@ -1230,6 +1262,22 @@ export type ProblemPod = {
 	created: number,
 };
 
+/**
+ *  A workload worth looking at: not all replicas ready, a failed job, a
+ *  suspended cron job.
+ */
+export type ProblemWorkload = {
+	group: string,
+	kind: string,
+	namespace: string,
+	name: string,
+	status: WorkloadStatus,
+	/**  "1/3 ready", "BackoffLimitExceeded", "Suspended". */
+	reason: string,
+	/**  Unix seconds. */
+	created: number,
+};
+
 /**  What the app shows about Prometheus in Settings. */
 export type PrometheusStatus = {
 	/**  `namespace/service:port`, or "" when there is none. */
@@ -1370,6 +1418,12 @@ export type ResourceRow = {
 	/**  Creation time (unix seconds). */
 	created: number,
 	cells: string[],
+	/**
+	 *  The workload status the Workloads overview counts this object under
+	 *  ([`WorkloadStatus::as_str`]), so a click on a count can filter the
+	 *  table; "" for kinds that are not workloads.
+	 */
+	status: string,
 	/**
 	 *  Why the object needs attention (`CrashLoopBackOff`, `1 of 3 ready`);
 	 *  empty if it is fine ([`problems::row_problem`]).
@@ -1546,6 +1600,12 @@ export type StateInfo = {
 	exit_code: number,
 	/**  Age of the start (running) or the finish (terminated). */
 	since: string,
+};
+
+/**  How many objects of one status. */
+export type StatusCount = {
+	status: WorkloadStatus,
+	count: number,
 };
 
 /**  A log line and where it came from. */
@@ -1734,6 +1794,68 @@ export type WorkloadNoticeKind =
 "failed" | 
 /**  More containers match than the stream limit: `skipped` are waiting. */
 "truncated";
+
+/**
+ *  How a workload object counts. Not every kind uses every status: see
+ *  [`statuses_of`].
+ */
+export type WorkloadStatus = 
+/**
+ *  Pods: phase Running without a waiting error. Controllers: every
+ *  desired replica ready. Jobs: still running. Cron jobs: a job is
+ *  active.
+ */
+"Running" | 
+/**  Pods: phase Pending. Controllers: some replicas not ready yet. */
+"Pending" | 
+/**
+ *  Pods: a container waits on an error (CrashLoopBackOff,
+ *  ImagePullBackOff, ...).
+ */
+"Error" | 
+/**
+ *  Pods: phase Failed. Controllers: a rollout past its deadline or a
+ *  replica that could not be created. Jobs: the Failed condition.
+ */
+"Failed" | 
+/**  Pods: phase Succeeded. Jobs: complete. */
+"Succeeded" | 
+/**  Jobs and cron jobs with `spec.suspend`. */
+"Suspended" | 
+/**  Cron jobs waiting for their next run. */
+"Scheduled" | 
+/**  A pod phase this version does not know. */
+"Unknown";
+
+/**
+ *  A new Workloads overview for the feed `id` (sent when it changed, at
+ *  most about once a second).
+ */
+export type WorkloadsChanged = {
+	id: number,
+	overview: WorkloadsOverview,
+};
+
+/**  The Workloads overview of the selected namespaces. */
+export type WorkloadsOverview = {
+	/**
+	 *  In sidebar order. A kind the user may not list anywhere in the scope
+	 *  is left out, with a note.
+	 */
+	kinds: KindCounts[],
+	/**  Failed first, then the oldest; at most [`MAX_PROBLEMS`]. */
+	problems: ProblemWorkload[],
+	problems_total: number,
+	/**  Warning events about workload objects, newest first. */
+	events: EventInfo[],
+	/**  What is missing or narrowed, and why. */
+	notes: string[],
+};
+
+/**  Connection state of the Workloads overview feed `id`. */
+export type WorkloadsStateChanged = {
+	id: number,
+} & WatchState;
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

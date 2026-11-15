@@ -30,6 +30,8 @@
   import CatalogView from "./lib/components/catalog/CatalogView.svelte";
   import ClusterSettings from "./lib/components/catalog/ClusterSettings.svelte";
   import { catalog, listenKubeconfigs } from "./lib/stores/catalog.svelte";
+  import WorkloadsOverview from "./lib/components/WorkloadsOverview.svelte";
+  import { WORKLOADS_VIEW } from "./lib/workloads";
   import { dock } from "./lib/stores/dock.svelte";
   import { isPod } from "./lib/columns";
   import {
@@ -106,6 +108,8 @@
       <Overview />
     {:else if app.view === HELM_VIEW}
       <HelmView />
+    {:else if app.view === WORKLOADS_VIEW}
+      <WorkloadsOverview />
     {:else if app.view === PORT_FORWARDS_VIEW}
       <PortForwards />
     {:else if kind}

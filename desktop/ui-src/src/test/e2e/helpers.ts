@@ -98,6 +98,14 @@ export class Fake {
     return this.page.evaluate((s) => window.__fake.emitOverviewState(s), state);
   }
 
+  workloadsFeeds(): Promise<{ id: number; namespaces: string[] }[]> {
+    return this.page.evaluate(() => window.__fake.workloadsFeeds());
+  }
+
+  emitWorkloads(): Promise<void> {
+    return this.page.evaluate(() => window.__fake.emitWorkloads());
+  }
+
   emitLogLines(lines: string[], streamId?: number): Promise<void> {
     return this.page.evaluate(([l, id]) => window.__fake.emitLogLines(l, id), [lines, streamId] as const);
   }
@@ -127,6 +135,8 @@ export class Fake {
       namespace,
       created: Math.floor(Date.now() / 1000) - 60,
       cells: [name, namespace, ready, status, restarts, "node-1", "", "", ""],
+      // As the backend classifies it (src/resources/status.rs), roughly.
+      status: status === "Running" || status === "Pending" ? status : "Error",
       problem,
     };
   }

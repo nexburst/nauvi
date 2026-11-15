@@ -2,6 +2,7 @@
   import type { Category, ResourceKind } from "../bindings";
   import { app, canOpenDenied, deniedReason, kinds, setView } from "../stores/app.svelte";
   import { HELM_VIEW } from "../helm";
+  import { WORKLOADS_VIEW } from "../workloads";
   import { isCrdDefinitions } from "../crd";
   import { PORT_FORWARDS_VIEW } from "../forwards";
   import { forwards, refreshForwards } from "../stores/forwards.svelte";
@@ -103,6 +104,15 @@
     {@const list = byCategory.get(section.category) ?? []}
     {#if list.length > 0 || (section.category === "network" && forwards.list.length > 0)}
       <h4>{section.title}</h4>
+      {#if section.category === "workloads"}
+        <!-- Not a kind: counts of every workload kind (#79). -->
+        <button
+          type="button"
+          class:active={app.view === WORKLOADS_VIEW}
+          aria-label="Workloads overview"
+          onclick={() => setView(WORKLOADS_VIEW)}>Overview</button
+        >
+      {/if}
       {#each list as kind (kind.id)}
         {@render item(kind)}
       {/each}

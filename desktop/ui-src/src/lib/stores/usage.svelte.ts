@@ -4,9 +4,22 @@ import type { MetricsKind, UsageHistoryView, UsageRange } from "../bindings";
 /** Same pace as the table's metrics poll (stores/live.svelte.ts). */
 export const USAGE_INTERVAL_MS = 20_000;
 
+/** What a feed charts: a pod or node, or all the pods of a workload. */
+export type UsageTarget =
+  | { what: MetricsKind; namespace: string | null; name: string }
+  | { workload: string; namespace: string; name: string };
+
+/** The history of `t` over `range`. */
+function fetchUsage(t: UsageTarget, range: UsageRange): Promise<UsageHistoryView> {
+  return "workload" in t
+    ? commands.cmdWorkloadUsageHistory(t.workload, t.namespace, t.name, range)
+    : commands.cmdUsageHistory(t.what, t.namespace, t.name, range);
+}
+
 /**
- * The usage history of one pod or node (`cmd_usage_history`), for the charts
- * in its detail panel. Polled while the panel is open; the backend samples
+ * The usage history of one pod or node (`cmd_usage_history`), or the summed
+ * history of a workload's pods (`cmd_workload_usage_history`), for the
+ * charts in its detail panel. Polled while the panel is open; the backend samples
  * the object itself when no table did lately, so history keeps growing.
  * The panel calls `stop()` in `onDestroy`.
  *
@@ -19,16 +32,12 @@ export class UsageFeed {
   error = $state("");
   range = $state<UsageRange>("1h");
 
-  #what: MetricsKind;
-  #namespace: string | null;
-  #name: string;
+  #target: UsageTarget;
   #timer: ReturnType<typeof setInterval> | null = null;
   #stopped = false;
 
-  constructor(what: MetricsKind, namespace: string | null, name: string) {
-    this.#what = what;
-    this.#namespace = namespace;
-    this.#name = name;
+  constructor(target: UsageTarget) {
+    this.#target = target;
   }
 
   start() {
@@ -39,7 +48,7 @@ export class UsageFeed {
   async load() {
     try {
       const range = this.range;
-      const data = await commands.cmdUsageHistory(this.#what, this.#namespace, this.#name, range);
+      const data = await fetchUsage(this.#target, range);
       // A reply to an older range is dropped; the newer request follows.
       if (this.#stopped || range !== this.range) return;
       this.data = data;
