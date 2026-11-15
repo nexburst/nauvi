@@ -1,7 +1,9 @@
 //! Windows: each one is connected to its own cluster (see `windows.rs`).
 
-use crate::windows;
-use tauri::AppHandle;
+use crate::{close_guard, windows};
+use serde::Serialize;
+use specta::Type;
+use tauri::{AppHandle, Webview};
 
 /// Open a new window connected to `context` (`""`: the kubeconfig's
 /// current-context), with the context's name as its title. Its streams,
@@ -12,4 +14,33 @@ use tauri::AppHandle;
 // Async: building a window from a sync command deadlocks on Windows.
 pub(crate) async fn cmd_open_window(app: AppHandle, context: String) -> Result<(), String> {
     windows::open_window(&app, &context).map(|_| ())
+}
+
+/// This window has (or no longer has) unsaved edits: closing it or quitting
+/// the app asks first (#173, `close_guard.rs`).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_set_unsaved(webview: Webview, unsaved: bool) {
+    close_guard::set_unsaved(webview.label(), unsaved);
+}
+
+/// The user discarded this window's unsaved edits after an
+/// `UnsavedCloseRequested`: go on closing the window (`quit`: quitting the
+/// app).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_discard_and_close(
+    app: AppHandle,
+    webview: Webview,
+    quit: bool,
+) -> Result<(), String> {
+    close_guard::discarded(&app, webview.label(), quit)
+}
+
+/// Closing this window (`quit`: quitting the app) was stopped because it has
+/// unsaved edits: ask the user, and call `cmd_discard_and_close` if they
+/// discard them.
+#[derive(Debug, Clone, Serialize, Type, tauri_specta::Event)]
+pub(crate) struct UnsavedCloseRequested {
+    pub(crate) quit: bool,
 }

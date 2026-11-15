@@ -104,7 +104,9 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             watch::cmd_detail_watch,
             watch::cmd_watch_start,
             watch::cmd_watch_stop,
+            window::cmd_discard_and_close,
             window::cmd_open_window,
+            window::cmd_set_unsaved,
             workload_usage::cmd_workload_usage_history,
             workloads::cmd_workloads_start,
             workloads::cmd_workloads_stop,
@@ -126,6 +128,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             watch::DetailWatchEvent,
             watch::WatchBatch,
             watch::WatchStateChanged,
+            window::UnsavedCloseRequested,
             workloads::WorkloadsChanged,
             workloads::WorkloadsStateChanged,
         ])

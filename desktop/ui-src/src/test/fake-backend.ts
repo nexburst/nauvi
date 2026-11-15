@@ -113,6 +113,8 @@ export interface FakeApi {
   restarted(): boolean;
   /** Send `kubeconfigs-changed`, as the backend does when a kubeconfig file changes. */
   emitKubeconfigsChanged(): Promise<void>;
+  /** Send `unsaved-close-requested`, as the backend does when closing (or, `quit`, quitting) meets unsaved edits. */
+  emitUnsavedCloseRequested(quit?: boolean): Promise<void>;
 }
 
 declare global {
@@ -211,6 +213,7 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       if (error) await events.podLogError.emit({ streamId: sid, data: error });
       if (done) await events.podLogDone.emit({ streamId: sid });
     },
+    emitUnsavedCloseRequested: (quit = false) => events.unsavedCloseRequested.emit({ quit }),
   };
   window.__fake = api;
   return api;

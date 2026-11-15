@@ -6,6 +6,7 @@ use tauri::Manager;
 use tauri_specta::Builder;
 
 mod catalog;
+mod close_guard;
 mod commands;
 mod local_shell;
 mod log_streams;
@@ -65,13 +66,21 @@ fn main() {
             app.manage(store);
             commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());
+            close_guard::install(app.handle());
             Ok(())
         })
-        .on_window_event(|window, event| {
+        .on_window_event(|window, event| match event {
+            // Unsaved edits: ask first (#173).
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                if close_guard::close_blocked(window.app_handle(), window.label()) {
+                    api.prevent_close();
+                }
+            }
             // Closing a window stops everything it started.
-            if let tauri::WindowEvent::Destroyed = event {
+            tauri::WindowEvent::Destroyed => {
                 windows::window_destroyed(window.app_handle(), window.label());
             }
+            _ => {}
         })
         .build(context)
         .expect("error while building kubeloupe")

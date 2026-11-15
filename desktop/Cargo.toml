@@ -26,3 +26,8 @@ url = "2"
 specta = { version = "=2.0.0-rc.28", features = ["derive"] }
 specta-typescript = "=0.0.15"
 tauri-specta = { version = "=2.0.0-rc.29", features = ["derive", "typescript"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Quit confirmation (#173): answers `applicationShouldTerminate:`. The same
+# version tao uses.
+objc2 = "0.6"
