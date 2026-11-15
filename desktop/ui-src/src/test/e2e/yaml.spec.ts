@@ -293,6 +293,51 @@ test("a failed load leaves nothing to review", async ({ page }) => {
   await expect(button(page, "Review")).toBeDisabled();
 });
 
+test("Enter after a key that opens a block indents the next line (#101)", async ({ page }) => {
+  await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await editor.click();
+  await page.keyboard.press("ControlOrMeta+End");
+  // Real key presses, so the editor's Enter command runs.
+  await page.keyboard.type("spec:");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("template:");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("x: 1");
+  await page.keyboard.press("Enter");
+  await page.keyboard.type("y: 2");
+  const text = await editor.evaluate((el) => (el as HTMLElement).innerText);
+  expect(text).toContain("spec:\n  template:\n    x: 1\n    y: 2");
+});
+
+test("the diff's unchanged-lines bar draws its chevrons, no font glyph (#101)", async ({ page }) => {
+  // A long object, so the diff collapses the unchanged middle (the init
+  // function runs in the page: no closures).
+  await openApp(page, (c) => {
+    const labels = Array.from({ length: 20 }, (_, i) => `    l${i}: "v"`).join("\n");
+    c.yaml["apps/v1/deployments|demo/web"] =
+      `apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  namespace: demo\n  labels:\n${labels}\n`;
+  });
+  await openKind(page, "Deployments");
+  await row(page, "web").click();
+  await page.locator("aside").getByRole("tab", { name: "YAML" }).click();
+  const editor = await editorOf(page, "Deployment");
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  await button(page, "Review").click();
+  const bar = page.locator("aside .cm-collapsedLines").first();
+  await expect(bar).toContainText("unchanged lines");
+  const marks = await bar.evaluate((el) =>
+    ["::before", "::after"].map((p) => {
+      const s = getComputedStyle(el, p);
+      return { content: s.content, border: s.borderRightStyle };
+    }),
+  );
+  expect(marks).toEqual([
+    { content: '""', border: "solid" },
+    { content: '""', border: "solid" },
+  ]);
+});
+
 test("the editor follows the theme; its cursor and active line number stay visible", async ({ page }) => {
   await openYaml(page, "Deployments", "web");
   const editor = await editorOf(page, "Deployment");
