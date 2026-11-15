@@ -196,6 +196,8 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     console.log(`block after inner: ${JSON.stringify(v.slice(v.indexOf("  inner"), v.indexOf("z: 1") + 4))}`);
     const dot = await app.js("return !!document.querySelector('[data-testid=\"detail-panel\"] h3 .dirty')");
     assert.ok(dot, "the unsaved dot shows");
+    // Both themes explicitly: CI's system theme is light.
+    await setTheme(app, "dark");
     await app.shot("typed-dark");
     await assertEditorReadable(app, "dark");
     await setTheme(app, "light");
@@ -313,6 +315,7 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     const sp = await scrolls();
     console.log(`side-by-side scroll: ${JSON.stringify(sp)}`);
     assert.ok(sp && sp.scrollTop > 0, "the side-by-side diff scrolls");
+    await setTheme(app, "dark");
     await app.shot("diff-split-dark");
     await setTheme(app, "light");
     await app.shot("diff-split-light");
@@ -389,6 +392,7 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     await (await app.find(By.css('[data-testid="detail-panel"] button[aria-label="Close details"]'))).click();
     const dialog = await waitDiscardDialog(app);
     console.log(`dialog: ${await dialog.getText()}`);
+    await setTheme(app, "dark");
     await app.shot("discard-dialog-dark");
     await setTheme(app, "light");
     await app.shot("discard-dialog-light");
