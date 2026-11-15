@@ -307,11 +307,14 @@ export class App {
     return (await this.driver.findElement(byTestId("connection-status"))).getText();
   }
 
-  /** Click a kind (or Overview) in the sidebar. A count badge after the label is ignored. */
+  /** The sidebar button of a kind (or Overview), by its label (a count or problem badge may follow it). */
+  navButton(label) {
+    return By.xpath(`//nav//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)}]`);
+  }
+
+  /** Click a kind (or Overview) in the sidebar. */
   async nav(label) {
-    const button = await this.find(
-      By.xpath(`//nav//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)}]`),
-    );
+    const button = await this.find(this.navButton(label));
     // The sidebar scrolls (more so with the dock open); WebKitGTK's driver
     // refuses to click a button that is only partly visible.
     await this.js("arguments[0].scrollIntoView({ block: 'center' })", button);

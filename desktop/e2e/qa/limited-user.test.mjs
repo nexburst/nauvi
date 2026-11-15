@@ -20,7 +20,7 @@ describe("namespace-scoped user", { timeout: 10 * 60_000, skip }, () => {
 
   it("greys out Nodes with the reason", T, async () => {
     const { app } = s;
-    const nodes = await app.find(By.xpath("//nav//button[normalize-space()='Nodes']"));
+    const nodes = await app.find(app.navButton("Nodes"));
     await app.waitFor(async () => (await nodes.getAttribute("class")).includes("denied"), {
       timeout: 30_000,
       message: "Nodes greyed out",

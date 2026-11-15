@@ -1,9 +1,9 @@
 //! Pod and workload log streams, and saving logs.
 
-use crate::state::Cluster;
+use crate::state::{Cluster, WindowEmitter};
 use kubeloupe::{
-    batch_lines, stream_pod_logs, stream_workload_logs, LogOptions, StopReason, TaggedLine,
-    WorkloadEvent, WorkloadKind,
+    batch_lines, stream_pod_containers_logs, stream_pod_logs, stream_workload_logs, LogOptions,
+    StopReason, TaggedLine, WorkloadEvent, WorkloadKind,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -217,34 +217,70 @@ pub(crate) async fn cmd_stream_workload_logs(
     cluster.log_streams.start(stream_id, move || {
         tauri::async_runtime::spawn(async move {
             let emitter = out.clone();
-            let result =
-                stream_workload_logs(
-                    &client,
-                    kind,
-                    &namespace,
-                    &name,
-                    &opts,
-                    move |ev| match ev {
-                        WorkloadEvent::Lines(data) => {
-                            emitter.emit(WorkloadLog { stream_id, data });
-                        }
-                        ev => {
-                            if let Some(n) = workload_notice(stream_id, ev) {
-                                emitter.emit(n);
-                            }
-                        }
-                    },
-                )
-                .await;
-            if let Err(e) = result {
-                out.emit(PodLogError {
-                    stream_id,
-                    data: format!("Log stream ended with an error: {e}"),
-                });
-            }
-            out.emit(PodLogDone { stream_id });
+            let result = stream_workload_logs(&client, kind, &namespace, &name, &opts, move |ev| {
+                emit_tagged(&emitter, stream_id, ev)
+            })
+            .await;
+            end_tagged(&out, stream_id, result);
         })
     })
+}
+
+/// Follow every container of one pod at once, merged and tagged by container
+/// like a workload stream (same events as [`cmd_stream_workload_logs`]).
+/// `options.container` narrows it to one container; previous logs are not
+/// offered (they are per container).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_stream_pod_all_logs(
+    cluster: Cluster,
+    namespace: String,
+    name: String,
+    options: WorkloadLogOptions,
+    stream_id: u64,
+) -> Result<(), String> {
+    let client = cluster.client().await?;
+    let out = cluster.emitter();
+    let opts = LogOptions {
+        container: options.container,
+        previous: false,
+        tail_lines: options.tail_lines,
+        since_seconds: options.since_seconds,
+        timestamps: options.timestamps.unwrap_or(false),
+    };
+    cluster.log_streams.start(stream_id, move || {
+        tauri::async_runtime::spawn(async move {
+            let emitter = out.clone();
+            let result = stream_pod_containers_logs(&client, &namespace, &name, &opts, move |ev| {
+                emit_tagged(&emitter, stream_id, ev)
+            })
+            .await;
+            end_tagged(&out, stream_id, result);
+        })
+    })
+}
+
+/// Send one event of a merged (tagged) log stream.
+fn emit_tagged(out: &WindowEmitter, stream_id: u64, ev: WorkloadEvent) {
+    match ev {
+        WorkloadEvent::Lines(data) => out.emit(WorkloadLog { stream_id, data }),
+        ev => {
+            if let Some(n) = workload_notice(stream_id, ev) {
+                out.emit(n);
+            }
+        }
+    }
+}
+
+/// Report how a merged log stream ended.
+fn end_tagged(out: &WindowEmitter, stream_id: u64, result: anyhow::Result<()>) {
+    if let Err(e) = result {
+        out.emit(PodLogError {
+            stream_id,
+            data: format!("Log stream ended with an error: {e}"),
+        });
+    }
+    out.emit(PodLogDone { stream_id });
 }
 
 /// Save log text to the user's Downloads folder and return the path. A

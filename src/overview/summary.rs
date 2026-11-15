@@ -220,20 +220,26 @@ pub fn event_info(e: &Event) -> EventInfo {
     }
 }
 
-/// Why `pod` is a problem, if it is one: a waiting error, running but not
-/// ready, or pending for too long.
+/// Why `pod` is a problem, if it is one: a waiting error, failed, running
+/// but not ready, or pending for too long.
 fn problem(pod: &PodSummary, now: i64) -> Option<String> {
     if pod.terminating {
         return None;
     }
     match pod.state {
-        PodState::WaitingError => Some(pod.status.clone()),
+        PodState::WaitingError | PodState::Failed => Some(pod.status.clone()),
         PodState::Running if !pod.ready => Some("Not ready".into()),
         PodState::Pending if pod.created > 0 && now - pod.created > PENDING_TOO_LONG_SECS => {
             Some(format!("Pending for {}m", (now - pod.created) / 60))
         }
         _ => None,
     }
+}
+
+/// Why `pod` is a problem pod of the overview, if it is one (the tables
+/// mark the same pods, see `resources::problems`).
+pub fn pod_problem(pod: &Pod, now: i64) -> Option<String> {
+    problem(&pod_summary(pod), now)
 }
 
 /// Pod counts by state, pods per namespace and the problem pods, as of
@@ -278,9 +284,10 @@ pub fn pod_counts<'a>(
         .collect();
     by_namespace.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     c.by_namespace = by_namespace;
-    // Waiting errors first, then the most restarts, then the oldest.
+    // Waiting errors and failed pods first, then the most restarts, then
+    // the oldest.
     problems.sort_by(|(a, _), (b, _)| {
-        let err = |p: &PodSummary| p.state != PodState::WaitingError;
+        let err = |p: &PodSummary| !matches!(p.state, PodState::WaitingError | PodState::Failed);
         (
             err(a),
             std::cmp::Reverse(a.restarts),
@@ -491,11 +498,12 @@ mod tests {
             problems,
             vec![
                 ("crashed", "CrashLoopBackOff"),
+                ("evicted", "Evicted"),
                 ("stuck", "Pending for 60m"),
                 ("unready", "Not ready"),
             ]
         );
-        assert_eq!(c.problems_total, 3);
+        assert_eq!(c.problems_total, 4);
         assert_eq!(c.problems[0].status, "CrashLoopBackOff");
     }
 

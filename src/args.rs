@@ -224,6 +224,20 @@ pub enum Commands {
         #[arg(last = true, required = true)]
         command: Vec<String>,
     },
+    /// Attach to the main process of a pod's container (its stdin and
+    /// output), like `kubectl attach -it`. The container must have been
+    /// started with `stdin: true`; detaching (Ctrl-C without a TTY, or
+    /// closing the terminal) leaves the process running.
+    Attach {
+        /// Pod name
+        pod: String,
+        /// Pod namespace (default: `default`)
+        #[arg(short, long)]
+        namespace: Option<String>,
+        /// Container (default: the pod's default container, else its first)
+        #[arg(short, long)]
+        container: Option<String>,
+    },
     /// Open a shell in a pod through an ephemeral debug container that shares
     /// a container's processes. Works on images without a shell; the
     /// container cannot be removed and stays until the pod is deleted.
@@ -396,6 +410,25 @@ mod tests {
         assert_eq!(ports, vec!["8080:80", ":http"]);
         assert_eq!(namespace.as_deref(), Some("demo"));
         assert!(Cli::try_parse_from(["kubeloupe", "port-forward", "svc/api"]).is_err());
+    }
+
+    #[test]
+    fn attach() {
+        let Commands::Attach {
+            pod,
+            namespace,
+            container,
+        } = parse(&["attach", "repl", "-n", "demo", "-c", "app"]).command
+        else {
+            panic!("not attach");
+        };
+        assert_eq!(pod, "repl");
+        assert_eq!(namespace.as_deref(), Some("demo"));
+        assert_eq!(container.as_deref(), Some("app"));
+        let Commands::Attach { container, .. } = parse(&["attach", "repl"]).command else {
+            panic!("not attach");
+        };
+        assert_eq!(container, None);
     }
 
     #[test]

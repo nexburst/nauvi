@@ -872,8 +872,8 @@ fn looks_like_timestamp(s: &str) -> bool {
         && s.parse::<chrono::DateTime<chrono::Utc>>().is_ok()
 }
 
-/// Build the table row of `obj` for `columns`.
-pub fn make_row(columns: &[ColumnDef], obj: &DynamicObject) -> ResourceRow {
+/// Build the table row of `obj`, of kind `r`, for `columns`.
+pub fn make_row(r: &ResourceRef, columns: &[ColumnDef], obj: &DynamicObject) -> ResourceRow {
     let value = serde_json::to_value(obj).unwrap_or(Value::Null);
     let name = obj.metadata.name.clone().unwrap_or_default();
     let namespace = obj.metadata.namespace.clone().unwrap_or_default();
@@ -892,7 +892,10 @@ pub fn make_row(columns: &[ColumnDef], obj: &DynamicObject) -> ResourceRow {
             }
         })
         .collect();
+    let created = created_secs(&obj.metadata.creation_timestamp);
+    let now = chrono::Utc::now().timestamp();
     ResourceRow {
+        problem: super::problems::row_problem(r, &value, created, now),
         key: if namespace.is_empty() {
             name.clone()
         } else {
@@ -900,7 +903,7 @@ pub fn make_row(columns: &[ColumnDef], obj: &DynamicObject) -> ResourceRow {
         },
         name,
         namespace,
-        created: created_secs(&obj.metadata.creation_timestamp),
+        created,
         cells,
     }
 }
@@ -982,7 +985,7 @@ mod tests {
             "status": { "since": "2020-01-01T00:00:00Z" }
         }))
         .unwrap();
-        let row = make_row(&cols, &obj);
+        let row = make_row(&r, &cols, &obj);
         assert_eq!(row.key, "n/w");
         assert_eq!(row.cells[..3], ["w", "n", "3"]);
         // A date-typed column shows an age, not the raw timestamp.
@@ -1003,9 +1006,10 @@ mod tests {
 
     /// The cells of `obj` (an object of `group`/`kind`) by column key.
     fn cells(group: &str, kind: &str, namespaced: bool, obj: Value) -> Vec<(String, String)> {
-        let cols = columns_for(&rref(group, kind, "x", namespaced), &[]);
+        let r = rref(group, kind, "x", namespaced);
+        let cols = columns_for(&r, &[]);
         let obj: DynamicObject = serde_json::from_value(obj).unwrap();
-        let row = make_row(&cols, &obj);
+        let row = make_row(&r, &cols, &obj);
         cols.into_iter().map(|c| c.key).zip(row.cells).collect()
     }
 

@@ -1,5 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { LOG_BUFFER_MAX, LogBuffer, POD_COLORS, linePrefix, logMatches, podColor, splitHighlights } from "./logs";
+import {
+  LOG_BUFFER_MAX,
+  LogBuffer,
+  POD_COLORS,
+  linePrefix,
+  logMatches,
+  offerAllContainers,
+  podColor,
+  splitHighlights,
+  tagLabel,
+} from "./logs";
+
+describe("all containers of a pod", () => {
+  it("is offered for two or more regular containers", () => {
+    expect(offerAllContainers([{ init: false }])).toBe(false);
+    expect(offerAllContainers([{ init: true }, { init: false }])).toBe(false);
+    expect(offerAllContainers([{ init: true }, { init: false }, { init: false }])).toBe(true);
+  });
+
+  it("labels lines by container for one pod, by pod for a workload", () => {
+    const tag = { pod: "web-1", container: "sidecar" };
+    expect(tagLabel(tag, true, true)).toEqual({ prefix: "[sidecar]", color: podColor("sidecar") });
+    expect(tagLabel(tag, false, false)).toEqual({ prefix: "[web-1]", color: podColor("web-1") });
+    expect(tagLabel(tag, false, true).prefix).toBe("[web-1/sidecar]");
+  });
+});
 
 describe("LogBuffer", () => {
   it("appends untagged lines with tag 0", () => {

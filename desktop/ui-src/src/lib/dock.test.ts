@@ -65,6 +65,19 @@ describe("openTab", () => {
     ]);
     expect(ids.size).toBe(4);
   });
+
+  it("gives an attach its own tab per container, apart from the shell", () => {
+    const attach = (container: string | null): DockTabSpec => ({
+      type: "attach",
+      pod: { resource: POD, namespace: "demo", name: "repl" },
+      container,
+    });
+    const a = openTab([], shell("repl"));
+    const b = openTab(a.tabs, attach(null));
+    const c = openTab(b.tabs, attach("app"));
+    expect(c.tabs.map((t) => t.title)).toEqual(["Shell: repl", "Attach: repl", "Attach: repl/app"]);
+    expect(openTab(c.tabs, attach(null)).tabs).toBe(c.tabs);
+  });
 });
 
 describe("closeTab", () => {

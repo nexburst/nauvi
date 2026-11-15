@@ -113,7 +113,11 @@ describe("kubeloupe on WebKitGTK against kind", { timeout: 15 * 60_000 }, () => 
     // Our own pod: the shell session leaves the shared demo pods alone.
     const [pod] = podNames(fx.namespace, `app=${fx.deployment}`);
     await app.openDetail("Pods", fx.namespace, pod);
-    await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Open terminal']"))).click();
+    const open = await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Open terminal']"));
+    // The panel scrolls, and with the dock open the button can sit at its
+    // bottom edge; WebKitGTK's driver will not click a partly visible button.
+    await app.js("arguments[0].scrollIntoView({ block: 'center' })", open);
+    await open.click();
     await app.find(byTestId("terminal"));
     const screen = () => app.js(`return document.querySelector('[data-testid="terminal"] .xterm-rows')?.textContent ?? ""`);
     // Wait for the shell prompt before typing.

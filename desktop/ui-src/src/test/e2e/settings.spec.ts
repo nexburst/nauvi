@@ -22,7 +22,7 @@ test("the view and the table sort survive a restart", async ({ page }) => {
   await expect(header(page, "Restarts")).toHaveAttribute("aria-sort", "descending");
 
   await restart(page);
-  await expect(activeKind(page)).toHaveText("Pods");
+  await expect(activeKind(page)).toHaveAccessibleName("Pods");
   await expect(header(page, "Restarts")).toHaveAttribute("aria-sort", "descending");
   // Other kinds keep their own (no) sort.
   await openKind(page, "Deployments");
@@ -43,7 +43,7 @@ test("hidden columns are chosen per kind and remembered", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Columns (1 hidden)" })).toBeVisible();
 
   await restart(page);
-  await expect(activeKind(page)).toHaveText("Pods");
+  await expect(activeKind(page)).toHaveAccessibleName("Pods");
   await expect(header(page, "Node")).toHaveCount(0);
   await expect(header(page, "Status")).toBeVisible();
 
@@ -61,17 +61,17 @@ test("the context and its namespaces survive a restart", async ({ page }) => {
   await page.getByRole("combobox", { name: "Cluster context" }).selectOption("prod");
   await expect.poll(async () => (await fake.calls("cmdSetContext")).length).toBe(1);
   // prod has nothing remembered yet: the overview and all namespaces.
-  await expect(activeKind(page)).toHaveText("Overview");
+  await expect(activeKind(page)).toHaveAccessibleName("Overview");
 
   await restart(page);
   // Restarted on prod. The fake's kubeconfig still says kind-dev is current.
   expect((await fake.lastCall("cmdSetContext")).name).toBe("prod");
   await expect(page.getByRole("combobox", { name: "Cluster context" })).toHaveValue("prod");
-  await expect(activeKind(page)).toHaveText("Overview");
+  await expect(activeKind(page)).toHaveAccessibleName("Overview");
 
   // Back on kind-dev, its view and namespace come back.
   await page.getByRole("combobox", { name: "Cluster context" }).selectOption("kind-dev");
-  await expect(activeKind(page)).toHaveText("Pods");
+  await expect(activeKind(page)).toHaveAccessibleName("Pods");
   await expect(namespaceButton(page)).toHaveText("demo");
   expect(fake.errors).toEqual([]);
 });
@@ -89,7 +89,7 @@ test("what no longer exists falls back safely", async ({ page }) => {
   // No switch to a context that is gone, the overview instead of a kind
   // that is not served, and all namespaces instead of a deleted one.
   expect(await fake.calls("cmdSetContext")).toEqual([]);
-  await expect(activeKind(page)).toHaveText("Overview");
+  await expect(activeKind(page)).toHaveAccessibleName("Overview");
   await openKind(page, "Pods");
   await expect(namespaceButton(page)).toHaveText("All namespaces");
   expect(fake.errors).toEqual([]);
@@ -99,7 +99,7 @@ test("the app starts with the defaults when the settings cannot be read", async 
   const fake = await openApp(page, (_cluster, f) => {
     f.failNext("cmdGetSettings", "settings store unavailable");
   });
-  await expect(activeKind(page)).toHaveText("Overview");
+  await expect(activeKind(page)).toHaveAccessibleName("Overview");
   await openKind(page, "Pods");
   await expect(row(page, "web-1")).toBeVisible();
   expect(fake.errors).toEqual([]);

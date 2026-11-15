@@ -8,7 +8,15 @@
   import { commands, events } from "../bindings";
   import { thisWindow } from "../window";
   import type { LogContainer, WorkloadNotice } from "../bindings";
-  import { LogBuffer, LOG_BUFFER_MAX, linePrefix, logMatches, podColor, splitHighlights } from "../logs";
+  import {
+    ALL_CONTAINERS,
+    LogBuffer,
+    LOG_BUFFER_MAX,
+    logMatches,
+    offerAllContainers,
+    splitHighlights,
+    tagLabel,
+  } from "../logs";
   import type { TaggedText, WorkloadRef } from "../logs";
   import type { PodRef } from "../stores/detail.svelte";
   import { settings } from "../stores/settings.svelte";
@@ -45,6 +53,8 @@
 
   // Log options.
   let container = $state("");
+  /** One pod, all its containers merged (tagged by container). */
+  const allContainers = $derived(!isWorkload && container === ALL_CONTAINERS);
   let previous = $state(false);
   // Start from the defaults on the Settings page.
   const defaults = settings.current.logs;
@@ -136,8 +146,8 @@
     if (!info) {
       const tag = buf.tags[tagId];
       const multi = (containersByPod.get(tag.pod)?.size ?? 0) > 1;
-      const prefix = linePrefix(tag, multi);
-      info = { prefix, lower: prefix.toLowerCase(), color: podColor(tag.pod) };
+      const { prefix, color } = tagLabel(tag, !isWorkload, multi);
+      info = { prefix, lower: prefix.toLowerCase(), color };
       tagInfoCache.set(tagId, info);
     }
     return info;
@@ -295,12 +305,12 @@
     streamId = ++streamCounter;
     streaming = true;
     if (old !== null) await commands.cmdStopLogs(old).catch(() => {});
+    podStates = {};
+    containersByPod.clear();
+    tagInfoCache = new Map();
+    truncatedNote = "";
     try {
       if (workload) {
-        podStates = {};
-        containersByPod.clear();
-        tagInfoCache = new Map();
-        truncatedNote = "";
         await commands.cmdStreamWorkloadLogs(
           workload.kind,
           workload.namespace,
@@ -316,6 +326,22 @@
         return;
       }
       if (!pod) return;
+      if (container === ALL_CONTAINERS) {
+        // Merged by the workload tracker; previous logs are per container.
+        previous = false;
+        await commands.cmdStreamPodAllLogs(
+          pod.namespace,
+          pod.name,
+          {
+            container: null,
+            tailLines: tail === "all" ? null : Number(tail),
+            sinceSeconds: since === "all" ? null : Number(since),
+            timestamps,
+          },
+          streamId,
+        );
+        return;
+      }
       await commands.cmdStreamPodLogs(
         pod.namespace,
         pod.name,
@@ -332,15 +358,13 @@
   }
 
   async function downloadLogs() {
-    const name = container || (workload ? "all" : "pod");
+    const name = container === ALL_CONTAINERS ? "all" : container || (workload ? "all" : "pod");
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `${(workload ?? pod)?.name}_${name}${previous ? "_previous" : ""}_${stamp}.log`;
     try {
       // Written by the backend: Blob/anchor downloads are not reliable in
       // Tauri's webviews, and a save dialog would need an extra plugin.
-      const text = isWorkload
-        ? buf.lines.map((l, i) => (buf.tagIds[i] ? tagInfo(buf.tagIds[i]).prefix + " " + l : l)).join("\n")
-        : buf.lines.join("\n");
+      const text = buf.lines.map((l, i) => (buf.tagIds[i] ? tagInfo(buf.tagIds[i]).prefix + " " + l : l)).join("\n");
       const path = await commands.cmdSaveLogs(filename, text + "\n");
       statusNote = "saved to " + path;
     } catch (e) {
@@ -440,11 +464,16 @@
     </select>
   {:else}
     <select class="mini" title="Container" bind:value={container} onchange={restart}>
+      {#if offerAllContainers(containers)}
+        <option value={ALL_CONTAINERS}>All containers</option>
+      {/if}
       {#each containers as c (c.name)}
         <option value={c.name}>{c.init ? `${c.name} (init)` : c.name}</option>
       {/each}
     </select>
-    <label class="check"><input type="checkbox" bind:checked={previous} onchange={restart} /> Previous</label>
+    <label class="check" title={allContainers ? "Pick one container to see its previous logs" : undefined}>
+      <input type="checkbox" bind:checked={previous} disabled={allContainers} onchange={restart} /> Previous
+    </label>
   {/if}
   <select class="mini" title="Tail lines" bind:value={tail} onchange={restart}>
     <option value="100">100 lines</option>
