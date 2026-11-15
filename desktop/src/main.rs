@@ -16,6 +16,7 @@ mod shell_env;
 mod state;
 mod updater;
 mod webview_args;
+mod window_state;
 mod windows;
 
 /// Where the generated bindings live.
@@ -57,6 +58,7 @@ fn main() {
             builder.mount_events(app);
             let config_dir = app.path().app_config_dir().ok();
             let store = SettingsStore::open(config_dir.as_ref().map(|d| d.join("settings.json")));
+            window_state::init(config_dir.as_ref().map(|d| d.join("window-state.json")));
             // The catalog's added kubeconfigs (#78), before any window
             // looks a context up.
             let sources = app.state::<AppState>().sources.clone();
@@ -72,6 +74,7 @@ fn main() {
         .on_window_event(|window, event| match event {
             // Unsaved edits: ask first (#173).
             tauri::WindowEvent::CloseRequested { api, .. } => {
+                window_state::capture(window.app_handle(), window.label());
                 if close_guard::close_blocked(window.app_handle(), window.label()) {
                     api.prevent_close();
                 }
@@ -79,6 +82,10 @@ fn main() {
             // Closing a window stops everything it started.
             tauri::WindowEvent::Destroyed => {
                 windows::window_destroyed(window.app_handle(), window.label());
+            }
+            // Remember sizes and positions (#182).
+            tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+                window_state::changed(window.app_handle());
             }
             _ => {}
         })

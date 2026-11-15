@@ -4,6 +4,7 @@
 
 use crate::settings::{SettingsPatch, SettingsStore};
 use crate::state::{AppState, ExecSession, MAIN_WINDOW};
+use crate::window_state::{self, Rect};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -57,16 +58,32 @@ fn next_label(app: &AppHandle) -> String {
     }
 }
 
+/// Where "New window" opens a window from the window `from` (#182):
+/// cascaded down and right of it.
+pub(crate) fn cascade_from(app: &AppHandle, from: &str) -> Option<Rect> {
+    let rect = window_state::window_rect(&app.get_webview_window(from)?)?;
+    Some(window_state::cascade(rect, &window_state::monitors(app)))
+}
+
 /// Open a new window connected to `context` (`""`: the kubeconfig's
-/// current-context). Returns its label.
-pub(crate) fn open_window(app: &AppHandle, context: &str) -> Result<String, String> {
+/// current-context), at `rect` (kept on a visible monitor) or the default
+/// size. Returns its label.
+pub(crate) fn open_window(
+    app: &AppHandle,
+    context: &str,
+    rect: Option<Rect>,
+) -> Result<String, String> {
     let label = next_label(app);
     let context = context_arg(context);
     app.state::<AppState>().open(&label, context.clone());
+    let rect = rect.map(|r| window_state::on_screen(r, &window_state::monitors(app)));
     let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
         .title(title(context.as_deref()))
-        .inner_size(1280.0, 800.0)
         .disable_drag_drop_handler();
+    builder = match rect {
+        Some(r) => builder.inner_size(r.width, r.height).position(r.x, r.y),
+        None => builder.inner_size(1280.0, 800.0),
+    };
     // The same WebView2 arguments as the main window (#93).
     if let Some(args) = crate::webview_args::from_env() {
         builder = builder.additional_browser_args(&args);
@@ -75,6 +92,9 @@ pub(crate) fn open_window(app: &AppHandle, context: &str) -> Result<String, Stri
     if let Err(e) = built {
         app.state::<AppState>().close(&label);
         return Err(format!("Could not open a new window: {e}"));
+    }
+    if let Some(r) = rect {
+        window_state::placed(&label, r);
     }
     remember_windows(app, "");
     Ok(label)
@@ -97,28 +117,37 @@ fn remember_windows(app: &AppHandle, except: &str) {
     let Some(store) = app.try_state::<Arc<SettingsStore>>() else {
         return;
     };
+    let extras = extra_windows(app.state::<AppState>().contexts(MAIN_WINDOW), except);
+    let (labels, contexts) = extras.into_iter().unzip();
     store.update(SettingsPatch {
-        windows: Some(extra_window_contexts(
-            app.state::<AppState>().contexts(MAIN_WINDOW),
-            except,
-        )),
+        windows: Some(contexts),
         ..Default::default()
     });
+    // Their sizes and positions, in the same order (#182).
+    window_state::set_extras(app, labels);
 }
 
-/// The contexts to remember, from the open windows by label: the windows
-/// opened for a context, in the order they were opened.
-fn extra_window_contexts(windows: Vec<(String, Option<String>)>, except: &str) -> Vec<String> {
-    let mut windows: Vec<(u64, String)> = windows
+/// The windows to remember, from the open windows by label: the windows
+/// opened for a context, in the order they were opened, as (label, context).
+fn extra_windows(windows: Vec<(String, Option<String>)>, except: &str) -> Vec<(String, String)> {
+    let mut windows: Vec<(u64, String, String)> = windows
         .into_iter()
         .filter(|(label, _)| label != except)
         .filter_map(|(label, ctx)| {
             let n = label.strip_prefix(LABEL_PREFIX)?.parse().ok()?;
-            Some((n, ctx.unwrap_or_default()))
+            Some((n, label, ctx.unwrap_or_default()))
         })
         .collect();
     windows.sort();
-    windows.into_iter().map(|(_, ctx)| ctx).collect()
+    windows.into_iter().map(|(_, l, ctx)| (l, ctx)).collect()
+}
+
+#[cfg(test)]
+fn extra_window_contexts(windows: Vec<(String, Option<String>)>, except: &str) -> Vec<String> {
+    extra_windows(windows, except)
+        .into_iter()
+        .map(|(_, ctx)| ctx)
+        .collect()
 }
 
 /// Reopen the windows that were open when the app last quit, skipping
@@ -127,6 +156,7 @@ pub(crate) fn restore_windows(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
         let _ = w.set_title(&title(None));
     }
+    window_state::restore_main(app);
     let Some(store) = app.try_state::<Arc<SettingsStore>>() else {
         return;
     };
@@ -140,8 +170,10 @@ pub(crate) fn restore_windows(app: &AppHandle) {
         .map(|c| c.name)
         .collect();
     let remembered = store.get().windows;
-    for ctx in restorable(&remembered, &names) {
-        if let Err(e) = open_window(app, &ctx) {
+    for (n, ctx) in restorable(&remembered, &names) {
+        // Where it was (#182), or cascaded from the main window.
+        let rect = window_state::restored(Some(n)).or_else(|| cascade_from(app, MAIN_WINDOW));
+        if let Err(e) = open_window(app, &ctx, rect) {
             eprintln!("kubeloupe: {e}");
         }
     }
@@ -149,11 +181,14 @@ pub(crate) fn restore_windows(app: &AppHandle) {
     remember_windows(app, "");
 }
 
-fn restorable(remembered: &[String], contexts: &[String]) -> Vec<String> {
+/// The remembered contexts still in the kubeconfig, with their index in
+/// `remembered` (where their saved rect is).
+fn restorable(remembered: &[String], contexts: &[String]) -> Vec<(usize, String)> {
     remembered
         .iter()
-        .filter(|c| c.is_empty() || contexts.contains(c))
-        .cloned()
+        .enumerate()
+        .filter(|(_, c)| c.is_empty() || contexts.contains(c))
+        .map(|(n, c)| (n, c.clone()))
         .collect()
 }
 
@@ -240,6 +275,7 @@ pub(crate) fn before_exit(app: &AppHandle) {
     if let Some(store) = app.try_state::<Arc<SettingsStore>>() {
         store.flush();
     }
+    window_state::save(app);
     close_now(app.state::<AppState>().close_all());
 }
 
@@ -282,7 +318,10 @@ mod tests {
     fn restores_only_contexts_that_still_exist() {
         let remembered = vec!["staging".to_string(), "gone".to_string(), String::new()];
         let contexts = vec!["staging".to_string(), "prod".to_string()];
-        assert_eq!(restorable(&remembered, &contexts), vec!["staging", ""]);
+        assert_eq!(
+            restorable(&remembered, &contexts),
+            vec![(0, "staging".to_string()), (2, String::new())]
+        );
     }
 
     #[test]
