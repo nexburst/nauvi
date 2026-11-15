@@ -35,6 +35,17 @@ test("the palette opens a local terminal at the app's context, then closes it", 
     .toBe("kubectl get pods");
   expect(await fake.calls("cmdExecInput")).toHaveLength(0);
 
+  // A paste goes the same ordered way, after what was typed (#89).
+  await page.keyboard.type(" -A");
+  await page.locator(".xterm-helper-textarea").evaluate((ta) => {
+    const data = new DataTransfer();
+    data.setData("text/plain", "\necho one\necho two\n");
+    ta.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  await expect
+    .poll(async () => (await fake.calls("cmdLocalShellInput")).map((c) => c.data).join(""))
+    .toBe("kubectl get pods -A\recho one\recho two\r");
+
   await dock(page).getByRole("button", { name: "Close kind-dev · default" }).click();
   await expect.poll(() => fake.calls("cmdLocalShellClose")).toEqual([{ session: "local-1" }]);
   expect(fake.errors).toEqual([]);
