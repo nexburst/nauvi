@@ -80,6 +80,17 @@ fn bad_arguments_exit_with_usage_error() {
 }
 
 #[test]
+fn exec_help_documents_the_exit_code() {
+    let out = kubeloupe(&["exec", "--help"]);
+    assert!(out.status.success());
+    let help = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        help.contains("Exits with the command's exit code"),
+        "{help}"
+    );
+}
+
+#[test]
 #[ignore]
 fn cli_apply_dry_run_with_context_and_missing_file() {
     let manifest = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-apply.yaml");

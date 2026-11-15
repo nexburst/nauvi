@@ -215,6 +215,10 @@ pub enum Commands {
         namespace: Option<String>,
     },
     /// Run a command in a pod (non-interactive)
+    ///
+    /// Exits with the command's exit code, like `kubectl exec`: 0 when it
+    /// succeeds, its own code when it exits non-zero, and 1 when it cannot be
+    /// run (no such pod, container or executable).
     Exec {
         /// Pod name
         name: String,

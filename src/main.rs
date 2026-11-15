@@ -8,7 +8,7 @@ use kubeloupe::{
     client_with, error_text, exec_in_pod, list_namespaces, list_nodes, list_pods, parse_log_target,
     print_describe, print_get, print_pod_logs, print_top_nodes, print_top_pods,
     print_workload_logs, print_yaml, run_port_forward, split_target, watch_and_print, GetOptions,
-    LogOptions, LogTarget,
+    LogOptions, LogTarget, RemoteExit,
 };
 use std::io::IsTerminal;
 use std::process::ExitCode;
@@ -58,8 +58,16 @@ async fn async_main() -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {}", error_text(&e));
-            ExitCode::FAILURE
+            exit_code_of(&e)
         }
+    }
+}
+
+/// 1, or the remote command's exit code for `exec` (like `kubectl exec`).
+fn exit_code_of(e: &anyhow::Error) -> ExitCode {
+    match e.downcast_ref::<RemoteExit>() {
+        Some(RemoteExit(code)) => ExitCode::from(u8::try_from(*code).unwrap_or(1).max(1)),
+        None => ExitCode::FAILURE,
     }
 }
 

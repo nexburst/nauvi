@@ -2,6 +2,7 @@
 
 use anyhow::Result;
 use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::Status;
 use kube::api::{Api, AttachParams, AttachedProcess};
 use kube::Client;
 use std::future::Future;
@@ -72,6 +73,62 @@ pub struct ExecResult {
     pub stdout: String,
     pub stderr: String,
     pub success: bool,
+    /// The command's exit code: 0 on success, the remote code when it ran
+    /// and exited non-zero, 1 when it could not be run (see `error`).
+    pub exit_code: i32,
+    /// Why the command could not be run (executable not found, say);
+    /// empty when it ran.
+    pub error: String,
+}
+
+/// The exit code a failure status reports for a command that ran and
+/// exited non-zero (`reason: NonZeroExitCode`, cause `ExitCode`).
+fn status_exit_code(status: &Status) -> Option<i32> {
+    if status.reason.as_deref() != Some("NonZeroExitCode") {
+        return None;
+    }
+    status
+        .details
+        .as_ref()?
+        .causes
+        .as_ref()?
+        .iter()
+        .find(|c| c.reason.as_deref() == Some("ExitCode"))?
+        .message
+        .as_deref()?
+        .trim()
+        .parse()
+        .ok()
+        .filter(|code| *code != 0)
+}
+
+/// A failure status's message without the prefix the API server repeats
+/// ("Internal error occurred: Internal error occurred: ...").
+fn status_message(msg: &str) -> &str {
+    const PREFIX: &str = "Internal error occurred: ";
+    let mut msg = msg.trim();
+    while msg.starts_with(PREFIX) && msg[PREFIX.len()..].starts_with(PREFIX) {
+        msg = &msg[PREFIX.len()..];
+    }
+    msg
+}
+
+/// The exit code and (when the command could not be run) the reason a
+/// failure status reports.
+fn failure_of(status: &Status) -> (i32, String) {
+    match status_exit_code(status) {
+        // The exit code says it all; the message only repeats it.
+        Some(code) => (code, String::new()),
+        None => {
+            let msg = status_message(status.message.as_deref().unwrap_or_default());
+            let msg = if msg.is_empty() {
+                "the command could not be run"
+            } else {
+                msg
+            };
+            (1, msg.to_string())
+        }
+    }
 }
 
 /// Run a command in a pod (non-TTY) and collect its output.
@@ -123,30 +180,74 @@ pub async fn exec_command(
             None => None,
         }
     };
-    let (stdout, mut stderr, joined, status) =
+    let (stdout, stderr, joined, status) =
         tokio::join!(read_stdout, read_stderr, attached.join(), read_status);
-    let mut success = joined.is_ok();
-    if let Some(s) = status {
-        if s.status.as_deref() == Some("Failure") {
-            success = false;
-            if let Some(msg) = s.message {
-                if !stderr.is_empty() {
-                    stderr.push('\n');
-                }
-                stderr.push_str(&msg);
-            }
-        }
-    }
+    let (exit_code, error) = match status {
+        Some(s) if s.status.as_deref() == Some("Failure") => failure_of(&s),
+        _ => match joined {
+            Ok(()) => (0, String::new()),
+            Err(e) => (1, e.to_string()),
+        },
+    };
     Ok(ExecResult {
         stdout,
         stderr,
-        success,
+        success: exit_code == 0,
+        exit_code,
+        error,
     })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn status(json: serde_json::Value) -> Status {
+        serde_json::from_value(json).unwrap()
+    }
+
+    #[test]
+    fn a_non_zero_exit_passes_its_code_on_without_a_message() {
+        let s = status(serde_json::json!({
+            "status": "Failure",
+            "reason": "NonZeroExitCode",
+            "message": "command terminated with non-zero exit code: command terminated with exit code 3",
+            "details": { "causes": [{ "reason": "ExitCode", "message": "3" }] }
+        }));
+        assert_eq!(failure_of(&s), (3, String::new()));
+    }
+
+    #[test]
+    fn a_command_that_cannot_run_reports_why_once() {
+        let s = status(serde_json::json!({
+            "status": "Failure",
+            "reason": "InternalError",
+            "message": "Internal error occurred: Internal error occurred: exec: \"nope\": executable file not found in $PATH",
+        }));
+        assert_eq!(
+            failure_of(&s),
+            (
+                1,
+                "Internal error occurred: exec: \"nope\": executable file not found in $PATH"
+                    .into()
+            )
+        );
+    }
+
+    #[test]
+    fn an_unusable_exit_code_is_a_plain_failure() {
+        for code in ["x", "0"] {
+            let s = status(serde_json::json!({
+                "status": "Failure",
+                "reason": "NonZeroExitCode",
+                "message": "command terminated",
+                "details": { "causes": [{ "reason": "ExitCode", "message": code }] }
+            }));
+            assert_eq!(failure_of(&s), (1, "command terminated".into()), "{code}");
+        }
+        let s = status(serde_json::json!({ "status": "Failure" }));
+        assert_eq!(failure_of(&s), (1, "the command could not be run".into()));
+    }
 
     #[tokio::test(start_paused = true)]
     async fn end_shell_types_the_keys_until_the_shell_exits() {

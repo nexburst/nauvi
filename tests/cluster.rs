@@ -326,7 +326,7 @@ async fn exec_runs_echo() -> Result<()> {
         exec_command(&client, "demo", &pod, None, &cmd),
     )
     .await?;
-    ensure!(r.success, "exec failed: {}", r.stderr);
+    ensure!(r.success, "exec failed: {}{}", r.stderr, r.error);
     ensure!(
         r.stdout.trim() == "kubeloupe-exec",
         "stdout = {:?}",
@@ -344,12 +344,80 @@ async fn exec_runs_echo() -> Result<()> {
     Ok(())
 }
 
+// #172: exec passes the remote exit code on (library and CLI), and a command
+// that cannot run says why once, on its own line.
+#[tokio::test]
+#[ignore]
+async fn exec_reports_the_remote_exit_code() -> Result<()> {
+    in_temp_ns("kl-it-exec", |client, ns| async move {
+        let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
+        pods.create(&PostParams::default(), &sleeper_pod("p"))
+            .await?;
+        wait_running(&client, &ns, "p").await?;
+
+        let exit3 = strings(&["sh", "-c", "echo hi; echo oops >&2; exit 3"]);
+        let r = within(
+            "exec exit 3",
+            TIMEOUT,
+            exec_command(&client, &ns, "p", None, &exit3),
+        )
+        .await?;
+        ensure!(!r.success && r.exit_code == 3, "exit code {}", r.exit_code);
+        ensure!(r.stdout == "hi\n", "stdout = {:?}", r.stdout);
+        ensure!(r.stderr == "oops\n", "stderr = {:?}", r.stderr);
+        ensure!(r.error.is_empty(), "error = {:?}", r.error);
+
+        let missing = strings(&["kubeloupe-no-such-command"]);
+        let r = within(
+            "exec missing",
+            TIMEOUT,
+            exec_command(&client, &ns, "p", None, &missing),
+        )
+        .await?;
+        ensure!(!r.success && r.exit_code != 0, "exit code {}", r.exit_code);
+        ensure!(r.error.contains("kubeloupe-no-such-command"), "{}", r.error);
+        ensure!(
+            r.error.matches("Internal error occurred").count() <= 1,
+            "{}",
+            r.error
+        );
+
+        // The binary exits with the remote code; its error is on its own line.
+        let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
+            .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+        let run = |cmd: &[&str]| {
+            let mut args = vec!["--context", &ctx, "exec", "-n", &ns, "p", "--"];
+            args.extend_from_slice(cmd);
+            std::process::Command::new(env!("CARGO_BIN_EXE_kubeloupe"))
+                .args(args)
+                .output()
+        };
+        let out = run(&["sh", "-c", "printf hi; printf oops >&2; exit 3"])?;
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        ensure!(out.status.code() == Some(3), "{:?}: {stderr}", out.status);
+        ensure!(out.stdout == b"hi", "{:?}", out.stdout);
+        ensure!(
+            stderr == "oops\nerror: command terminated with exit code 3\n",
+            "{stderr:?}"
+        );
+        let out = run(&["kubeloupe-no-such-command"])?;
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        ensure!(out.status.code() == Some(1), "{:?}: {stderr}", out.status);
+        ensure!(
+            stderr.starts_with("error: ") && stderr.ends_with('\n') && stderr.lines().count() == 1,
+            "{stderr:?}"
+        );
+        Ok(())
+    })
+    .await
+}
+
 /// Shells running in `ns/name`: `ps` lines whose command is `/bin/sh` or
 /// `sh` (the pod's own process is `httpd -f`).
 async fn shells_in(client: &Client, ns: &str, name: &str) -> Result<usize> {
     let ps = strings(&["ps", "-o", "pid,args"]);
     let r = exec_command(client, ns, name, None, &ps).await?;
-    ensure!(r.success, "ps failed: {}", r.stderr);
+    ensure!(r.success, "ps failed: {}{}", r.stderr, r.error);
     Ok(r.stdout
         .lines()
         .filter(|l| matches!(l.split_whitespace().nth(1), Some("/bin/sh" | "sh")))
