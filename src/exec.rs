@@ -4,7 +4,10 @@ use anyhow::Result;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, AttachParams, AttachedProcess};
 use kube::Client;
+use std::future::Future;
+use std::time::Duration;
 use tokio::io::AsyncReadExt;
+use tokio::sync::mpsc::Sender;
 
 // ---------------------------------------------------------------------------
 // Pod exec.
@@ -22,6 +25,46 @@ pub async fn exec_pod(
     let mut params = AttachParams::interactive_tty();
     params.container = container.map(str::to_string);
     Ok(pods.exec(name, ["/bin/sh"], &params).await?)
+}
+
+/// What [`end_shell`] types into a shell: Ctrl-C (stops the foreground
+/// command, drops a half-typed line), then Ctrl-D (end of input at the
+/// prompt, so the shell exits).
+pub const END_SHELL_KEYS: &[u8] = b"\x03\x04";
+
+/// How often [`end_shell`] types [`END_SHELL_KEYS`]: once per nested shell
+/// or interrupted command.
+pub const END_SHELL_INTERVAL: Duration = Duration::from_millis(300);
+
+/// How long [`end_shell`] waits for the shell to exit.
+pub const END_SHELL_WAIT: Duration = Duration::from_secs(2);
+
+/// End an interactive TTY shell before its connection is dropped, the way
+/// typing `exit` would. Dropping the connection, or closing stdin, is not
+/// enough: the container runtime keeps a TTY process alive, so every closed
+/// terminal would leave its shell running in the container.
+///
+/// Types [`END_SHELL_KEYS`] into `stdin` every [`END_SHELL_INTERVAL`] until
+/// `exited` resolves (the process ended), for at most [`END_SHELL_WAIT`].
+/// Returns whether it exited. A program that ignores Ctrl-C and Ctrl-D
+/// (an editor, say) keeps the shell alive.
+pub async fn end_shell(stdin: &Sender<Vec<u8>>, exited: impl Future) -> bool {
+    let type_keys = async {
+        loop {
+            if stdin.send(END_SHELL_KEYS.to_vec()).await.is_err() {
+                // Nobody reads stdin any more: wait for `exited` alone.
+                std::future::pending::<()>().await;
+            }
+            tokio::time::sleep(END_SHELL_INTERVAL).await;
+        }
+    };
+    let ended = async {
+        tokio::select! {
+            _ = exited => {},
+            () = type_keys => {},
+        }
+    };
+    tokio::time::timeout(END_SHELL_WAIT, ended).await.is_ok()
 }
 
 /// Result of a non-interactive command run in a pod.
@@ -99,4 +142,44 @@ pub async fn exec_command(
         stderr,
         success,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(start_paused = true)]
+    async fn end_shell_types_the_keys_until_the_shell_exits() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        // The shell exits on the second Ctrl-D (a nested shell, say).
+        let shell = async move {
+            for _ in 0..2 {
+                assert_eq!(rx.recv().await.unwrap(), END_SHELL_KEYS);
+            }
+        };
+        let started = tokio::time::Instant::now();
+        assert!(end_shell(&tx, tokio::spawn(shell)).await);
+        assert_eq!(started.elapsed(), END_SHELL_INTERVAL);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn end_shell_gives_up_after_the_wait() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+        let started = tokio::time::Instant::now();
+        assert!(!end_shell(&tx, std::future::pending::<()>()).await);
+        assert_eq!(started.elapsed(), END_SHELL_WAIT);
+        let mut typed = 0;
+        while rx.try_recv().is_ok() {
+            typed += 1;
+        }
+        assert_eq!(typed, 7, "once at 0 ms and every 300 ms until 2 s");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn end_shell_waits_for_exit_when_stdin_is_gone() {
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        drop(rx);
+        let exit = tokio::time::sleep(Duration::from_millis(500));
+        assert!(end_shell(&tx, exit).await);
+    }
 }

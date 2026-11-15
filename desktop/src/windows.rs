@@ -3,7 +3,7 @@
 //! when it closes.
 
 use crate::settings::{SettingsPatch, SettingsStore};
-use crate::state::{AppState, SessionCleanup, MAIN_WINDOW};
+use crate::state::{AppState, ExecSession, MAIN_WINDOW};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -154,16 +154,17 @@ fn restorable(remembered: &[String], contexts: &[String]) -> Vec<String> {
 }
 
 /// The window `label` is gone: stop everything it started. If it was the
-/// last window (the app is quitting), wait briefly for its node shell pods
-/// to be deleted and keep the remembered windows as they are. Otherwise
-/// forget it after `FORGET_DELAY`, unless the app exits by then: windows
-/// close one after another when the session logs out, in an order the app
-/// doesn't choose, and only a window the user closed alone is forgotten.
+/// last window (the app is quitting), wait briefly for its shells to end
+/// and its node shell pods to be deleted, and keep the remembered windows
+/// as they are. Otherwise forget it after `FORGET_DELAY`, unless the app
+/// exits by then: windows close one after another when the session logs
+/// out, in an order the app doesn't choose, and only a window the user
+/// closed alone is forgotten.
 pub(crate) fn window_destroyed(app: &AppHandle, label: &str) {
-    let cleanups = app.state::<AppState>().close(label);
+    let sessions = app.state::<AppState>().close(label);
     let others = app.webview_windows().keys().any(|l| l != label);
     if others {
-        crate::state::spawn_cleanups(cleanups);
+        crate::state::spawn_closes(sessions);
         if !EXITING.load(Ordering::SeqCst) {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
@@ -177,7 +178,7 @@ pub(crate) fn window_destroyed(app: &AppHandle, label: &str) {
         }
     } else {
         exit_started();
-        run_cleanups_now(cleanups);
+        close_now(sessions);
     }
 }
 
@@ -193,8 +194,6 @@ pub(crate) fn exit_started() {
     EXITING.store(true, Ordering::SeqCst);
 }
 
-/// Run node shell cleanups and wait for them, bounded, so a dead cluster
-/// cannot keep the app from exiting.
 /// Before the app quits (or an update's installer replaces it): write
 /// settings changed in the last moments, and stop what windows still have
 /// open (kill the local shells, delete their temp kubeconfigs and the node
@@ -204,15 +203,17 @@ pub(crate) fn before_exit(app: &AppHandle) {
     if let Some(store) = app.try_state::<Arc<SettingsStore>>() {
         store.flush();
     }
-    run_cleanups_now(app.state::<AppState>().close_all());
+    close_now(app.state::<AppState>().close_all());
 }
 
-pub(crate) fn run_cleanups_now(cleanups: Vec<SessionCleanup>) {
-    if cleanups.is_empty() {
+/// Close terminal sessions and wait for them, bounded, so a dead cluster
+/// cannot keep the app from exiting.
+pub(crate) fn close_now(sessions: Vec<ExecSession>) {
+    if sessions.is_empty() {
         return;
     }
     tauri::async_runtime::block_on(async {
-        let all = futures::future::join_all(cleanups.into_iter().map(|c| c.run()));
+        let all = futures::future::join_all(sessions.into_iter().map(|s| s.close()));
         let _ = tokio::time::timeout(Duration::from_secs(5), all).await;
     });
 }

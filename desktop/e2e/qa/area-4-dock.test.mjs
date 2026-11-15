@@ -59,6 +59,16 @@ function execShells() {
   return out.split("\n").filter((l) => /\s\/bin\/sh$/.test(l)).length;
 }
 
+/** `execShells()` once it is `want`, or what it still is after 15 s (closing
+ *  a tab ends its shell within about 2 s). */
+async function settledShells(app, want) {
+  let now = execShells();
+  await app
+    .waitFor(() => (now = execShells()) === want, { timeout: 15_000, interval: 1000, message: `${want} /bin/sh` })
+    .catch(() => {});
+  return now;
+}
+
 describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () => {
   before(() => {
     ns = tempNamespace("qa-area4-dock", [httpPodYaml("shell"), loggerPodYaml("chatty"), ...LOGGERS.map((n) => loggerPodYaml(n, 2))].join("\n---\n"));
@@ -185,9 +195,9 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     assert.equal(await pod.run("echo reopened"), "reopened");
   });
 
-  it("closing a terminal tab ends its /bin/sh in the pod", { ...T, todo: "#114: the shell keeps running" }, async () => {
-    // One shell per open tab: the closed tab's shell should be gone.
-    const now = execShells();
+  it("closing a terminal tab ends its /bin/sh in the pod", T, async () => {
+    // One shell per open tab: the closed tab's shell is gone (#114).
+    const now = await settledShells(s.app, 1);
     console.log(`exec shells: ${shellsBefore} with one tab open, ${now} after close + reopen`);
     assert.equal(now, 1, `${now} /bin/sh in the pod with one terminal tab open`);
   });
@@ -291,8 +301,9 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     await app.waitFor(async () => (await dockTabs(app)).length === 0, { message: "no dock tabs after switching back" });
   });
 
-  it("after the context switch no terminal's /bin/sh is left in the pod", { ...T, todo: "#114: the shells keep running" }, async () => {
-    const now = execShells();
+  it("after the context switch no terminal's /bin/sh is left in the pod", T, async () => {
+    assert.ok(shellsAtSwitch >= 1, "a terminal was open at the switch");
+    const now = await settledShells(s.app, 0);
     console.log(`exec shells: ${shellsAtSwitch} before the switch, ${now} after`);
     assert.equal(now, 0);
   });

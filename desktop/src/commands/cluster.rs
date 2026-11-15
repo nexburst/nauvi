@@ -1,7 +1,7 @@
 //! Contexts, namespaces, metrics, discovery and access checks.
 
 use crate::commands::usage;
-use crate::state::{spawn_cleanups, Cluster};
+use crate::state::{spawn_closes, Cluster};
 use crate::windows;
 use kubeloupe::resources::{self, AccessResult, ResourceKind, ResourceRef};
 use kubeloupe::{
@@ -134,7 +134,7 @@ pub(crate) async fn cmd_list_contexts(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_set_context(cluster: Cluster, name: Option<String>) -> Result<(), String> {
-    spawn_cleanups(cluster.set_context(name.clone()).await);
+    spawn_closes(cluster.set_context(name.clone()).await);
     windows::context_changed(cluster.app(), cluster.label(), name.as_deref());
     Ok(())
 }

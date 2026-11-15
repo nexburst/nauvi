@@ -1,7 +1,7 @@
 //! Debug containers and node shells, opened as terminal sessions (the
 //! `exec-*` events and commands drive them once started).
 
-use crate::commands::exec::{emit_note, start_session};
+use crate::commands::exec::{emit_note, start_session, SessionClose};
 use crate::state::{AppState, Cluster, ClusterSession, SessionCleanup};
 use kubeloupe::debug::{add_debug_container, attach_container, describe_debug_error};
 use kubeloupe::node_shell::{
@@ -63,7 +63,12 @@ pub(crate) async fn cmd_debug_start(
         &session,
         &format!("Attached to {container}. If you don't see a prompt, press Enter."),
     );
-    start_session(&cluster, session.clone(), attached, cols, rows, None).await;
+    // Closing ends the debug shell, as `exit` would.
+    let close = SessionClose {
+        end_shell: true,
+        cleanup: None,
+    };
+    start_session(&cluster, session.clone(), attached, cols, rows, close).await;
     Ok(session)
 }
 
@@ -114,15 +119,12 @@ pub(crate) async fn cmd_node_shell_start(
         namespace,
         pod,
     };
-    start_session(
-        &cluster,
-        session.clone(),
-        attached,
-        cols,
-        rows,
-        Some(cleanup),
-    )
-    .await;
+    // Deleting the pod ends the shell: no need to wait for it first.
+    let close = SessionClose {
+        end_shell: false,
+        cleanup: Some(cleanup),
+    };
+    start_session(&cluster, session.clone(), attached, cols, rows, close).await;
     Ok(session)
 }
 
