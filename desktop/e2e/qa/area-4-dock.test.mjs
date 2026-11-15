@@ -9,6 +9,8 @@
 // Checks (#43): Ctrl+Shift+` opens a local shell; its temp kubeconfig
 // (`kubeloupe-shell-<pid>-<n>.yaml` in the app's temp dir) is removed when
 // the tab closes.
+// Checks (#116): with the strip overflowing, every tab and its ✕ take
+// clicks on their whole height (no overlay scrollbar over them).
 //
 // The app gets a kubeconfig with a second context on the same cluster
 // (lib/dock.mjs `aliasKubeconfig`) and its own TMPDIR.
@@ -35,7 +37,9 @@ import {
   panelButton,
   pressCtrl,
   shellKubeconfigs,
+  stripHitTest,
 } from "../lib/dock.mjs";
+import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { terminal } from "../lib/terminal.mjs";
 import { selectContext } from "../lib/window.mjs";
@@ -250,6 +254,24 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     await app.waitFor(async () => (await logLines(app, eleventh)).some((l) => l.startsWith("qa line")), {
       message: "the 11th tab streams after one was closed",
     });
+  });
+
+  it("with the strip overflowing, a tab takes clicks on its whole height (#116)", T, async () => {
+    const { app } = s;
+    const hit = await stripHitTest(app);
+    console.log(`strip hit test: ${JSON.stringify(hit)}`);
+    assert.ok(hit.overflows, `the strip overflows with ${hit.tabs} tabs`);
+    assert.ok(hit.scrollbar > 0, "the strip's scrollbar takes its own room below the tabs");
+    assert.deepEqual(hit.misses, [], "every tab label and ✕ takes clicks at its centre and its lower edge");
+    // Real WebDriver clicks on the first tab (no click from the page).
+    const first = (await dockTabs(app))[0].title;
+    await activateTab(app, first);
+    await app.waitFor(async () => (await dockTabs(app))[0].active, { message: `${first} active` });
+    await setTheme(app, "dark");
+    await app.shot("overflowing-strip-dark");
+    await setTheme(app, "light");
+    await app.shot("overflowing-strip-light");
+    await setTheme(app, null);
   });
 
   it("Ctrl+Shift+` opens another local shell; closing it removes its temp kubeconfig", T, async () => {

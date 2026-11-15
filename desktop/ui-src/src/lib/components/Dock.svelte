@@ -147,6 +147,19 @@
     min-width: 0;
     overflow-x: auto;
   }
+  /* A styled scrollbar takes its own space below the tabs. WebKitGTK's
+     default overlay scrollbar is drawn over the lower half of the tabs once
+     the strip overflows, and swallows clicks on them (#116, like #106). */
+  .tabs::-webkit-scrollbar {
+    height: 6px;
+  }
+  .tabs::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+  }
+  .tabs::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+  }
   .tab {
     display: flex;
     align-items: center;

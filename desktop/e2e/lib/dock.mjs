@@ -56,18 +56,45 @@ async function clickInStrip(app, locator) {
     await button.click();
   } catch (e) {
     if (e.name !== "ElementNotInteractableError") throw e;
-    // #116: with a dozen tabs open the strip overflows and WebKitGTK's
-    // overlay scrollbar takes clicks on the lower half of the tabs. Log what
-    // is at the button's centre, then click it from the page.
+    // #116: WebKitGTK's overlay scrollbar used to cover the lower half of an
+    // overflowing strip and take the clicks. Say what is in the way.
     const at = await app.js(
       `const r = arguments[0].getBoundingClientRect();
        const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-       return JSON.stringify({ rect: [r.x, r.y, r.width, r.height], at: el?.outerHTML.slice(0, 120), same: el === arguments[0] });`,
+       return JSON.stringify({ rect: [r.x, r.y, r.width, r.height], at: el?.outerHTML.slice(0, 120) });`,
       button,
     );
-    console.log(`WebDriver refused to click a dock strip button (${at}); clicking it from the page`);
-    await app.js("arguments[0].click()", button);
+    throw new Error(`WebDriver could not click a dock strip button (#116): ${at}`, { cause: e });
   }
+}
+
+/**
+ * The strip's hit test: whether a click at the centre and near the bottom of
+ * every tab's label and ✕ reaches that button, and how much room the strip's
+ * scrollbar takes (`offsetHeight - clientHeight`; 0 for an overlay one).
+ */
+export function stripHitTest(app) {
+  return app.js(`
+    const strip = document.querySelector('[data-testid="dock"] [role="tablist"]');
+    const misses = [];
+    for (const b of strip.querySelectorAll('.tab button')) {
+      b.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const r = b.getBoundingClientRect();
+      for (const y of [r.y + r.height / 2, r.y + r.height - 3]) {
+        const el = document.elementFromPoint(r.x + r.width / 2, y);
+        if (el !== b && !b.contains(el)) {
+          misses.push((b.getAttribute('aria-label') || b.textContent.trim()) + ' at y=' + Math.round(y) + ': ' + (el?.outerHTML.slice(0, 60) ?? 'nothing'));
+        }
+      }
+    }
+    strip.scrollLeft = 0;
+    return {
+      tabs: strip.querySelectorAll('.tab').length,
+      overflows: strip.scrollWidth > strip.clientWidth,
+      scrollbar: strip.offsetHeight - strip.clientHeight,
+      misses,
+    };
+  `);
 }
 
 /** Click one of the strip's controls by aria-label ("Maximize dock", "New local terminal", ...). */
