@@ -26,6 +26,7 @@ import { dock, openDockTab, toggleDock } from "./dock.svelte";
 import { activeTable, openHelp, openPalette, openSettings } from "./keyboard.svelte";
 import { openLocalShell } from "./localShell";
 import { whenDiscarded } from "./unsaved.svelte";
+import { checkForUpdates } from "./updates.svelte";
 
 /** Ids of recently run entries, newest first (this session). */
 let recent: string[] = [];
@@ -65,6 +66,13 @@ export function paletteItems(): PaletteItem[] {
       label: "Settings…",
       terms: ["preferences", "theme", "options"],
       run: openSettings,
+    },
+    {
+      id: "cmd:check-updates",
+      group: "Command",
+      label: "Check for updates",
+      terms: ["update", "upgrade", "version", "release"],
+      run: () => void checkForUpdates(false, true),
     },
     {
       id: "cmd:local-shell",

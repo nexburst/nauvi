@@ -185,6 +185,16 @@ The builds are not signed yet, so the OS will warn you the first time:
 - Linux needs no workaround; the AppImage needs FUSE 2 (`libfuse2`) on
   recent Ubuntu.
 
+### Updates
+
+The desktop app checks for a newer release once on start (turn it off in
+Settings, or check by hand from Settings or the command palette). A newer
+version shows a banner with its release notes and "Install and restart";
+nothing is downloaded until you click it. The update is verified against the
+signing key built into the app. The AppImage, the macOS app and the Windows
+installers update in place; a `.deb` install does so only when the release has
+a signed `.deb` update, otherwise the banner links to the release page.
+
 ## Build and run from source
 
 You need:
@@ -217,7 +227,17 @@ A debug build loads the UI from the Vite dev server, so
 `cargo run -p kubeloupe-desktop` on its own shows a connection error unless
 `npm --prefix desktop/ui-src run dev` is running. `cd desktop && cargo tauri
 build` builds the UI (`npm run build` in `desktop/ui-src`) and makes a release
-build with it bundled; add `--no-bundle` to skip the installers.
+build with it bundled; add `--no-bundle` to skip the installers. The
+installers include signed update bundles, which need the release signing key
+(`TAURI_SIGNING_PRIVATE_KEY`); without it, build them unsigned with
+`cargo tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'`.
+
+Debug builds never check for updates. To try the update banner, serve a
+`latest.json` with a higher `version` (for example with
+`python3 -m http.server` in its folder) and start the app with
+`KUBELOUPE_UPDATE_ENDPOINT=http://127.0.0.1:8000/latest.json cargo tauri dev`;
+release builds ignore this variable. Installing from it also needs bundles
+signed with the release key.
 
 ## Test cluster
 

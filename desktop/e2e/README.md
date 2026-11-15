@@ -12,6 +12,7 @@ with a fake backend are in `desktop/ui-src/src/test/`. Both suites use the same
   second window on the same context (#45). It
   reads the shared demo objects but never changes them. The objects it changes
   live in a temporary `e2e-*` namespace, which it deletes when it finishes.
+- `qa/*.test.mjs` are the QA scenarios, run by `qa.sh` (below).
 - `bench.mjs` is the 10k-row table benchmark (`ui-src/bench.html`) running in
   the app's webview. It only reports numbers and never fails on slow ones.
 
@@ -24,9 +25,107 @@ goes to `artifacts/smoke-app.log`. CI uploads the whole folder as the
 gh run download <run-id> -n e2e-screenshots
 ```
 
+## QA harness: `qa.sh` and `qa/*.test.mjs`
+
+The QA scenarios in `qa/` check the manual items from the PRs (#83) against
+the real app. `qa.sh` runs them, or the smoke suite, without sudo:
+
+```sh
+desktop/e2e/qa.sh terminal                  # one scenario: qa/terminal.test.mjs
+desktop/e2e/qa.sh --no-build port-forward helm
+desktop/e2e/qa.sh                           # every qa/*.test.mjs
+desktop/e2e/qa.sh smoke.test.mjs            # the smoke suite
+KUBELOUPE_LIMITED_KUBECONFIG=~/.kube/kubeloupe-limited.yaml desktop/e2e/qa.sh limited-user
+```
+
+It:
+
+- uses `WebKitWebDriver`, `Xvfb`, `tauri-driver` and `helm` from the system
+  when they are there, and otherwise fetches them once into
+  `~/.cache/kubeloupe-qa` (`KUBELOUPE_QA_CACHE`): the driver and Xvfb with
+  `apt-get download` + `dpkg-deb -x` (the driver's version matches the
+  installed WebKitGTK), tauri-driver with `cargo install --root`, helm from
+  get.helm.sh, xclip from its `.deb` if neither xclip nor xsel is installed.
+  `--tools-only` just fetches them and prints the paths.
+- builds the app with the frontend embedded (skip with `--no-build`).
+- starts its own Xvfb (a free display; nothing shows on your desktop, and
+  its clipboard is separate) and a free tauri-driver port, so several
+  worktrees can run at once.
+- writes to `--out` (default `artifacts/qa-<date>-<time>/`): a screenshot
+  and the page text after every test (`<scenario>-NN-<test>.png` / `.txt`),
+  the app's log (`<scenario>-app.log`), `run.log`, `results.jsonl` and
+  `report.md`, a summary table with the failures and screenshots per
+  scenario. **Look at the screenshots**, not only at the assertions.
+- stops everything it started on exit, Ctrl+C included (Xvfb, the drivers,
+  every app), and unpauses a control plane a scenario paused.
+
+Each app gets a private home (`lib/profile.mjs`): its own `HOME`, so its own
+`~/.config/com.kubeloupe.app/settings.json` and `~/Downloads`, and an
+`xdg-open` that only records URLs. Your own settings are never read or
+changed, and no browser opens. The login shell environment import is off
+(`KUBELOUPE_NO_SHELL_ENV=1`) unless a scenario asks for it.
+
+### Helpers
+
+| need | helper | example scenario |
+| --- | --- | --- |
+| start the app with a kubeconfig, contexts or env | `launch(name, { kubeconfig, contexts, env, profile, shellEnv })` (`lib/app.mjs`) | `limited-user` (KUBECONFIG), `local-shell` (SHELL, HOME) |
+| one app per suite, a screenshot after each test | `appSession(name, opts)`, `waitLive(app)` (`lib/qa.mjs`) | all |
+| type into xterm, read its screen, `stty size` | `terminal(app).type()`, `.screen()`, `.waitFor()`, `.run(cmd)`, `.size()` (`lib/terminal.mjs`) | `terminal`, `local-shell` |
+| resize the window | `resizeWindow(app, w, h)` (`lib/window.mjs`) | `terminal` |
+| several windows | `openNewWindow`, `switchTo`, `windowHandles`, `windowTitles`, `selectContext` (`lib/window.mjs`) | `multi-window` |
+| "Open in browser" | `app.profile.opened()` (the `xdg-open` recorder) | `port-forward` |
+| the clipboard | `readSystemClipboard()` (xclip / xsel / wl-paste on the app's display), `hookClipboard` + `waitForClipboard` (falls back to a page hook) (`lib/clipboard.mjs`) | `port-forward` |
+| downloads | `app.profile.downloads`, `app.profile.waitForDownload(/re/)` | `logs-download` |
+| restart with the same settings | `app.restart({ beforeStart })`, `app.profile.settings()`, `.writeSettings()` | `persistence` |
+| pause the control plane | `withControlPlanePaused(fn, { maxMs })`, `cannotPause()` (`lib/control-plane.mjs`) | `reconnect` |
+| command palette | `app.palette(query, option)` | `local-shell` |
+| temp objects | `tempNamespace(prefix, yaml)`, `deleteNamespace`, `httpPodYaml`, `loggerPodYaml`, `waitPodReady`, `contexts()` (`lib/cluster.mjs`) | most |
+
+The pause is guarded four ways, because the cluster is shared: `finally`, a
+timer (`maxMs`, 60 s by default), process exit/signal handlers, and a marker
+file that `qa.sh`'s exit trap unpauses from. `docker pause` needs access to
+the Docker socket; without it `reconnect` is skipped with the reason. A
+paused API server never answers, so the app only notices when a watch times
+out (up to about 5 minutes); `QA_PAUSE_MAX_MS` caps the pause (45 s by
+default, too short to see "Reconnecting…"; qa.yml, on its own cluster, uses
+6 minutes).
+
+### Writing a scenario
+
+One file per area, `qa/<area>.test.mjs`, named after what it checks. Start
+with a comment naming the PR and the checklist items it covers. Create what
+you change in a temporary namespace (`tempNamespace`) and delete it in
+`after`; only read the shared demo objects. When a scenario needs something
+the cluster may not have (the limited user, helm, Prometheus, a second
+cluster, docker access), skip it with the reason instead of failing. Use
+`data-testid`s where they exist; adding one to a component is fine.
+
+Known quirks of WebKitWebDriver: `getText()` sometimes returns nothing for
+elements inside tables, so read `innerText` with `app.js(...)`; clicks need
+the element fully in view (`app.nav` scrolls first); key events sent in one
+WebDriver call reach the shell as separate IPC calls that can arrive out of
+order, so `terminal().type()` sends one key at a time.
+
+### Nightly in CI: `qa.yml`
+
+`.github/workflows/qa.yml` runs nightly and on demand, not on PRs:
+
+```sh
+gh workflow run qa.yml --ref <branch>
+gh run download <run-id> -n qa-artifacts
+```
+
+It sets up kind with metrics-server and the demo workload, the second
+cluster (`setup.sh --staging`), the limited user, helm and a small real
+Prometheus (`scripts/test-cluster/prometheus.yaml`, CI only), then runs the
+smoke suite and every `qa/*.test.mjs` through `qa.sh`. The report goes to the
+job summary; the screenshots, page text and logs are the `qa-artifacts`
+artifact.
+
 ## Running locally
 
-You need the kind cluster (`bash scripts/test-cluster/setup.sh`), plus
+`qa.sh` above does all of this for you. By hand: you need the kind cluster (`bash scripts/test-cluster/setup.sh`), plus
 `WebKitWebDriver` (Ubuntu: `sudo apt install webkit2gtk-driver`, renamed
 `webkitgtk-webdriver` in newer releases), `tauri-driver`
 (`cargo install tauri-driver --locked`) and, if you don't want windows opening
