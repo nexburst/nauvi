@@ -56,6 +56,8 @@ jobs:
           echo "WEBKIT_DRIVER=$driver" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2.7.8
         with:
+          # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           # Same build as the e2e job in integration.yml.
           shared-key: qa
       - uses: actions/cache@v4.2.3
@@ -153,6 +155,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.7.8
         with:
+          # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           shared-key: qa-windows
       - uses: actions/cache@v4.2.3
         id: tauri-driver-cache

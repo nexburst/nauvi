@@ -21,6 +21,9 @@ jobs:
       - uses: actions/checkout@v4.2.2
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2.7.8
+        with:
+          # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Same script as local development: kind cluster + metrics-server +
       # demo workload.
@@ -91,6 +94,8 @@ jobs:
           echo "WEBKIT_DRIVER=$driver" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@v2.7.8
         with:
+          # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           # The custom-protocol build differs from the other jobs' builds.
           key: e2e
       - uses: actions/cache@v4.2.3
@@ -144,7 +149,7 @@ jobs:
         with:
           name: e2e-screenshots
           path: desktop/e2e/artifacts/
-          retention-days: 14
+          retention-days: 7
           if-no-files-found: warn
 
       - name: Debug info

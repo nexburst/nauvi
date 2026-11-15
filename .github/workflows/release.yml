@@ -173,6 +173,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: release-desktop
 
       - uses: actions/setup-node@v4
@@ -325,6 +327,8 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
+          # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
           key: release-cli-${{ matrix.target }}
 
       - name: Build the CLI

@@ -55,6 +55,7 @@
 <style>
   .toolbar {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     padding: 12px 16px;
@@ -63,14 +64,21 @@
   .invisible {
     visibility: hidden;
   }
+  /* Narrow windows (many namespace chips, the detail panel open): the filter
+     shrinks to a usable minimum, the buttons keep one line, and what does
+     not fit wraps onto a second row. */
   .search {
-    width: 220px;
+    flex: 0 1 220px;
+    min-width: 120px;
   }
   .namespaces {
-    min-width: 0;
+    /* The picker's button is 160px; its chips wrap below it. */
+    min-width: 160px;
   }
   .create {
     margin-left: auto;
+    flex-shrink: 0;
+    white-space: nowrap;
   }
   .status-filter {
     display: inline-flex;
