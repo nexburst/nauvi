@@ -4,7 +4,16 @@
 
 import { bestScore } from "./fuzzy";
 
-export type PaletteGroup = "Recent" | "Command" | "Action" | "Kind" | "Namespace" | "Context" | "Window" | "Object";
+export type PaletteGroup =
+  | "Recent"
+  | "Pinned"
+  | "Command"
+  | "Action"
+  | "Kind"
+  | "Namespace"
+  | "Context"
+  | "Window"
+  | "Object";
 
 export interface PaletteItem {
   /** Stable across openings (recent items are remembered by it). */
@@ -42,7 +51,7 @@ const IN_SCOPE: Record<Scope, PaletteItem["group"][] | null> = {
   all: null,
   actions: ["Action", "Command"],
   namespaces: ["Namespace"],
-  contexts: ["Context"],
+  contexts: ["Pinned", "Context"],
   windows: ["Window"],
 };
 

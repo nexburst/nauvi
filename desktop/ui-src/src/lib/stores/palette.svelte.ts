@@ -28,6 +28,9 @@ import { activeTable, openHelp, openPalette, openSettings } from "./keyboard.sve
 import { openLocalShell } from "./localShell";
 import { whenDiscarded } from "./unsaved.svelte";
 import { checkForUpdates } from "./updates.svelte";
+import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
+import { openClusterSettings } from "./catalog.svelte";
+import { contextSettings, settings } from "./settings.svelte";
 
 /** Ids of recently run entries, newest first (this session). */
 let recent: string[] = [];
@@ -41,7 +44,28 @@ export function rememberPick(id: string) {
 }
 
 export function paletteItems(): PaletteItem[] {
+  const current = app.contexts.find((c) => c.current)?.name ?? "";
+  const label = (id: string) => displayName({ name: id }, contextSettings(id));
+  const { pinned } = orderContexts(app.contexts, settings.current.favourites);
   const items: PaletteItem[] = [
+    // The hotbar (#78): pinned clusters first, a pick switches to them.
+    ...pinned.map(
+      (c): PaletteItem => ({
+        id: `pin:${c.name}`,
+        group: "Pinned",
+        label: label(c.name),
+        detail: c.current ? "current" : c.server || undefined,
+        terms: [c.name, c.context],
+        run: () => whenDiscarded(() => void switchContext(c.name)),
+      }),
+    ),
+    {
+      id: "cmd:catalog",
+      group: "Command",
+      label: "Go to Cluster catalog",
+      terms: ["clusters", "kubeconfig", "contexts", "hotbar", "add"],
+      run: () => setView(CATALOG_VIEW),
+    },
     { id: "cmd:create", group: "Command", label: "Create resource…", terms: ["new", "apply", "yaml"], run: openCreate },
     { id: "cmd:overview", group: "Command", label: "Go to Overview", run: () => setView("overview") },
     {
@@ -91,6 +115,16 @@ export function paletteItems(): PaletteItem[] {
       run: openLocalShell,
     },
   ];
+  if (current) {
+    items.push({
+      id: "cmd:cluster-settings",
+      group: "Command",
+      label: "Cluster settings…",
+      detail: label(current),
+      terms: ["display name", "colour", "color", "default namespace", "prometheus", "working directory"],
+      run: () => openClusterSettings(current),
+    });
+  }
   if (app.contexts.length > 0) {
     items.push({
       id: "cmd:new-window",
@@ -183,18 +217,20 @@ export function paletteItems(): PaletteItem[] {
   }
 
   for (const c of app.contexts) {
+    const name = label(c.name);
     items.push({
       id: `ctx:${c.name}`,
       group: "Context",
-      label: c.name,
+      label: name,
       detail: c.current ? "current" : undefined,
+      terms: [c.name, c.context, c.server],
       run: () => whenDiscarded(() => void switchContext(c.name)),
     });
     items.push({
       id: `win:${c.name}`,
       group: "Window",
-      label: `Open ${c.name} in new window`,
-      terms: [c.name],
+      label: `Open ${name} in new window`,
+      terms: [name, c.name],
       run: () => void openContextWindow(c.name),
     });
   }

@@ -2,6 +2,7 @@
 //! `main.rs` registers them.
 
 pub(crate) mod actions;
+pub(crate) mod catalog;
 pub(crate) mod cluster;
 pub(crate) mod debug;
 pub(crate) mod exec;

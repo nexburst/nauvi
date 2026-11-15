@@ -24,6 +24,7 @@ mod workload_usage;
 pub mod actions;
 pub mod attach;
 pub mod auth;
+pub mod catalog;
 pub mod debug;
 pub mod helm;
 pub mod node_shell;
@@ -34,6 +35,7 @@ pub mod workload_logs;
 
 pub use access::*;
 pub(crate) use age::*;
+pub use catalog::{list_contexts, ContextInfo, ContextTarget};
 pub use cli::*;
 pub use client::*;
 pub use describe::*;
