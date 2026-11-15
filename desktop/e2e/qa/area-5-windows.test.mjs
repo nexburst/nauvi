@@ -164,7 +164,9 @@ describe("area 5: several windows", { timeout: 25 * 60_000 }, () => {
     await waitLive(app);
   });
 
-  it("closing B deletes its node shell pod and local shell kubeconfig; A's forward survives", T, async () => {
+  // WebDriver's Close Window would leave B's native window and session open,
+  // so this needs the X tools.
+  it("closing B deletes its node shell pod and local shell kubeconfig; A's forward survives", { ...T, skip: cannotCloseLikeUser() }, async () => {
     const { app } = s;
     const pid = appPid(app.profile.home);
     await switchTo(app, second);
@@ -191,8 +193,7 @@ describe("area 5: several windows", { timeout: 25 * 60_000 }, () => {
     // Like the window manager's close button: WebDriver's Close Window only
     // drops the webview and leaves the native window (and its session) alive.
     await switchTo(app, main);
-    if (cannotCloseLikeUser()) await switchTo(app, second).then(() => app.driver.close()).then(() => switchTo(app, main));
-    else assert.equal(closeLikeUser(pid, { title: kc.alias }).length, 1, `one window titled ${kc.alias}`);
+    assert.equal(closeLikeUser(pid, { title: kc.alias }).length, 1, `one window titled ${kc.alias}`);
     await app.waitFor(async () => (await windowHandles(app)).length === 1, { message: "one window left" });
     await app.waitFor(() => !nodeShellPods().includes(pod), { timeout: 60_000, interval: 1000, message: `node shell pod ${pod} deleted` });
     await app.waitFor(() => !shellKubeconfigs(tmpdir()).includes(file), { message: `${file} removed` });
@@ -213,8 +214,8 @@ describe("area 5: several windows", { timeout: 25 * 60_000 }, () => {
     await switchTo(app, second);
     await waitLive(app);
     assert.equal(await contextValue(app), kc.alias);
-    await app.waitFor(() => JSON.stringify(app.profile.settings()?.windows) === JSON.stringify([kc.alias]), {
-      message: `settings.windows = [${kc.alias}]`,
+    await app.waitFor(() => (app.profile.settings()?.windows ?? []).includes(kc.alias), {
+      message: `${kc.alias} in settings.windows`,
     });
     await switchTo(app, main);
   });

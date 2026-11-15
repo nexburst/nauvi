@@ -63,7 +63,11 @@ describe("area 5: Settings page and themes", { timeout: 10 * 60_000 }, () => {
     for (const section of ["Theme", "Log defaults", "Prometheus", "Helm repositories", "Updates", "Layout"]) {
       assert.ok(text.toLowerCase().includes(section.toLowerCase()), `Settings has ${section}`);
     }
-    assert.ok((await bodyLuminance(app)) < 0.2, "dark by default");
+    // System is the default; what it shows depends on the desktop (the
+    // System suites below check that), so pick Dark explicitly.
+    assert.equal(app.profile.settings()?.theme ?? "system", "system");
+    await setTheme(app, "dark");
+    await app.waitFor(async () => (await bodyLuminance(app)) < 0.2, { message: "dark background" });
     console.log(`dark controls: ${JSON.stringify(await controlStyles(app))}`);
   });
 
