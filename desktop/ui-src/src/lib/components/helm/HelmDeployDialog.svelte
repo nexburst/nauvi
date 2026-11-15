@@ -192,7 +192,15 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={(e) => e.target === e.currentTarget && close()}>
-  <div class="dialog" role="dialog" aria-modal="true" aria-label={title} data-testid="helm-deploy" use:focusFirst>
+  <div
+    class="dialog"
+    class:compact={step === "done"}
+    role="dialog"
+    aria-modal="true"
+    aria-label={title}
+    data-testid="helm-deploy"
+    use:focusFirst
+  >
     <div class="head">
       <h2>{title}</h2>
       <span class="steps muted" data-testid="deploy-step">
@@ -338,6 +346,9 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 16px 20px;
+  }
+  .dialog.compact {
+    height: auto;
   }
   .dialog > :global(*) {
     flex-shrink: 0;
