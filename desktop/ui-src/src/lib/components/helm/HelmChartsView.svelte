@@ -6,12 +6,21 @@
   import { checkHelm, helm } from "../../stores/helm.svelte";
   import { charts, loadCharts, selectChart } from "../../stores/helmCharts.svelte";
   import { filterCharts } from "../../helmCharts";
+  import { watchGutter } from "../../scrollGutter";
 
   /** The charts in the configured repositories (newest version of each), filtered by the toolbar. */
 
   const ROW_HEIGHT = 32;
   const template = "minmax(180px, 2fr) 100px 110px minmax(200px, 4fr)";
   const HEADERS = ["Chart", "Version", "App version", "Description"];
+
+  // The header leaves the space the rows' scrollbar takes, so its columns
+  // stay over the cells (#123).
+  let scrollEl = $state<HTMLDivElement | null>(null);
+  let gutter = $state(0);
+  $effect(() => {
+    if (scrollEl) return watchGutter(scrollEl, (px) => (gutter = px));
+  });
 
   /** The repositories panel; open by default while there are none. */
   let showRepos = $state(false);
@@ -59,12 +68,12 @@
   {/if}
 
   <div class="grid" role="grid" aria-label="Helm charts" aria-rowcount={visible.length + 1}>
-    <div class="head" role="row" style:grid-template-columns={template}>
+    <div class="head" role="row" style:grid-template-columns={template} style:padding-right="{gutter}px">
       {#each HEADERS as h (h)}
         <div class="th" role="columnheader">{h}</div>
       {/each}
     </div>
-    <VirtualList count={visible.length} rowHeight={ROW_HEIGHT} {getKey}>
+    <VirtualList count={visible.length} rowHeight={ROW_HEIGHT} {getKey} bind:scrollEl>
       {#snippet row(i)}
         {@const c = visible[i]}
         {#if c}
@@ -125,6 +134,10 @@
   .grid {
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    /* Columns wider than the table are cut off here, like the rows in the
+       scroller; unclipped, the header paints over the detail panel (#123). */
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     position: relative;
@@ -133,7 +146,6 @@
     display: grid;
     height: 28px;
     flex-shrink: 0;
-    padding-right: 15px;
     border-bottom: 1px solid var(--border);
     align-items: center;
   }

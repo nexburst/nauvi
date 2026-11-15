@@ -195,3 +195,46 @@ test("a failed list is shown, and Escape closes the detail", async ({ page }) =>
   await page.keyboard.press("Escape");
   await expect(detail(page)).toHaveCount(0);
 });
+
+test("with a release open, the header stays left of the panel and over its cells (#123)", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openApp(page);
+  await openHelm(page);
+  const grid = page.getByTestId("helm-releases").getByRole("grid");
+
+  // Each header starts where its column's cells do.
+  const aligned = async () => {
+    const heads = await grid
+      .getByRole("columnheader")
+      .evaluateAll((ths) => ths.map((th) => th.getBoundingClientRect().left));
+    const cells = await helmRow(page, "web")
+      .getByRole("gridcell")
+      .evaluateAll((tds) => tds.map((td) => td.getBoundingClientRect().left));
+    expect(cells).toHaveLength(heads.length);
+    for (let i = 0; i < heads.length; i++) {
+      expect(Math.abs(heads[i] - cells[i]), `column ${i}`).toBeLessThanOrEqual(1);
+    }
+  };
+  await aligned();
+
+  await helmRow(page, "web").click();
+  const box = (await detail(page).boundingBox())!;
+  const g = (await grid.boundingBox())!;
+  // The grid, which clips its header and rows, ends where the panel starts.
+  expect(g.x + g.width).toBeLessThanOrEqual(box.x);
+  // What is drawn under the panel, on the header's line, is the panel, not
+  // the STATUS / UPDATED labels.
+  const underPanel = await grid.getByRole("columnheader").evaluateAll(
+    (ths, left) =>
+      ths.flatMap((th) => {
+        const r = th.getBoundingClientRect();
+        const x = Math.max(r.left, left) + 4;
+        if (x >= r.right) return [];
+        const hit = document.elementFromPoint(x, r.top + r.height / 2);
+        return hit && th.contains(hit) ? [th.textContent?.trim()] : [];
+      }),
+    box.x,
+  );
+  expect(underPanel).toEqual([]);
+  await aligned();
+});
