@@ -66,6 +66,11 @@ describe("namespaces created while the app runs (#177)", { timeout: 10 * 60_000 
         (await app.js(`return document.querySelector('[data-testid="command-palette"] [role="option"]')?.textContent ?? ""`)).includes(ns),
       { timeout: 30_000, message: `palette option ${ns}` },
     );
+    // Let WebKitGTK paint the results before the screenshot (it showed an
+    // earlier frame without this).
+    await app.driver.executeAsyncScript(
+      "const done = arguments[0]; requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 500)));",
+    );
     await app.shot("palette-finds-new-namespace");
     await input.sendKeys(Key.ENTER);
     await app.waitFor(async () => (await namespaceLabel(app)) === ns, { message: `the namespace control shows ${ns}` });
