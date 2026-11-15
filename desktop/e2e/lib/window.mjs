@@ -11,6 +11,9 @@ import { byTestId } from "./app.mjs";
  */
 export async function resizeWindow(app, width, height) {
   const before = await viewportSize(app);
+  const rect = await app.driver.manage().window().getRect();
+  // Already that size: nothing would change, so nothing to wait for.
+  if (rect.width === width && rect.height === height) return before;
   await app.driver.manage().window().setRect({ width, height });
   await app.waitFor(
     async () => {
