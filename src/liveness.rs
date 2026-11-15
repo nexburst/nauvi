@@ -98,7 +98,7 @@ impl Prober {
     /// [`Self::new`] for the API server at `server` (its URL, as the
     /// kubeconfig has it), which the messages about a lost connection name.
     pub fn for_server(client: Client, server: &str) -> Self {
-        let server: Arc<str> = server.trim_end_matches('/').into();
+        let server: Arc<str> = crate::reconnect::display_server(server).into();
         let s = server.clone();
         let mut prober = Self::with(LIVENESS.timeout, move || {
             let (client, server) = (client.clone(), s.clone());

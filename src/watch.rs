@@ -290,26 +290,26 @@ impl<T> Tracker<T> {
                 let text = crate::reconnect::failure_text(&e, &self.server);
                 return self.lost(text);
             }
-            Ok(event) => {
-                self.failing = false;
-                match event {
-                    Event::Init => self.init.clear(),
-                    Event::InitApply(k) => self.init.push(convert(&k)),
-                    Event::InitDone => {
-                        out.push(Update::Snapshot(std::mem::take(&mut self.init)));
-                        self.live = true;
-                        out.push(Update::State(WatchState::Live));
-                    }
-                    Event::Apply(k) => {
-                        out.push(Update::Applied(convert(&k)));
-                        self.mark_live(&mut out);
-                    }
-                    Event::Delete(k) => {
-                        out.push(Update::Deleted(convert(&k)));
-                        self.mark_live(&mut out);
-                    }
+            // A new watcher's Init and InitApply don't end a failure streak:
+            // its watch may still fail right after the list (#180).
+            Ok(event) => match event {
+                Event::Init => self.init.clear(),
+                Event::InitApply(k) => self.init.push(convert(&k)),
+                Event::InitDone => {
+                    out.push(Update::Snapshot(std::mem::take(&mut self.init)));
+                    self.failing = false;
+                    self.live = true;
+                    out.push(Update::State(WatchState::Live));
                 }
-            }
+                Event::Apply(k) => {
+                    out.push(Update::Applied(convert(&k)));
+                    self.mark_live(&mut out);
+                }
+                Event::Delete(k) => {
+                    out.push(Update::Deleted(convert(&k)));
+                    self.mark_live(&mut out);
+                }
+            },
         }
         out
     }
@@ -338,6 +338,7 @@ impl<T> Tracker<T> {
 
     /// The watch resumed after an error without needing a re-list.
     fn mark_live(&mut self, out: &mut Vec<Update<T>>) {
+        self.failing = false;
         if !self.live {
             self.live = true;
             out.push(Update::State(WatchState::Live));

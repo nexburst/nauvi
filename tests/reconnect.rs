@@ -101,6 +101,16 @@ async fn a_dropped_connection_goes_live_again_without_a_change() -> Result<()> {
         .next()
         .context("cannot resolve the API server")?;
 
+    // The namespace first, straight to the API server: nothing to stop if
+    // it cannot be made.
+    let direct = kubeloupe::client_for_context(Some(&context())).await?;
+    let ns = format!("reconnect-{:x}", std::process::id() ^ rand_suffix());
+    let namespaces: Api<Namespace> = Api::all(direct.clone());
+    let obj: Namespace = serde_json::from_value(serde_json::json!({
+        "apiVersion": "v1", "kind": "Namespace", "metadata": { "name": ns }
+    }))?;
+    namespaces.create(&PostParams::default(), &obj).await?;
+
     let listener = bind(0)?;
     let proxy_port = listener.local_addr()?.port();
     let mut proxy = serve(listener, upstream);
@@ -108,16 +118,9 @@ async fn a_dropped_connection_goes_live_again_without_a_change() -> Result<()> {
     let server = format!("https://127.0.0.1:{proxy_port}");
     config.cluster_url = server.parse()?;
     config.proxy_url = None;
-    let client = Client::try_from(config)?;
-
-    let ns = format!("reconnect-{:x}", std::process::id() ^ rand_suffix());
-    let namespaces: Api<Namespace> = Api::all(client.clone());
-    let obj: Namespace = serde_json::from_value(serde_json::json!({
-        "apiVersion": "v1", "kind": "Namespace", "metadata": { "name": ns }
-    }))?;
-    namespaces.create(&PostParams::default(), &obj).await?;
 
     let result = async {
+        let client = Client::try_from(config)?;
         let prober = Prober::for_server(client.clone(), &server);
         let api: Api<ConfigMap> = Api::namespaced(client.clone(), &ns);
         let (_store, mut updates) = watch_with(api, &prober, (), |cm: &ConfigMap| {
@@ -159,12 +162,9 @@ async fn a_dropped_connection_goes_live_again_without_a_change() -> Result<()> {
     }
     .await;
 
-    // Delete through a direct client: the proxy may be down.
-    let direct = kubeloupe::client_for_context(Some(&context())).await?;
-    let _ = Api::<Namespace>::all(direct)
-        .delete(&ns, &DeleteParams::default())
-        .await;
+    // Delete through the direct client: the proxy may be down.
     proxy.abort();
+    let _ = namespaces.delete(&ns, &DeleteParams::default()).await;
     result
 }
 

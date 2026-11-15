@@ -11,7 +11,10 @@
 //!
 //! [`restart_on_error`] drops the watcher after every error and, after a
 //! backoff ([`RetryBackoff`]: about 1 s, doubling up to 10 s), starts a new
-//! one, which lists everything again. The list ends with `InitDone`, which
+//! one, which lists everything again. The backoff starts over only when a
+//! watcher had worked for [`STABLE`]: a list that works followed by a
+//! watch that fails at once (a 429 or 500 on the watch, a proxy that cuts
+//! streams) keeps backing off instead of listing again every second. The list ends with `InitDone`, which
 //! the trackers turn into a snapshot and Live. A list after a failure costs
 //! one request per watch, which is what a re-list after a 410 Gone (kube's
 //! own recovery) or after a lost connection ([`crate::liveness`]) cost too.
@@ -20,11 +23,12 @@
 //! banner; the full error chain goes to the log.
 
 use futures::stream::{self, Stream, StreamExt};
-use kube::runtime::utils::{Backoff, StreamBackoff};
+use kube::runtime::utils::Backoff;
 use std::collections::hash_map::RandomState;
 use std::error::Error as StdError;
 use std::hash::{BuildHasher, Hasher};
 use std::time::Duration;
+use tokio::time::Instant;
 
 /// The first wait after an error.
 pub const RETRY_MIN: Duration = Duration::from_millis(800);
@@ -32,10 +36,13 @@ pub const RETRY_MIN: Duration = Duration::from_millis(800);
 /// again, a watch is back within about this long.
 pub const RETRY_MAX: Duration = Duration::from_secs(10);
 
+/// A stream that ran this long before it failed counts as having worked:
+/// the next wait is [`RETRY_MIN`] again.
+pub const STABLE: Duration = Duration::from_secs(30);
+
 /// Exponential backoff from [`RETRY_MIN`] to [`RETRY_MAX`], each wait
 /// shortened by up to a fifth at random so that the watches of a window,
-/// which fail together, don't all list again in the same instant. Reset
-/// by any item that is not an error.
+/// which fail together, don't all list again in the same instant.
 #[derive(Debug, Clone)]
 pub struct RetryBackoff {
     next: Duration,
@@ -73,31 +80,78 @@ impl Backoff for RetryBackoff {
 }
 
 /// The items of the stream `make` builds; after an error, that stream is
-/// dropped and, after the next wait of `backoff`, a new one is made. Ends
-/// when a stream ends by itself.
+/// dropped and, after the next wait of `backoff`, a new one is made. The
+/// backoff is reset when the failed stream had run for [`STABLE`] (not by
+/// its items: a new watcher's first item is always a successful `Init`).
+/// Ends when a stream ends by itself.
 pub fn restart_on_error<S, T, E, M, B>(make: M, backoff: B) -> impl Stream<Item = Result<T, E>>
 where
     M: FnMut() -> S,
     S: Stream<Item = Result<T, E>> + Unpin,
     B: Backoff,
 {
-    let restarting = stream::unfold((make, None::<S>), |(mut make, current)| async move {
-        let mut s = current.unwrap_or_else(&mut make);
+    let state = Restart {
+        make,
+        backoff,
+        current: None,
+        wait: None,
+    };
+    stream::unfold(state, |mut r| async move {
+        let (s, started) = match r.current.as_mut() {
+            Some(c) => c,
+            None => {
+                if let Some(wait) = r.wait.take() {
+                    tokio::time::sleep(wait).await;
+                }
+                r.current.insert(((r.make)(), Instant::now()))
+            }
+        };
         let item = s.next().await?;
-        let keep = item.is_ok().then_some(s);
-        Some((item, (make, keep)))
-    });
-    StreamBackoff::new(Box::pin(restarting), backoff)
+        if item.is_err() {
+            if started.elapsed() >= STABLE {
+                r.backoff.reset();
+            }
+            r.wait = r.backoff.next();
+            r.current = None;
+        }
+        Some((item, r))
+    })
+}
+
+struct Restart<M, S, B> {
+    make: M,
+    backoff: B,
+    /// The stream and when it was made; `None` after an error.
+    current: Option<(S, Instant)>,
+    /// How long to wait before making the next one.
+    wait: Option<Duration>,
 }
 
 /// "Lost the connection to the cluster (`server`)", or without the
 /// parentheses when the server is not known.
 pub fn lost_connection(server: &str) -> String {
+    let server = display_server(server);
     if server.is_empty() {
         "Lost the connection to the cluster".to_string()
     } else {
         format!("Lost the connection to the cluster ({server})")
     }
+}
+
+/// `url` without a trailing slash and without the user and password a
+/// kubeconfig may put in it (`https://user:pass@host`), for messages and logs.
+pub fn display_server(url: &str) -> String {
+    let url = url.trim_end_matches('/');
+    let (scheme, rest) = match url.split_once("://") {
+        Some((scheme, rest)) => (format!("{scheme}://"), rest),
+        None => (String::new(), url),
+    };
+    let authority_end = rest.find('/').unwrap_or(rest.len());
+    let rest = match rest[..authority_end].rfind('@') {
+        Some(at) => &rest[at + 1..],
+        None => rest,
+    };
+    format!("{scheme}{rest}")
 }
 
 /// What a watch or list that failed says while it retries, for the status
@@ -161,8 +215,7 @@ mod tests {
     use futures::stream::BoxStream;
     use kube::runtime::watcher;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
-    use tokio::time::Instant;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn the_backoff_doubles_up_to_ten_seconds_and_resets() {
@@ -227,6 +280,77 @@ mod tests {
         let back = start.elapsed();
         assert!(back <= Duration::from_secs(60) + RETRY_MAX, "{back:?}");
         assert!((6..=15).contains(&errors), "{errors} attempts in 60 s");
+    }
+
+    /// A list that works and a watch that fails at once, again and again
+    /// (a 429 on the watch): the waits between new streams grow to the
+    /// longest one instead of starting over with every successful list.
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_that_fails_right_after_its_first_item_keeps_backing_off() {
+        let made = Arc::new(Mutex::new(Vec::<Instant>::new()));
+        let m = made.clone();
+        let s = restart_on_error(
+            move || -> BoxStream<'static, Result<&'static str, &'static str>> {
+                m.lock().unwrap().push(Instant::now());
+                stream::iter([Ok("init"), Err("429")]).boxed()
+            },
+            RetryBackoff::default(),
+        );
+        let mut s = Box::pin(s.take(20));
+        while s.next().await.is_some() {}
+        let made = made.lock().unwrap();
+        let waits: Vec<Duration> = made.windows(2).map(|w| w[1] - w[0]).collect();
+        assert_eq!(waits.len(), 9, "{waits:?}");
+        let full = [0.8, 1.6, 3.2, 6.4, 10.0, 10.0, 10.0, 10.0, 10.0];
+        for (wait, full) in waits.iter().zip(full) {
+            let full = Duration::from_secs_f64(full);
+            assert!(*wait <= full && *wait >= full.mul_f64(0.8), "{waits:?}");
+        }
+    }
+
+    /// A stream that worked for a while before it failed starts the waits
+    /// over: the next one is short.
+    #[tokio::test(start_paused = true)]
+    async fn a_stream_that_worked_for_a_while_starts_the_waits_over() {
+        let made = Arc::new(Mutex::new(Vec::<Instant>::new()));
+        let m = made.clone();
+        let s = restart_on_error(
+            move || -> BoxStream<'static, Result<u32, &'static str>> {
+                let n = {
+                    let mut made = m.lock().unwrap();
+                    made.push(Instant::now());
+                    made.len()
+                };
+                // Five that fail at once, then one that lasts a minute.
+                let lasts = if n == 6 { 60 } else { 0 };
+                stream::iter([Ok(1)])
+                    .chain(stream::once(async move {
+                        tokio::time::sleep(Duration::from_secs(lasts)).await;
+                        Err("gone")
+                    }))
+                    .boxed()
+            },
+            RetryBackoff::default(),
+        );
+        let mut s = Box::pin(s.take(14));
+        while s.next().await.is_some() {}
+        let made = made.lock().unwrap();
+        assert_eq!(made.len(), 7);
+        let after_long = made[6] - made[5] - Duration::from_secs(60);
+        assert!(after_long <= RETRY_MIN, "{after_long:?}");
+    }
+
+    #[test]
+    fn the_server_is_shown_without_credentials() {
+        assert_eq!(
+            lost_connection("https://admin:s3cret@10.0.0.1:6443/"),
+            "Lost the connection to the cluster (https://10.0.0.1:6443)"
+        );
+        assert_eq!(
+            display_server("https://k8s.example/path@x"),
+            "https://k8s.example/path@x"
+        );
+        assert_eq!(display_server(""), "");
     }
 
     fn io(kind: std::io::ErrorKind) -> std::io::Error {
