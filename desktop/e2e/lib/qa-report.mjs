@@ -33,27 +33,34 @@ for (const r of results.filter((r) => r.suite && r.status !== "pass")) {
   if (!byFile.has(key)) byFile.set(key, [{ ...r, name: r.status === "fail" ? `${r.name} (set-up)` : r.name }]);
 }
 
-const icon = { pass: "✅", fail: "❌", skip: "⏭️" };
+const icon = { pass: "✅", fail: "❌", skip: "⏭️", todo: "🐞" };
 const count = (rs, s) => rs.filter((r) => r.status === s).length;
 const cell = (s) => String(s).replace(/\|/g, "\\|");
 
 const lines = ["# kubeloupe QA run", ""];
 const all = [...byFile.values()].flat();
 lines.push(
-  `${count(all, "pass")} passed, ${count(all, "fail")} failed, ${count(all, "skip")} skipped, in ${byFile.size} scenario file(s).`,
+  `${count(all, "pass")} passed, ${count(all, "fail")} failed, ${count(all, "skip")} skipped, ${count(all, "todo")} known bugs (todo), in ${byFile.size} scenario file(s).`,
   "",
-  "| scenario | passed | failed | skipped | time |",
-  "| --- | --- | --- | --- | --- |",
+  "| scenario | passed | failed | skipped | known bugs | time |",
+  "| --- | --- | --- | --- | --- | --- |",
 );
 for (const [name, rs] of byFile) {
   const secs = Math.round(rs.reduce((a, r) => a + r.ms, 0) / 1000);
-  lines.push(`| ${cell(name)} | ${count(rs, "pass")} | ${count(rs, "fail")} | ${count(rs, "skip")} | ${secs} s |`);
+  lines.push(`| ${cell(name)} | ${count(rs, "pass")} | ${count(rs, "fail")} | ${count(rs, "skip")} | ${count(rs, "todo")} | ${secs} s |`);
 }
 
 for (const [name, rs] of byFile) {
   lines.push("", `## ${name}`, "");
   for (const r of rs) {
-    const extra = r.status === "fail" ? `: ${r.error}` : r.status === "skip" && r.skipReason ? ` (${r.skipReason})` : "";
+    const extra =
+      r.status === "fail"
+        ? `: ${r.error}`
+        : r.status === "todo"
+          ? ` (known bug ${r.skipReason}): ${r.error}`
+          : r.status === "skip" && r.skipReason
+            ? ` (${r.skipReason})`
+            : "";
     lines.push(`- ${icon[r.status]} ${r.name} (${Math.round(r.ms / 1000)} s)${extra}`);
   }
   const shots = files.filter((f) => f.startsWith(`${name}-`) && f.endsWith(".png"));
