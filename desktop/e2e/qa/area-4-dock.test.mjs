@@ -262,6 +262,7 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     console.log(`strip hit test: ${JSON.stringify(hit)}`);
     assert.ok(hit.overflows, `the strip overflows with ${hit.tabs} tabs`);
     assert.ok(hit.scrollbar > 0, "the strip's scrollbar takes its own room below the tabs");
+    assert.equal(hit.vertical, 0, "no vertical scrollbar at the strip's end");
     assert.deepEqual(hit.misses, [], "every tab label and ✕ takes clicks at its centre and its lower edge");
     // Real WebDriver clicks on the first tab (no click from the page).
     const first = (await dockTabs(app))[0].title;

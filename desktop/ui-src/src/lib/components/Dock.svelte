@@ -146,6 +146,9 @@
     flex: 1;
     min-width: 0;
     overflow-x: auto;
+    /* Only sideways: otherwise a vertical scrollbar shows at the strip's
+       end in WebKitGTK. */
+    overflow-y: hidden;
   }
   /* A styled scrollbar takes its own space below the tabs. WebKitGTK's
      default overlay scrollbar is drawn over the lower half of the tabs once

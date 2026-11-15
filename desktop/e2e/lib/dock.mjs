@@ -92,6 +92,7 @@ export function stripHitTest(app) {
       tabs: strip.querySelectorAll('.tab').length,
       overflows: strip.scrollWidth > strip.clientWidth,
       scrollbar: strip.offsetHeight - strip.clientHeight,
+      vertical: strip.offsetWidth - strip.clientWidth,
       misses,
     };
   `);

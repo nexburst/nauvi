@@ -16,13 +16,16 @@ test("with more tabs than fit, the strip's scrollbar sits below the tabs, not ov
   const box = await dock.getByRole("tablist").evaluate((el: HTMLElement) => ({
     overflows: el.scrollWidth > el.clientWidth,
     scrollbar: el.offsetHeight - el.clientHeight,
+    vertical: el.offsetWidth - el.clientWidth,
     tabBottom: Math.max(...Array.from(el.querySelectorAll(".tab"), (t) => t.getBoundingClientRect().bottom)),
     clientBottom: el.getBoundingClientRect().top + el.clientHeight,
   }));
   expect(box.overflows).toBe(true);
   // The styled scrollbar takes its own 6px below the tabs. WebKitGTK's
   // default overlay one takes none and covers their lower half (#116).
+  // Only a horizontal one: no vertical scrollbar at the strip's end.
   expect(box.scrollbar).toBe(6);
+  expect(box.vertical).toBe(0);
   expect(box.tabBottom).toBeLessThanOrEqual(box.clientBottom);
 
   // A click near the bottom of a tab reaches it; so does one on its ✕.
