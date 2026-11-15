@@ -253,9 +253,13 @@ users:
     #[test]
     fn no_kubeconfig_says_where_it_looked() {
         let home = Path::new("/nonexistent-131/home");
+        let default = home.join(".kube").join("config");
         assert_eq!(
             kubeconfig_read_message(&not_found("/x"), None, Some(home)),
-            "No kubeconfig found (looked at /nonexistent-131/home/.kube/config; KUBECONFIG is not set)."
+            format!(
+                "No kubeconfig found (looked at {}; KUBECONFIG is not set).",
+                default.display()
+            )
         );
         let env = std::env::join_paths(["/nonexistent-131/a", "/nonexistent-131/b"]).unwrap();
         assert_eq!(
@@ -264,7 +268,10 @@ users:
         );
         assert_eq!(
             kubeconfig_read_message(&not_found("/x"), Some(OsStr::new("")), Some(home)),
-            "No kubeconfig found (looked at /nonexistent-131/home/.kube/config; KUBECONFIG is empty)."
+            format!(
+                "No kubeconfig found (looked at {}; KUBECONFIG is empty).",
+                default.display()
+            )
         );
         assert_eq!(
             kubeconfig_read_message(&kube::config::KubeconfigError::FindPath, None, None),
