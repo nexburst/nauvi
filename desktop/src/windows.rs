@@ -157,25 +157,38 @@ fn restorable(remembered: &[String], contexts: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// On macOS the app keeps running in the Dock when its last window closes
+/// (#174); a Dock click opens the main window again (`reopen`). Elsewhere
+/// closing the last window quits.
+const STAYS_RUNNING_WITHOUT_WINDOWS: bool = cfg!(target_os = "macos");
+
+/// Whether an `ExitRequested` must be stopped: on macOS, when it comes from
+/// the last window closing (`code` is `None`), not from `app.exit()` (Quit
+/// after "Discard changes?", an update's restart).
+pub(crate) fn keep_running(code: Option<i32>) -> bool {
+    STAYS_RUNNING_WITHOUT_WINDOWS && code.is_none()
+}
+
 /// The window `label` is gone: stop everything it started. If it was the
-/// last window (the app is quitting), wait briefly for its shells to end
-/// and its node shell pods to be deleted, and keep the remembered windows
-/// as they are. Otherwise forget it after `FORGET_DELAY`, unless the app
-/// exits by then: windows close one after another when the session logs
-/// out, in an order the app doesn't choose, and only a window the user
-/// closed alone is forgotten.
+/// last window and the app quits with it (not on macOS), wait briefly for
+/// its shells to end and its node shell pods to be deleted, and keep the
+/// remembered windows as they are. Otherwise forget it after
+/// `FORGET_DELAY`, unless the app exits by then: windows close one after
+/// another when the session logs out, in an order the app doesn't choose,
+/// and only a window the user closed alone is forgotten.
 pub(crate) fn window_destroyed(app: &AppHandle, label: &str) {
     crate::close_guard::forget(label);
     let sessions = app.state::<AppState>().close(label);
     let others = app.webview_windows().keys().any(|l| l != label);
-    if others {
+    if others || STAYS_RUNNING_WITHOUT_WINDOWS {
         crate::state::spawn_closes(sessions);
         if !EXITING.load(Ordering::SeqCst) {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(FORGET_DELAY).await;
                 let left = app.webview_windows().len();
-                if forget_closed_window(EXITING.load(Ordering::SeqCst), left) {
+                let exiting = EXITING.load(Ordering::SeqCst);
+                if forget_closed_window(exiting, left, STAYS_RUNNING_WITHOUT_WINDOWS) {
                     // `close` above already dropped the window from the state.
                     remember_windows(&app, "");
                 }
@@ -188,9 +201,28 @@ pub(crate) fn window_destroyed(app: &AppHandle, label: &str) {
 }
 
 /// After `FORGET_DELAY`: forget a closed extra window only if the app is
-/// still running with a window open, i.e. the user closed that one window.
-fn forget_closed_window(exiting: bool, windows_left: usize) -> bool {
-    !exiting && windows_left > 0
+/// still running with a window open, i.e. the user closed that one window,
+/// or (`stays_running`, macOS) still running at all.
+fn forget_closed_window(exiting: bool, windows_left: usize, stays_running: bool) -> bool {
+    !exiting && (windows_left > 0 || stays_running)
+}
+
+/// macOS, a Dock click (`RunEvent::Reopen`): with no window left, open the
+/// main window again, on the remembered context, with a fresh session.
+#[cfg(target_os = "macos")]
+pub(crate) fn reopen(app: &AppHandle) {
+    if !app.webview_windows().is_empty() {
+        return;
+    }
+    let Some(config) = app.config().app.windows.first().cloned() else {
+        return;
+    };
+    app.state::<AppState>().reopen(MAIN_WINDOW);
+    let built =
+        WebviewWindowBuilder::from_config(app, &config).and_then(|b| b.title(title(None)).build());
+    if let Err(e) = built {
+        eprintln!("kubeloupe: could not open a window: {e}");
+    }
 }
 
 /// The app is exiting (`RunEvent::ExitRequested`, e.g. Cmd+Q or the last
@@ -256,18 +288,28 @@ mod tests {
     #[test]
     fn forgets_a_window_closed_alone() {
         // The user closed one extra window; the others are still open.
-        assert!(forget_closed_window(false, 1));
-        assert!(forget_closed_window(false, 3));
+        assert!(forget_closed_window(false, 1, false));
+        assert!(forget_closed_window(false, 3, false));
+        // macOS: the app stays in the Dock, so even the last one closed alone.
+        assert!(forget_closed_window(false, 0, true));
     }
 
     #[test]
     fn keeps_windows_closed_by_the_exit() {
         // All windows closed together (logout, "close all"): none left.
-        assert!(!forget_closed_window(false, 0));
+        assert!(!forget_closed_window(false, 0, false));
         // Cmd+Q, or the last window closed in the meantime.
-        assert!(!forget_closed_window(true, 0));
+        assert!(!forget_closed_window(true, 0, false));
+        assert!(!forget_closed_window(true, 0, true));
         // Exiting while a window is still being torn down.
-        assert!(!forget_closed_window(true, 1));
+        assert!(!forget_closed_window(true, 1, false));
+    }
+
+    #[test]
+    fn only_macos_stays_running_and_only_without_an_exit_code() {
+        assert_eq!(keep_running(None), cfg!(target_os = "macos"));
+        // `app.exit(0)` (Quit after discarding edits) and restarts still exit.
+        assert!(!keep_running(Some(0)));
     }
 
     #[test]

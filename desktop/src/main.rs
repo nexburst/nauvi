@@ -86,7 +86,13 @@ fn main() {
         .expect("error while building kubeloupe")
         .run(|app, event| match event {
             // Windows that close from now on stay remembered (#126).
+            // On macOS the last window closing leaves the app in the Dock (#174).
+            tauri::RunEvent::ExitRequested { code, api, .. } if windows::keep_running(code) => {
+                api.prevent_exit()
+            }
             tauri::RunEvent::ExitRequested { .. } => windows::exit_started(),
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen { .. } => windows::reopen(app),
             tauri::RunEvent::Exit => windows::before_exit(app),
             _ => {}
         });
