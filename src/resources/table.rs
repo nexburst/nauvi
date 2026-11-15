@@ -100,6 +100,7 @@ mod tests {
                 "".into(),
                 "".into(),
             ],
+            status: status.into(),
         };
         let out = render_table(&k, &[row("b", "Running"), row("a", "Pending")]);
         let lines: Vec<_> = out.lines().collect();

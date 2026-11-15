@@ -31,6 +31,8 @@
   import HelmDeployDialog from "./lib/components/helm/HelmDeployDialog.svelte";
   import { charts } from "./lib/stores/helmCharts.svelte";
   import { HELM_CHARTS_VIEW } from "./lib/helmCharts";
+  import WorkloadsOverview from "./lib/components/WorkloadsOverview.svelte";
+  import { WORKLOADS_VIEW } from "./lib/workloads";
   import { dock } from "./lib/stores/dock.svelte";
   import { isPod } from "./lib/columns";
   import {
@@ -105,6 +107,8 @@
       <HelmView />
     {:else if app.view === HELM_CHARTS_VIEW}
       <HelmChartsView />
+    {:else if app.view === WORKLOADS_VIEW}
+      <WorkloadsOverview />
     {:else if app.view === PORT_FORWARDS_VIEW}
       <PortForwards />
     {:else if kind}
