@@ -1,6 +1,7 @@
 <script module lang="ts">
   import { commands } from "../bindings";
   import type { PodRef } from "../stores/detail.svelte";
+  import { orderedInput } from "../orderedInput";
 
   /** A shell in a pod, one on this machine pointed at `namespace`, an
    *  ephemeral debug container, or a root shell on a node. */
@@ -183,9 +184,8 @@
       early = new Map();
       closedEarly = new Set();
       sendResize();
-      t.onData((data) => {
-        b.input(id, data).catch(() => {});
-      });
+      // In order: concurrent input calls can overtake each other.
+      t.onData(orderedInput((data) => b.input(id, data)));
       if (active) t.focus();
     } catch (e) {
       t.write("\r\n\x1b[31mCould not open terminal: " + e + "\x1b[0m\r\n");
