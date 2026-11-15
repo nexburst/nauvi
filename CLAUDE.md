@@ -70,8 +70,8 @@ Playwright needs a browser once: `npx playwright install chromium` (add
   commands and events. Never edit it by hand. CI fails if it is stale.
 - On a merge or rebase conflict in `bindings.ts`, take either side and
   regenerate it with `cargo test -p kubeloupe-desktop export_typescript_bindings`.
-  `.gitattributes` marks it `merge=ours` (keeps your side; enable it once per
-  clone with `git config merge.ours.driver true`) and `linguist-generated`
+  `.gitattributes` marks it `-merge` (git never merges it: a conflict means take
+  either side and regenerate) and `linguist-generated`
   (collapsed in PR diffs). Always regenerate after a merge or rebase.
 - Commands and events are registered in `specta_builder` in
   `desktop/src/commands/mod.rs`, sorted by module and name, one per line,
