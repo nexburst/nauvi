@@ -15,7 +15,7 @@ import { spawn, execFileSync } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Builder, By, Key } from "selenium-webdriver";
 import { createProfile } from "./profile.mjs";
@@ -53,7 +53,7 @@ function testKubeconfig(contexts = [CONTEXT]) {
   // kubectl merges KUBECONFIG lists; the first file's current-context wins.
   const merged = execFileSync("kubectl", ["config", "view", "--flatten"], {
     encoding: "utf8",
-    env: { ...process.env, KUBECONFIG: parts.join(":") },
+    env: { ...process.env, KUBECONFIG: parts.join(delimiter) },
   });
   const path = join(dir, "kubeconfig");
   writeFileSync(path, merged, { mode: 0o600 });
