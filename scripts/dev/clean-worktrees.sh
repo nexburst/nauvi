@@ -3,7 +3,9 @@
 # Each one holds its own target/ (several GB). A worktree is removed only if
 #   - it has no uncommitted changes, and
 #   - its HEAD is the head of a merged PR, or is already contained in origin/main.
-# Locked worktrees (an agent still running) are skipped unless --unlock is given.
+# Locked worktrees (an agent still running) are skipped unless --unlock is given,
+# and even then only when their HEAD is the head of a merged PR: a worktree an
+# agent has just created also has a HEAD contained in origin/main.
 #
 #   scripts/dev/clean-worktrees.sh          # dry run
 #   scripts/dev/clean-worktrees.sh --yes    # remove
@@ -19,16 +21,20 @@ merged=$(gh api "repos/{owner}/{repo}/pulls?state=closed&per_page=100" \
 shopt -s nullglob
 for w in .claude/worktrees/*/; do
   w=${w%/}
+  # A leftover directory is not a worktree: git there would answer for the main checkout.
+  if [ ! -e "$w/.git" ]; then echo "keep   $w: not a git worktree"; continue; fi
   branch=$(git -C "$w" branch --show-current 2>/dev/null || echo "?")
   if [ -n "$(git -C "$w" status --short 2>/dev/null)" ]; then
     echo "keep   $w ($branch): uncommitted changes"; continue
   fi
   head=$(git -C "$w" rev-parse HEAD)
-  if ! grep -qx "$head" <<<"$merged" && ! git merge-base --is-ancestor "$head" origin/main 2>/dev/null; then
+  pr_head=0; grep -qx "$head" <<<"$merged" && pr_head=1
+  if [ "$pr_head" = 0 ] && ! git merge-base --is-ancestor "$head" origin/main 2>/dev/null; then
     echo "keep   $w ($branch): not merged"; continue
   fi
   if git worktree list --porcelain | grep -A3 "^worktree $PWD/$w\$" | grep -q '^locked'; then
     if [ "$unlock" = 0 ]; then echo "keep   $w ($branch): locked (agent running?), use --unlock"; continue; fi
+    if [ "$pr_head" = 0 ]; then echo "keep   $w ($branch): locked and no merged PR of its own (agent just started?)"; continue; fi
     [ "$yes" = 1 ] && git worktree unlock "$w"
   fi
   size=$(du -sh "$w" 2>/dev/null | cut -f1)
