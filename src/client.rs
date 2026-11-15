@@ -268,7 +268,10 @@ users:
         );
         assert_eq!(
             kubeconfig_read_message(&not_found("/x"), Some(OsStr::new("")), Some(home)),
-            "No kubeconfig found (looked at /nonexistent-131/home/.kube/config; KUBECONFIG is empty)."
+            format!(
+                "No kubeconfig found (looked at {}; KUBECONFIG is empty).",
+                default.display()
+            )
         );
         assert_eq!(
             kubeconfig_read_message(&kube::config::KubeconfigError::FindPath, None, None),
