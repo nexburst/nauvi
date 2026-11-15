@@ -14,31 +14,41 @@ import { tags as t } from "@lezer/highlight";
 
 const MONO = 'ui-monospace, "SF Mono", Menlo, Consolas, monospace';
 
-/** Dark theme from the variables in app.css. */
+/**
+ * The editor's look, all from the variables in app.css, so it follows the
+ * app theme (dark, light or the system's) without reconfiguring the view.
+ * Not marked `dark`: CodeMirror's base theme then picks its light defaults,
+ * so everything those set (cursor, gutters, panels, brackets) is overridden
+ * here with a variable.
+ */
 const theme = EditorView.theme(
   {
     "&": {
       height: "100%",
-      backgroundColor: "#0d1013",
-      color: "#d6dae0",
+      backgroundColor: "var(--code-bg)",
+      color: "var(--code-text)",
       fontSize: "12px",
     },
     ".cm-scroller": { fontFamily: MONO, lineHeight: "1.5" },
-    ".cm-content": { caretColor: "var(--text)" },
+    ".cm-content": { caretColor: "var(--code-text)" },
     "&.cm-focused": { outline: "none" },
-    "&.cm-focused .cm-cursor": { borderLeftColor: "var(--text)" },
+    ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--code-text)" },
     ".cm-gutters": {
-      backgroundColor: "#0d1013",
+      backgroundColor: "var(--code-bg)",
       color: "var(--text-muted)",
       border: "none",
       borderRight: "1px solid var(--border)",
     },
-    ".cm-activeLine": { backgroundColor: "rgba(255, 255, 255, 0.03)" },
-    ".cm-activeLineGutter": { backgroundColor: "rgba(255, 255, 255, 0.05)", color: "var(--text)" },
+    ".cm-activeLine": { backgroundColor: "var(--code-active-line)" },
+    ".cm-activeLineGutter": { backgroundColor: "var(--code-active-gutter)", color: "var(--code-text)" },
     "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection":
       { backgroundColor: "rgba(79, 156, 247, 0.3)" },
     ".cm-selectionMatch": { backgroundColor: "rgba(79, 156, 247, 0.15)" },
-    "&.cm-focused .cm-matchingBracket": { backgroundColor: "rgba(63, 178, 127, 0.25)", outline: "none" },
+    ".cm-matchingBracket, &.cm-focused .cm-matchingBracket": {
+      backgroundColor: "rgba(63, 178, 127, 0.25)",
+      outline: "none",
+    },
+    ".cm-nonmatchingBracket, &.cm-focused .cm-nonmatchingBracket": { backgroundColor: "rgba(229, 72, 77, 0.25)" },
     ".cm-searchMatch": { backgroundColor: "rgba(245, 165, 36, 0.25)", outline: "1px solid var(--amber)" },
     ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "rgba(245, 165, 36, 0.5)" },
     ".cm-foldPlaceholder": {
@@ -73,18 +83,17 @@ const theme = EditorView.theme(
     ".cm-deletedChunk .cm-deletedText, .cm-merge-a .cm-changedText": { background: "rgba(229, 72, 77, 0.35)" },
     ".cm-changeGutter": { width: "3px" },
   },
-  { dark: true },
 );
 
 const highlight = HighlightStyle.define([
-  { tag: [t.propertyName, t.definition(t.propertyName)], color: "#7cb7ff" },
-  { tag: [t.string, t.special(t.string)], color: "#9fd6a8" },
-  { tag: [t.number, t.bool, t.null, t.atom], color: "#f5c46a" },
-  { tag: [t.comment, t.lineComment], color: "#6b7480", fontStyle: "italic" },
-  { tag: [t.keyword, t.typeName, t.labelName], color: "#d7a6ff" },
-  { tag: [t.punctuation, t.separator, t.squareBracket, t.brace], color: "#9aa3b0" },
-  { tag: t.meta, color: "#9aa3b0" },
-  { tag: t.invalid, color: "#f5a3a5" },
+  { tag: [t.propertyName, t.definition(t.propertyName)], color: "var(--syn-key)" },
+  { tag: [t.string, t.special(t.string)], color: "var(--syn-string)" },
+  { tag: [t.number, t.bool, t.null, t.atom], color: "var(--syn-number)" },
+  { tag: [t.comment, t.lineComment], color: "var(--syn-comment)", fontStyle: "italic" },
+  { tag: [t.keyword, t.typeName, t.labelName], color: "var(--syn-keyword)" },
+  { tag: [t.punctuation, t.separator, t.squareBracket, t.brace], color: "var(--syn-punct)" },
+  { tag: t.meta, color: "var(--syn-punct)" },
+  { tag: t.invalid, color: "var(--syn-invalid)" },
 ]);
 
 /** YAML with the app's look: what both the editor and the diff use. */

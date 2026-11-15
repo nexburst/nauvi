@@ -12,11 +12,24 @@
   --amber: #f5a524;
   /* Error messages on the panel background. */
   --error-text: #f5a3a5;
+  /* The YAML editor and diff view (lib/editor/setup.ts). */
+  --code-bg: #0d1013;
+  --code-text: #d6dae0;
+  --code-active-line: rgba(255, 255, 255, 0.03);
+  --code-active-gutter: rgba(255, 255, 255, 0.05);
+  --syn-key: #7cb7ff;
+  --syn-string: #9fd6a8;
+  --syn-number: #f5c46a;
+  --syn-comment: #6b7480;
+  --syn-keyword: #d7a6ff;
+  --syn-punct: #9aa3b0;
+  --syn-invalid: #f5a3a5;
 }
 
 /* The Light theme (Settings → Theme). "System" leaves `data-theme` unset
    and follows prefers-color-scheme. Keep both blocks the same. The log
-   viewer, terminal and YAML editor stay dark in both themes. */
+   viewer and terminal stay dark in both themes; the YAML editor follows
+   the theme through the --code-* and --syn-* variables. */
 :root[data-theme="light"] {
   color-scheme: light;
   --bg: #f5f6f8;
@@ -30,6 +43,17 @@
   --red: #cf3036;
   --amber: #a8690c;
   --error-text: #b4232a;
+  --code-bg: #ffffff;
+  --code-text: #1a1e25;
+  --code-active-line: rgba(43, 125, 224, 0.06);
+  --code-active-gutter: rgba(43, 125, 224, 0.12);
+  --syn-key: #0b5cad;
+  --syn-string: #1d7036;
+  --syn-number: #945400;
+  --syn-comment: #6b7480;
+  --syn-keyword: #8a3fc7;
+  --syn-punct: #5a6371;
+  --syn-invalid: #b4232a;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
@@ -45,6 +69,17 @@
     --red: #cf3036;
     --amber: #a8690c;
     --error-text: #b4232a;
+    --code-bg: #ffffff;
+    --code-text: #1a1e25;
+    --code-active-line: rgba(43, 125, 224, 0.06);
+    --code-active-gutter: rgba(43, 125, 224, 0.12);
+    --syn-key: #0b5cad;
+    --syn-string: #1d7036;
+    --syn-number: #945400;
+    --syn-comment: #6b7480;
+    --syn-keyword: #8a3fc7;
+    --syn-punct: #5a6371;
+    --syn-invalid: #b4232a;
   }
 }
 

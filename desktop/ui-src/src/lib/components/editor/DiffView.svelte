@@ -64,7 +64,7 @@
     height: 100%;
     min-height: 0;
     overflow: auto;
-    background: #0d1013;
+    background: var(--code-bg);
   }
   .diff > :global(.cm-editor),
   .diff > :global(.cm-mergeView) {

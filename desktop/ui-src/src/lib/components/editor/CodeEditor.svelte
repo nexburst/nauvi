@@ -85,12 +85,12 @@
   .code-editor {
     height: 100%;
     min-height: 0;
-    background: #0d1013;
+    background: var(--code-bg);
   }
   .placeholder {
     margin: 0;
     padding: 4px 8px 4px 40px;
-    color: #d6dae0;
+    color: var(--code-text);
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 12px;
     line-height: 1.5;

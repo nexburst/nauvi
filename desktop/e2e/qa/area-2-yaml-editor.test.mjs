@@ -35,6 +35,30 @@ import {
 } from "./area-2-helpers.mjs";
 
 const T = { timeout: 180_000 };
+
+/** The editor background is light or dark with the theme, and the cursor
+ *  (CodeMirror draws it; the native caret is transparent) and the active
+ *  line number contrast with it (#98). */
+async function assertEditorReadable(app, theme) {
+  const c = await app.js(`
+    const q = (sel) => getComputedStyle(document.querySelector('[data-testid="detail-panel"] ' + sel));
+    const rgb = (s) => (s.match(/[\\d.]+/g) || []).slice(0, 3).map(Number);
+    const lum = ([r, g, b]) => {
+      const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+      return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+    };
+    const ratio = (a, b) => { const [x, y] = [lum(rgb(a)), lum(rgb(b))].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+    const bg = q('.cm-editor').backgroundColor;
+    const active = q('.cm-lineNumbers .cm-activeLineGutter').color;
+    const cur = q('.cm-cursor').borderLeftColor;
+    return { bg, bgLum: lum(rgb(bg)), active, cur, activeRatio: ratio(active, bg), cursorRatio: ratio(cur, bg) };
+  `);
+  console.log(`editor colours (${theme}): ${JSON.stringify(c)}`);
+  if (theme === "light") assert.ok(c.bgLum > 0.8, `the editor is light in the light theme (${c.bg})`);
+  else assert.ok(c.bgLum < 0.05, `the editor is dark in the dark theme (${c.bg})`);
+  assert.ok(c.activeRatio >= 4.5, `the active line number is readable (${c.active} on ${c.bg})`);
+  assert.ok(c.cursorRatio >= 4.5, `the cursor is visible (${c.cur} on ${c.bg})`);
+}
 const ALT = "qa-area2-alt";
 const LONG = Array.from({ length: 80 }, (_, i) => `  line${String(i).padStart(2, "0")}: value ${i}`).join("\n");
 const FIXTURE = `
@@ -172,9 +196,15 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     console.log(`block after inner: ${JSON.stringify(v.slice(v.indexOf("  inner"), v.indexOf("z: 1") + 4))}`);
     const dot = await app.js("return !!document.querySelector('[data-testid=\"detail-panel\"] h3 .dirty')");
     assert.ok(dot, "the unsaved dot shows");
+    // Both themes explicitly: CI's system theme is light.
+    await setTheme(app, "dark");
     await app.shot("typed-dark");
+    await assertEditorReadable(app, "dark");
     await setTheme(app, "light");
     await app.shot("typed-light");
+    // #98: the editor follows the light theme; the cursor and the active
+    // line's number keep their contrast.
+    await assertEditorReadable(app, "light");
     await setTheme(app, null);
   });
 
@@ -285,6 +315,7 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     const sp = await scrolls();
     console.log(`side-by-side scroll: ${JSON.stringify(sp)}`);
     assert.ok(sp && sp.scrollTop > 0, "the side-by-side diff scrolls");
+    await setTheme(app, "dark");
     await app.shot("diff-split-dark");
     await setTheme(app, "light");
     await app.shot("diff-split-light");
@@ -361,6 +392,7 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     await (await app.find(By.css('[data-testid="detail-panel"] button[aria-label="Close details"]'))).click();
     const dialog = await waitDiscardDialog(app);
     console.log(`dialog: ${await dialog.getText()}`);
+    await setTheme(app, "dark");
     await app.shot("discard-dialog-dark");
     await setTheme(app, "light");
     await app.shot("discard-dialog-light");
