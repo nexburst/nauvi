@@ -137,6 +137,25 @@ function column(def: ColumnDef, index: number): Column {
   }
 }
 
+/**
+ * A node's Ready cell (`True`, `False`, `Unknown`, with `,SchedulingDisabled`
+ * when it is cordoned, as `kubectl get nodes` shows it): amber when cordoned,
+ * red when not ready.
+ */
+export function nodeReadyClass(text: string): string {
+  if (!text.startsWith("True")) return "phase-Failed";
+  if (text.includes("SchedulingDisabled")) return "phase-Pending";
+  return "";
+}
+
+/** Node tables: the Ready cell is coloured and wide enough for "True,SchedulingDisabled". */
+function forNodes(cols: Column[]): Column[] {
+  return cols.map((c) =>
+    c.key === "ready" ? { ...c, width: "minmax(200px, 1fr)", cls: (r: Row) => nodeReadyClass(c.text(r, NO_CTX)) } : c,
+  );
+}
+const NO_CTX: Ctx = { metrics: EMPTY_METRICS, now: 0 };
+
 const cache = new WeakMap<ResourceKind, Column[]>();
 
 /**
@@ -148,6 +167,7 @@ export function columnsFor(kind: ResourceKind): Column[] {
   let cols = cache.get(kind);
   if (!cols) {
     cols = kind.columns.map(column);
+    if (isNode(kind)) cols = forNodes(cols);
     cache.set(kind, cols);
   }
   return cols;

@@ -1,7 +1,7 @@
 // Actions, bulk delete and node drains (`commands/actions.rs`).
 
 import { events } from "../../lib/bindings";
-import { findRow, kindOf, removeRow, rowKey } from "./state";
+import { addRow, findRow, kindOf, removeRow, rowKey } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
 
 export function actionsHandlers(s: FakeState) {
@@ -17,6 +17,16 @@ export function actionsHandlers(s: FakeState) {
           return `Deleted ${label}`;
         case "scale":
           return `Scaled ${label} to ${replicas}`;
+        case "cordon":
+        case "uncordon": {
+          // The node's Ready cell, as the backend computes it (#100).
+          const i = kind.columns.findIndex((c) => c.key === "ready");
+          const ready = (row.cells[i] ?? "True").split(",")[0];
+          const cells = [...row.cells];
+          cells[i] = action === "cordon" ? `${ready},SchedulingDisabled` : ready;
+          addRow(s, kind, { ...row, cells });
+          return `${action === "cordon" ? "Cordoned" : "Uncordoned"} Node/${row.name}`;
+        }
         default:
           return `${action} ${label}: done`;
       }

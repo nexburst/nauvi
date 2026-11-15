@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnKind, ResourceKind, ResourceRow } from "./bindings";
-import { columnsFor, EMPTY_METRICS, isNode, isPod } from "./columns";
+import { columnsFor, EMPTY_METRICS, isNode, isPod, nodeReadyClass } from "./columns";
 import type { Ctx, Metrics } from "./columns";
 
 function kindWith(kinds: [string, ColumnKind][], kind = "Pod", group = ""): ResourceKind {
@@ -139,5 +139,17 @@ describe("columnsFor", () => {
     expect(isPod(kindWith([], "Pod", "metrics.k8s.io"))).toBe(false);
     expect(isNode(kindWith([], "Node"))).toBe(true);
     expect(isNode(kindWith([], "Pod"))).toBe(false);
+  });
+
+  it("colours a node's Ready cell: amber when cordoned, red when not ready", () => {
+    expect(nodeReadyClass("True")).toBe("");
+    expect(nodeReadyClass("True,SchedulingDisabled")).toBe("phase-Pending");
+    expect(nodeReadyClass("False")).toBe("phase-Failed");
+    expect(nodeReadyClass("Unknown,SchedulingDisabled")).toBe("phase-Failed");
+    const [, ready] = columnsFor(kindWith([["name", "text"], ["ready", "text"]], "Node"));
+    expect(ready.cls?.(row(["n1", "True,SchedulingDisabled"]))).toBe("phase-Pending");
+    // Only nodes: a pod's "ready" is a count.
+    const [, podReady] = columnsFor(kindWith([["name", "text"], ["ready", "text"]]));
+    expect(podReady.cls).toBeUndefined();
   });
 });
