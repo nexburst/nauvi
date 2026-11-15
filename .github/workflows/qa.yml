@@ -133,7 +133,8 @@ jobs:
 
   # Some real coverage for Windows (WebView2 through tauri-driver and
   # msedgedriver): start-up with an unreachable cluster, Settings and the
-  # theme. No cluster here; macOS has no WebDriver at all. The app passes
+  # theme; local terminals in pwsh, Windows PowerShell and cmd (ConPTY) and
+  # a second window. No cluster here; macOS has no WebDriver at all. The app passes
   # msedgedriver's WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS on to WebView2
   # (desktop/src/webview_args.rs, #93).
   windows:
@@ -202,7 +203,7 @@ jobs:
           node --test --test-concurrency=1 \
             --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=./lib/qa-reporter.mjs --test-reporter-destination=artifacts/qa-windows/results.jsonl \
-            qa/startup.test.mjs
+            qa/startup.test.mjs qa/windows.test.mjs
           rc=$?
           node lib/qa-report.mjs artifacts/qa-windows > artifacts/qa-windows/report.md
           { echo "## Windows"; tail -n +2 artifacts/qa-windows/report.md; } >> "$GITHUB_STEP_SUMMARY"

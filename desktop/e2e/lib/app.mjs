@@ -161,6 +161,15 @@ async function startSession(name, opts) {
     ...(opts.shellEnv ? {} : { KUBELOUPE_NO_SHELL_ENV: "1" }),
     ...opts.env,
   };
+  // Windows names are case-insensitive: a PATH from `opts.env` must replace
+  // the inherited `Path`, not sit next to it.
+  if (WINDOWS) {
+    for (const key of Object.keys(opts.env ?? {})) {
+      for (const other of Object.keys(env)) {
+        if (other !== key && other.toLowerCase() === key.toLowerCase()) delete env[other];
+      }
+    }
+  }
   const log = createWriteStream(join(ARTIFACTS, `${name}-app.log`), { flags: "a" });
   // Its own process group: WebKitWebDriver and the app inherit it, and ending
   // the session does not always stop the app, so stop() kills the group.

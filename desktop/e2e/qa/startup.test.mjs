@@ -4,42 +4,12 @@
 // applies and survives a restart.
 
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { byTestId } from "../lib/app.mjs";
-import { appSession } from "../lib/qa.mjs";
+import { appSession, unreachableKubeconfig } from "../lib/qa.mjs";
 
 const T = { timeout: 120_000 };
-
-/** A kubeconfig whose only context points at a closed local port. */
-function unreachableKubeconfig() {
-  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-kc-"));
-  const path = join(dir, "kubeconfig");
-  writeFileSync(
-    path,
-    `apiVersion: v1
-kind: Config
-clusters:
-  - name: nowhere
-    cluster:
-      server: https://127.0.0.1:1
-contexts:
-  - name: qa-unreachable
-    context:
-      cluster: nowhere
-      user: nobody
-current-context: qa-unreachable
-users:
-  - name: nobody
-    user:
-      token: not-a-token
-`,
-  );
-  return path;
-}
 
 const theme = (app) => app.js("return document.documentElement.dataset.theme ?? ''");
 
