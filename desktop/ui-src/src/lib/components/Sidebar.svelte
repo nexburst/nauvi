@@ -2,6 +2,7 @@
   import type { Category, ResourceKind } from "../bindings";
   import { app, canOpenDenied, deniedReason, kinds, setView } from "../stores/app.svelte";
   import { HELM_VIEW } from "../helm";
+  import { HELM_CHARTS_VIEW } from "../helmCharts";
   import { WORKLOADS_VIEW } from "../workloads";
   import { isCrdDefinitions } from "../crd";
   import { PORT_FORWARDS_VIEW } from "../forwards";
@@ -132,6 +133,9 @@
   {#if kinds.loaded && kinds.all.length > 0}
     <h4>Helm</h4>
     <button type="button" class:active={app.view === HELM_VIEW} onclick={() => setView(HELM_VIEW)}>Releases</button>
+    <button type="button" class:active={app.view === HELM_CHARTS_VIEW} onclick={() => setView(HELM_CHARTS_VIEW)}
+      >Charts</button
+    >
   {/if}
 
   {@render groups("Custom Resources", custom, definitions)}

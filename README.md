@@ -101,6 +101,13 @@ Svelte) and a CLI, both built on the same Rust core.
   diff of any two revisions, and the objects the release created. Rollback
   and uninstall run the `helm` CLI (on `PATH`) against the same context, after
   a confirmation.
+- **Helm charts**: Helm → Charts lists the charts in your chart repositories
+  (the same ones as the `helm` command line), with each version's README and
+  default values. Add, update and remove repositories there or in Settings.
+  Install a chart with edited values into a namespace (created if missing),
+  or upgrade a release from its detail with edited values and a chosen
+  version; both show a server-side dry run first (the rendered manifest, or a
+  diff against the current revision) and run nothing until you confirm.
 - **Multi-cluster**: switch between your kubeconfig contexts from the header,
   or open a context in its own window (the button next to the context
   selector, or the palette). Each window is connected to one cluster, titled
@@ -260,7 +267,9 @@ It creates `kubeloupe-test` (a control-plane node and a worker) with:
 
 `scripts/test-cluster/charts/demo-chart` is a tiny local chart (a ConfigMap,
 a Secret and a Deployment) for the Helm tests, which install it in temporary
-namespaces with `helm`.
+namespaces with `helm`. `tests/helm_charts_cluster.rs` also packages it as a
+chart repository served from 127.0.0.1, with helm pointed at temporary
+configuration directories, so it never touches your own repositories.
 
 Pass `--staging` to also create `kubeloupe-staging`, a single empty node, so
 the context switcher has a second cluster to switch to. Each kind cluster

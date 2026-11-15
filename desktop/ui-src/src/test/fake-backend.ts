@@ -55,6 +55,7 @@ import { defaultCluster, detail, makeRow, NO_POD } from "./fixtures/cluster";
 import { workloadsOverview } from "./fixtures/workloads";
 import { NO_RELATED } from "./fixtures/related";
 import { helmGet, helmList, helmRollback, helmUninstall } from "./fixtures/helm";
+import { chartVersions, deploy, repoAdd, repoRemove, repoUpdate, search, show } from "./fixtures/helmCharts";
 import { NO_REFERENCE, prometheusFixture } from "./fixtures/usage";
 import { available } from "./fixtures/updates";
 import type { FakeCluster } from "./fixtures/cluster";
@@ -327,6 +328,12 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     const p = cluster.prometheus;
     return { target: p.detected, from_settings: false, note: p.detected ? "" : p.note };
   }
+
+  /** The namespaces that exist, for installs (`--create-namespace`). */
+  const namespaceNames = () => [
+    ...(cluster.namespaces ?? []).map((n) => n.name),
+    ...cluster.helm.revisions.map((r) => r.namespace),
+  ];
 
   /** Like `cmd_usage_history`: a Prometheus range, else the live history and why. */
   function usageHistory(key: string, subject: string, range: UsageRange): UsageHistoryView {
@@ -624,12 +631,21 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     cmdHelmGet: (namespace, name, revision, reveal) => helmGet(cluster.helm, namespace, name, revision, reveal),
     cmdHelmVersion: () => {
       if (!cluster.helm.version) {
-        throw "helm is not installed or not on PATH. Install it (https://helm.sh/docs/intro/install/) to roll back or uninstall releases.";
+        throw "helm is not installed or not on PATH. Install it (https://helm.sh/docs/intro/install/) to install, upgrade, roll back or uninstall releases and to browse charts.";
       }
       return cluster.helm.version;
     },
     cmdHelmRollback: (namespace, name, revision) => helmRollback(cluster.helm, namespace, name, revision),
     cmdHelmUninstall: (namespace, name) => helmUninstall(cluster.helm, namespace, name),
+    cmdHelmRepoList: () => copy(cluster.helm.charts.repos),
+    cmdHelmRepoAdd: (name, url) => repoAdd(cluster.helm.charts, name.trim(), url.trim()),
+    cmdHelmRepoRemove: (name) => repoRemove(cluster.helm.charts, name),
+    cmdHelmRepoUpdate: (names) => repoUpdate(cluster.helm.charts, names),
+    cmdHelmSearch: (query, allVersions) => search(cluster.helm.charts, query, allVersions),
+    cmdHelmChartVersions: (chart) => chartVersions(cluster.helm.charts, chart),
+    cmdHelmChartShow: (chart, version) => show(cluster.helm.charts, chart, version),
+    cmdHelmInstall: (request) => deploy(cluster.helm, namespaceNames(), "install", request),
+    cmdHelmUpgrade: (request) => deploy(cluster.helm, namespaceNames(), "upgrade", request),
     cmdGetSettings: () => copy(cluster.settings),
     cmdUpdateSettings: (patch) => {
       // The app sends whole values (`SettingsPatch`), like the backend expects.

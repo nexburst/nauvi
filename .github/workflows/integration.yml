@@ -33,14 +33,15 @@ jobs:
           bash scripts/test-cluster/limited-user.sh "$HOME/.kube/kubeloupe-limited.yaml"
           echo "KUBELOUPE_LIMITED_KUBECONFIG=$HOME/.kube/kubeloupe-limited.yaml" >> "$GITHUB_ENV"
 
-      # For the Helm tests (tests/helm_cluster.rs): install, upgrade,
-      # rollback and uninstall the local chart in scripts/test-cluster/charts.
+      # For the Helm tests (tests/helm_cluster.rs, tests/helm_charts_cluster.rs):
+      # install, upgrade, rollback and uninstall the local chart in
+      # scripts/test-cluster/charts, also served as a local chart repository.
       - uses: azure/setup-helm@v4.3.0
         with:
           version: v3.16.4
 
       - name: Build tests
-        run: cargo test --test cluster --test helm_cluster --no-run
+        run: cargo test --test cluster --test helm_cluster --test helm_charts_cluster --no-run
 
       - name: Wait for demo pods
         run: |

@@ -2,6 +2,8 @@
 // list, the charts and the detail are all derived from one place.
 
 import type { HelmRelease, HelmReleaseList, HelmReleaseRow } from "../../lib/bindings";
+import { defaultCharts } from "./helmCharts";
+import type { FakeCharts } from "./helmCharts";
 
 export const HIDDEN = "<hidden: reveal to view>";
 
@@ -14,11 +16,13 @@ export interface FakeHelm {
   forbidden: string[];
   /** What `cmd_helm_version` returns; empty: helm is not installed. */
   version: string;
+  /** Chart repositories and what they serve (`cmd_helm_repo_*`, search, install). */
+  charts: FakeCharts;
 }
 
 const now = () => Math.floor(Date.now() / 1000);
 
-function manifest(name: string, greeting: string, password: string): string {
+export function manifest(name: string, greeting: string, password: string): string {
   return `---
 # Source: web/templates/secret.yaml
 apiVersion: v1
@@ -88,7 +92,7 @@ export function defaultHelm(): FakeHelm {
   for (const r of revisions) {
     revealed[`${r.namespace}/${r.name}@${r.revision}`] = manifest(r.name, r.notes.includes("bye") ? "bye" : "hello", "s3cret");
   }
-  return { revisions, revealed, forbidden: [], version: "v3.16.4+g7877b45" };
+  return { revisions, revealed, forbidden: [], version: "v3.16.4+g7877b45", charts: defaultCharts() };
 }
 
 const key = (r: { namespace: string; name: string }) => `${r.namespace}/${r.name}`;

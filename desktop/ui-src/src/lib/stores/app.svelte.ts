@@ -4,6 +4,7 @@ import { joinNames, normalizeNamespaces, sameNamespaces } from "../namespaces";
 import { clampHeight } from "../dock";
 import { PORT_FORWARDS_VIEW } from "../forwards";
 import { HELM_VIEW } from "../helm";
+import { HELM_CHARTS_VIEW } from "../helmCharts";
 import { WORKLOADS_VIEW } from "../workloads";
 import { contextToRestore, namespacesToRestore } from "../settings";
 import { isMainWindow } from "../window";
@@ -107,7 +108,7 @@ function restorePendingView() {
   const view = pendingView;
   pendingView = null;
   if (!view || view === "overview" || app.view !== "overview") return;
-  if (view === PORT_FORWARDS_VIEW || view === HELM_VIEW || view === WORKLOADS_VIEW) {
+  if (view === PORT_FORWARDS_VIEW || view === HELM_VIEW || view === HELM_CHARTS_VIEW || view === WORKLOADS_VIEW) {
     app.view = view;
     return;
   }

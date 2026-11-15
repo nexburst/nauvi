@@ -61,7 +61,7 @@ pub(crate) async fn cmd_helm_version() -> Result<String, String> {
 /// Helm talks to the app's context. Without a selection, name the
 /// kubeconfig's current context explicitly, so helm cannot drift to another
 /// one if the file changes meanwhile.
-fn target(state: &ClusterSession) -> HelmTarget {
+pub(crate) fn target(state: &ClusterSession) -> HelmTarget {
     let context = state.selected_context().or_else(|| {
         kube::config::Kubeconfig::read()
             .ok()
