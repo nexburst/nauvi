@@ -1613,12 +1613,37 @@ async fn zz_node_cordon_uncordon_and_drain_respects_pdb() -> Result<()> {
     Ok(())
 }
 
+/// The Ready cell of `node`'s row in the Nodes table.
+async fn node_ready_cell(client: &Client, node: &str) -> Result<String> {
+    let kind = kind_named(client, "nodes").await?;
+    let col = kind
+        .columns
+        .iter()
+        .position(|c| c.key == "ready")
+        .context("no ready column")?;
+    let rows = list_resources(client, &kind, None).await?;
+    let row = rows
+        .iter()
+        .find(|r| r.name == node)
+        .with_context(|| format!("no row for {node}"))?;
+    Ok(row.cells[col].clone())
+}
+
 async fn drain_scenario(client: &Client, ns: &str, node: &str) -> Result<()> {
     // Cordon and uncordon.
     set_unschedulable(client, node, true).await?;
     ensure!(unschedulable(client, node).await?);
+    // The Nodes table says so, like `kubectl get nodes` (#100).
+    ensure!(
+        node_ready_cell(client, node).await? == "True,SchedulingDisabled",
+        "cordoned {node}"
+    );
     set_unschedulable(client, node, false).await?;
     ensure!(!unschedulable(client, node).await?);
+    ensure!(
+        node_ready_cell(client, node).await? == "True",
+        "uncordoned {node}"
+    );
 
     // Part 1: a 2-replica deployment behind a PDB that needs 1 available.
     let deployments: Api<Deployment> = Api::namespaced(client.clone(), ns);

@@ -105,6 +105,28 @@ test("a harmless action runs without a dialog", async ({ page }) => {
   expect(await fake.lastCall("cmdRunAction")).toMatchObject({ action: "restart", replicas: null });
 });
 
+test("a cordoned node says SchedulingDisabled in amber until it is uncordoned", async ({ page }) => {
+  await openApp(page);
+  await openKind(page, "Nodes");
+  const ready = (name: string, text: string) => row(page, name).getByRole("gridcell", { name: text, exact: true });
+  await expect(ready("node-2", "True")).toBeVisible();
+  await expect(ready("node-2", "True")).not.toHaveClass(/phase-/);
+
+  await (await contextMenu(page, "node-2")).getByRole("menuitem", { name: "Cordon", exact: true }).click();
+  await expect(page.getByRole("status")).toContainText("Cordoned Node/node-2");
+  const cordoned = ready("node-2", "True,SchedulingDisabled");
+  await expect(cordoned).toBeVisible();
+  await expect(cordoned).toHaveClass(/phase-Pending/);
+  // The whole text fits: the column is wide enough.
+  expect(await cordoned.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  // The other node is untouched.
+  await expect(ready("node-1", "True")).toBeVisible();
+
+  await (await contextMenu(page, "node-2")).getByRole("menuitem", { name: "Uncordon", exact: true }).click();
+  await expect(ready("node-2", "True")).toBeVisible();
+  await expect(ready("node-2", "True")).not.toHaveClass(/phase-/);
+});
+
 test("a failed action without a dialog stays in a notice", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Nodes");

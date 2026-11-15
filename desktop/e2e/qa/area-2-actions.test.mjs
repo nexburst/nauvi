@@ -6,7 +6,8 @@
 // - ConfigMaps: checkboxes, shift-click, header checkbox, Delete N lists them.
 // - Right-click inside a multi-selection offers only the bulk delete.
 // - Detail panel buttons match the context menu (Deployment, CronJob, Node, Pod).
-// - Node: Cordon / Uncordon on the worker (always uncordoned afterwards), and
+// - Node: Cordon / Uncordon on the worker (always uncordoned afterwards); the
+//   Ready cell says True,SchedulingDisabled while cordoned (#100); and
 //   the Drain dialog's warning (cancelled: a real drain from the GUI would
 //   evict the shared demo pods; the CLI drain with --pod-selector is
 //   tests/cluster.rs).
@@ -28,6 +29,7 @@ import {
   menuItem,
   noticeText,
   openKind,
+  setTheme,
   waitActionDialogClosed,
 } from "./area-2-helpers.mjs";
 
@@ -392,17 +394,45 @@ describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
         message: "the worker unschedulable",
       });
       assert.match(kubectl(["get", "node", WORKER]), /SchedulingDisabled/);
-      // The checklist reads SchedulingDisabled from kubectl; record what the
-      // app's table shows for a cordoned node.
-      await new Promise((r) => setTimeout(r, 1500));
-      console.log(`Nodes table while cordoned: ${await app.js("return document.querySelector('[data-testid=\"resource-table\"]').innerText")}`);
+      // #100: the app's table shows it too, like kubectl, in amber.
+      const readyCell = () =>
+        app.js(`
+          const row = [...document.querySelectorAll('[data-testid="resource-table"] [role="row"]')]
+            .find((r) => r.innerText.includes(${JSON.stringify(WORKER)}));
+          const cell = row && [...row.querySelectorAll('[role="gridcell"]')].find((c) => /^(True|False|Unknown)/.test(c.innerText.trim()));
+          return cell ? { text: cell.innerText.trim(), cls: cell.className, fits: cell.scrollWidth <= cell.clientWidth } : null;
+        `);
+      const cordoned = await app.waitFor(
+        async () => {
+          const c = await readyCell();
+          return c?.text === "True,SchedulingDisabled" ? c : null;
+        },
+        { message: "the worker's Ready cell to say True,SchedulingDisabled" },
+      );
+      console.log(`Ready cell while cordoned: ${JSON.stringify(cordoned)}`);
+      assert.match(cordoned.cls, /phase-Pending/, "the cordoned node's Ready cell is amber");
+      assert.ok(cordoned.fits, "True,SchedulingDisabled fits in the column");
+      // Both themes explicitly (CI's system theme is light).
+      await setTheme(app, "dark");
       await app.shot("cordoned");
+      await setTheme(app, "light");
+      await app.shot("cordoned-light");
+      await setTheme(app, null);
       await contextMenu(app, WORKER);
       await menuItem(app, "Uncordon");
       await app.waitFor(() => kubectl(["get", "node", WORKER, "-o", "jsonpath={.spec.unschedulable}"]) === "", {
         message: "the worker schedulable again",
       });
       assert.doesNotMatch(kubectl(["get", "node", WORKER]), /SchedulingDisabled/);
+      const uncordoned = await app.waitFor(
+        async () => {
+          const c = await readyCell();
+          return c?.text === "True" ? c : null;
+        },
+        { message: "the worker's Ready cell back to True" },
+      );
+      assert.doesNotMatch(uncordoned.cls, /phase-/, "an uncordoned, ready node is not coloured");
+      await app.shot("uncordoned");
     } finally {
       uncordon();
     }

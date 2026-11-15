@@ -514,11 +514,7 @@ pub(super) const KINDS: &[KindSpec] = &[
         category: Cluster,
         columns: &[
             NAME,
-            text(
-                "ready",
-                "Ready",
-                ".status.conditions[?(@.type==\"Ready\")].status",
-            ),
+            func("ready", "Ready", node_ready),
             text("version", "Version", ".status.nodeInfo.kubeletVersion"),
             AGE,
             ui("cpu", "CPU", ColumnKind::NodeCpu),
@@ -710,6 +706,20 @@ pub(super) fn pod_ready(v: &Value) -> String {
         .filter(|c| c.get("ready") == Some(&Value::Bool(true)))
         .count();
     format!("{ready}/{total}")
+}
+
+/// The Ready condition's status, plus `SchedulingDisabled` when the node is
+/// cordoned, the way `kubectl get nodes` adds it: `True,SchedulingDisabled`.
+pub(super) fn node_ready(v: &Value) -> String {
+    let ready = array_at(v, "/status/conditions")
+        .find(|c| c.get("type").and_then(Value::as_str) == Some("Ready"))
+        .and_then(|c| c.get("status").and_then(Value::as_str))
+        .unwrap_or("Unknown");
+    if v.pointer("/spec/unschedulable") == Some(&Value::Bool(true)) {
+        format!("{ready},SchedulingDisabled")
+    } else {
+        ready.to_string()
+    }
 }
 
 pub(super) fn pod_restarts(v: &Value) -> String {
@@ -1162,5 +1172,31 @@ mod tests {
         assert_eq!(cell(&crd, "scope"), "Namespaced");
         let spec = spec_for("apiextensions.k8s.io", "CustomResourceDefinition").unwrap();
         assert_eq!(spec.category, Category::Custom);
+    }
+
+    #[test]
+    fn node_ready_shows_a_cordoned_node() {
+        let node = |unschedulable: Option<bool>, ready: Option<&str>| {
+            let mut n = json!({
+                "apiVersion": "v1", "kind": "Node", "metadata": { "name": "n1" },
+                "status": { "conditions": [{ "type": "MemoryPressure", "status": "False" }] }
+            });
+            if let Some(r) = ready {
+                n["status"]["conditions"]
+                    .as_array_mut()
+                    .unwrap()
+                    .push(json!({ "type": "Ready", "status": r }));
+            }
+            if let Some(u) = unschedulable {
+                n["spec"] = json!({ "unschedulable": u });
+            }
+            cell(&cells("", "Node", false, n), "ready")
+        };
+        assert_eq!(node(None, Some("True")), "True");
+        assert_eq!(node(Some(false), Some("True")), "True");
+        assert_eq!(node(Some(true), Some("True")), "True,SchedulingDisabled");
+        assert_eq!(node(Some(true), Some("False")), "False,SchedulingDisabled");
+        // No Ready condition yet (a node that just registered).
+        assert_eq!(node(None, None), "Unknown");
     }
 }
