@@ -47,6 +47,16 @@ fn completions_need_no_cluster() {
 }
 
 #[test]
+fn version_needs_no_cluster() {
+    let want = format!("kubeloupe {}\n", env!("CARGO_PKG_VERSION"));
+    for flag in ["--version", "-V"] {
+        let out = kubeloupe(&["--kubeconfig", "/nonexistent", flag]);
+        assert!(out.status.success(), "{flag}");
+        assert_eq!(String::from_utf8_lossy(&out.stdout), want, "{flag}");
+    }
+}
+
+#[test]
 fn errors_go_to_stderr_with_a_failing_exit_code() {
     let out = kubeloupe(&["--kubeconfig", "/nonexistent/kubeconfig", "get", "pods"]);
     assert_eq!(out.status.code(), Some(1));
