@@ -116,8 +116,14 @@ describe("area 1: live Pods, Nodes and Namespaces tables", { timeout: 15 * 60_00
       `return Array.from(document.querySelectorAll('[data-testid="detail-panel"] button'), (b) => b.textContent.trim())`,
     );
     for (const b of ["Logs", "Open terminal"]) assert.ok(buttons.includes(b), `"${b}" in the pod panel: ${buttons}`);
-    const text = await app.js(`return document.querySelector('[data-testid="detail-panel"]').innerText`);
-    for (const word of ["Running", ns, "Containers"]) assert.ok(text.includes(word), `"${word}" in the pod panel`);
+    // The details load after the panel opens.
+    await app.waitFor(
+      async () => {
+        const text = await app.js(`return document.querySelector('[data-testid="detail-panel"]').innerText`);
+        return ["Running", ns, "Containers"].every((w) => text.includes(w));
+      },
+      { message: "phase, namespace and containers in the pod panel" },
+    );
   });
 
   it("filter and header sorting work", T, async () => {

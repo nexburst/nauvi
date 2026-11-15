@@ -108,7 +108,11 @@ describe("area 1: switching contexts", { timeout: 10 * 60_000 }, () => {
   it(`switching back to ${CONTEXT} restores the admin view`, T, async () => {
     const { app } = s;
     await switchTo(app, CONTEXT);
-    await app.waitFor(async () => (await activeView(app)) === "Overview", { message: "the Overview view" });
+    // Each context remembers its last view (#70): this one was on Pods.
+    await app.waitFor(async () => (await activeView(app)).startsWith("Pods"), {
+      message: "the remembered Pods view",
+    });
+    await app.nav("Overview");
     await waitLive(app);
     await app.waitFor(async () => (await cards(app)).includes("Namespaces"), { message: "the Namespaces card" });
     await app.waitFor(async () => (await denied(app)).length === 0, { timeout: 30_000, message: "nothing greyed out" });
