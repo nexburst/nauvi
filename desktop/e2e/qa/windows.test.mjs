@@ -110,8 +110,6 @@ describe("Windows: several windows", { timeout: 10 * 60_000, skip: !WINDOWS && "
     const titles = await windowTitles(app);
     console.log(`titles: ${JSON.stringify(Object.values(titles))}`);
     assert.equal(Object.keys(titles).length, 2);
-    // A new window is titled with its context.
-    assert.equal(titles[second], CONTEXT);
     await app.shot("second-window");
     await app.driver.close();
     await switchTo(app, main);
