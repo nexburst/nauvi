@@ -306,18 +306,18 @@ test("the editor follows the theme; its cursor and active line number stay visib
         background: css(".cm-editor", "background-color"),
         gutter: css(".cm-gutters", "background-color"),
         activeNumber: css(".cm-lineNumbers .cm-activeLineGutter", "color"),
-        caret: css(".cm-content", "caret-color"),
         cursor: css(".cm-cursor", "border-left-color"),
         key: css(".cm-line span", "color"),
       };
     });
 
-  // Dark (the default): light text on the dark editor.
+  // Dark: light text on the dark editor. (Set explicitly: the test browser
+  // may prefer the light scheme.)
+  await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
   expect(await colours()).toEqual({
     background: "rgb(13, 16, 19)",
     gutter: "rgb(13, 16, 19)",
     activeNumber: "rgb(214, 218, 224)",
-    caret: "rgb(214, 218, 224)",
     cursor: "rgb(214, 218, 224)",
     key: "rgb(124, 183, 255)",
   });
@@ -328,7 +328,6 @@ test("the editor follows the theme; its cursor and active line number stay visib
     background: "rgb(255, 255, 255)",
     gutter: "rgb(255, 255, 255)",
     activeNumber: "rgb(26, 30, 37)",
-    caret: "rgb(26, 30, 37)",
     cursor: "rgb(26, 30, 37)",
     key: "rgb(11, 92, 173)",
   });

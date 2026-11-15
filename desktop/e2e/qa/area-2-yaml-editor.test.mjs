@@ -36,8 +36,9 @@ import {
 
 const T = { timeout: 180_000 };
 
-/** The editor background is light or dark with the theme, and the caret,
- *  cursor and active line number contrast with it (#98). */
+/** The editor background is light or dark with the theme, and the cursor
+ *  (CodeMirror draws it; the native caret is transparent) and the active
+ *  line number contrast with it (#98). */
 async function assertEditorReadable(app, theme) {
   const c = await app.js(`
     const q = (sel) => getComputedStyle(document.querySelector('[data-testid="detail-panel"] ' + sel));
@@ -49,16 +50,13 @@ async function assertEditorReadable(app, theme) {
     const ratio = (a, b) => { const [x, y] = [lum(rgb(a)), lum(rgb(b))].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
     const bg = q('.cm-editor').backgroundColor;
     const active = q('.cm-lineNumbers .cm-activeLineGutter').color;
-    const caret = q('.cm-content').caretColor;
-    const cursor = document.querySelector('[data-testid="detail-panel"] .cm-cursor');
-    const cur = cursor ? getComputedStyle(cursor).borderLeftColor : caret;
-    return { bg, bgLum: lum(rgb(bg)), active, caret, cur, activeRatio: ratio(active, bg), caretRatio: ratio(caret, bg), cursorRatio: ratio(cur, bg) };
+    const cur = q('.cm-cursor').borderLeftColor;
+    return { bg, bgLum: lum(rgb(bg)), active, cur, activeRatio: ratio(active, bg), cursorRatio: ratio(cur, bg) };
   `);
   console.log(`editor colours (${theme}): ${JSON.stringify(c)}`);
   if (theme === "light") assert.ok(c.bgLum > 0.8, `the editor is light in the light theme (${c.bg})`);
   else assert.ok(c.bgLum < 0.05, `the editor is dark in the dark theme (${c.bg})`);
   assert.ok(c.activeRatio >= 4.5, `the active line number is readable (${c.active} on ${c.bg})`);
-  assert.ok(c.caretRatio >= 4.5, `the caret is visible (${c.caret} on ${c.bg})`);
   assert.ok(c.cursorRatio >= 4.5, `the cursor is visible (${c.cur} on ${c.bg})`);
 }
 const ALT = "qa-area2-alt";
