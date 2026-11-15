@@ -160,7 +160,8 @@ impl ClusterSession {
             Some(id) => client_for_target(&self.sources.resolve(Some(&id))?, false).await,
         }
         .map_err(|e| kubeloupe::error_text(&e))?;
-        let c = (c.clone(), Prober::new(c));
+        let server = self.sources.server(self.selected_context().as_deref());
+        let c = (c.clone(), Prober::for_server(c, &server));
         *slot = Some(c.clone());
         Ok(c)
     }

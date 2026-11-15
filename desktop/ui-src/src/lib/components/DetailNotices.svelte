@@ -8,7 +8,7 @@
 {#if live.deleted}
   <p class="notice deleted" role="status">This {kind} was deleted. Showing its last known state.</p>
 {:else if live.watchError && live.info}
-  <p class="notice" role="status">Live updates interrupted, retrying: {live.watchError}</p>
+  <p class="notice" role="status">{live.watchError}</p>
 {/if}
 
 <style>

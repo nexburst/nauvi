@@ -73,9 +73,10 @@ test("a reconnecting namespace is named in the header", async ({ page }) => {
   await expect(page.locator("header")).toContainText("Live");
   const [, kubeSystem] = await fake.activeWatches();
 
-  await fake.emitWatchState({ id: kubeSystem.id, state: "reconnecting", error: "connection reset" });
+  const lost = "Lost the connection to the cluster; retrying.";
+  await fake.emitWatchState({ id: kubeSystem.id, state: "reconnecting", error: lost });
   await expect(page.locator("header")).toContainText("Reconnecting… (kube-system)");
-  await expect(page.getByRole("alert")).toHaveText("Watch of kube-system interrupted, retrying: connection reset");
+  await expect(page.getByRole("alert")).toHaveText(`kube-system: ${lost}`);
   await expect(rows(page)).toHaveCount(5);
 
   await fake.emitWatchState({ id: kubeSystem.id, state: "live" });

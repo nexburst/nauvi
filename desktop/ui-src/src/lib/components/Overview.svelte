@@ -62,9 +62,9 @@
       setStatus(true, "Live");
       clearError();
     } else if (s.state === "reconnecting") {
-      const err = clusterError(s.error);
+      // The backend's text says what failed and that it retries.
       setStatus(false, "Reconnecting…");
-      setError("Overview interrupted, retrying: " + err.message);
+      setError(s.error);
     } else {
       setStatus(null, "Connecting…");
     }

@@ -31,6 +31,7 @@ pub mod helm;
 pub mod liveness;
 pub mod node_shell;
 pub mod poll;
+pub mod reconnect;
 pub mod resources;
 pub mod terminal;
 pub mod watch;

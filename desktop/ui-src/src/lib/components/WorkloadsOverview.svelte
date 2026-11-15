@@ -61,7 +61,7 @@
       clearError();
     } else if (s.state === "reconnecting") {
       setStatus(false, "Reconnecting…");
-      setError("Workloads overview interrupted, retrying: " + clusterError(s.error).message);
+      setError(s.error);
     } else {
       setStatus(null, "Connecting…");
     }

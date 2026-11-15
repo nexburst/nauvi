@@ -41,9 +41,9 @@ test("the overview is pushed by the backend, not polled", async ({ page }) => {
   await expect(card(page, "Namespaces")).toHaveText("4");
 
   // A failing watch says so; the next live state clears it.
-  await fake.emitOverviewState({ state: "reconnecting", error: "connection reset" });
+  await fake.emitOverviewState({ state: "reconnecting", error: "Lost the connection to the cluster; retrying." });
   await expect(page.locator("header")).toContainText("Reconnecting");
-  await expect(page.getByRole("alert")).toContainText("connection reset");
+  await expect(page.getByRole("alert")).toContainText("Lost the connection to the cluster; retrying.");
   await fake.emitOverviewState({ state: "live" });
   await expect(page.locator("header")).toContainText("Live");
   await expect(page.getByRole("alert")).toHaveCount(0);

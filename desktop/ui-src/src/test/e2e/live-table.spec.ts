@@ -102,8 +102,10 @@ test("the reconnecting state shows the banner until the watch is live again", as
   await openKind(page, "Pods");
   await expect(page.locator("header")).toContainText("Live");
 
-  await fake.emitWatchState({ state: "reconnecting", error: "connection reset by peer" });
-  await expect(page.getByRole("alert")).toHaveText("Watch interrupted, retrying: connection reset by peer");
+  const lost = "Lost the connection to the cluster (https://127.0.0.1:6443); retrying.";
+  await fake.emitWatchState({ state: "reconnecting", error: lost });
+  // The backend's plain sentence as it is: no prefix, no raw error chain.
+  await expect(page.getByRole("alert")).toHaveText(lost);
   await expect(page.locator("header")).toContainText("Reconnecting…");
   // The rows stay while reconnecting.
   await expect(rows(page)).toHaveCount(5);
