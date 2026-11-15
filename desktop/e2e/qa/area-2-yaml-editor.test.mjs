@@ -196,6 +196,20 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     v = await editorValue(app, el);
     console.log(`block after inner: ${JSON.stringify(v.slice(v.indexOf("  inner"), v.indexOf("z: 1") + 4))}`);
     assert.match(v, /\n {2}inner:\n {4}z: 1\n/, "Enter after a nested key indents the next line (#101)");
+    // #153: clicking a line (wide, as long as the last-applied annotation)
+    // scrolls the view sideways; typing brings it back to the left edge, so
+    // the column-0 keys aren't cut by the gutter.
+    const edge = await app.js(`
+      const s = document.querySelector('[data-testid="detail-panel"] .cm-scroller');
+      const line = Array.from(s.querySelectorAll('.cm-line')).find((l) => l.textContent.startsWith('apiVersion'));
+      const r = document.createRange();
+      r.selectNodeContents(line);
+      return { scrollLeft: s.scrollLeft, scrollWidth: s.scrollWidth, clientWidth: s.clientWidth,
+        text: r.getBoundingClientRect().left, gutter: s.querySelector('.cm-gutters').getBoundingClientRect().right };
+    `);
+    console.log(`after typing: ${JSON.stringify(edge)}`);
+    assert.equal(edge.scrollLeft, 0, "the editor is at its left edge after typing (#153)");
+    assert.ok(edge.text >= edge.gutter, `apiVersion starts right of the gutter (${edge.text} >= ${edge.gutter})`);
     const dot = await app.js("return !!document.querySelector('[data-testid=\"detail-panel\"] h3 .dirty')");
     assert.ok(dot, "the unsaved dot shows");
     // Both themes explicitly: CI's system theme is light.

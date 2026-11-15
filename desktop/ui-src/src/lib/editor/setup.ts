@@ -6,7 +6,7 @@ import { basicSetup } from "codemirror";
 import { indentWithTab } from "@codemirror/commands";
 import { yaml } from "@codemirror/lang-yaml";
 import { HighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
-import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
+import { Compartment, EditorState, StateEffect, StateField, countColumn } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
@@ -148,6 +148,33 @@ const errorLine = StateField.define<DecorationSet>({
   provide: (f) => EditorView.decorations.from(f),
 });
 
+/**
+ * Keep the left edge in view while the cursor fits there (#153). When the
+ * view is scrolled sideways (to read a long line, or by a click in the middle
+ * of one) and the cursor moves out of view, CodeMirror scrolls just far
+ * enough to show the cursor, 5 px from the gutter: the first characters of
+ * the line stay hidden behind the gutter. Here, a cursor scroll that would
+ * fit with no sideways scroll goes back to the left edge first; CodeMirror
+ * then sees the cursor in view and leaves x alone (y is still its own).
+ */
+const scrollToLeftEdge = EditorView.scrollHandler.of((view, range, options) => {
+  const scroller = view.scrollDOM;
+  if (options.x !== "nearest" || scroller.scrollLeft === 0) return false;
+  // The cursor's x with no sideways scroll, from its column (the font is
+  // monospace; coordsAtPos can't be read while CodeMirror measures).
+  const state = view.state;
+  const column = (pos: number) => {
+    const line = state.doc.lineAt(pos);
+    return countColumn(line.text.slice(0, pos - line.from), state.tabSize);
+  };
+  const line = scroller.querySelector<HTMLElement>(".cm-line");
+  const pad = line ? parseFloat(getComputedStyle(line).paddingLeft) || 0 : 0;
+  const textLeft = view.contentDOM.getBoundingClientRect().left - scroller.getBoundingClientRect().left + scroller.scrollLeft + pad;
+  const right = textLeft + (Math.max(column(range.head), column(range.anchor)) + 1) * view.defaultCharacterWidth;
+  if (right + options.xMargin <= scroller.clientWidth) scroller.scrollLeft = 0;
+  return false;
+});
+
 export interface EditorOptions {
   value: string;
   readonly: boolean;
@@ -185,6 +212,7 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): EditorHa
         yamlBlockIndent(),
         label(opts.label),
         errorLine,
+        scrollToLeftEdge,
         ro.of(readonly(opts.readonly)),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) opts.onChange(u.state.doc.toString());
