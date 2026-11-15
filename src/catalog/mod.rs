@@ -328,16 +328,7 @@ fn canonical(path: &Path) -> PathBuf {
 }
 
 fn read_error(e: &kube::config::KubeconfigError) -> String {
-    let mut text = e.to_string();
-    let mut cur = std::error::Error::source(e);
-    while let Some(s) = cur {
-        let more = s.to_string();
-        if !text.contains(&more) {
-            text = format!("{text}: {more}");
-        }
-        cur = s.source();
-    }
-    text
+    crate::errors::kubeconfig_error_text(e, None)
 }
 
 /// The contexts of the default kubeconfig, and which one is current.
@@ -345,7 +336,13 @@ pub async fn list_contexts() -> Result<Vec<ContextInfo>> {
     let catalog = load_catalog(&CatalogInput::here(vec![], None));
     if catalog.contexts.is_empty() {
         // As before: no kubeconfig at all is an error.
-        Kubeconfig::read()?;
+        Kubeconfig::read().map_err(|e| {
+            anyhow::anyhow!(crate::client::kubeconfig_read_message(
+                &e,
+                std::env::var_os("KUBECONFIG").as_deref(),
+                home::home_dir().as_deref(),
+            ))
+        })?;
     }
     Ok(catalog.contexts)
 }

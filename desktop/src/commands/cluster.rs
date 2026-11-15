@@ -22,7 +22,7 @@ pub(crate) async fn cmd_list_namespaces(
     let client = cluster.client().await?;
     list_namespaces_if_allowed(&client)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| kubeloupe::error_text(&e))
 }
 
 /// The namespace to start on: `null` (all namespaces) if the user may list
@@ -71,8 +71,11 @@ pub(crate) async fn cmd_get_metrics(
         MetricsKind::Pods => (get_pod_metrics(&client, namespace.as_deref()).await, None),
         MetricsKind::Nodes => (Ok(None), Some(get_node_metrics(&client).await)),
     };
-    let pods = pods.map_err(|e| e.to_string())?;
-    let nodes = nodes.transpose().map_err(|e| e.to_string())?.flatten();
+    let pods = pods.map_err(|e| kubeloupe::error_text(&e))?;
+    let nodes = nodes
+        .transpose()
+        .map_err(|e| kubeloupe::error_text(&e))?
+        .flatten();
     let available = pods.is_some() || nodes.is_some();
     let (pods, nodes) = (pods.unwrap_or_default(), nodes.unwrap_or_default());
     let (sparks, since) = usage::record(&cluster, &ctx, &pods, &nodes);
@@ -92,7 +95,7 @@ pub(crate) async fn cmd_discover(cluster: Cluster) -> Result<Vec<ResourceKind>, 
     let client = cluster.client().await?;
     let kinds = resources::discover(&client)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| kubeloupe::error_text(&e))?;
     *cluster.kinds.lock().unwrap() = kinds.clone();
     Ok(kinds)
 }

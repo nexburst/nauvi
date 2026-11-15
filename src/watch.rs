@@ -263,7 +263,7 @@ impl<T> Tracker<T> {
                 self.done = true;
                 self.live = false;
                 out.push(Update::State(WatchState::Forbidden {
-                    error: e.to_string(),
+                    error: crate::errors::api_message(&e),
                 }));
             }
             Err(e) => {
@@ -272,7 +272,7 @@ impl<T> Tracker<T> {
                     self.failing = true;
                     self.live = false;
                     out.push(Update::State(WatchState::Reconnecting {
-                        error: e.to_string(),
+                        error: crate::errors::chain_text(&e),
                     }));
                 }
             }
@@ -641,7 +641,7 @@ mod tests {
             }));
         let out = t.step(Err(forbidden), &conv);
         assert!(
-            matches!(out.as_slice(), [Update::State(WatchState::Forbidden { error })] if error.contains("forbidden")),
+            matches!(out.as_slice(), [Update::State(WatchState::Forbidden { error })] if error == "pods is forbidden"),
             "{out:?}"
         );
         assert!(t.done);

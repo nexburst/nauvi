@@ -1,12 +1,14 @@
 //! Building a client for a kubeconfig context, and listing contexts.
 
-use crate::auth::{describe_client_error, prepare_exec, AuthTarget};
+use crate::auth::{describe_client_error, prepare_exec, AuthTarget, NO_KUBECONFIG};
 use crate::catalog::ContextTarget;
-use anyhow::{anyhow, Context, Result};
+use crate::errors::{chain_text, kubeconfig_error_text};
+use anyhow::{anyhow, Result};
 use kube::config::KubeConfigOptions;
 use kube::Client;
+use std::ffi::OsStr;
 use std::io::IsTerminal;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Build a client for the given context (`None` = the kubeconfig's
 /// current-context), or from in-cluster config.
@@ -26,16 +28,68 @@ pub async fn client_for_context(context: Option<&str>) -> Result<Client> {
 /// missing plugin, rejected credentials or a certificate problem fail here,
 /// with a readable message naming the context (see [`crate::auth`]).
 pub async fn client_for_context_with(context: Option<&str>, interactive: bool) -> Result<Client> {
-    match (kube::config::Kubeconfig::read(), context) {
-        (Ok(kubeconfig), _) => client_from_kubeconfig(kubeconfig, context, interactive).await,
-        // A named context needs a kubeconfig.
-        (Err(e), Some(_)) => Err(e.into()),
-        // No kubeconfig: in-cluster config.
-        (Err(_), None) => {
-            let config = kube::Config::infer().await?;
+    match kube::config::Kubeconfig::read() {
+        Ok(kubeconfig) => client_from_kubeconfig(kubeconfig, context, interactive).await,
+        // No kubeconfig inside a pod: in-cluster config. A named context
+        // needs a kubeconfig.
+        Err(_) if context.is_none() && in_cluster() => {
+            let config = kube::Config::incluster()
+                .map_err(|e| anyhow!("Cannot use the in-cluster config: {}", chain_text(&e)))?;
             connect(config, "in-cluster".to_string(), interactive).await
         }
+        Err(e) => Err(anyhow!(kubeconfig_read_message(
+            &e,
+            std::env::var_os("KUBECONFIG").as_deref(),
+            home::home_dir().as_deref(),
+        ))),
     }
+}
+
+/// Whether we run in a pod (the variable every pod gets).
+fn in_cluster() -> bool {
+    std::env::var_os("KUBERNETES_SERVICE_HOST").is_some()
+}
+
+/// The message for a default kubeconfig that could not be loaded: where we
+/// looked when there is none (it starts with [`NO_KUBECONFIG`]), otherwise
+/// what is wrong with it. `kubeconfig_env` is `KUBECONFIG`, `home` the
+/// home directory.
+pub fn kubeconfig_read_message(
+    e: &kube::config::KubeconfigError,
+    kubeconfig_env: Option<&OsStr>,
+    home: Option<&Path>,
+) -> String {
+    let from_env: Vec<PathBuf> = kubeconfig_env
+        .map(|v| {
+            std::env::split_paths(v)
+                .filter(|p| !p.as_os_str().is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let (looked_at, how) = if from_env.is_empty() {
+        let default = home.map(|h| h.join(".kube").join("config"));
+        let how = if kubeconfig_env.is_some() {
+            "KUBECONFIG is empty"
+        } else {
+            "KUBECONFIG is not set"
+        };
+        (default.into_iter().collect::<Vec<_>>(), how)
+    } else {
+        (from_env, "from KUBECONFIG")
+    };
+    if looked_at.iter().all(|p| !p.exists()) {
+        let paths = if looked_at.is_empty() {
+            "no home directory".to_string()
+        } else {
+            looked_at
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        return format!("{NO_KUBECONFIG} (looked at {paths}; {how}).");
+    }
+    format!("{}.", kubeconfig_error_text(e, None))
 }
 
 /// [`client_for_context_with`] for a kubeconfig the caller loaded.
@@ -110,7 +164,7 @@ pub async fn client_with(
     match kubeconfig {
         Some(path) => {
             let kc = kube::config::Kubeconfig::read_from(path)
-                .with_context(|| format!("cannot read kubeconfig {}", path.display()))?;
+                .map_err(|e| anyhow!(kubeconfig_error_text(&e, Some(path))))?;
             client_from_kubeconfig(kc, context, interactive).await
         }
         None => client_for_context_with(context, interactive).await,
@@ -187,6 +241,48 @@ users:
 "#,
         )
         .unwrap()
+    }
+
+    fn not_found(path: &str) -> kube::config::KubeconfigError {
+        kube::config::KubeconfigError::ReadConfig(
+            std::io::Error::new(std::io::ErrorKind::NotFound, "No such file or directory"),
+            PathBuf::from(path),
+        )
+    }
+
+    #[test]
+    fn no_kubeconfig_says_where_it_looked() {
+        let home = Path::new("/nonexistent-131/home");
+        assert_eq!(
+            kubeconfig_read_message(&not_found("/x"), None, Some(home)),
+            "No kubeconfig found (looked at /nonexistent-131/home/.kube/config; KUBECONFIG is not set)."
+        );
+        let env = std::env::join_paths(["/nonexistent-131/a", "/nonexistent-131/b"]).unwrap();
+        assert_eq!(
+            kubeconfig_read_message(&not_found("/nonexistent-131/a"), Some(&env), Some(home)),
+            "No kubeconfig found (looked at /nonexistent-131/a, /nonexistent-131/b; from KUBECONFIG)."
+        );
+        assert_eq!(
+            kubeconfig_read_message(&not_found("/x"), Some(OsStr::new("")), Some(home)),
+            "No kubeconfig found (looked at /nonexistent-131/home/.kube/config; KUBECONFIG is empty)."
+        );
+        assert_eq!(
+            kubeconfig_read_message(&kube::config::KubeconfigError::FindPath, None, None),
+            "No kubeconfig found (looked at no home directory; KUBECONFIG is not set)."
+        );
+    }
+
+    #[test]
+    fn a_kubeconfig_that_exists_but_fails_says_why() {
+        let dir = std::env::temp_dir().join(format!("kubeloupe-131-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("config");
+        std::fs::write(&file, "not: [valid").unwrap();
+        let err = kube::config::Kubeconfig::read_from(&file).unwrap_err();
+        let msg = kubeconfig_read_message(&err, Some(file.as_os_str()), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(msg.starts_with("Cannot use the kubeconfig: "), "{msg}");
+        assert!(!msg.starts_with(NO_KUBECONFIG), "{msg}");
     }
 
     #[test]

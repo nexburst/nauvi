@@ -192,6 +192,13 @@ pub(crate) fn api_error(err: &anyhow::Error) -> Option<(u16, String)> {
 /// Plain-words text for an API error code. Pure, so it is unit tested.
 pub fn describe_status(code: u16, message: &str) -> String {
     let lower = message.to_lowercase();
+    // Server-side apply answers a field of the wrong type with a 500: the
+    // YAML is wrong, not the server.
+    if code == 500 {
+        if let Some(problem) = crate::errors::typed_patch_problem(message) {
+            return format!("The cluster rejected the YAML: {problem}");
+        }
+    }
     match code {
         403 => format!("Not allowed: your account lacks permission for this action. {message}"),
         401 => "Not signed in: the cluster rejected your credentials.".to_string(),
@@ -214,7 +221,7 @@ pub fn describe_status(code: u16, message: &str) -> String {
 pub fn describe_error(err: &anyhow::Error) -> String {
     match api_error(err) {
         Some((code, msg)) => describe_status(code, &msg),
-        None => format!("{err:#}"),
+        None => crate::errors::error_text(err),
     }
 }
 
@@ -1046,6 +1053,18 @@ mod tests {
         assert!(describe_status(409, "").starts_with("Conflict"));
         assert!(describe_status(503, "down").contains("API server failed"));
         assert_eq!(describe_status(400, "bad name"), "bad name");
+        // A field of the wrong type (#99): kind's answer to a server-side
+        // apply of `data: {k: [not, a, string]}`.
+        assert_eq!(
+            describe_status(
+                500,
+                "failed to create typed patch object (tmp/qa-bad; /v1, Kind=ConfigMap): .data.k: \
+                 expected string, got &value.valueUnstructured{Value:[]interface {}{\"not\", \"a\", \"string\"}}"
+            ),
+            "The cluster rejected the YAML: .data.k: expected string, got a list."
+        );
+        assert!(describe_status(500, "etcdserver: request timed out")
+            .starts_with("The API server failed (500)"));
     }
 
     #[test]

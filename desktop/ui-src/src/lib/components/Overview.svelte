@@ -154,7 +154,7 @@
       {/if}
       {#if pods}
         {@const scope = pods.namespace ? ` in ${pods.namespace}` : ""}
-        <div class="card">
+        <div class="card" class:wide={scope !== ""} title="Pods{scope}">
           <div class="num">{pods.total}</div>
           <div class="label">Pods{scope}</div>
         </div>
@@ -269,10 +269,15 @@
     font-size: 12px;
   }
   .card {
+    min-width: 0;
     background: var(--bg-raised);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 14px 16px;
+  }
+  /* "Pods in <namespace>" needs more room than one column. */
+  .card.wide {
+    grid-column: span 2;
   }
   .card.alert {
     border-color: var(--red);
@@ -288,6 +293,11 @@
     color: var(--text-muted);
     font-size: 12px;
     margin-top: 2px;
+    /* One line: a long namespace ("Pods in team-a") ellipsizes, the card's
+       title has the full text. */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .capacity {
     margin-bottom: 20px;

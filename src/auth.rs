@@ -4,7 +4,8 @@
 //!
 //! The desktop app picks the status text by the prefix of these messages
 //! (see `ui-src/src/lib/clusterError.ts`), so keep [`LOGIN_FAILED`],
-//! [`CERTIFICATE_PROBLEM`] and [`UNREACHABLE`] in sync with it.
+//! [`CERTIFICATE_PROBLEM`], [`UNREACHABLE`] and [`NO_KUBECONFIG`] in sync
+//! with it.
 
 use kube::client::AuthError;
 use kube::config::{ExecConfig, ExecInteractiveMode};
@@ -17,6 +18,8 @@ pub const LOGIN_FAILED: &str = "Login to `";
 pub const CERTIFICATE_PROBLEM: &str = "Certificate problem";
 /// Start of every message about a cluster that could not be reached.
 pub const UNREACHABLE: &str = "Cannot reach the cluster";
+/// Start of the message for a machine with no kubeconfig at all.
+pub const NO_KUBECONFIG: &str = "No kubeconfig found";
 
 /// What a message is about: the context, its API server and the exec
 /// plugin it logs in with.
@@ -169,19 +172,9 @@ fn find<'a, T: StdError + 'static>(err: &'a (dyn StdError + 'static)) -> Option<
     None
 }
 
-/// The error and its sources joined with ": ", skipping a source whose text
-/// the previous message already contains.
+/// The error and its sources, each part once (see [`crate::errors`]).
 fn error_chain(err: &(dyn StdError + 'static)) -> String {
-    let mut parts: Vec<String> = Vec::new();
-    let mut cur: Option<&(dyn StdError + 'static)> = Some(err);
-    while let Some(e) = cur {
-        let text = e.to_string();
-        if !parts.last().is_some_and(|last| last.contains(&text)) {
-            parts.push(text);
-        }
-        cur = e.source();
-    }
-    parts.join(": ")
+    crate::errors::chain_text(err)
 }
 
 fn is_tls_error(chain: &str) -> bool {
