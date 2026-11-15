@@ -6,6 +6,7 @@
   import type { LogDefaults } from "../settings";
   import { currentContextName } from "../stores/app.svelte";
   import { closeSettings } from "../stores/keyboard.svelte";
+  import { contextLabel, openClusterSettings } from "../stores/catalog.svelte";
   import { applyAppearance, contextSettings, settings, updateContext, updateSettings } from "../stores/settings.svelte";
   import { checkForUpdates, updates } from "../stores/updates.svelte";
   import { checkSummary } from "../updates";
@@ -127,6 +128,23 @@
         Wrap long lines
       </label>
     </fieldset>
+
+    {#if context}
+      <fieldset>
+        <legend>This cluster</legend>
+        <div class="row">
+          <span class="muted status">Display name, colour, namespaces and the local terminal's folder.</span>
+          <button
+            type="button"
+            class="btn"
+            onclick={() => {
+              closeSettings();
+              openClusterSettings(context);
+            }}>Settings for {contextLabel(context)}…</button
+          >
+        </div>
+      </fieldset>
+    {/if}
 
     <fieldset data-testid="prometheus-settings">
       <legend>Prometheus</legend>

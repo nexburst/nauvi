@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { app, openContextWindow, refresh, switchContext } from "../stores/app.svelte";
+  import { app, openContextWindow, refresh, setView, switchContext } from "../stores/app.svelte";
+  import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
+  import { contextSettings, settings } from "../stores/settings.svelte";
   import { live } from "../stores/live.svelte";
   import { openSettings } from "../stores/keyboard.svelte";
   import { confirmDiscard } from "../stores/unsaved.svelte";
@@ -16,6 +18,10 @@
   }
 
   const current = $derived(app.contexts.find((c) => c.current)?.name ?? "");
+  // Pinned contexts first (#78), by their display names.
+  const ordered = $derived(orderContexts(app.contexts, settings.current.favourites));
+  const label = (id: string) => displayName({ name: id }, contextSettings(id));
+  const color = $derived(contextSettings(current).color);
 </script>
 
 <header>
@@ -29,6 +35,9 @@
     ></span>
     <span data-testid="connection-status">{app.status.text}</span>
   </div>
+  {#if color}
+    <span class="swatch" style:background={color} data-testid="context-color" aria-hidden="true"></span>
+  {/if}
   <select
     class="select"
     class:invisible={app.contexts.length <= 1}
@@ -36,10 +45,35 @@
     value={current}
     onchange={(e) => onContextChange(e.currentTarget)}
   >
-    {#each app.contexts as ctx (ctx.name)}
-      <option value={ctx.name}>{ctx.name}</option>
-    {/each}
+    {#if ordered.pinned.length > 0}
+      <optgroup label="Pinned">
+        {#each ordered.pinned as ctx (ctx.name)}
+          <option value={ctx.name}>{label(ctx.name)}</option>
+        {/each}
+      </optgroup>
+      <optgroup label="All clusters">
+        {#each ordered.others as ctx (ctx.name)}
+          <option value={ctx.name}>{label(ctx.name)}</option>
+        {/each}
+      </optgroup>
+    {:else}
+      {#each app.contexts as ctx (ctx.name)}
+        <option value={ctx.name}>{label(ctx.name)}</option>
+      {/each}
+    {/if}
   </select>
+  <button
+    class="new-window"
+    class:active={app.view === CATALOG_VIEW}
+    type="button"
+    title="Cluster catalog: every kubeconfig context, with its status"
+    aria-label="Cluster catalog"
+    onclick={() => setView(CATALOG_VIEW)}
+  >
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+      <path fill="currentColor" d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm8-2h8v8h-8v-8zm2 2v4h4v-4h-4z" />
+    </svg>
+  </button>
   {#if app.contexts.length > 0}
     <button
       class="new-window"
@@ -104,6 +138,16 @@
   }
   .invisible {
     visibility: hidden;
+  }
+  .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    margin-right: -10px;
+  }
+  .new-window.active {
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .new-window {
     display: flex;

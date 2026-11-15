@@ -31,6 +31,8 @@ export interface SettingsPatch {
   kinds?: Record<string, KindSettings>;
   /** The extra windows' contexts (the backend keeps them up to date). */
   windows?: string[];
+  /** Pinned context ids, in order (#78). */
+  favourites?: string[];
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -46,6 +48,8 @@ export function defaultSettings(): Settings {
     contexts: {},
     kinds: {},
     windows: [],
+    kubeconfig_sources: [],
+    favourites: [],
   };
 }
 
@@ -57,7 +61,17 @@ export const MAX_DETAIL_SHARE = 0.75;
 /** The log viewer's tail options; a remembered value outside them falls back. */
 export const TAIL_OPTIONS = ["100", "200", "1000", "5000", "all"];
 
-export const EMPTY_CONTEXT: ContextSettings = { view: "", namespaces: [], typed_namespaces: [], prometheus: "" };
+export const EMPTY_CONTEXT: ContextSettings = {
+  view: "",
+  namespaces: [],
+  typed_namespaces: [],
+  prometheus: "",
+  display_name: "",
+  color: "",
+  default_namespace: "",
+  shell_cwd: "",
+  last_used: 0,
+};
 export const EMPTY_KIND: KindSettings = { sort_key: "", sort_desc: false, hidden: [] };
 
 /** What is wrong with a Prometheus Service typed in Settings ("" if nothing):
@@ -81,11 +95,15 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.contexts != null) next.contexts = { ...settings.contexts, ...patch.contexts };
   if (patch.kinds != null) next.kinds = { ...settings.kinds, ...patch.kinds };
   if (patch.windows != null) next.windows = patch.windows;
+  if (patch.favourites != null) next.favourites = patch.favourites;
   return next;
 }
 
 /** The context to start in: the remembered one if it still exists. */
-export function contextToRestore(remembered: string, contexts: readonly ContextInfo[]): string | null {
+export function contextToRestore(
+  remembered: string,
+  contexts: readonly Pick<ContextInfo, "name" | "current">[],
+): string | null {
   if (!remembered) return null;
   const found = contexts.find((c) => c.name === remembered);
   return found && !found.current ? remembered : null;

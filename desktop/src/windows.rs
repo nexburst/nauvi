@@ -115,9 +115,15 @@ pub(crate) fn restore_windows(app: &AppHandle) {
     let Some(store) = app.try_state::<Arc<SettingsStore>>() else {
         return;
     };
-    let names: Vec<String> = kube::config::Kubeconfig::read()
-        .map(|k| k.contexts.into_iter().map(|c| c.name).collect())
-        .unwrap_or_default();
+    // Context ids, from the added kubeconfig sources too (#78).
+    let names: Vec<String> = app
+        .state::<AppState>()
+        .sources
+        .catalog()
+        .contexts
+        .into_iter()
+        .map(|c| c.name)
+        .collect();
     let remembered = store.get().windows;
     for ctx in restorable(&remembered, &names) {
         if let Err(e) = open_window(app, &ctx) {

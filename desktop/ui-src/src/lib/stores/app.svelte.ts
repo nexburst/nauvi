@@ -4,6 +4,7 @@ import { joinNames, normalizeNamespaces, sameNamespaces } from "../namespaces";
 import { clampHeight } from "../dock";
 import { PORT_FORWARDS_VIEW } from "../forwards";
 import { HELM_VIEW } from "../helm";
+import { CATALOG_VIEW } from "../catalog";
 import { contextToRestore, namespacesToRestore } from "../settings";
 import { isMainWindow } from "../window";
 import { closeDetail, detail, openDetail } from "./detail.svelte";
@@ -101,7 +102,7 @@ function restorePendingView() {
   const view = pendingView;
   pendingView = null;
   if (!view || view === "overview" || app.view !== "overview") return;
-  if (view === PORT_FORWARDS_VIEW || view === HELM_VIEW) {
+  if (view === PORT_FORWARDS_VIEW || view === HELM_VIEW || view === CATALOG_VIEW) {
     app.view = view;
     return;
   }
@@ -241,9 +242,23 @@ async function restoreScope() {
   const saved = contextSettings(currentContextName());
   const listed = app.namespaces.map((n) => n.name);
   const namespaces = namespacesToRestore(saved.namespaces, listed, app.namespacesForbidden);
+  const preferred = saved.default_namespace;
   if (namespaces) app.selectedNamespaces = namespaces;
-  else await initScope();
+  else if (preferred) {
+    // The cluster settings' default namespace (#78).
+    app.selectedNamespaces = [preferred];
+    if (app.namespacesForbidden && !app.knownNamespaces.includes(preferred)) {
+      app.knownNamespaces = [...app.knownNamespaces, preferred].sort();
+    }
+  } else await initScope();
   pendingView = saved.view || null;
+  markUsed();
+}
+
+/** The catalog's "last used" (#78): this window is connected to the context now. */
+function markUsed() {
+  const ctx = currentContextName();
+  if (ctx) void updateContext(ctx, { last_used: Date.now() });
 }
 
 /**

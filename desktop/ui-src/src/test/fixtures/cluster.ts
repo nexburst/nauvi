@@ -4,7 +4,6 @@
 
 import type {
   ColumnKind,
-  ContextInfo_Serialize,
   FieldTakeover,
   ForwardInfo,
   MetricsSnapshot,
@@ -29,10 +28,15 @@ import type { FakeHelm } from "./helm";
 import { NO_PROMETHEUS, sparkFixtures, usageFixtures } from "./usage";
 import type { FakePrometheus, UsageFixture } from "./usage";
 import { upToDate } from "./updates";
+import { defaultCatalog } from "./catalog";
+import type { FakeCatalog, FakeContext } from "./catalog";
 import type { FakeUpdate } from "./updates";
 
 export interface FakeCluster {
-  contexts: ContextInfo_Serialize[];
+  /** The catalog's contexts; fields left out get defaults (`fixtures/catalog.ts`). */
+  contexts: FakeContext[];
+  /** Kubeconfig sources and status checks (#78). */
+  catalog: FakeCatalog;
   /** `null`: listing namespaces is forbidden (a namespace-scoped user). */
   namespaces: NamespaceInfo[] | null;
   /** What `cmd_default_namespace` returns (`null` = all namespaces). */
@@ -239,6 +243,7 @@ export function defaultCluster(): FakeCluster {
       { name: "kind-dev", current: true, namespace: null },
       { name: "prod", current: false, namespace: null },
     ],
+    catalog: defaultCatalog(),
     defaultNamespace: null,
     namespaces: ["default", "demo", "kube-system"].map((name) => ({
       name,
