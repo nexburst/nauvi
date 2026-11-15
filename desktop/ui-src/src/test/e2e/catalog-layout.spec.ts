@@ -8,13 +8,15 @@ import { openApp } from "./helpers";
 
 const catalogRow = (page: Page, id: string) => page.locator(`[data-testid="catalog-row"][data-context="${id}"]`);
 const LONG_FILE = "/Users/pedrosanchezmartinez/.kube/kubeloupe-kind.yaml";
+// One folder name wider than the Source column.
+const DEAD_FILE = "/tmp/kubeloupe-qa-area5-catalog-Z95d7V-with-a-much-longer-folder-name/clusters/dead.yaml";
 
 async function openCatalog(page: Page) {
   await page.setViewportSize({ width: 1280, height: 800 });
   const fake = await openApp(page, (cluster) => {
     cluster.contexts = [
       { name: "kind-kubeloupe-test", current: true, namespace: null, server: "https://127.0.0.1:45613", file: "/Users/pedrosanchezmartinez/.kube/kubeloupe-kind.yaml" },
-      { name: "dead", current: false, namespace: null, server: "https://127.0.0.1:1", file: "/Users/pedrosanchezmartinez/.kube/kubeloupe-dead-copy.yaml", source: "/Users/pedrosanchezmartinez/.kube/kubeloupe-dead-copy.yaml" },
+      { name: "dead", current: false, namespace: null, server: "https://127.0.0.1:1", file: "/tmp/kubeloupe-qa-area5-catalog-Z95d7V-with-a-much-longer-folder-name/clusters/dead.yaml", source: "/tmp/kubeloupe-qa-area5-catalog-Z95d7V-with-a-much-longer-folder-name/clusters/dead.yaml" },
     ];
     cluster.catalog.checks["dead"] = {
       name: "dead",
@@ -82,6 +84,11 @@ test("source paths wrap only after a slash", async ({ page }) => {
   expect(rows, "no folder name split over two lines").not.toBeNull();
   expect(rows!.join("")).toBe(LONG_FILE);
   for (const line of rows!.slice(0, -1)) expect(line.endsWith("/")).toBe(true);
+
+  // A folder name wider than the column wraps inside the column, not cut.
+  const dead = catalogRow(page, "dead").getByTestId("catalog-file");
+  await expect(dead).toContainText(DEAD_FILE);
+  expect(await dead.evaluate((td) => td.scrollWidth <= td.clientWidth)).toBe(true);
 });
 
 test("the status message is clamped to two lines, the row actions fit in one line", async ({ page }) => {
@@ -97,7 +104,8 @@ test("the status message is clamped to two lines, the row actions fit in one lin
     const tops = await buttons.evaluateAll((bs) => new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top))).size);
     expect(tops, `${id}'s actions in one line`).toBe(1);
     const row = await catalogRow(page, id).boundingBox();
-    expect(row!.height, `${id}'s row stays short`).toBeLessThan(90);
+    // Was ~240 px with five stacked buttons; dead has a 4-line path.
+    expect(row!.height, `${id}'s row stays short`).toBeLessThan(120);
   }
   for (const name of ["Open dead", "More actions for dead"]) {
     await expect(catalogRow(page, "dead").getByRole("button", { name, exact: true })).toBeInViewport({

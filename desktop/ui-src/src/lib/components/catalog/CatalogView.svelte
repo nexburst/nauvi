@@ -424,12 +424,16 @@
     font-size: 11px;
     margin-top: 2px;
   }
-  /* Breaks only at the <wbr> after each folder, never inside a name. */
+  /* Breaks after each folder (<wbr>), not inside a name that fits. */
   .source {
     white-space: normal;
   }
+  /* Each folder is a box of its own: the path breaks between them, and a
+     single folder name breaks inside only if it is wider than the column. */
   .source .part {
-    white-space: nowrap;
+    display: inline-block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
   .actions {
     display: flex;
