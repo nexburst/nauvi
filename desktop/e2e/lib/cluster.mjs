@@ -19,6 +19,14 @@ export function podNames(namespace, selector) {
   return out ? out.split(/\s+/) : [];
 }
 
+/** Names of the Running (and not terminating) pods matching a label selector. */
+export function runningPodNames(namespace, selector) {
+  const out = kubectl(["-n", namespace, "get", "pods", "-l", selector, "--field-selector=status.phase=Running", "-o", "json"]);
+  return JSON.parse(out)
+    .items.filter((p) => !p.metadata.deletionTimestamp)
+    .map((p) => p.metadata.name);
+}
+
 /**
  * A temporary namespace with a ConfigMap and a small logging Deployment, all
  * with unique names (the filter box matches across namespaces, and other

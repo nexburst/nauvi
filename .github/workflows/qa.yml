@@ -94,7 +94,7 @@ jobs:
           for _ in $(seq 1 600); do [ -f "$RUNNER_TEMP/cluster/rc" ] && break; sleep 1; done
           cat "$RUNNER_TEMP/cluster/setup.log"
           [ "$(cat "$RUNNER_TEMP/cluster/rc" 2>/dev/null)" = 0 ]
-          kubectl --context kind-kubeloupe-test -n demo wait --for=condition=Ready pod/multi --timeout=180s
+          bash scripts/test-cluster/wait-demo.sh
           kubectl --context kind-kubeloupe-test -n monitoring rollout status deploy/prometheus-server --timeout=180s
 
       - name: Create limited user
