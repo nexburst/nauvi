@@ -75,10 +75,28 @@ pub(crate) fn init(path: Option<PathBuf>) {
 }
 
 fn load(path: &Path) -> Saved {
-    std::fs::read_to_string(path)
+    let saved: Saved = std::fs::read_to_string(path)
         .ok()
         .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // A rect no window could have (hand-edited, or a bug) counts as unsaved.
+    let valid = |r: Option<Rect>| r.filter(Rect::is_valid);
+    Saved {
+        main: valid(saved.main),
+        windows: saved.windows.into_iter().map(valid).collect(),
+    }
+}
+
+impl Rect {
+    /// Finite, with a positive width and height.
+    fn is_valid(&self) -> bool {
+        self.x.is_finite()
+            && self.y.is_finite()
+            && self.width.is_finite()
+            && self.height.is_finite()
+            && self.width > 0.0
+            && self.height > 0.0
+    }
 }
 
 /// The saved rect of the main window (`None`) or of the `n`th remembered
@@ -150,7 +168,13 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
+/// Held while writing: the exit save (main thread) and a debounced save
+/// (tokio) would otherwise share the temp file, and a rename could move a
+/// half-written one into place.
+static WRITING: Mutex<()> = Mutex::new(());
+
 fn write(path: &Path, saved: &Saved) -> std::io::Result<()> {
+    let _writing = WRITING.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
@@ -366,6 +390,53 @@ mod tests {
         placed("t182-closed", r(10.0, 20.0, 900.0, 600.0));
         assert_eq!(last("t182-closed"), Some(r(10.0, 20.0, 900.0, 600.0)));
         assert_eq!(last("t182-never"), None);
+    }
+
+    #[test]
+    fn ignores_rects_no_window_could_have() {
+        let dir = std::env::temp_dir().join(format!("kubeloupe-ws-bad-{}", std::process::id()));
+        let path = dir.join("window-state.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"main":{"x":0,"y":0,"width":0,"height":600},
+                "windows":[{"x":1,"y":2,"width":-5,"height":3},
+                           {"x":1,"y":2,"width":800,"height":600}]}"#,
+        )
+        .unwrap();
+        let saved = load(&path);
+        assert_eq!(saved.main, None);
+        assert_eq!(saved.windows, vec![None, Some(r(1.0, 2.0, 800.0, 600.0))]);
+        assert!(!r(f64::NAN, 0.0, 10.0, 10.0).is_valid());
+        assert!(!r(0.0, 0.0, f64::INFINITY, 10.0).is_valid());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn concurrent_saves_never_leave_a_half_written_file() {
+        let dir = std::env::temp_dir().join(format!("kubeloupe-ws-race-{}", std::process::id()));
+        let path = dir.join("window-state.json");
+        let big = |n: usize| Saved {
+            main: Some(r(n as f64, 0.0, 800.0, 600.0)),
+            windows: vec![Some(r(1.0, 2.0, 3.0, 4.0)); 2000],
+        };
+        let threads: Vec<_> = (0..8)
+            .map(|n| {
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..5 {
+                        write(&path, &big(n)).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for t in threads {
+            t.join().unwrap();
+        }
+        let saved = load(&path);
+        assert!(saved.main.is_some(), "a complete file was left");
+        assert_eq!(saved.windows.len(), 2000);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
