@@ -304,8 +304,16 @@ pub(crate) async fn cmd_save_logs(filename: String, content: String) -> Result<S
     } else {
         safe
     };
-    let home = std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
+    // Windows keeps the profile in USERPROFILE; HOME there (Git Bash, MSYS)
+    // may point somewhere else.
+    let (first, second) = if cfg!(windows) {
+        ("USERPROFILE", "HOME")
+    } else {
+        ("HOME", "USERPROFILE")
+    };
+    let home = std::env::var_os(first)
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var_os(second).filter(|v| !v.is_empty()))
         .ok_or("cannot locate home directory")?;
     let dir = std::path::PathBuf::from(home).join("Downloads");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;

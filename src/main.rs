@@ -13,8 +13,37 @@ use kubeloupe::{
 use std::io::IsTerminal;
 use std::process::ExitCode;
 
-#[tokio::main]
-async fn main() -> ExitCode {
+/// The stack for the thread that runs the CLI. Windows gives the main thread
+/// only 1 MB (Linux 8 MB), and `completions` overflowed it there (#118).
+const STACK_SIZE: usize = 8 << 20;
+
+fn main() -> ExitCode {
+    let cli = std::thread::Builder::new()
+        .name("kubeloupe".into())
+        .stack_size(STACK_SIZE)
+        .spawn(cli_main)
+        .expect("cannot start the CLI thread");
+    // A panic has already printed its message; exit like an unhandled one.
+    cli.join().unwrap_or(ExitCode::from(101))
+}
+
+fn cli_main() -> ExitCode {
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("error: cannot start the async runtime: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    // The future of `run` holds every subcommand's state: keep it on the
+    // heap, not on this thread's stack.
+    runtime.block_on(Box::pin(async_main()))
+}
+
+async fn async_main() -> ExitCode {
     reset_sigpipe();
     // Diagnostics go to stderr, coloured only on a terminal, so stdout stays
     // clean for pipes.

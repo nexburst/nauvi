@@ -30,6 +30,21 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
+  # The unit and CLI tests on the other desktop platforms (#118). The
+  # cluster tests stay #[ignore]d.
+  test-other-os:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2.7.8
+      - run: cargo test --workspace --locked
+
   desktop-build:
     name: desktop build (${{ matrix.os }})
     strategy:
