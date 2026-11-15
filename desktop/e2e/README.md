@@ -83,6 +83,7 @@ changed, and no browser opens. The login shell environment import is off
 | restart with the same settings | `app.restart({ beforeStart })`, `app.profile.settings()`, `.writeSettings()` | `persistence` |
 | pause the control plane | `withControlPlanePaused(fn, { maxMs })`, `cannotPause()` (`lib/control-plane.mjs`) | `reconnect` |
 | command palette | `app.palette(query, option)` | `local-shell` |
+| the table's rows by column, the error banner, the namespace picker | `tableData`, `bannerText`, `pickNamespaces`, `openNamespacePicker`, `namespaceOptions`, `namespaceChips`, `namespaceLabel` (`lib/table.mjs`) | `area-1-tables`, `area-1-namespaces` |
 | temp objects | `tempNamespace(prefix, yaml)`, `deleteNamespace`, `httpPodYaml`, `loggerPodYaml`, `waitPodReady`, `contexts()` (`lib/cluster.mjs`) | most |
 
 The pause is guarded four ways, because the cluster is shared: `finally`, a
@@ -103,6 +104,11 @@ you change in a temporary namespace (`tempNamespace`) and delete it in
 the cluster may not have (the limited user, helm, Prometheus, a second
 cluster, docker access), skip it with the reason instead of failing. Use
 `data-testid`s where they exist; adding one to a component is fine.
+
+A check that fails because of a filed bug becomes its own test with
+`{ todo: "#<bug>: <what>" }`: it still runs, the report lists it as a known
+bug (🐞) with its error, and it does not fail the run. Drop the `todo` when
+the fix lands.
 
 Known quirks of WebKitWebDriver: `getText()` sometimes returns nothing for
 elements inside tables, so read `innerText` with `app.js(...)`; clicks need

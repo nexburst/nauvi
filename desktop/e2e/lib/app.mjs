@@ -187,10 +187,23 @@ async function startSession(name, opts) {
 
   try {
     await waitForPort(port, 15_000);
-    const driver = await new Builder()
-      .usingServer(`http://127.0.0.1:${port}/`)
-      .withCapabilities({ browserName: "wry", "tauri:options": { application: app } })
-      .build();
+    // tauri-driver proxies to the native driver it started; on a busy machine
+    // that one can still be starting ("connection refused" -> ECONNRESET).
+    await waitForPort(port + 1, 15_000).catch(() => {});
+    const build = () =>
+      new Builder()
+        .usingServer(`http://127.0.0.1:${port}/`)
+        .withCapabilities({ browserName: "wry", "tauri:options": { application: app } })
+        .build();
+    let driver;
+    try {
+      driver = await build();
+    } catch (e) {
+      if (!/ECONNRESET|ECONNREFUSED|socket hang up/i.test(String(e))) throw e;
+      log.write(`session failed (${e.message}), retrying once\n`);
+      await sleep(2000);
+      driver = await build();
+    }
     return {
       driver,
       close: async () => {
