@@ -141,14 +141,23 @@ test("no kubeconfig at all says so and what to do, not that the cluster is unrea
 
 test("a scoped Pods card keeps its label on one line, with the full text as its title", async ({ page }) => {
   await openApp(page, (cluster) => {
-    cluster.overview.pods!.namespace = "team-a-with-a-much-longer-namespace-name";
+    cluster.overview.pods!.namespace = "team-a-with-a-much-longer-namespace-name-than-fits-on-one-card";
   });
   const pods = page.locator(".card", { hasText: "Pods in team-a" });
-  await expect(pods).toHaveAttribute("title", "Pods in team-a-with-a-much-longer-namespace-name");
+  await expect(pods).toHaveAttribute("title", "Pods in team-a-with-a-much-longer-namespace-name-than-fits-on-one-card");
   const label = await pods.locator(".label").evaluate((el) => ({
     height: el.getBoundingClientRect().height,
     clipped: el.scrollWidth > el.clientWidth,
   }));
   expect(label.height).toBeLessThan(20);
   expect(label.clipped).toBe(true);
+});
+
+test("a scoped Pods card is wide enough for a short namespace", async ({ page }) => {
+  await openApp(page, (cluster) => {
+    cluster.overview.pods!.namespace = "team-a";
+  });
+  const label = page.locator(".card .label", { hasText: "Pods in team-a" });
+  await expect(label).toBeVisible();
+  expect(await label.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false);
 });

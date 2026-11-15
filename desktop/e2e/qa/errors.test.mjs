@@ -78,11 +78,12 @@ describe("errors: 403s as the namespace-scoped user", { timeout: 10 * 60_000, sk
           const l = Array.from(document.querySelectorAll(".overview .card .label")).find((l) => l.textContent.trim() === "Pods in team-a");
           if (!l) return null;
           return { height: l.getBoundingClientRect().height, lineHeight: parseFloat(getComputedStyle(l).lineHeight) || 16,
-                   title: l.closest(".card").title };`),
+                   clipped: l.scrollWidth > l.clientWidth, title: l.closest(".card").title };`),
       { message: 'the "Pods in team-a" card' },
     );
     console.log(`label: ${JSON.stringify(label)}`);
     assert.ok(label.height < label.lineHeight * 1.5, `one line: ${JSON.stringify(label)}`);
+    assert.equal(label.clipped, false, "the whole label shows");
     assert.equal(label.title, "Pods in team-a");
     await bothThemes(app, "overview-card");
   });
