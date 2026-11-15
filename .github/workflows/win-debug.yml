@@ -57,5 +57,5 @@ jobs:
           Start-Sleep 2
           Get-CimInstance Win32_Process -Filter "Name='msedgewebview2.exe'" | Select-Object -First 2 -ExpandProperty CommandLine
           Get-CimInstance Win32_Process -Filter "Name='kubeloupe-desktop.exe'" | Select-Object -ExpandProperty CommandLine
-          Get-Content "$env:RUNNER_TEMP\edge.log" | Select-String -Pattern "WEBVIEW2|user-data|DevToolsActivePort|Launching|remote-debugging|ERROR|env" | Select-Object -First 60
+          Get-Content "$env:RUNNER_TEMP\edge.log" | Select-Object -Last 80
           Get-Process kubeloupe-desktop,msedgewebview2,msedgedriver -ErrorAction SilentlyContinue | Stop-Process -Force

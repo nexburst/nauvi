@@ -14,6 +14,7 @@ mod settings;
 mod shell_env;
 mod state;
 mod updater;
+mod webview_args;
 mod windows;
 
 /// The typed command and event registry. Also used to generate
@@ -138,6 +139,13 @@ fn main() {
     #[cfg(debug_assertions)]
     export_bindings(&builder);
 
+    let mut context = tauri::generate_context!();
+    if let Some(args) = webview_args::from_env() {
+        for window in &mut context.config_mut().app.windows {
+            window.additional_browser_args = Some(args.clone());
+        }
+    }
+
     tauri::Builder::default()
         .manage(AppState::default())
         // Opens forwarded URLs in the browser; the capability limits it to
@@ -169,7 +177,7 @@ fn main() {
                 windows::window_destroyed(window.app_handle(), window.label());
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building kubeloupe")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {

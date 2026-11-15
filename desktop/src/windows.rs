@@ -52,11 +52,15 @@ pub(crate) fn open_window(app: &AppHandle, context: &str) -> Result<String, Stri
     let label = next_label(app);
     let context = context_arg(context);
     app.state::<AppState>().open(&label, context.clone());
-    let built = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
         .title(title(context.as_deref()))
         .inner_size(1280.0, 800.0)
-        .disable_drag_drop_handler()
-        .build();
+        .disable_drag_drop_handler();
+    // The same WebView2 arguments as the main window (#93).
+    if let Some(args) = crate::webview_args::from_env() {
+        builder = builder.additional_browser_args(&args);
+    }
+    let built = builder.build();
     if let Err(e) = built {
         app.state::<AppState>().close(&label);
         return Err(format!("Could not open a new window: {e}"));
