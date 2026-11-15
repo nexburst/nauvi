@@ -2,10 +2,11 @@
 //! the user's values on stdin (`--values -`), optionally as a server-side
 //! dry run that renders the manifest without changing the cluster.
 
+use super::command::release_failure;
 use super::command::{check_namespace, run_helm_with_input, HelmTarget};
 use super::decode::StoredRelease;
 use super::repo::check_word;
-use super::{check_release_name, manifest_resources, redact_manifest, HelmResource};
+use super::{check_release_name, manifest_resources, redact_manifest, HelmResource, HelmStorage};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +31,9 @@ pub struct HelmDeployRequest {
     pub dry_run: bool,
     /// Show Secret values in the returned manifest.
     pub reveal: bool,
+    /// Where helm keeps the release (`HELM_DRIVER`): on an upgrade, where
+    /// it is stored now; on an install, Secrets (helm's default) or ConfigMaps.
+    pub storage: HelmStorage,
 }
 
 /// The release helm installed, upgraded or (dry run) would have.
@@ -159,9 +163,18 @@ async fn deploy(
         (Mode::Install, true) => "Dry run of the install",
         (Mode::Upgrade, true) => "Dry run of the upgrade",
     };
-    let out = run_helm_with_input(&deploy_args(mode, target, req), input)
+    let args = deploy_args(mode, target, req);
+    let out = run_helm_with_input(&args, input, Some(req.storage))
         .await
-        .map_err(|e| anyhow!("{verb} of {} failed: {}", req.name, plain_failure(&e)))?;
+        .map_err(|e| {
+            let why = match mode {
+                Mode::Install => plain_failure(&e),
+                Mode::Upgrade => {
+                    release_failure(&plain_failure(&e), &req.namespace, &req.name, req.storage)
+                }
+            };
+            anyhow!("{verb} of {} failed: {why}", req.name)
+        })?;
     result_from(&out, req, mode)
 }
 

@@ -11,7 +11,7 @@ import type {
   HelmRepoUpdate,
 } from "../../lib/bindings";
 import type { FakeHelm } from "./helm";
-import { HIDDEN, manifest, revision } from "./helm";
+import { HIDDEN, manifest, notFound, revision, storedIn } from "./helm";
 
 export interface FakeChart {
   /** Without the repository. */
@@ -178,10 +178,13 @@ export function deploy(
   if (/^\s*[-[]/.test(req.values)) throw "The values must be a YAML mapping (key: value), not a single value or a list";
   if (/:\s*\[\s*$/m.test(req.values)) throw "The values are not valid YAML: did not find expected node content";
   const ch = find(c, req.chart, req.version);
-  const existing = h.revisions.filter((r) => r.namespace === req.namespace && r.name === req.name);
+  // Helm sees only the releases in the storage it is told to use.
+  const existing = storedIn(h, req.namespace, req.name, req.storage);
   const current = Math.max(0, ...existing.map((r) => r.revision));
   if (mode === "install" && current > 0) throw `${verb} of ${req.name} failed: cannot re-use a name that is still in use`;
-  if (mode === "upgrade" && current === 0) throw `${verb} of ${req.name} failed: "${req.name}" has no deployed releases`;
+  if (mode === "upgrade" && current === 0) {
+    throw `${verb} of ${req.name} failed: ${notFound(req.namespace, req.name, req.storage)}`;
+  }
   const nsExists = namespaces.includes(req.namespace) || c.created.includes(req.namespace);
   if (mode === "install" && !nsExists && !req.create_namespace) {
     throw `${verb} of ${req.name} failed: create: failed to create: namespaces "${req.namespace}" not found`;
@@ -192,6 +195,7 @@ export function deploy(
   rev.app_version = ch.app_version;
   rev.values = userValues(req.values);
   rev.description = mode === "install" ? "Install complete" : "Upgrade complete";
+  rev.storage = req.storage;
   const what = `${req.namespace}/${req.name}`;
   const result: HelmDeployResult = {
     name: req.name,

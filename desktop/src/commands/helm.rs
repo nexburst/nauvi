@@ -4,7 +4,7 @@
 use crate::state::{Cluster, ClusterSession};
 use kubeloupe::actions::describe_error;
 use kubeloupe::helm::{
-    self, HelmChartInfo, HelmRelease, HelmReleaseList, HelmRevisionKey, HelmTarget,
+    self, HelmChartInfo, HelmRelease, HelmReleaseList, HelmRevisionKey, HelmStorage, HelmTarget,
 };
 
 /// The releases in `namespaces` (empty = all), from labels only. Namespaces
@@ -70,7 +70,8 @@ pub(crate) fn target(state: &ClusterSession) -> Result<HelmTarget, String> {
     })
 }
 
-/// `helm rollback <name> <revision>`; returns a short summary.
+/// `helm rollback <name> <revision>` of a release kept in `storage`
+/// (`HelmRelease.storage`); returns a short summary.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_rollback(
@@ -78,21 +79,24 @@ pub(crate) async fn cmd_helm_rollback(
     namespace: String,
     name: String,
     revision: u32,
+    storage: HelmStorage,
 ) -> Result<String, String> {
-    helm::helm_rollback(&target(&cluster)?, &namespace, &name, revision)
+    helm::helm_rollback(&target(&cluster)?, &namespace, &name, revision, storage)
         .await
         .map_err(|e| format!("{e:#}"))
 }
 
-/// `helm uninstall <name>`; returns a short summary.
+/// `helm uninstall <name>` of a release kept in `storage`; returns a short
+/// summary.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_uninstall(
     cluster: Cluster,
     namespace: String,
     name: String,
+    storage: HelmStorage,
 ) -> Result<String, String> {
-    helm::helm_uninstall(&target(&cluster)?, &namespace, &name)
+    helm::helm_uninstall(&target(&cluster)?, &namespace, &name, storage)
         .await
         .map_err(|e| format!("{e:#}"))
 }

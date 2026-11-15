@@ -24,7 +24,7 @@ use kubeloupe::client_for_context;
 use kubeloupe::helm::{
     add_repo, chart_details, chart_versions, get_helm_release, helm_install, helm_uninstall,
     helm_upgrade, helm_version, list_helm_releases, list_repos, remove_repo, search_charts,
-    update_repos, HelmDeployRequest, HelmRepo, HelmTarget,
+    update_repos, HelmDeployRequest, HelmRepo, HelmStorage, HelmTarget,
 };
 use kubeloupe::resources::REDACTED;
 
@@ -296,6 +296,7 @@ async fn body(client: &Client, server: &RepoServer, ns: &str) -> Result<()> {
         create_namespace: true,
         dry_run: true,
         reveal: false,
+        storage: HelmStorage::Secret,
     };
 
     // A dry run renders with the values and changes nothing.
@@ -443,7 +444,8 @@ async fn body(client: &Client, server: &RepoServer, ns: &str) -> Result<()> {
     ensure!(
         e.to_string()
             .starts_with("Dry run of the upgrade of kl-none failed:")
-            && e.to_string().contains("has no deployed releases"),
+            && e.to_string()
+                .contains("release kl-none was not found in namespace"),
         "{e}"
     );
 
@@ -468,6 +470,6 @@ async fn body(client: &Client, server: &RepoServer, ns: &str) -> Result<()> {
         "{e}"
     );
 
-    helm_uninstall(&target, ns, rel).await?;
+    helm_uninstall(&target, ns, rel, HelmStorage::Secret).await?;
     Ok(())
 }

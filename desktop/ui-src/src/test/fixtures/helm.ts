@@ -1,7 +1,7 @@
 // Helm releases for the fake backend: each revision fully decoded, so the
 // list, the charts and the detail are all derived from one place.
 
-import type { HelmRelease, HelmReleaseList, HelmReleaseRow } from "../../lib/bindings";
+import type { HelmRelease, HelmReleaseList, HelmReleaseRow, HelmStorage } from "../../lib/bindings";
 import { defaultCharts } from "./helmCharts";
 import type { FakeCharts } from "./helmCharts";
 
@@ -140,11 +140,25 @@ export function helmGet(h: FakeHelm, namespace: string, name: string, rev: numbe
   };
 }
 
+/** What the real helm says (made plain) about a release not in `storage`. */
+export function notFound(namespace: string, name: string, storage: HelmStorage): string {
+  const where = storage === "configmap" ? "ConfigMaps" : "Secrets";
+  return `release ${name} was not found in namespace ${namespace} (helm looked in its ${where})`;
+}
+
+/** The revisions of a release that helm sees when told to look in `storage`. */
+export function storedIn(h: FakeHelm, namespace: string, name: string, storage: HelmStorage): HelmRelease[] {
+  return h.revisions.filter((r) => r.namespace === namespace && r.name === name && r.storage === storage);
+}
+
 /** `helm rollback`: a new revision copying `to`, the old current one superseded. */
-export function helmRollback(h: FakeHelm, namespace: string, name: string, to: number): string {
+export function helmRollback(h: FakeHelm, namespace: string, name: string, to: number, storage: HelmStorage): string {
   const row = helmList(h, [namespace]).releases.find((r) => r.name === name);
+  if (!row || storedIn(h, namespace, name, storage).length === 0) {
+    throw `Rollback of ${name} failed: ${notFound(namespace, name, storage)}`;
+  }
   const src = h.revisions.find((x) => x.namespace === namespace && x.name === name && x.revision === to);
-  if (!row || !src) throw `Rollback of ${name} failed: release: not found`;
+  if (!src) throw `Rollback of ${name} failed: release has no ${to} version`;
   for (const r of h.revisions) if (key(r) === key(src) && r.status === "deployed") r.status = "superseded";
   const next = { ...src, revision: row.revision + 1, status: "deployed", description: `Rollback to ${to}` };
   h.revisions.push(next);
@@ -153,9 +167,10 @@ export function helmRollback(h: FakeHelm, namespace: string, name: string, to: n
   return `Rolled back ${namespace}/${name} to revision ${to}`;
 }
 
-export function helmUninstall(h: FakeHelm, namespace: string, name: string): string {
-  const before = h.revisions.length;
+export function helmUninstall(h: FakeHelm, namespace: string, name: string, storage: HelmStorage): string {
+  if (storedIn(h, namespace, name, storage).length === 0) {
+    throw `Uninstall of ${name} failed: ${notFound(namespace, name, storage)}`;
+  }
   h.revisions = h.revisions.filter((r) => !(r.namespace === namespace && r.name === name));
-  if (h.revisions.length === before) throw `Uninstall of ${name} failed: release: not found`;
   return `Uninstalled ${namespace}/${name}`;
 }

@@ -128,7 +128,7 @@ fn words(args: &[&str]) -> Vec<String> {
 
 /// The configured repositories, in helm's order.
 pub async fn list_repos() -> Result<Vec<HelmRepo>> {
-    let out = match run_helm_with_input(&words(&["repo", "list", "-o", "json"]), None).await {
+    let out = match run_helm_with_input(&words(&["repo", "list", "-o", "json"]), None, None).await {
         Ok(out) => out,
         // Older helm fails instead of printing `[]`.
         Err(e) if e.to_string().contains("no repositories to show") => return Ok(Vec::new()),
@@ -144,7 +144,7 @@ pub async fn list_repos() -> Result<Vec<HelmRepo>> {
 pub async fn add_repo(name: &str, url: &str) -> Result<String> {
     check_repo_name(name)?;
     check_repo_url(url)?;
-    run_helm_with_input(&words(&["repo", "add", name, url]), None)
+    run_helm_with_input(&words(&["repo", "add", name, url]), None, None)
         .await
         .map_err(|e| anyhow!("Cannot add repository {name}: {e}"))?;
     Ok(format!("Added repository {name} ({url})"))
@@ -153,7 +153,7 @@ pub async fn add_repo(name: &str, url: &str) -> Result<String> {
 /// `helm repo remove <name>`.
 pub async fn remove_repo(name: &str) -> Result<String> {
     check_repo_name(name)?;
-    run_helm_with_input(&words(&["repo", "remove", name]), None)
+    run_helm_with_input(&words(&["repo", "remove", name]), None, None)
         .await
         .map_err(|e| anyhow!("Cannot remove repository {name}: {e}"))?;
     Ok(format!("Removed repository {name}"))
@@ -166,7 +166,7 @@ pub async fn update_repos(names: &[String]) -> Result<HelmRepoUpdate> {
     }
     let mut args = words(&["repo", "update"]);
     args.extend(names.iter().cloned());
-    let out = run_helm_with_input(&args, None).await.map_err(|e| {
+    let out = run_helm_with_input(&args, None, None).await.map_err(|e| {
         let text = e.to_string();
         if text.contains("no repositories found") && !text.contains("matching") {
             anyhow!("No chart repositories are configured: add one first.")
@@ -232,7 +232,9 @@ pub async fn search_charts(query: &str, all_versions: bool) -> Result<Vec<HelmCh
     }
     // `--` so a query that starts with `-` is not taken as a flag.
     args.extend(["--".into(), query.trim().to_string()]);
-    let out = run_helm_with_input(&args, None).await.map_err(no_repos)?;
+    let out = run_helm_with_input(&args, None, None)
+        .await
+        .map_err(no_repos)?;
     parse_search(&out)
 }
 
@@ -289,9 +291,9 @@ pub async fn chart_details(chart: &str, version: &str) -> Result<HelmChartDetail
         show_args("values", chart, version),
     );
     let (meta, readme, values) = futures::join!(
-        run_helm_with_input(&meta_args, None),
-        run_helm_with_input(&readme_args, None),
-        run_helm_with_input(&values_args, None),
+        run_helm_with_input(&meta_args, None, None),
+        run_helm_with_input(&readme_args, None, None),
+        run_helm_with_input(&values_args, None, None),
     );
     let fail = |e: anyhow::Error| anyhow!("Cannot show chart {chart}: {e}");
     let meta: ChartYaml = serde_yaml::from_str(&meta.map_err(fail)?)

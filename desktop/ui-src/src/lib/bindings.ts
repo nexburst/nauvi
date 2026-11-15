@@ -145,10 +145,16 @@ export const commands = {
 	 *  whose Secrets may not be listed come back as `warnings`.
 	 */
 	cmdHelmList: (namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<HelmReleaseList>("cmd_helm_list", { namespaces }, options),
-	/**  `helm rollback <name> <revision>`; returns a short summary. */
-	cmdHelmRollback: (namespace: string, name: string, revision: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_rollback", { namespace, name, revision }, options),
-	/**  `helm uninstall <name>`; returns a short summary. */
-	cmdHelmUninstall: (namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_uninstall", { namespace, name }, options),
+	/**
+	 *  `helm rollback <name> <revision>` of a release kept in `storage`
+	 *  (`HelmRelease.storage`); returns a short summary.
+	 */
+	cmdHelmRollback: (namespace: string, name: string, revision: number, storage: HelmStorage, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_rollback", { namespace, name, revision, storage }, options),
+	/**
+	 *  `helm uninstall <name>` of a release kept in `storage`; returns a short
+	 *  summary.
+	 */
+	cmdHelmUninstall: (namespace: string, name: string, storage: HelmStorage, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_uninstall", { namespace, name, storage }, options),
 	/**  The installed helm's version; an error says how to install it. */
 	cmdHelmVersion: (options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_version", undefined, options),
 	/**
@@ -896,6 +902,11 @@ export type HelmDeployRequest = {
 	dry_run: boolean,
 	/**  Show Secret values in the returned manifest. */
 	reveal: boolean,
+	/**
+	 *  Where helm keeps the release (`HELM_DRIVER`): on an upgrade, where
+	 *  it is stored now; on an install, Secrets (helm's default) or ConfigMaps.
+	 */
+	storage: HelmStorage,
 };
 
 /**  The release helm installed, upgraded or (dry run) would have. */
@@ -1022,7 +1033,8 @@ export type HelmRevisionKey = {
 
 /**
  *  Where a release is stored: Helm's default Secret driver or the
- *  ConfigMap one.
+ *  ConfigMap one. (Helm's `sql` driver keeps releases outside the cluster,
+ *  where kubeloupe does not look.)
  */
 export type HelmStorage = "secret" | "configmap";
 

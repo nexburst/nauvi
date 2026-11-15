@@ -16,8 +16,9 @@ use kube::api::{Api, DeleteParams, PostParams};
 use kube::Client;
 use kubeloupe::client_for_context;
 use kubeloupe::helm::{
-    get_helm_release, helm_rollback, helm_uninstall, helm_version, list_helm_releases,
-    release_charts, HelmRevisionKey, HelmTarget,
+    get_helm_release, helm_rollback, helm_uninstall, helm_upgrade, helm_version,
+    list_helm_releases, release_charts, HelmDeployRequest, HelmRevisionKey, HelmStorage,
+    HelmTarget,
 };
 use kubeloupe::resources::REDACTED;
 
@@ -51,7 +52,13 @@ async fn have_helm() -> Result<bool> {
 
 /// Run helm against the test context, failing with its stderr.
 fn helm(args: &[&str]) -> Result<()> {
+    helm_with_driver("secret", args)
+}
+
+/// [`helm`] with releases kept in `driver` (`HELM_DRIVER`).
+fn helm_with_driver(driver: &str, args: &[&str]) -> Result<()> {
     let out = Command::new(helm_bin())
+        .env("HELM_DRIVER", driver)
         .args(args)
         .args(["--kube-context", &context()])
         .output()
@@ -234,7 +241,7 @@ async fn helm_releases_list_decode_roll_back_and_uninstall() -> Result<()> {
             kubeconfig: None,
             context: Some(context()),
         };
-        let msg = helm_rollback(&target, &ns, rel, 1).await?;
+        let msg = helm_rollback(&target, &ns, rel, 1, row.storage).await?;
         ensure!(msg.contains("revision 1"), "{msg}");
         let r = get_helm_release(&client, &ns, rel, None, false).await?;
         ensure!(r.revision == 3 && r.status == "deployed", "{r:?}");
@@ -245,13 +252,79 @@ async fn helm_releases_list_decode_roll_back_and_uninstall() -> Result<()> {
             r.notes
         );
 
-        let e = helm_rollback(&target, &ns, rel, 42).await.unwrap_err();
+        let e = helm_rollback(&target, &ns, rel, 42, row.storage)
+            .await
+            .unwrap_err();
         ensure!(
             e.to_string().starts_with("Rollback of kl-demo failed:"),
             "{e}"
         );
 
-        helm_uninstall(&target, &ns, rel).await?;
+        helm_uninstall(&target, &ns, rel, row.storage).await?;
+        let list = list_helm_releases(&client, std::slice::from_ref(&ns)).await?;
+        ensure!(list.releases.is_empty(), "{:?}", list.releases);
+        Ok(())
+    })
+    .await
+}
+
+/// A release stored in ConfigMaps (`HELM_DRIVER=configmap`) is upgraded,
+/// rolled back and uninstalled where it is stored (#122); asking for it in
+/// Secrets says plainly where helm looked.
+#[tokio::test]
+#[ignore]
+async fn helm_release_in_configmaps_upgrades_rolls_back_and_uninstalls() -> Result<()> {
+    if !have_helm().await? {
+        return Ok(());
+    }
+    in_temp_ns("kl-it-helm-cm", |client, ns| async move {
+        let rel = "kl-cm";
+        helm_with_driver(
+            "configmap",
+            &["install", rel, CHART, "-n", &ns, "--set", "replicas=0"],
+        )?;
+
+        let list = list_helm_releases(&client, std::slice::from_ref(&ns)).await?;
+        ensure!(list.releases.len() == 1, "{:?}", list.releases);
+        let storage = list.releases[0].storage;
+        ensure!(storage == HelmStorage::ConfigMap, "{storage:?}");
+
+        let target = HelmTarget {
+            kubeconfig: None,
+            context: Some(context()),
+        };
+        let up = helm_upgrade(
+            &target,
+            &HelmDeployRequest {
+                name: rel.into(),
+                namespace: ns.clone(),
+                chart: CHART.into(),
+                values: "replicas: 0\ngreeting: bye\n".into(),
+                storage,
+                ..Default::default()
+            },
+        )
+        .await?;
+        ensure!(up.revision == 2, "{up:?}");
+
+        let msg = helm_rollback(&target, &ns, rel, 1, storage).await?;
+        ensure!(msg.contains("revision 1"), "{msg}");
+        let r = get_helm_release(&client, &ns, rel, None, false).await?;
+        ensure!(r.revision == 3 && r.storage == storage, "{r:?}");
+
+        // Where it is not: helm's words, made plain.
+        let e = helm_uninstall(&target, &ns, rel, HelmStorage::Secret)
+            .await
+            .unwrap_err()
+            .to_string();
+        ensure!(
+            e == format!(
+                "Uninstall of {rel} failed: release {rel} was not found in namespace {ns} (helm looked in its Secrets)"
+            ),
+            "{e}"
+        );
+
+        helm_uninstall(&target, &ns, rel, storage).await?;
         let list = list_helm_releases(&client, std::slice::from_ref(&ns)).await?;
         ensure!(list.releases.is_empty(), "{:?}", list.releases);
         Ok(())

@@ -87,7 +87,8 @@ export function sameDeploy(a: HelmDeployRequest | null, b: HelmDeployRequest | n
     a.version === b.version &&
     a.values === b.values &&
     a.create_namespace === b.create_namespace &&
-    a.reveal === b.reveal
+    a.reveal === b.reveal &&
+    a.storage === b.storage
   );
 }
 

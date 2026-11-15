@@ -24,7 +24,8 @@ export function helmHandlers(s: FakeState) {
       }
       return cluster.helm.version;
     },
-    cmdHelmRollback: (namespace, name, revision) => helmRollback(cluster.helm, namespace, name, revision),
-    cmdHelmUninstall: (namespace, name) => helmUninstall(cluster.helm, namespace, name),
+    cmdHelmRollback: (namespace, name, revision, storage) =>
+      helmRollback(cluster.helm, namespace, name, revision, storage),
+    cmdHelmUninstall: (namespace, name, storage) => helmUninstall(cluster.helm, namespace, name, storage),
   } satisfies AreaHandlers;
 }
