@@ -9,7 +9,8 @@
   },
   "scripts": {
     "test": "node --test --test-concurrency=1 --test-reporter=spec smoke.test.mjs",
-    "bench": "node bench.mjs"
+    "bench": "node bench.mjs",
+    "qa": "./qa.sh"
   },
   "devDependencies": {
     "selenium-webdriver": "4.51.0"
