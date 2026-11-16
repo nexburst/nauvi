@@ -160,7 +160,7 @@ async function execute(req: ActionRequest, inDialog: boolean) {
     }
     const t = targets[0];
     const msg = await commands.cmdRunAction(resource, t.namespace, t.name, action.id, replicas);
-    if (action.id === "delete" || action.id === "forceDelete") closeDetailIf(kind, t);
+    if (action.id === "delete" || action.id === "forceDelete" || action.id === "evict") closeDetailIf(kind, t);
     actionUi.request = null;
     actionUi.busy = false;
     setNotice(true, msg);

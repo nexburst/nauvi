@@ -164,6 +164,14 @@ pub enum Commands {
         #[arg(short, long)]
         namespace: Option<String>,
     },
+    /// Evict a pod through the Eviction API (respects PodDisruptionBudgets)
+    Evict {
+        /// The pod's name, or `pod/<name>`
+        pod: String,
+        /// Namespace (default: `default`)
+        #[arg(short, long)]
+        namespace: Option<String>,
+    },
     /// Delete an object of any kind
     Delete {
         /// `<kind>/<name>`
