@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 /// Field manager used for server-side apply.
-const FIELD_MANAGER: &str = "kubeloupe";
+pub(super) const FIELD_MANAGER: &str = "kubeloupe";
 
 // ---------------------------------------------------------------------------
 // Generic operations.

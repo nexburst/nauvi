@@ -4,6 +4,7 @@
 
 import type {
   ColumnKind,
+  DataField,
   FieldTakeover,
   ForwardInfo,
   MetricsSnapshot,
@@ -31,6 +32,12 @@ import { upToDate } from "./updates";
 import { defaultCatalog } from "./catalog";
 import type { FakeCatalog, FakeContext } from "./catalog";
 import type { FakeUpdate } from "./updates";
+
+/** One Secret or ConfigMap's data: values as text, or base64 if `binary`. */
+export interface FakeData {
+  immutable: boolean;
+  entries: Record<string, { field: DataField; value: string; binary: boolean }>;
+}
 
 export interface FakeCluster {
   /** The catalog's contexts; fields left out get defaults (`fixtures/catalog.ts`). */
@@ -65,6 +72,8 @@ export interface FakeCluster {
   /** `metadata.resourceVersion` by `kindId|rowKey` (default 1); a save bumps it. Bump it to
    *  simulate a write by someone else. */
   resourceVersions: Record<string, number>;
+  /** Secret and ConfigMap data by `kindId|rowKey` (`cmd_get_data_entries`, #224). */
+  data: Record<string, FakeData>;
   /** `cmd_bulk_delete` fails these row keys with the given reason. */
   bulkErrors: Record<string, string>;
   /** `cmd_check_actions` refuses these action ids ("logs", "shell", "edit" or an ActionId), with the given reason. */
@@ -373,6 +382,22 @@ export function defaultCluster(): FakeCluster {
     },
     nextTakeovers: [],
     resourceVersions: {},
+    data: {
+      "v1/secrets|demo/db-creds": {
+        immutable: false,
+        entries: {
+          password: { field: "data", value: "hunter2", binary: false },
+          "tls.key": { field: "data", value: "/w==", binary: true },
+        },
+      },
+      "v1/configmaps|demo/settings": {
+        immutable: false,
+        entries: {
+          "app.conf": { field: "data", value: "a=1\nb=2", binary: false },
+          mode: { field: "data", value: "dev", binary: false },
+        },
+      },
+    },
     bulkErrors: {},
     deniedActions: {},
     related: relatedFixtures(),

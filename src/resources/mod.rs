@@ -25,6 +25,7 @@
 
 mod apply;
 mod columns;
+mod data;
 mod detail;
 mod detail_watch;
 mod discovery;
@@ -44,6 +45,10 @@ mod table;
 
 pub use apply::{apply_manifests, cli_apply, ApplyResult, ApplyStatus, ManifestOptions};
 pub use columns::make_row;
+pub use data::{
+    data_patch, entries_of, get_data_entries, patch_data, reveal_data_value, revealed_of, scrub,
+    DataChange, DataEncoding, DataEntries, DataEntry, DataField, RevealedValue,
+};
 pub use detail::{detail_of, get_resource_detail, summarize_events};
 pub use detail_watch::{run_detail_watch, DetailState, DETAIL_FLUSH};
 pub use discovery::{can_i, can_list, check_access, discover, resolve_kind};

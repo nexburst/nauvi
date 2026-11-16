@@ -117,3 +117,61 @@ pub(crate) async fn cmd_apply_manifests(
     };
     Ok(resources::apply_manifests(&client, &kinds, &yaml, &namespace, opts).await)
 }
+
+/// The keys of a Secret (values hidden) or ConfigMap (with values), for the
+/// detail panel's data editor.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_get_data_entries(
+    cluster: Cluster,
+    resource: ResourceRef,
+    namespace: String,
+    name: String,
+) -> Result<resources::DataEntries, String> {
+    let client = cluster.client().await?;
+    resources::get_data_entries(&client, &resource, &namespace, &name)
+        .await
+        .map_err(|e| actions::describe_error(&e))
+}
+
+/// One Secret value, on an explicit reveal of that key. Never logged.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_reveal_data_value(
+    cluster: Cluster,
+    resource: ResourceRef,
+    namespace: String,
+    name: String,
+    key: String,
+) -> Result<resources::RevealedValue, String> {
+    let client = cluster.client().await?;
+    resources::reveal_data_value(&client, &resource, &namespace, &name, &key)
+        .await
+        .map_err(|e| actions::describe_error(&e))
+}
+
+/// Save edited keys of a Secret or ConfigMap with a JSON merge patch of
+/// only those keys. `resource_version` is the version they were loaded at
+/// (empty: don't check); if the object changed since, nothing is saved and
+/// the outcome says so.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_patch_data(
+    cluster: Cluster,
+    resource: ResourceRef,
+    namespace: String,
+    name: String,
+    changes: Vec<resources::DataChange>,
+    resource_version: String,
+) -> Result<resources::ApplyOutcome, String> {
+    let client = cluster.client().await?;
+    resources::patch_data(
+        &client,
+        &resource,
+        &namespace,
+        &name,
+        &changes,
+        &resource_version,
+    )
+    .await
+}
