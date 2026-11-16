@@ -48,11 +48,16 @@ Svelte) and a CLI, both built on the same Rust core.
   running), problem pods, CPU/memory/pod capacity against requests and usage,
   and the newest warning events, each linking to its object. Kept live by
   watches, not by re-listing the cluster. Without metrics-server it offers to
-  install it (in `kube-system`). On kind and other clusters whose kubelets
-  have self-signed certificates, tick "Skip kubelet TLS verification".
-  Both installs run the `helm` CLI with a chart pinned to an exact version
-  from the project's own repository (never added to your helm repositories),
-  with editable values, a dry run first and nothing changed until you confirm.
+  install it (in `kube-system`). "Skip kubelet TLS verification" makes
+  metrics-server trust any kubelet certificate: it is meant for kind and
+  other local clusters with self-signed kubelet certificates, so leave it off
+  elsewhere. Both installs run the `helm` CLI with a chart pinned to an exact
+  version from each chart's upstream repository (kubernetes-sigs/metrics-server,
+  prometheus-community), never added to your helm repositories, with editable
+  values, a dry run first and nothing changed until you confirm. They create
+  ClusterRoles and ClusterRoleBindings, and metrics-server also an
+  APIService, so you need permission to create those. The Prometheus stack's
+  node-exporter runs as a DaemonSet on every node.
 - **Workloads → Overview**: Pods, Deployments, DaemonSets, StatefulSets,
   ReplicaSets, Jobs and CronJobs counted by status (running, pending, failed,
   succeeded, suspended, ...) in the selected namespaces, live. A click on a
