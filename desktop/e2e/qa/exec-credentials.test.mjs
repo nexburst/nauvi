@@ -138,6 +138,7 @@ describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () 
     assert.ok(text.includes(`Used by ${ID}`), "names the context");
     assert.equal(await statusOf(app, ID), "Check", "the new context waits with a Check button");
     assert.equal(runs(), 0, "the plugin did not run");
+    await setTheme(app, "light");
     await app.shot("exec-prompt-light");
     await setTheme(app, "dark");
     await app.shot("exec-prompt-dark");
