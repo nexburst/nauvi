@@ -20,7 +20,9 @@ class CatalogStore {
   /** The context id whose settings page is open, or null. */
   settingsFor = $state<string | null>(null);
   /** Login commands of an added source waiting for the user's OK (#201). */
-  prompt = $state.raw<{ source: string; commands: ExecCommand[] } | null>(null);
+  /** `asked`: the context the user chose Check on ("" when adding a source
+   *  opened the prompt); only that one may send local files after Allow (#244). */
+  prompt = $state.raw<{ source: string; commands: ExecCommand[]; asked: string } | null>(null);
 }
 export const catalog = new CatalogStore();
 
@@ -75,7 +77,7 @@ export async function checkOnDemand(id: string) {
   if (ctx?.source && ctx.login_command) {
     const ask = commandsToAsk(await execCommands(ctx.source), [id]);
     if (ask.length) {
-      catalog.prompt = { source: ctx.source, commands: ask };
+      catalog.prompt = { source: ctx.source, commands: ask, asked: id };
       return;
     }
   }
@@ -102,9 +104,10 @@ export async function answerPrompt(allow: boolean) {
     catalog.error = String(e);
     return;
   }
-  // Refused: the check says so without running anything.
+  // Refused: the check says so without running anything. Allowing a
+  // command is not choosing to send the other contexts' local files (#244).
   const ids = prompt.commands.flatMap((c) => c.contexts);
-  await runLimited(ids, CHECKS_AT_ONCE, (id) => checkContext(id, true));
+  await runLimited(ids, CHECKS_AT_ONCE, (id) => checkContext(id, id === prompt.asked));
 }
 
 /** After a source changed: the contexts, the sources, and the new contexts' status. */
@@ -121,7 +124,7 @@ async function askAboutNewSources(before: readonly string[]) {
     if (before.includes(s.path)) continue;
     const ask = commandsToAsk(await execCommands(s.path));
     if (ask.length) {
-      catalog.prompt = { source: s.path, commands: ask };
+      catalog.prompt = { source: s.path, commands: ask, asked: "" };
       return;
     }
   }

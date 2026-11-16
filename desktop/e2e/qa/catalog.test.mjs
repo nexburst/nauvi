@@ -12,12 +12,14 @@
 // Checks (#244): an added kubeconfig whose user sends a token file from
 // outside its folder to a stand-in API server is not checked on add or by
 // Check all (the server gets no request), its row names the file; Check
-// sends it and connects. Screenshots light and dark at 1280x800.
+// sends it and connects. Screenshots light and dark at 1280x800. A source
+// with an exec plugin and a client key from outside its folder: the prompt
+// adding it opens names the key; Allow runs nothing and sends nothing.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,6 +77,7 @@ const clickButton = (app, scope, text) =>
 // file from another folder, to a stand-in API server that records what it
 // gets and answers /version.
 const STOLEN = "qa-244-local-files";
+const EXEC_CERT = "qa-244-exec-cert";
 const SECRET = `qa-244-secret-${Date.now().toString(36)}`;
 const tokenPath = join(dir, "secrets", "token");
 mkdirSync(join(dir, "secrets"));
@@ -294,5 +297,65 @@ describe("cluster catalog", { timeout: 10 * 60_000 }, () => {
     assert.ok(honeypot.hits.length > 0 && honeypot.hits.every((h) => h.auth === `Bearer ${SECRET}`), "sent on click");
     await app.shot("catalog-local-files-checked-light");
     await setTheme(app, null);
+  });
+
+  it("allowing an added source's login command sends no local files (#244)", T, async () => {
+    const { app } = s;
+    const port = await honeypot.listening;
+    const key = join(dir, "secrets", "client.key");
+    writeFileSync(key, "KEY", { mode: 0o600 });
+    const plugin = join(dir, "exec-cert", "login.sh");
+    const ran = join(dir, "exec-cert", "ran");
+    mkdirSync(join(dir, "exec-cert"));
+    writeFileSync(
+      plugin,
+      `#!/bin/sh\necho run >> '${ran}'\nprintf '%s\\n' '{"apiVersion":"client.authentication.k8s.io/v1","kind":"ExecCredential","status":{"token":"${SECRET}"}}'\n`,
+    );
+    chmodSync(plugin, 0o755);
+    const file = join(dir, "exec-cert", "exec-cert.yaml");
+    writeFileSync(
+      file,
+      JSON.stringify({
+        apiVersion: "v1",
+        kind: "Config",
+        clusters: [{ name: "hp", cluster: { server: `http://127.0.0.1:${port}` } }],
+        users: [
+          {
+            name: "u",
+            user: {
+              "client-key": key,
+              exec: { apiVersion: "client.authentication.k8s.io/v1", command: plugin, interactiveMode: "Never" },
+            },
+          },
+        ],
+        contexts: [{ name: EXEC_CERT, context: { cluster: "hp", user: "u" } }],
+      }),
+      { mode: 0o600 },
+    );
+    const hitsBefore = honeypot.hits.length;
+    await app.waitFor(() => clickButton(app, '[data-testid="catalog"]', "Add kubeconfig…"), {
+      message: "the Add kubeconfig… button",
+    });
+    const input = await app.find(By.css('input[aria-label="Kubeconfig file or folder"]'));
+    await app.setValue(input, file);
+    await click(app, 'form[aria-label="Add kubeconfig"] button[type="submit"]');
+
+    // Adding it asks about the command, and the prompt names the key too.
+    await app.find(By.css('[data-testid="exec-prompt"]'));
+    const files = await app.js(`return document.querySelector('[data-testid="exec-local-files"]')?.innerText.trim() ?? ""`);
+    assert.equal(files, `Also sends local files: ${key}`);
+    await app.shot("catalog-exec-local-files-prompt-light");
+    assert.ok(await clickButton(app, '[data-testid="exec-prompt"]', "Allow and check"));
+    await app.waitFor(async () => (await app.driver.findElements(By.css('[data-testid="exec-prompt"]'))).length === 0, {
+      message: "the prompt to close",
+    });
+    await new Promise((r) => setTimeout(r, 5000));
+    const status = await statusOf(app, EXEC_CERT);
+    console.log(`after Allow: ${JSON.stringify(status)}, hits ${honeypot.hits.length - hitsBefore}`);
+    assert.ok(status.startsWith("Check"), status);
+    assert.equal(honeypot.hits.length, hitsBefore, "the stand-in server got nothing");
+    assert.equal(existsSync(ran), false, "the plugin did not run");
+    await app.js(`document.querySelector(arguments[0])?.scrollIntoView({ block: "center" })`, row(EXEC_CERT));
+    await app.shot("catalog-exec-local-files-allowed-light");
   });
 });

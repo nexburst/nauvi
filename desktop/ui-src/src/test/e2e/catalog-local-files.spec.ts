@@ -69,6 +69,28 @@ test("the More menu's Check connection counts as asking", async ({ page }) => {
   expect(await checksOf(fake, "cert-user")).toEqual([{ name: "cert-user", asked: true }]);
 });
 
+test("allowing an added source's login command does not send its local files", async ({ page }) => {
+  const fake = await openApp(page);
+  const user =
+    "    client-key: /home/user/.ssh/id.key\n    exec:\n      apiVersion: client.authentication.k8s.io/v1\n" +
+    "      command: aws\n      args: [eks, get-token]";
+  await paste(page, kubeconfig("exec-cert", user));
+
+  // Adding it opened the prompt by itself: it names the files too.
+  const prompt = page.getByRole("alertdialog", { name: "Allow login command" });
+  await expect(prompt.getByTestId("exec-local-files")).toHaveText("Also sends local files: /home/user/.ssh/id.key");
+  await prompt.getByRole("button", { name: "Allow and check" }).click();
+  await expect.poll(() => checksOf(fake, "exec-cert")).toEqual([{ name: "exec-cert", asked: false }]);
+  const row = catalogRow(page, "exec-cert");
+  await expect(row.getByTestId("catalog-status").getByRole("button", { name: "Check exec-cert" })).toBeVisible();
+  expect(await page.evaluate(() => window.__fake.cluster.catalog.pluginRuns)).toEqual({});
+
+  // Its own Check is the user's choice.
+  await row.getByRole("button", { name: "Check exec-cert" }).click();
+  await expect(row.getByTestId("catalog-status")).toContainText("Connected");
+  expect((await checksOf(fake, "exec-cert")).at(-1)).toEqual({ name: "exec-cert", asked: true });
+});
+
 test("files in the added kubeconfig's own folder are checked as before", async ({ page }) => {
   const fake = await openApp(page);
   await paste(page, kubeconfig("own-cert", `    client-certificate: ${PASTED}/own.crt`));
