@@ -127,7 +127,7 @@ describe("area 1: live Pods, Nodes and Namespaces tables", { timeout: 15 * 60_00
     const buttons = await app.js(
       `return Array.from(document.querySelectorAll('[data-testid="detail-panel"] button'), (b) => b.textContent.trim())`,
     );
-    for (const b of ["Logs", "Open terminal"]) assert.ok(buttons.includes(b), `"${b}" in the pod panel: ${buttons}`);
+    for (const b of ["Logs", "Shell"]) assert.ok(buttons.includes(b), `"${b}" in the pod panel: ${buttons}`);
     // The details load after the panel opens.
     await app.waitFor(
       async () => {

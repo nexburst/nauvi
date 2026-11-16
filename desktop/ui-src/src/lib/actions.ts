@@ -130,3 +130,48 @@ export function drainLine(ev: DrainEvent): string {
 export function sameResource(a: ResourceRef, b: ResourceRef): boolean {
   return a.group === b.group && a.version === b.version && a.kind === b.kind && a.plural === b.plural;
 }
+
+/** What a detail panel action is checked and drawn as: an ActionId, or
+ *  one of the panel's own entries. */
+export type PanelActionId = ActionId | "logs" | "shell" | "edit";
+
+/** One icon in the detail panel's action header (#218). */
+export type PanelAction<Spec> = {
+  id: PanelActionId;
+  /** The row menu's label: the button's accessible name. */
+  label: string;
+  /** The tooltip: the label without its "…". */
+  tip: string;
+  danger: boolean;
+} & ({ run: "dock"; spec: Spec } | { run: "edit" } | { run: "action"; action: ActionDef });
+
+/**
+ * The detail panel's actions: the row menu's dock entries (Logs, Shell) and
+ * registry actions, plus Edit (the YAML editor). Opening things comes
+ * first, then the other actions, Edit, and the destructive ones last.
+ */
+export function panelActions<Spec>(dock: { label: string; spec: Spec }[], actions: ActionDef[]): PanelAction<Spec>[] {
+  const fromRegistry = (a: ActionDef): PanelAction<Spec> => ({
+    id: a.id,
+    label: a.label,
+    tip: a.label.replace("…", ""),
+    danger: a.destructive,
+    run: "action",
+    action: a,
+  });
+  return [
+    ...dock.map(
+      (d): PanelAction<Spec> => ({
+        id: d.label === "Shell" ? "shell" : "logs",
+        label: d.label,
+        tip: d.label,
+        danger: false,
+        run: "dock",
+        spec: d.spec,
+      }),
+    ),
+    ...actions.filter((a) => !a.destructive).map(fromRegistry),
+    { id: "edit", label: "Edit", tip: "Edit YAML", danger: false, run: "edit" },
+    ...actions.filter((a) => a.destructive).map(fromRegistry),
+  ];
+}

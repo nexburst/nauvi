@@ -265,13 +265,29 @@ pub async fn can_list(
     resource: &str,
     namespace: Option<&str>,
 ) -> bool {
+    can_i(client, "list", group, resource, "", namespace).await
+}
+
+/// Whether the current user may `verb` `resource` (with `subresource`, empty
+/// for none) in `group`, in `namespace` (`None` = across all namespaces, or
+/// a cluster-scoped kind), via a SelfSubjectAccessReview. A check that
+/// cannot be made counts as allowed: the API server still has the last word.
+pub async fn can_i(
+    client: &Client,
+    verb: &str,
+    group: &str,
+    resource: &str,
+    subresource: &str,
+    namespace: Option<&str>,
+) -> bool {
     let api: Api<SelfSubjectAccessReview> = Api::all(client.clone());
     let review = SelfSubjectAccessReview {
         spec: SelfSubjectAccessReviewSpec {
             resource_attributes: Some(ResourceAttributes {
-                verb: Some("list".into()),
+                verb: Some(verb.into()),
                 group: Some(group.to_string()),
                 resource: Some(resource.to_string()),
+                subresource: (!subresource.is_empty()).then(|| subresource.to_string()),
                 namespace: namespace.map(str::to_string),
                 ..Default::default()
             }),

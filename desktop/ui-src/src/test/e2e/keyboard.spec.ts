@@ -230,7 +230,7 @@ test("keys are ignored inside the terminal", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Pods");
   await row(page, "web-1").click();
-  await panel(page).getByRole("button", { name: "Open terminal" }).click();
+  await panel(page).getByRole("button", { name: "Shell", exact: true }).click();
   const term = page.getByTestId("dock").locator(".xterm");
   await expect(term).toBeVisible();
   await term.click();
@@ -256,7 +256,7 @@ test("the dock keys work where the backtick is a dead key, and Mod+J does too", 
   const fake = await openApp(page);
   await openKind(page, "Pods");
   await row(page, "web-1").click();
-  await panel(page).getByRole("button", { name: "Open terminal" }).click();
+  await panel(page).getByRole("button", { name: "Shell", exact: true }).click();
   const term = page.getByTestId("dock").locator(".xterm").first();
   await expect(term).toBeVisible();
   await term.click();

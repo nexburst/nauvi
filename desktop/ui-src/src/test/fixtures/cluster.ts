@@ -67,6 +67,8 @@ export interface FakeCluster {
   resourceVersions: Record<string, number>;
   /** `cmd_bulk_delete` fails these row keys with the given reason. */
   bulkErrors: Record<string, string>;
+  /** `cmd_check_actions` refuses these action ids ("logs", "shell", "edit" or an ActionId), with the given reason. */
+  deniedActions: Record<string, string>;
   /** What `cmd_get_related` returns, by `kindId|rowKey` (default: nothing related). */
   related: Record<string, Related>;
   /** `cmd_apply_manifests` rejects objects with these names (dry run included), with the given reason. */
@@ -370,6 +372,7 @@ export function defaultCluster(): FakeCluster {
     nextTakeovers: [],
     resourceVersions: {},
     bulkErrors: {},
+    deniedActions: {},
     related: relatedFixtures(),
     applyErrors: {},
     forwards: [],

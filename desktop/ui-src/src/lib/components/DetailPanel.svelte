@@ -11,14 +11,14 @@
   import UsageCharts from "./UsageCharts.svelte";
   import YamlEditor from "./YamlEditor.svelte";
   import { closeDetail } from "../stores/detail.svelte";
-  import { openDockTab } from "../stores/dock.svelte";
+  import type { DockTabSpec } from "../dock";
   import type { Target } from "../stores/detail.svelte";
   import { LiveDetail } from "../stores/live-detail.svelte";
   import { LiveRelated } from "../stores/related.svelte";
 
   /** The pod panel: the generic overview plus the pod section (containers,
-   *  QoS, IPs...), buttons that open its logs and a shell in the dock,
-   *  port-forward, and the YAML editor.
+   *  QoS, IPs...), the header of actions (logs and a shell in the dock,
+   *  attach, edit, delete...), port-forward, and the YAML editor.
    *  Every other kind uses `GenericDetail`. */
   let { target }: { target: Target } = $props();
   const pod = $derived({ namespace: target.namespace, name: target.name });
@@ -48,25 +48,32 @@
 
   /** The terminal opens in the first regular container. */
   const shellContainer = $derived(extras?.containers.find((c) => c.kind === "regular")?.name ?? null);
-  const podRef = $derived({ resource: target.resource, namespace: target.namespace, name: target.name });
 
-  function openLogs() {
-    openDockTab({ type: "podLogs", pod: podRef, containers: extras ? $state.snapshot(extras.log_containers) : undefined });
+  /** The header's Logs and Shell know the containers once the details load;
+   *  before that, the dock tab looks them up itself. */
+  function dockSpec(spec: DockTabSpec): DockTabSpec {
+    if (!extras) return spec;
+    if (spec.type === "podLogs") return { ...spec, containers: $state.snapshot(extras.log_containers) };
+    if (spec.type === "terminal") return { ...spec, container: shellContainer };
+    return spec;
   }
 
-  function openShell() {
-    // Before the details load, the dock tab looks the container up itself.
-    openDockTab({ type: "terminal", pod: podRef, container: extras ? shellContainer : undefined });
+  let yamlEl = $state<HTMLDivElement | null>(null);
+  /** Edit: bring the YAML editor into view and give it the keyboard. */
+  function showYaml() {
+    yamlEl?.scrollIntoView({ block: "start", behavior: "smooth" });
+    yamlEl?.querySelector<HTMLElement>(".cm-content")?.focus({ preventScroll: true });
   }
 </script>
 
 <aside data-testid="detail-panel">
-  <div class="header">
-    <span class="title">{pod.namespace}/{pod.name}</span>
-    <button type="button" class="close" aria-label="Close details" onclick={closeDetail}>✕</button>
+  <div class="top">
+    <div class="header">
+      <span class="title">{pod.namespace}/{pod.name}</span>
+      <button type="button" class="close" aria-label="Close details" onclick={closeDetail}>✕</button>
+    </div>
+    <ActionBar {target} disabled={live.deleted} onEdit={showYaml} {dockSpec} />
   </div>
-
-  <ActionBar {target} disabled={live.deleted} />
   <DetailNotices {live} kind="Pod" />
 
   <div class="body">
@@ -117,16 +124,10 @@
     {/if}
   </div>
 
-  <div class="section-header">
-    <h3>Logs and shell</h3>
-    <button type="button" class="btn" onclick={openLogs} title="Opens in the dock below">Logs</button>
-    <button type="button" class="btn" disabled={live.deleted} onclick={openShell} title="Opens in the dock below">
-      Open terminal
-    </button>
-  </div>
-
   <PortForward bind:this={portForward} {pod} disabled={live.deleted} />
-  <YamlEditor {target} />
+  <div class="yaml" bind:this={yamlEl}>
+    <YamlEditor {target} />
+  </div>
 </aside>
 
 <style>
@@ -145,13 +146,23 @@
   aside > :global(*) {
     flex-shrink: 0;
   }
+  /* The title and the actions stay in view while the panel scrolls. */
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border);
+  }
+  .yaml {
+    scroll-margin-top: 90px;
+  }
   .header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
+    padding: 10px 16px 2px;
     font-weight: 600;
     font-size: 13px;
     word-break: break-all;

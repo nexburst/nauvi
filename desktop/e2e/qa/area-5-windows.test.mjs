@@ -123,12 +123,12 @@ describe("area 5: several windows", { timeout: 25 * 60_000 }, () => {
     const { app } = s;
     await switchTo(app, main);
     await app.openDetail("Pods", ns, "alpha");
-    await panelButton(app, "Open terminal");
+    await panelButton(app, "Shell");
     const ta = terminal(app, paneTerminal(`shell:${ns}/alpha`));
     await ta.waitForPrompt(60_000);
     await switchTo(app, second);
     await app.openDetail("Pods", ns, "bravo");
-    await panelButton(app, "Open terminal");
+    await panelButton(app, "Shell");
     const tb = terminal(app, paneTerminal(`shell:${ns}/bravo`));
     await tb.waitForPrompt(60_000);
     assert.equal(await tb.run("hostname"), "bravo");

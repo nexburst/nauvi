@@ -9,7 +9,7 @@
 // - `kubectl delete pod` from outside: "This Pod was deleted", actions disabled
 // - a Deployment and a ConfigMap panel update live and show the deletion
 // - a Secret panel shows keys only (overview and YAML tab)
-// - Logs and Open terminal still open in the dock
+// - Logs and Shell still open in the dock
 // The demo objects are only read; what changes lives in a temp namespace.
 
 import assert from "node:assert/strict";
@@ -235,7 +235,7 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
     const buttons = await actionButtons(app);
     console.log(`actions: ${JSON.stringify(buttons)}`);
     assert.ok(buttons.length > 0 && buttons.every((b) => b.disabled), "every action disabled");
-    const term = await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Open terminal']"));
+    const term = await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Shell']"));
     assert.equal(await term.getAttribute("disabled"), "true");
   });
 
@@ -288,7 +288,7 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
     assert.ok(!html.includes(SECRET_VALUE) && !html.includes(b64), "the YAML tab leaks the value before Reveal");
   });
 
-  it("Logs and Open terminal still open in the dock", T, async () => {
+  it("Logs and Shell still open in the dock", T, async () => {
     const { app } = s;
     // The crashing pod logs "boom" before each exit.
     await app.openDetail("Pods", ns, "qa-crash");
@@ -308,7 +308,7 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
       { timeout: 30_000, message: '"boom" in the dock log tab' },
     );
     await app.openDetail("Pods", "demo", "multi");
-    await panelButton(app, "Open terminal");
+    await panelButton(app, "Shell");
     await app.find(byTestId("terminal"), { timeout: 30_000 });
     const out = await terminal(app).run("hostname", { timeout: 30_000 });
     assert.equal(out, "multi");

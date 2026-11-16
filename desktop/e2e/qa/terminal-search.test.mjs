@@ -69,7 +69,7 @@ describe("terminal search", { timeout: 10 * 60_000 }, () => {
     await setTheme(app, "dark");
     await waitLive(app);
     await app.openDetail("Pods", ns, "shell");
-    await panelButton(app, "Open terminal");
+    await panelButton(app, "Shell");
     const term = terminal(app);
     await term.waitForPrompt();
     await term.type("clear");

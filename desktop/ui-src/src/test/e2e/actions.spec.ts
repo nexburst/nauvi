@@ -33,10 +33,13 @@ test("the detail panel offers the same actions", async ({ page }) => {
   await openApp(page);
   await openKind(page, "Deployments");
   await row(page, "web").click();
+  // The row menu's items, plus Edit (the panel's YAML editor).
   await expect(page.getByRole("toolbar", { name: "Actions" }).getByRole("button")).toHaveText([
+    "Logs",
     "Scale…",
     "Rollout restart",
     "Port forward…",
+    "Edit",
     "Delete",
   ]);
 });

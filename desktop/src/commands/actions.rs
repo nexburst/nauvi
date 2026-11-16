@@ -1,6 +1,7 @@
 //! Resource actions: run an action, bulk delete, drain a node.
 
 use crate::state::{next_session, Cluster};
+use kubeloupe::action_access::{self, ActionAccess};
 use kubeloupe::actions::{self, ActionId, BulkItemResult, DrainEvent, DrainSummary};
 use kubeloupe::resources::ResourceRef;
 use serde::{Deserialize, Serialize};
@@ -25,6 +26,21 @@ pub(crate) async fn cmd_run_action(
     actions::run_action(&client, &resource, &namespace, &name, action, replicas)
         .await
         .map_err(|e| actions::describe_error(&e))
+}
+
+/// Which of `ids` (action ids, plus "logs", "shell" and "edit") the user
+/// may run on one object, for greying out the detail panel's actions. A
+/// check that cannot be made counts as allowed.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_check_actions(
+    cluster: Cluster,
+    resource: ResourceRef,
+    namespace: String,
+    ids: Vec<String>,
+) -> Result<Vec<ActionAccess>, String> {
+    let client = cluster.client().await?;
+    Ok(action_access::check_actions(&client, &resource, &namespace, &ids).await)
 }
 
 /// One object of a bulk delete.

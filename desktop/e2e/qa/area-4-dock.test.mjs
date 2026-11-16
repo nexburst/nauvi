@@ -96,7 +96,7 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     const { app } = s;
     await waitLive(app);
     await app.openDetail("Pods", ns, "shell");
-    await panelButton(app, "Open terminal");
+    await panelButton(app, "Shell");
     shellTab = `shell:${ns}/shell`;
     const pod = terminal(app, paneTerminal(shellTab));
     await pod.waitForPrompt();
@@ -241,14 +241,14 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     assert.equal(await pod.run("echo after-cat"), "after-cat");
   });
 
-  it("close a terminal tab, then Open terminal starts a new one", T, async () => {
+  it("close a terminal tab, then Shell starts a new one", T, async () => {
     const { app } = s;
     shellsBefore = execShells();
     assert.ok(shellsBefore >= 1, "an exec shell while the tab is open");
     await closeTab(app, "Shell: shell");
     await app.waitFor(async () => !(await dockTabs(app)).some((t) => t.title === "Shell: shell"), { message: "tab closed" });
     await app.openDetail("Pods", ns, "shell");
-    await panelButton(app, "Open terminal");
+    await panelButton(app, "Shell");
     const pod = terminal(app, paneTerminal(shellTab));
     await pod.waitForPrompt();
     assert.equal(await pod.run("echo reopened"), "reopened");

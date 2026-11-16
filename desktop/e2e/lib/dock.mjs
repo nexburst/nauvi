@@ -125,7 +125,7 @@ export async function pressCtrl(app, key) {
   await app.driver.actions().keyDown(Key.CONTROL).sendKeys(key).keyUp(Key.CONTROL).perform();
 }
 
-/** Click a button in the open detail panel: its action bar ("Attach", "Debug…", "Shell") or "Logs" / "Open terminal". */
+/** Click a button in the open detail panel, e.g. its action bar's "Logs", "Shell", "Attach" or "Debug…". */
 export async function panelButton(app, label) {
   const button = await app.find(
     By.xpath(`//*[@data-testid='detail-panel']//button[normalize-space()=${xq(label)}]`),

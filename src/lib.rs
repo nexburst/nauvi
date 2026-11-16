@@ -21,6 +21,7 @@ mod usage_history;
 mod usage_reference;
 mod workload_usage;
 
+pub mod action_access;
 pub mod actions;
 pub mod attach;
 pub mod auth;
