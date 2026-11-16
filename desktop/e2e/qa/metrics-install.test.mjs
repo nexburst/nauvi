@@ -255,13 +255,32 @@ describe("one-click metrics", { timeout: 30 * 60_000, skip }, () => {
     const { app } = s;
     await app.nav("Pods");
     await app.nav("Nodes");
-    const data = await app.waitFor(
-      async () => {
-        const d = await tableData(app);
-        return d?.headers.includes("Disk") && d.rows.some((r) => /%\)$/.test(r.Disk ?? "")) ? d : null;
-      },
-      { timeout: 290_000, interval: 3000, message: "the Disk column" },
-    );
+    let data;
+    try {
+      data = await app.waitFor(
+        async () => {
+          const d = await tableData(app);
+          return d?.headers.includes("Disk") && d.rows.some((r) => /%\)$/.test(r.Disk ?? "")) ? d : null;
+        },
+        { timeout: 290_000, interval: 3000, message: "the Disk column" },
+      );
+    } finally {
+      // What the app and Prometheus say, for a failure.
+      const view = await app.driver
+        .executeAsyncScript(
+          `const done = arguments[arguments.length - 1];
+           window.__TAURI_INTERNALS__.invoke("cmd_node_disk_usage").then((v) => done(JSON.stringify(v)), (e) => done("error: " + e));`,
+        )
+        .catch((e) => `js failed: ${e}`);
+      console.log(`cmd_node_disk_usage: ${view}`);
+      ok(() => console.log(kc(["-n", "monitoring", "get", "pods", "-o", "wide"])));
+      const q = encodeURIComponent('node_filesystem_size_bytes{mountpoint="/"}');
+      ok(() =>
+        console.log(
+          `query: ${kc(["get", "--raw", `/api/v1/namespaces/monitoring/services/prometheus-server:http/proxy/api/v1/query?query=${q}`]).slice(0, 2000)}`,
+        ),
+      );
+    }
     console.log(`disk: ${JSON.stringify(data.rows.map((r) => [r.Name, r.Disk]))}`);
   });
 });
