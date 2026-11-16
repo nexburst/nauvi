@@ -24,6 +24,10 @@ pub enum ContextState {
     /// Logging in runs a command of an added kubeconfig that the user has
     /// not allowed (set by the desktop app, #201).
     NotAllowed,
+    /// Logging in sends local files from outside an added kubeconfig's
+    /// folder (a token file, a client certificate): checked only when the
+    /// user asks (set by the desktop app, #244).
+    LocalFiles,
 }
 
 /// The result of checking one context.

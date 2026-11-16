@@ -57,6 +57,10 @@ export function catalogHandlers(s: FakeState) {
       const login = [command, ...args.split(",").map((a) => a.trim().replace(/^"|"$/g, ""))]
         .filter(Boolean)
         .join(" ");
+      // Absolute file references outside the pasted files' folder (#244).
+      const localFiles = [...yaml.matchAll(/(?:tokenFile|client-certificate|client-key):\s*"?(\/[^"\s]+)/g)]
+        .map((m) => m[1])
+        .filter((f) => !f.startsWith(`${cluster.catalog.pastedDir}/`));
       cluster.contexts.push({
         name: id,
         context: first,
@@ -66,13 +70,23 @@ export function catalogHandlers(s: FakeState) {
         source: path,
         login_command: command ? login : "",
         login_plugin: !!command,
+        local_files: localFiles,
       });
       addSavedSource(path);
       return copy(cluster.catalog.sources);
     },
-    cmdCheckContext: (name) => {
+    cmdCheckContext: (name, asked) => {
       // Like the backend: an added source's login command runs only once allowed.
       const ctx = cluster.contexts.find((c) => c.name === name);
+      // ... and its local files outside its folder are sent only when asked (#244).
+      if (ctx?.source && ctx.local_files?.length && !asked) {
+        return {
+          name,
+          state: "local_files" as const,
+          message: `Not checked: logging in to \`${name}\` sends local files from outside its kubeconfig's folder (${ctx.local_files.join(", ")}). Choose Check to check it.`,
+          version: "",
+        };
+      }
       if (ctx?.source && ctx.login_command) {
         const answer = cluster.catalog.answers[`${ctx.source}\n${ctx.login_command}`];
         if (answer !== true) {

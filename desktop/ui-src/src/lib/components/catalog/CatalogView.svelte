@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import type { ContextInfo, SourceInfo } from "../../bindings";
   import {
+    checkedWhenAsked,
     displayName,
     filterContexts,
     lastUsedText,
@@ -32,8 +33,9 @@
 
   /** The cluster catalog (#78): every context from every kubeconfig source,
    *  with its status, pin, source file and last use. Opening it checks
-   *  every cluster that logs in without running a plugin; the others show
-   *  a Check button (#201). */
+   *  every cluster that logs in without running a plugin or sending local
+   *  files from outside its added kubeconfig's folder; the others show a
+   *  Check button (#201, #244). */
   let query = $state("");
   let adding = $state(false);
   /** The source a Remove is waiting to be confirmed for. */
@@ -48,6 +50,12 @@
   });
 
   const nameOf = (c: ContextInfo) => displayName(c, contextSettings(c.name));
+  /** Why a context's Check button is there: what checking it runs or sends. */
+  function askTitle(c: ContextInfo): string {
+    if (c.login_command) return `Logs in by running ${c.login_command}`;
+    if (c.login_plugin) return "Logs in through an auth provider";
+    return `Logging in sends ${c.local_files.join(", ")}`;
+  }
   const rows = $derived.by(() => {
     void settings.current;
     const { pinned, others } = orderContexts(app.contexts, settings.current.favourites);
@@ -199,7 +207,7 @@
             <td class="status" data-testid="catalog-status">
               {#if check === "checking"}
                 <span class="muted">Checking…</span>
-              {:else if check}
+              {:else if check && check.state !== "local_files"}
                 <span
                   class:ok={check.state === "connected"}
                   class:bad={check.state !== "connected"}
@@ -213,17 +221,24 @@
                     >Check</button
                   >
                 {/if}
-              {:else if c.login_plugin}
-                <!-- Checking runs the login plugin: only when asked (#201). -->
+              {:else if checkedWhenAsked(c) || check}
+                <!-- Checking runs the login plugin or sends local files: only when asked (#201, #244). -->
                 <button
                   type="button"
                   class="btn small"
                   aria-label="Check {name}"
-                  title={c.login_command ? `Logs in by running ${c.login_command}` : "Logs in through an auth provider"}
+                  title={askTitle(c)}
                   onclick={() => void checkOnDemand(c.name)}>Check</button
                 >
               {:else}
                 <span class="muted">Not checked</span>
+              {/if}
+              {#if c.local_files.length}
+                <div class="why muted" data-testid="catalog-local-files" title={`Logging in sends ${c.local_files.join(", ")}`}>
+                  Sends local files: {c.local_files.join(", ")}
+                </div>
+              {:else if check && check !== "checking" && check.state === "local_files"}
+                <div class="why muted" data-testid="catalog-status-message" title={check.message}>{check.message}</div>
               {/if}
             </td>
             <td class="mono">

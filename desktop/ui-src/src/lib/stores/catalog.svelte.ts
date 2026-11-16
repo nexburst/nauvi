@@ -38,11 +38,15 @@ function setCheck(id: string, check: ContextCheck | "checking") {
   catalog.checks = next;
 }
 
-/** Log in to one cluster and record whether it answered. */
-export async function checkContext(id: string) {
+/**
+ * Log in to one cluster and record whether it answered. `asked`: the user
+ * chose this context; otherwise one that sends local files from outside
+ * its added kubeconfig's folder is not checked (#244).
+ */
+export async function checkContext(id: string, asked = false) {
   setCheck(id, "checking");
   try {
-    setCheck(id, await commands.cmdCheckContext(id));
+    setCheck(id, await commands.cmdCheckContext(id, asked));
   } catch (e) {
     setCheck(id, { name: id, state: "invalid", message: String(e), version: "" });
   }
@@ -53,13 +57,13 @@ export function checkAll(): Promise<void> {
   return runLimited(
     app.contexts.map((c) => c.name),
     CHECKS_AT_ONCE,
-    checkContext,
+    (id) => checkContext(id),
   );
 }
 
 /** What opening the catalog checks: every context that logs in without running a plugin. */
 export function checkOnOpen(): Promise<void> {
-  return runLimited(checkedOnOpen(app.contexts), CHECKS_AT_ONCE, checkContext);
+  return runLimited(checkedOnOpen(app.contexts), CHECKS_AT_ONCE, (id) => checkContext(id));
 }
 
 /**
@@ -75,7 +79,7 @@ export async function checkOnDemand(id: string) {
       return;
     }
   }
-  await checkContext(id);
+  await checkContext(id, true);
 }
 
 async function execCommands(source: string): Promise<ExecCommand[]> {
@@ -100,7 +104,7 @@ export async function answerPrompt(allow: boolean) {
   }
   // Refused: the check says so without running anything.
   const ids = prompt.commands.flatMap((c) => c.contexts);
-  await runLimited(ids, CHECKS_AT_ONCE, checkContext);
+  await runLimited(ids, CHECKS_AT_ONCE, (id) => checkContext(id, true));
 }
 
 /** After a source changed: the contexts, the sources, and the new contexts' status. */
@@ -108,7 +112,7 @@ async function reload() {
   const known = new Set(app.contexts.map((c) => c.name));
   await Promise.all([loadContexts(), loadSources()]);
   const added = app.contexts.filter((c) => !known.has(c.name));
-  void runLimited(checkedOnOpen(added), CHECKS_AT_ONCE, checkContext);
+  void runLimited(checkedOnOpen(added), CHECKS_AT_ONCE, (id) => checkContext(id));
 }
 
 /** After adding a source: ask about the login commands it brought (#201). */

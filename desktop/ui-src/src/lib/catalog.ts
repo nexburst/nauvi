@@ -39,14 +39,23 @@ export const STATE_LABELS: Record<ContextState, string> = {
   unreachable: "Unreachable",
   invalid: "Invalid",
   not_allowed: "Not allowed",
+  local_files: "Not checked",
 };
 
 /**
- * The contexts opening the catalog checks by itself: not those whose login
- * runs a plugin (`aws eks get-token`, …), which are checked when asked (#201).
+ * Whether the catalog checks `c` only when the user asks: its login runs a
+ * plugin (`aws eks get-token`, …, #201), or it sends local files from
+ * outside its added kubeconfig's folder (a token file, a client key, #244).
  */
-export function checkedOnOpen<T extends Pick<ContextInfo, "name" | "login_plugin">>(contexts: readonly T[]): string[] {
-  return contexts.filter((c) => !c.login_plugin).map((c) => c.name);
+export function checkedWhenAsked(c: Pick<ContextInfo, "login_plugin" | "local_files">): boolean {
+  return c.login_plugin || c.local_files.length > 0;
+}
+
+/** The contexts opening the catalog checks by itself (see `checkedWhenAsked`). */
+export function checkedOnOpen<T extends Pick<ContextInfo, "name" | "login_plugin" | "local_files">>(
+  contexts: readonly T[],
+): string[] {
+  return contexts.filter((c) => !checkedWhenAsked(c)).map((c) => c.name);
 }
 
 /** The commands of `commands` the user still has to allow before `contexts` can log in. */
