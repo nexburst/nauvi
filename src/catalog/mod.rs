@@ -73,6 +73,12 @@ pub struct ContextInfo {
     /// The added source it came from (a file, folder or pasted file);
     /// `""` for the default kubeconfig.
     pub source: String,
+    /// The command logging in runs: the exec plugin's command and
+    /// arguments, or the gcp auth provider's `cmd-path` (`""`: none).
+    pub login_command: String,
+    /// Logging in runs a plugin or an auth provider (`exec` or
+    /// `auth-provider`): the catalog checks it only when asked (#201).
+    pub login_plugin: bool,
 }
 
 /// What to connect to for a context id: its name in its kubeconfig and
@@ -285,16 +291,69 @@ fn context_info(
         .and_then(|c| c.cluster.as_ref())
         .and_then(|c| c.server.clone())
         .unwrap_or_default();
+    let user = ctx.and_then(|c| c.user.clone()).unwrap_or_default();
+    let auth = kc
+        .auth_infos
+        .iter()
+        .find(|a| a.name == user)
+        .and_then(|a| a.auth_info.as_ref());
+    let (login_command, login_plugin) = match auth {
+        Some(a) => (login_command(a), a.exec.is_some() || a.auth_provider.is_some()),
+        None => (String::new(), false),
+    };
     ContextInfo {
         name: id,
         context: name.to_string(),
         current: false,
         namespace: ctx.and_then(|c| c.namespace.clone()),
         cluster,
-        user: ctx.and_then(|c| c.user.clone()).unwrap_or_default(),
+        user,
         server,
         file: file.display().to_string(),
         source: source.display().to_string(),
+        login_command,
+        login_plugin,
+    }
+}
+
+/// The command line logging in as `auth` runs (`""`: none), as it is
+/// shown before it may run: the exec plugin's, or the gcp auth provider's.
+pub fn login_command(auth: &kube::config::AuthInfo) -> String {
+    let (command, args) = if let Some(exec) = &auth.exec {
+        (
+            exec.command.clone().unwrap_or_default(),
+            exec.args.clone().unwrap_or_default(),
+        )
+    } else if let Some(p) = auth.auth_provider.as_ref().filter(|p| p.name == "gcp") {
+        let Some(path) = p.config.get("cmd-path") else {
+            return String::new();
+        };
+        let args = p
+            .config
+            .get("cmd-args")
+            .map(|a| a.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
+        (path.clone(), args)
+    } else {
+        return String::new();
+    };
+    std::iter::once(command)
+        .chain(args)
+        .map(|a| shell_word(&a))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `word` quoted for a shell if it needs it, so the command shown is exact.
+fn shell_word(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=,@%+".contains(c));
+    if plain {
+        word.to_string()
+    } else {
+        format!("'{}'", word.replace('\'', r"'\''"))
     }
 }
 

@@ -292,3 +292,65 @@ fn the_users_files_are_never_written() {
     let after: Vec<u64> = files.iter().map(|f| hash_file(f)).collect();
     assert_eq!(before, after);
 }
+
+#[test]
+fn contexts_say_what_logging_in_runs() {
+    let dir = TempDir::new();
+    let file = dir.write(
+        "eks.yaml",
+        r#"apiVersion: v1
+kind: Config
+clusters:
+- name: c
+  cluster: {server: "https://eks.example"}
+users:
+- name: aws
+  user:
+    exec:
+      apiVersion: client.authentication.k8s.io/v1beta1
+      command: aws
+      args: [eks, get-token, --cluster-name, "my cluster"]
+- name: gke
+  user:
+    auth-provider:
+      name: gcp
+      config: {cmd-path: /usr/bin/gcloud, cmd-args: config config-helper --format=json}
+- name: oidc
+  user:
+    auth-provider: {name: oidc, config: {}}
+- name: plain
+  user: {token: t}
+contexts:
+- name: eks
+  context: {cluster: c, user: aws}
+- name: gke
+  context: {cluster: c, user: gke}
+- name: oidc
+  context: {cluster: c, user: oidc}
+- name: plain
+  context: {cluster: c, user: plain}
+"#,
+    );
+    let c = load_catalog(&CatalogInput {
+        extra: vec![file],
+        ..Default::default()
+    });
+    let eks = c.find("eks").unwrap();
+    assert_eq!(
+        eks.login_command,
+        "aws eks get-token --cluster-name 'my cluster'"
+    );
+    assert!(eks.login_plugin);
+    let gke = c.find("gke").unwrap();
+    assert_eq!(
+        gke.login_command,
+        "/usr/bin/gcloud config config-helper --format=json"
+    );
+    assert!(gke.login_plugin);
+    let oidc = c.find("oidc").unwrap();
+    assert_eq!(oidc.login_command, "");
+    assert!(oidc.login_plugin);
+    let plain = c.find("plain").unwrap();
+    assert_eq!(plain.login_command, "");
+    assert!(!plain.login_plugin);
+}
