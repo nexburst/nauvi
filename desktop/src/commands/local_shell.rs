@@ -2,14 +2,19 @@
 //! Output arrives as `exec-output` events and `exec-closed` when the shell
 //! exits, like pod terminals.
 
+use crate::catalog::Approved;
 use crate::commands::exec::{ExecClosed, ExecOutput};
 use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::SettingsStore;
 use crate::state::{next_session, Cluster};
 use kubeloupe::catalog::expand_home;
-use kubeloupe::{shell_kubeconfig, shell_kubeconfig_env_for, TempKubeconfig};
+use kubeloupe::{
+    flat_shell_kubeconfig, shell_kubeconfig, shell_kubeconfig_env_for, ShellKubeconfig,
+    TempKubeconfig,
+};
 use serde::Serialize;
 use specta::Type;
+use std::ffi::OsString;
 use std::sync::Arc;
 use tauri::State;
 
@@ -24,7 +29,7 @@ pub(crate) struct LocalShellStarted {
 
 /// Start the user's shell on this machine with `KUBECONFIG` pointing at a
 /// temp kubeconfig that selects the app's context and `namespace` (`null`:
-/// the context's own), followed by the kubeconfig the context comes from.
+/// the context's own) (see [`shell_kubeconfig_for`]).
 /// It starts in the cluster's working directory from its settings (#78),
 /// else the home directory. The user's kubeconfig files are not changed.
 #[tauri::command]
@@ -36,14 +41,8 @@ pub(crate) async fn cmd_local_shell_start(
     cols: u16,
     rows: u16,
 ) -> Result<LocalShellStarted, String> {
-    let target = cluster.target()?;
-    let kubeconfig = match &target.kubeconfig {
-        Some(file) => kube::config::Kubeconfig::read_from(file),
-        None => kube::config::Kubeconfig::read(),
-    }
-    .map_err(|e| format!("cannot read the kubeconfig: {e}"))?;
-    let generated = shell_kubeconfig(&kubeconfig, Some(&target.context), namespace.as_deref())
-        .map_err(|e| e.to_string())?;
+    let approved = cluster.target()?;
+    let target = &approved.target;
     let cwd = settings
         .get()
         .contexts
@@ -62,11 +61,8 @@ pub(crate) async fn cmd_local_shell_start(
         }
         spec.cwd = Some(dir);
     }
-    let temp = TempKubeconfig::create(&generated.yaml).map_err(|e| format!("{e:#}"))?;
-    spec.env.push((
-        "KUBECONFIG".into(),
-        shell_kubeconfig_env_for(temp.path(), target.kubeconfig.as_deref()),
-    ));
+    let (generated, temp, env) = shell_kubeconfig_for(&approved, namespace.as_deref())?;
+    spec.env.push(("KUBECONFIG".into(), env));
 
     let session = next_session("local");
     let (out_app, out_session) = (cluster.emitter(), session.clone());
@@ -89,6 +85,33 @@ pub(crate) async fn cmd_local_shell_start(
         context: generated.context,
         namespace: generated.namespace,
     })
+}
+
+/// The temp kubeconfig of a shell at `approved` with `namespace`, and the
+/// shell's `KUBECONFIG`. For the default kubeconfig: a file selecting the
+/// context and namespace, then the user's files. For an added kubeconfig:
+/// only a flattened copy of the context as it was read when its login
+/// command was checked, never the added file, so editing that file later
+/// cannot make kubectl in the shell run another command (#242).
+pub(crate) fn shell_kubeconfig_for(
+    approved: &Approved,
+    namespace: Option<&str>,
+) -> Result<(ShellKubeconfig, TempKubeconfig, OsString), String> {
+    let generated = match approved.flat()? {
+        Some(flat) => flat_shell_kubeconfig(&flat, namespace),
+        None => {
+            let kubeconfig = kube::config::Kubeconfig::read()
+                .map_err(|e| format!("cannot read the kubeconfig: {e}"))?;
+            shell_kubeconfig(&kubeconfig, Some(&approved.target.context), namespace)
+        }
+    }
+    .map_err(|e| format!("{e:#}"))?;
+    let temp = TempKubeconfig::create(&generated.yaml).map_err(|e| format!("{e:#}"))?;
+    let env = match approved.kubeconfig {
+        Some(_) => temp.path().as_os_str().to_owned(),
+        None => shell_kubeconfig_env_for(temp.path(), None),
+    };
+    Ok((generated, temp, env))
 }
 
 #[tauri::command]

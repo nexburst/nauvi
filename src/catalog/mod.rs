@@ -13,9 +13,11 @@
 
 mod check;
 mod files;
+mod flat;
 
 pub use check::*;
 pub use files::*;
+pub use flat::*;
 
 use anyhow::{anyhow, Result};
 use kube::config::Kubeconfig;

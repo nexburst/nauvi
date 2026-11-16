@@ -205,7 +205,7 @@ export const commands = {
 	/**
 	 *  Start the user's shell on this machine with `KUBECONFIG` pointing at a
 	 *  temp kubeconfig that selects the app's context and `namespace` (`null`:
-	 *  the context's own), followed by the kubeconfig the context comes from.
+	 *  the context's own) (see [`shell_kubeconfig_for`]).
 	 *  It starts in the cluster's working directory from its settings (#78),
 	 *  else the home directory. The user's kubeconfig files are not changed.
 	 */

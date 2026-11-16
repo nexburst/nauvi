@@ -85,6 +85,8 @@
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import "@xterm/xterm/css/xterm.css";
+  import { openUrl } from "@tauri-apps/plugin-opener";
+  import { webLink } from "../terminalLinks";
   import { events } from "../bindings";
   import { thisWindow } from "../window";
   import { settings } from "../stores/settings.svelte";
@@ -145,6 +147,22 @@
       cursorBlink: true,
       fontSize,
       theme: { background: "#0d1013" },
+      // OSC 8 links from the output (#245): only http(s), in the browser.
+      // xterm already drops other schemes (`allowNonHttpProtocols` is off);
+      // `webLink` checks again. The tooltip shows where a link goes, since
+      // its text can say anything.
+      linkHandler: {
+        activate: (_event, uri) => {
+          const url = webLink(uri);
+          if (url) openUrl(url).catch(() => {});
+        },
+        hover: (_event, uri) => {
+          host.title = webLink(uri) ?? "";
+        },
+        leave: () => {
+          host.title = "";
+        },
+      },
     });
     const f = new FitAddon();
     t.loadAddon(f);

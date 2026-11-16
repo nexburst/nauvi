@@ -1,13 +1,16 @@
 // Helpers: appSession, waitLive (lib/qa.mjs), setTheme (lib/panels.mjs),
-// resizeWindow (lib/window.mjs).
+// resizeWindow (lib/window.mjs), terminal (lib/terminal.mjs).
 // Checks (#201): an added kubeconfig whose user logs in with an exec plugin
 // (a stand-in script that counts its runs and prints a ServiceAccount token
 // with an expirationTimestamp) is not run when it is added: the catalog
 // shows the exact command and asks. "Don't run" leaves it not run and says
 // so; Check asks again; "Allow and check" runs it once and connects.
 // Opening the context in the window reuses that credential (still one run),
-// and lists pods through it. Screenshots of the prompt (light, dark) and of
-// the refused and connected rows at 1280x800.
+// and lists pods through it. A file swapped after Allow (#242): kubectl in a
+// local shell still runs the allowed command (the shell gets a copy, never
+// the file), and Check asks about the new one. Screenshots of the prompt
+// (light, dark), of the refused and connected rows and of the swap at
+// 1280x800.
 // #243: a second plugin that fails, with a secret in its kubeconfig `env`
 // and a token on stdout: the row shows its exit code and stderr, and
 // neither secret appears in the page or the app log.
@@ -22,6 +25,7 @@ import { By } from "selenium-webdriver";
 import { ARTIFACTS, CONTEXT } from "../lib/app.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { terminal } from "../lib/terminal.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
@@ -32,6 +36,8 @@ const BINDING = `qa-exec-201-${suffix}`;
 const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-exec-"));
 const plugin = join(dir, "count-and-login.sh");
 const runsFile = join(dir, "runs");
+const swappedPlugin = join(dir, "swapped.sh");
+const swappedRuns = join(dir, "swapped-runs");
 const file = join(dir, "eks-like.yaml");
 
 const kubectl = (args) => execFileSync("kubectl", ["--context", CONTEXT, ...args], { encoding: "utf8" });
@@ -50,13 +56,15 @@ writeFileSync(
     `printf '%s\\n' '{"apiVersion":"client.authentication.k8s.io/v1","kind":"ExecCredential","status":{"token":"${token}","expirationTimestamp":"${expires}"}}'\n`,
 );
 chmodSync(plugin, 0o755);
-const runs = () => {
+const count = (path) => {
   try {
-    return readFileSync(runsFile, "utf8").split("\n").filter(Boolean).length;
+    return readFileSync(path, "utf8").split("\n").filter(Boolean).length;
   } catch {
     return 0;
   }
 };
+const runs = () => count(runsFile);
+const swappedRunCount = () => count(swappedRuns);
 
 // The test cluster (server and CA) with a user that logs in with the plugin.
 const real = JSON.parse(kubectl(["config", "view", "--minify", "--flatten", "-o", "json"]));
@@ -83,6 +91,7 @@ const kubeconfig = {
 };
 writeFileSync(file, JSON.stringify(kubeconfig, null, 2), { mode: 0o600 });
 const COMMAND = `env QA_PROFILE='team a' ${plugin} --cluster-name qa`;
+const SWAPPED_COMMAND = `env QA_PROFILE='team a' ${swappedPlugin} --cluster-name qa`;
 
 // #243: a plugin that prints a token, then fails, with a secret env value.
 const FAIL_ID = "qa-exec-243";
@@ -228,13 +237,57 @@ describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () 
     await app.shot("exec-pods-light");
   });
 
+  it("a file swapped after Allow runs nothing new in a local shell or a Check (#242)", T, async () => {
+    const { app } = s;
+    await app.palette("local term", "New local terminal");
+    const term = terminal(app);
+    await term.waitFor(`kubectl uses context ${ID}`);
+    await term.waitForPrompt();
+    const before = runs();
+    // Same context, another login command (it would work too).
+    writeFileSync(swappedPlugin, `#!/bin/sh\necho run >> '${swappedRuns}'\nexec '${plugin}' "$@"\n`);
+    chmodSync(swappedPlugin, 0o755);
+    const swapped = structuredClone(kubeconfig);
+    swapped.users[0].user.exec.command = swappedPlugin;
+    writeFileSync(file, JSON.stringify(swapped, null, 2), { mode: 0o600 });
+
+    const env = await term.run("echo $KUBECONFIG");
+    console.log(`shell KUBECONFIG: ${env}`);
+    assert.ok(!env.includes(file), "the shell never reads the added file");
+    assert.match(await term.run("kubectl get ns demo -o name"), /^namespace\/demo$/);
+    assert.equal(swappedRunCount(), 0, "kubectl did not run the swapped command");
+    assert.ok(runs() > before, "kubectl ran the allowed command");
+    await app.shot("exec-swapped-shell-light");
+
+    // The catalog asks about the new command instead of running it.
+    await click(app, 'button[aria-label="Cluster catalog"]');
+    await app.find(By.css('[data-testid="catalog"]'));
+    // Connected: Check is in the row's More menu.
+    await click(app, `${row(ID)} button[aria-label=${JSON.stringify(`More actions for ${ID}`)}]`);
+    await app.find(By.css('[role="menu"]'));
+    assert.ok(await clickText(app, '[role="menu"]', "Check connection"));
+    await app.find(By.css(PROMPT));
+    const shown = await app.js(`return document.querySelector('[data-testid="exec-command"]').textContent`);
+    assert.equal(shown, SWAPPED_COMMAND, "the swapped command is asked about");
+    await app.shot("exec-swapped-prompt-light");
+    assert.ok(await clickText(app, PROMPT, "Don't run"));
+    await app.waitFor(async () => (await statusOf(app, ID)).startsWith("Not allowed"), {
+      message: `${ID} not allowed after the swap`,
+    });
+    assert.equal(swappedRunCount(), 0, "the swapped command never ran");
+    await app.shot("exec-swapped-refused-light");
+  });
+
   it("the answer is kept across a restart", T, async () => {
     const { app } = s;
     await app.restart();
     await app.find(By.css("nav"));
     const saved = JSON.parse(readFileSync(join(app.profile.configDir, "exec-approvals.json"), "utf8"));
     console.log(`approvals: ${JSON.stringify(saved)}`);
-    assert.deepEqual(saved.answers, [{ source: file, command: COMMAND, allowed: true }]);
+    assert.deepEqual(saved.answers, [
+      { source: file, command: COMMAND, allowed: true },
+      { source: file, command: SWAPPED_COMMAND, allowed: false },
+    ]);
   });
 
   it("a failing plugin shows its stderr, not its env or stdout", T, async () => {

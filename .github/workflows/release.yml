@@ -201,8 +201,11 @@ jobs:
         run: npm ci
         working-directory: desktop/ui-src
 
+      # An exact version (#245): this job holds the signing key and a
+      # `contents: write` token, so it must not pick up a new release of the
+      # CLI on its own. Bump it on purpose, next to the `tauri` crate.
       - name: Install the Tauri CLI
-        run: cargo install tauri-cli --version "^2" --locked
+        run: cargo install tauri-cli --version "=2.12.4" --locked
 
       # build.rs writes desktop/icons/icon.png at build time, but the bundler
       # also needs .ico/.icns/sized PNGs, so extract the embedded icon and
