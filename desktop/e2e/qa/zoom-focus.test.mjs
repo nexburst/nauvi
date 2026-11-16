@@ -111,15 +111,24 @@ describe("zoom, terminal font size and focus", { timeout: 15 * 60_000 }, () => {
       await press(app, Key.ARROW_DOWN);
     }
     assert.equal(await focused(), "Shell");
+    // Record what the page sends to the shell: the IPC calls themselves.
+    await app.js(`
+      const ipc = window.__TAURI_INTERNALS__;
+      const orig = ipc.invoke.bind(ipc);
+      window.__qaInputs = [];
+      ipc.invoke = (cmd, args, opts) => {
+        if (cmd === "cmd_exec_input") window.__qaInputs.push(args?.data);
+        return orig(cmd, args, opts);
+      };`);
     await press(app, Key.ENTER);
     const term = terminal(app);
     await term.waitForPrompt();
-    // A stray Enter would run an empty command: a second prompt line.
     await sleep(1500);
-    const screen = await term.screen();
-    const prompts = screen.split("\n").filter((l) => /[$#%>]\s*$/.test(l));
-    console.log(`screen after Shell:\n${screen}`);
-    assert.equal(prompts.length, 1, `one prompt, no empty command: ${JSON.stringify(screen)}`);
+    const inputs = await app.js("return window.__qaInputs");
+    // busybox sh may draw its prompt again when the terminal is resized
+    // after start, so the screen is logged, the input is what is checked.
+    console.log(`input sent after Shell: ${JSON.stringify(inputs)}; screen:\n${await term.screen()}`);
+    assert.deepEqual(inputs, [], "the Enter that picked Shell was not sent to the shell");
     assert.equal(await term.run("hostname"), "shell");
   });
 
@@ -151,7 +160,9 @@ describe("zoom, terminal font size and focus", { timeout: 15 * 60_000 }, () => {
   it("Ctrl+= and Ctrl+0 work from inside the terminal", T, async () => {
     const { app } = s;
     // The terminal's textarea has the keys.
-    await terminal(app).type("", { enter: false });
+    await app.js(
+      `Array.from(document.querySelectorAll(".xterm-helper-textarea")).find((t) => t.closest(".xterm")?.offsetParent !== null)?.focus()`,
+    );
     assert.ok(await app.js(`return !!document.activeElement?.closest(".xterm")`), "the terminal has the focus");
     await ctrl(app, "=");
     await waitZoom(app, 110);
