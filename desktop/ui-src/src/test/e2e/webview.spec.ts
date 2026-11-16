@@ -105,8 +105,9 @@ test("the Refresh button names its keys", async ({ page }) => {
 });
 
 test("in a terminal, Ctrl+R and F5 go to the shell", async ({ page }) => {
-  test.skip(process.platform === "darwin", "⌘R refreshes on macOS; Ctrl+R is the shell's either way");
   const fake = await openApp(page);
+  const mac = await page.evaluate(() => /Mac/.test(navigator.platform));
+  test.skip(mac, "F5 is the shell's and ⌘R refreshes on macOS: checked by the unit tests");
   await page.keyboard.press("ControlOrMeta+Shift+j");
   await expect(page.getByTestId("dock").locator(".xterm")).toContainText("kubectl uses context");
   await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
