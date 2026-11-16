@@ -8,9 +8,13 @@ use tauri_specta::Builder;
 mod catalog;
 mod close_guard;
 mod commands;
+mod diagnostics;
 mod local_shell;
 mod log_streams;
+mod logging;
+mod menu;
 mod page_load;
+mod redact;
 mod settings;
 #[cfg(unix)]
 mod shell_env;
@@ -62,6 +66,9 @@ fn main() {
         // A reload starts the window's session over (#205).
         .on_page_load(page_load::on_page_load)
         .setup(move |app| {
+            // The app log and the panic hook (#208), then the Help menu.
+            logging::init(app.path().app_log_dir().ok());
+            menu::install(app.handle());
             builder.mount_events(app);
             let config_dir = app.path().app_config_dir().ok();
             let store = SettingsStore::open(config_dir.as_ref().map(|d| d.join("settings.json")));

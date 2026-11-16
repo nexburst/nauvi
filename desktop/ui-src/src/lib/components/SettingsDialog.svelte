@@ -18,6 +18,7 @@
     zoomReset,
   } from "../stores/settings.svelte";
   import HelmRepos from "./helm/HelmRepos.svelte";
+  import AboutSection from "./AboutSection.svelte";
   import { loadCharts } from "../stores/helmCharts.svelte";
   import { checkForUpdates, updates } from "../stores/updates.svelte";
   import { checkSummary } from "../updates";
@@ -297,6 +298,8 @@
         columns, are remembered too.
       </p>
     </fieldset>
+
+    <AboutSection />
   </div>
 </div>
 

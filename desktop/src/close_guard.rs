@@ -77,7 +77,7 @@ fn ask<R: Runtime>(app: &AppHandle<R>, label: String, quit: bool) {
         }
         let event = UnsavedCloseRequested { quit };
         if let Err(e) = event.emit_to(&app, &label) {
-            eprintln!("kubeloupe: could not ask {label} about its unsaved edits: {e}");
+            tracing::warn!("could not ask {label} about its unsaved edits: {e}");
         }
     });
 }
@@ -169,7 +169,7 @@ mod macos {
                 c"Q@:@".as_ptr(),
             );
             if !added.as_bool() {
-                eprintln!("kubeloupe: could not guard Quit against unsaved edits");
+                tracing::warn!("could not guard Quit against unsaved edits");
             }
         }
     }
