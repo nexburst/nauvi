@@ -193,15 +193,17 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     // not a kind's table are left out: the Overviews, Applications (checked
     // on its own below), Port Forwards and the Helm section.
     const labels = await app.js(
-      `document.querySelectorAll("nav details").forEach((d) => (d.open = true));
+      `const views = arguments[0];
+       document.querySelectorAll("nav details").forEach((d) => (d.open = true));
        let section = "";
        const all = [];
        for (const el of document.querySelectorAll("nav h4, nav button")) {
          if (el.tagName === "H4") { section = el.textContent.trim(); continue; }
          const label = el.childNodes[0]?.textContent.trim() ?? "";
-         if (label && section !== "Helm" && !VIEWS.includes(label)) all.push(label);
+         if (label && section !== "Helm" && !views.includes(label)) all.push(label);
        }
        return [...new Set(all)];`,
+      VIEWS,
     );
     console.log(`kinds: ${labels.length}: ${labels.join(", ")}`);
     assert.ok(labels.length >= 30, `only ${labels.length} kinds in the sidebar`);
