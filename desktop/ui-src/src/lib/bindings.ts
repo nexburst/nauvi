@@ -540,7 +540,12 @@ export type ActionId = "delete" | "forceDelete" | "scale" | "restart" | "cordon"
  *  Attach to a container's main process (`kubectl attach -it`).
  *  Interactive ([`crate::attach`]).
  */
-"attach";
+"attach" | 
+/**
+ *  Evict one pod through the Eviction API, so PodDisruptionBudgets
+ *  are respected ([`evict_pod`]).
+ */
+"evict";
 
 /**  An extra value the action needs before it can run. */
 export type ActionInput = 
