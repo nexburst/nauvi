@@ -8,10 +8,8 @@
     {
       "identifier": "opener:allow-open-url",
       "allow": [
-        { "url": "http://127.0.0.1:*" },
-        { "url": "http://localhost:*" },
-        { "url": "https://github.com/pedrosanzmtz/kubeloupe/releases" },
-        { "url": "https://github.com/pedrosanzmtz/kubeloupe/releases/*" }
+        { "url": "http://*" },
+        { "url": "https://*" }
       ],
       "deny": [{ "url": "*@*" }]
     }

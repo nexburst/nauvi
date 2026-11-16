@@ -115,6 +115,8 @@ export interface FakeApi {
   emitKubeconfigsChanged(): Promise<void>;
   /** Send `unsaved-close-requested`, as the backend does when closing (or, `quit`, quitting) meets unsaved edits. */
   emitUnsavedCloseRequested(quit?: boolean): Promise<void>;
+  /** Send `exec-output`: `data` printed by the shell of `session` (`exec-1` is the first). */
+  emitExecOutput(session: string, data: string): Promise<void>;
 }
 
 declare global {
@@ -214,6 +216,7 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       if (done) await events.podLogDone.emit({ streamId: sid });
     },
     emitUnsavedCloseRequested: (quit = false) => events.unsavedCloseRequested.emit({ quit }),
+    emitExecOutput: (session, data) => events.execOutput.emit({ session, stream: "stdout", data }),
   };
   window.__fake = api;
   return api;

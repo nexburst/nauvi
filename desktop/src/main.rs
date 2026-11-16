@@ -49,13 +49,14 @@ fn main() {
         // First: a second launch focuses the running app and exits (#202).
         .plugin(single_instance::plugin(&context.config().identifier))
         .manage(AppState::default())
-        // Opens forwarded URLs in the browser; the capability limits it to
-        // http://127.0.0.1 and http://localhost.
+        // Opens forwarded URLs, the release page and links in terminal output
+        // (#245) in the browser; the capability limits it to http(s) URLs
+        // without credentials.
         .plugin(tauri_plugin_opener::init())
         // In-app updates (#30): the check and the install run from
-        // `commands/updater.rs`; `process` restarts into the new version.
+        // `commands/updater.rs`, which restarts with `request_restart`. The
+        // webview gets no updater or process permission (#245).
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .invoke_handler(builder.invoke_handler())
         .setup(move |app| {
             builder.mount_events(app);
