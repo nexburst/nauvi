@@ -20,6 +20,9 @@ pub const MAX_LIST: u32 = 500;
 pub const DEFAULT_EVENTS: usize = 50;
 /// Most events one `events` call returns.
 pub const MAX_EVENTS: usize = 200;
+/// Most events one `events` call reads from the API server (it shows the
+/// newest of them).
+pub const MAX_EVENTS_READ: usize = 2000;
 /// Most characters of one event message.
 pub const MAX_EVENT_MESSAGE: usize = 500;
 /// Largest manifest `apply` accepts.

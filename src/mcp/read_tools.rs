@@ -4,6 +4,7 @@
 
 use super::limits::{self, clamp, shorten};
 use super::redact::{redact_annotations, safe_value};
+use crate::bounded_list::list_bounded;
 use crate::resources::{self, align_columns};
 use crate::{
     age_of_secs, get_node_metrics, get_pod_metrics, object_namespace, parse_log_target,
@@ -187,16 +188,21 @@ pub async fn logs(client: &Client, a: &LogsArgs) -> Result<String> {
         .unwrap_or_else(|| client.default_namespace().to_string());
     let tail = clamp(a.tail, limits::DEFAULT_TAIL, limits::MAX_TAIL);
     let api: Api<Pod> = Api::namespaced(client.clone(), &ns);
-    let (pods, label) = match parse_log_target(&a.target)? {
-        LogTarget::Pod(name) => (vec![api.get(&name).await?], None),
+    let (pods, label, more) = match parse_log_target(&a.target)? {
+        LogTarget::Pod(name) => (vec![api.get(&name).await?], None, false),
         LogTarget::Workload(kind, name) => {
             let selector = workload_selector(client, kind, &ns, &name).await?;
-            let mut pods = api
-                .list(&ListParams::default().labels(&selector))
-                .await?
-                .items;
+            // The API server lists a namespace's pods by name: the first
+            // MAX_LOG_PODS listed are the first by name.
+            let read = list_bounded(
+                &api,
+                &ListParams::default().labels(&selector),
+                limits::MAX_LOG_PODS,
+            )
+            .await?;
+            let mut pods = read.items;
             pods.sort_by(|a, b| a.metadata.name.cmp(&b.metadata.name));
-            (pods, Some(format!("{}/{name}", kind.as_str())))
+            (pods, Some(format!("{}/{name}", kind.as_str())), read.more)
         }
     };
     if pods.is_empty() {
@@ -212,9 +218,9 @@ pub async fn logs(client: &Client, a: &LogsArgs) -> Result<String> {
     let max_lines = limits::MAX_LINES / shown;
     let max_bytes = limits::MAX_BYTES / shown;
     let mut out = String::new();
-    if total > shown {
+    if more {
         out.push_str(&format!(
-            "[{} has {total} pods: showing the logs of the first {shown}]\n",
+            "[{} has more than {shown} pods: showing the logs of the first {shown}]\n",
             label.as_deref().unwrap_or_default()
         ));
     }
@@ -356,9 +362,23 @@ pub async fn events(client: &Client, a: &EventsArgs) -> Result<String> {
     if !fields.is_empty() {
         lp = lp.fields(&fields.join(","));
     }
-    let items = api.list(&lp).await?.items;
+    // The newest come from sorting, so more than `limit` are read, but at
+    // most MAX_EVENTS_READ: never a whole cluster's.
+    let read = list_bounded(&api, &lp, limits::MAX_EVENTS_READ).await?;
     let limit = clamp(a.limit, limits::DEFAULT_EVENTS, limits::MAX_EVENTS);
-    Ok(events_table(items, limit, namespace.is_none()))
+    let mut out = events_table(read.items, limit, namespace.is_none());
+    if read.more {
+        out.push_str(&events_read_note());
+    }
+    Ok(out)
+}
+
+/// The note under an events table when more events matched than were read.
+fn events_read_note() -> String {
+    format!(
+        "[more than {max} events match: these are the newest of the first {max} the API server listed. Narrow them with namespace, kind and name, or warnings_only.]\n",
+        max = limits::MAX_EVENTS_READ
+    )
 }
 
 // ---------------------------------------------------------------------------

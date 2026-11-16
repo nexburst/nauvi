@@ -824,10 +824,20 @@ pub async fn print_workload_logs(
 
     let selector = workload_selector(client, kind, namespace, name).await?;
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
-    let mut list = pods
-        .list(&ListParams::default().labels(&selector))
-        .await?
-        .items;
+    // At most one pod per stream is read (#311); every pod has a container.
+    let read = crate::bounded_list::list_bounded(
+        &pods,
+        &ListParams::default().labels(&selector),
+        MAX_WORKLOAD_STREAMS,
+    )
+    .await?;
+    if read.more {
+        eprintln!(
+            "kubeloupe: {}/{name} has more than {MAX_WORKLOAD_STREAMS} pods: reading the first {MAX_WORKLOAD_STREAMS}",
+            kind.as_str()
+        );
+    }
+    let mut list = read.items;
     list.sort_by(|a, b| a.metadata.name.cmp(&b.metadata.name));
     let views: Vec<PodView> = list
         .iter()

@@ -31,6 +31,84 @@ pub const NO_EXPIRY_TTL: Duration = Duration::from_secs(5 * 60);
 /// A credential is refreshed this long before it expires, like kube does.
 const EXPIRY_MARGIN: Duration = Duration::from_secs(60);
 
+/// How long a plugin may run before it is stopped, by default: long
+/// enough for a login in the browser (`kubelogin`, `aws sso login`).
+pub const DEFAULT_PLUGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+
+/// The plugin timeout of `kubeloupe mcp`: nobody is there to log in.
+pub const MCP_PLUGIN_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Overrides the timeout, in whole seconds (for tests of the real app).
+pub const TIMEOUT_ENV: &str = "KUBELOUPE_EXEC_TIMEOUT_SECS";
+
+/// The timeout set by [`set_plugin_timeout`], in ms (0: not set).
+static TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
+
+/// Set how long a plugin may run in this process (default:
+/// [`DEFAULT_PLUGIN_TIMEOUT`]). [`TIMEOUT_ENV`] still wins.
+pub fn set_plugin_timeout(timeout: Duration) {
+    let ms = u64::try_from(timeout.as_millis())
+        .unwrap_or(u64::MAX)
+        .max(1);
+    TIMEOUT_MS.store(ms, Ordering::Relaxed);
+}
+
+/// How long a plugin may run: [`TIMEOUT_ENV`], else what
+/// [`set_plugin_timeout`] set, else [`DEFAULT_PLUGIN_TIMEOUT`].
+pub fn plugin_timeout() -> Duration {
+    if let Some(secs) = std::env::var(TIMEOUT_ENV)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|s| *s > 0)
+    {
+        return Duration::from_secs(secs);
+    }
+    match TIMEOUT_MS.load(Ordering::Relaxed) {
+        0 => DEFAULT_PLUGIN_TIMEOUT,
+        ms => Duration::from_millis(ms),
+    }
+}
+
+/// A plugin ran longer than [`plugin_timeout`] and was killed. It reaches
+/// callers inside `AuthError::AuthExecStart`, as an `io::Error` of kind
+/// `TimedOut`; [`timed_out`] finds it.
+#[derive(Debug)]
+pub struct PluginTimedOut {
+    pub after: Duration,
+}
+
+impl std::fmt::Display for PluginTimedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "the credential plugin did not finish within {}, so kubeloupe stopped it",
+            human_duration(self.after)
+        )
+    }
+}
+
+impl std::error::Error for PluginTimedOut {}
+
+/// "45 s", "5 min", "1 min 30 s" (at least "1 s").
+pub fn human_duration(d: Duration) -> String {
+    let secs = d.as_secs().max(1);
+    match (secs / 60, secs % 60) {
+        (0, s) => format!("{s} s"),
+        (m, 0) => format!("{m} min"),
+        (m, s) => format!("{m} min {s} s"),
+    }
+}
+
+/// The timeout in `err`, if its plugin was stopped for running too long.
+pub fn timed_out(err: &AuthError) -> Option<&PluginTimedOut> {
+    match err {
+        AuthError::AuthExecStart(io) if io.kind() == std::io::ErrorKind::TimedOut => {
+            io.get_ref()?.downcast_ref::<PluginTimedOut>()
+        }
+        _ => None,
+    }
+}
+
 /// What an exec plugin returned.
 #[derive(Clone, Debug)]
 pub struct ExecCredential {
@@ -134,6 +212,11 @@ struct Status {
 /// Run the plugin the way kube-client does (same environment, stdin and
 /// stderr handling, `KUBERNETES_EXEC_INFO`) and read its credential.
 fn run_plugin(exec: &ExecConfig) -> Result<ExecCredential, AuthError> {
+    run_plugin_within(exec, plugin_timeout())
+}
+
+/// [`run_plugin`], killed after `timeout`.
+fn run_plugin_within(exec: &ExecConfig, timeout: Duration) -> Result<ExecCredential, AuthError> {
     let Some(command) = &exec.command else {
         return Err(AuthError::MissingCommand);
     };
@@ -175,7 +258,7 @@ fn run_plugin(exec: &ExecConfig) -> Result<ExecCredential, AuthError> {
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     RUNS.fetch_add(1, Ordering::Relaxed);
-    let out = cmd.output().map_err(AuthError::AuthExecStart)?;
+    let out = output_within(&mut cmd, interactive, timeout)?;
     if !out.status.success() {
         // kube's text for this error prints `out` with `{:?}`, and many
         // callers print errors with `{e}`: the error itself never holds the
@@ -220,6 +303,78 @@ fn run_plugin(exec: &ExecConfig) -> Result<ExecCredential, AuthError> {
         certificate,
         expires,
         reuse_until,
+    })
+}
+
+/// `cmd.output()`, except that the child is killed once it has run for
+/// `timeout`.
+///
+/// stdout (and stderr, unless `interactive` inherits it) is read on its
+/// own thread, so a chatty plugin cannot block on a full pipe. After a
+/// kill the readers are not waited for: a grandchild (a script's `sleep`)
+/// may keep the pipes open, and its reader ends when it does.
+fn output_within(
+    cmd: &mut std::process::Command,
+    interactive: bool,
+    timeout: Duration,
+) -> Result<std::process::Output, AuthError> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::mpsc;
+    use std::time::Instant;
+    cmd.stdout(Stdio::piped());
+    if !interactive {
+        cmd.stderr(Stdio::piped());
+    }
+    let started = Instant::now();
+    let mut child = cmd.spawn().map_err(AuthError::AuthExecStart)?;
+    // A piped stdin is closed at once: the plugin reads an empty input.
+    drop(child.stdin.take());
+    fn reader(pipe: Option<impl Read + Send + 'static>) -> mpsc::Receiver<Vec<u8>> {
+        let (tx, rx) = mpsc::channel();
+        match pipe {
+            Some(mut pipe) => {
+                std::thread::spawn(move || {
+                    let mut buf = Vec::new();
+                    let _ = pipe.read_to_end(&mut buf);
+                    let _ = tx.send(buf);
+                });
+            }
+            None => {
+                let _ = tx.send(Vec::new());
+            }
+        }
+        rx
+    }
+    let stdout = reader(child.stdout.take());
+    let stderr = reader(child.stderr.take());
+    let deadline = started + timeout;
+    let status = loop {
+        match child.try_wait().map_err(AuthError::AuthExecStart)? {
+            Some(status) => break status,
+            None if Instant::now() >= deadline => {
+                let _ = child.kill();
+                let _ = child.wait();
+                tracing::warn!(
+                    timeout_secs = timeout.as_secs(),
+                    "the credential plugin did not finish in time; stopped it"
+                );
+                return Err(AuthError::AuthExecStart(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    PluginTimedOut { after: timeout },
+                )));
+            }
+            None => std::thread::sleep(Duration::from_millis(20)),
+        }
+    };
+    // It exited: its pipes close unless a grandchild still holds them, so
+    // the rest of the output is waited for only briefly.
+    let collect =
+        |rx: mpsc::Receiver<Vec<u8>>| rx.recv_timeout(Duration::from_secs(2)).unwrap_or_default();
+    Ok(std::process::Output {
+        status,
+        stdout: collect(stdout),
+        stderr: collect(stderr),
     })
 }
 
@@ -459,6 +614,66 @@ mod tests {
             "{chain}"
         );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A plugin that waits (for a browser login, say) is killed at the
+    /// timeout, even when a grandchild holds its stdout open.
+    #[test]
+    fn a_slow_plugin_is_killed_at_the_timeout() {
+        let dir = temp_dir("slow");
+        let script = dir.join("slow.sh");
+        let pid_file = dir.join("pid");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\necho $$ > '{}'\necho 'Waiting for the browser login' >&2\nsleep 30\necho '{{}}'\n",
+                pid_file.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let exec = exec_for(&script, "slow");
+        let started = std::time::Instant::now();
+        let err = run_plugin_within(&exec, Duration::from_millis(700)).unwrap_err();
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(5), "returned after {took:?}");
+        let t = timed_out(&err).expect("a timeout");
+        assert_eq!(t.after, Duration::from_millis(700));
+        assert_eq!(
+            err_text(&err),
+            "the credential plugin did not finish within 1 s, so kubeloupe stopped it"
+        );
+        // The plugin itself is gone (killed and reaped).
+        let pid: i32 = std::fs::read_to_string(&pid_file)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        // SAFETY: signal 0 only checks that the process exists.
+        let alive = unsafe { libc::kill(pid, 0) } == 0;
+        assert!(!alive, "plugin {pid} still runs");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn err_text(err: &AuthError) -> String {
+        crate::errors::chain_text(err)
+    }
+
+    #[test]
+    fn a_fast_plugin_finishes_within_the_timeout() {
+        let dir = temp_dir("fast");
+        let (script, _) = plugin(&dir, "");
+        let c = run_plugin_within(&exec_for(&script, "fast"), Duration::from_secs(10)).unwrap();
+        assert_eq!(c.token.as_deref(), Some("t-fast"));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn durations_read_plainly() {
+        assert_eq!(human_duration(Duration::from_millis(300)), "1 s");
+        assert_eq!(human_duration(Duration::from_secs(45)), "45 s");
+        assert_eq!(human_duration(Duration::from_secs(300)), "5 min");
+        assert_eq!(human_duration(Duration::from_secs(90)), "1 min 30 s");
     }
 
     #[test]

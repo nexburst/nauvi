@@ -38,6 +38,8 @@ pub struct McpOptions {
 
 /// Serve MCP on stdin/stdout until the client closes stdin.
 pub async fn serve_stdio(opts: McpOptions) -> Result<()> {
+    // A plugin waiting for a login nobody will do must not hang a tool call.
+    crate::exec_credentials::set_plugin_timeout(crate::exec_credentials::MCP_PLUGIN_TIMEOUT);
     let service = KubeloupeMcp::new(opts)
         .serve(rmcp::transport::stdio())
         .await?;

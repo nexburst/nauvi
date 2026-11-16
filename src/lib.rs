@@ -27,6 +27,7 @@ pub mod actions;
 pub mod applications;
 pub mod attach;
 pub mod auth;
+pub mod bounded_list;
 pub mod catalog;
 pub mod debug;
 pub mod errors;
