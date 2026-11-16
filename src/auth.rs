@@ -146,6 +146,33 @@ pub fn not_found_message(cmd: &str, ctx: &str, path: &str) -> String {
 
 /// The message for an exec plugin that exited with an error, with its stderr.
 pub fn exec_failed_message(cmd: &str, ctx: &str, status: ExitStatus, stderr: &[u8]) -> String {
+    format!(
+        "{LOGIN_FAILED}{ctx}` failed: {}",
+        exec_exit_text(&format!("`{cmd}`"), status, stderr)
+    )
+}
+
+/// What a plugin that exited with an error said, for error chains that
+/// don't know the context (a token refresh during a watch): its exit code
+/// and stderr, never its environment or stdout.
+pub fn exec_run_text(err: &AuthError) -> Option<String> {
+    match err {
+        AuthError::AuthExecRun { status, out, .. } => Some(exec_exit_text(
+            "the credential plugin",
+            *status,
+            &out.stderr,
+        )),
+        _ => None,
+    }
+}
+
+/// "`who` exited with exit code N: stderr".
+///
+/// kube's own text for this error prints the command with `{:?}`, which on
+/// Unix includes the environment it set (tokens from the kubeconfig's
+/// `env`), and the plugin's stdout (possibly a credential): neither may
+/// reach a message.
+fn exec_exit_text(who: &str, status: ExitStatus, stderr: &[u8]) -> String {
     let stderr = String::from_utf8_lossy(stderr);
     let stderr = stderr.trim();
     let output = if stderr.is_empty() {
@@ -157,7 +184,7 @@ pub fn exec_failed_message(cmd: &str, ctx: &str, status: ExitStatus, stderr: &[u
         Some(code) => format!("exit code {code}"),
         None => status.to_string(),
     };
-    format!("{LOGIN_FAILED}{ctx}` failed: `{cmd}` exited with {status}: {output}")
+    format!("{who} exited with {status}: {output}")
 }
 
 /// The first error in the chain of type `T`.

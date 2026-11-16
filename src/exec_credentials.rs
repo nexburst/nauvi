@@ -178,7 +178,12 @@ fn run_plugin(exec: &ExecConfig) -> Result<ExecCredential, AuthError> {
     let out = cmd.output().map_err(AuthError::AuthExecStart)?;
     if !out.status.success() {
         return Err(AuthError::AuthExecRun {
-            cmd: format!("{cmd:?}"),
+            // Program and args only: `{cmd:?}` would include the env.
+            cmd: std::iter::once(cmd.get_program())
+                .chain(cmd.get_args())
+                .map(|a| a.to_string_lossy())
+                .collect::<Vec<_>>()
+                .join(" "),
             status: out.status,
             out,
         });
@@ -374,21 +379,27 @@ mod tests {
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\necho run >> '{}'\necho 'Run aws sso login' >&2\nexit 255\n",
+                "#!/bin/sh\necho run >> '{}'\necho '{{\"token\":\"s3cret-stdout\"}}'\necho 'Run aws sso login' >&2\nexit 255\n",
                 count.display()
             ),
         )
         .unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let exec = exec_for(&script, "fail");
+        let exec = exec_for(&script, "fail-s3cret-env");
         let err = credential(&exec).await.unwrap_err();
         assert!(matches!(err, AuthError::AuthExecRun { .. }), "{err:?}");
-        if let AuthError::AuthExecRun { out, .. } = &err {
+        if let AuthError::AuthExecRun { out, cmd, .. } = &err {
             assert_eq!(
                 String::from_utf8_lossy(&out.stderr).trim(),
                 "Run aws sso login"
             );
+            assert_eq!(cmd, &script.display().to_string());
         }
+        // Neither the env value nor the plugin's stdout reaches a message.
+        let wrapped = kube::Error::Auth(err);
+        let text = crate::errors::chain_text(&wrapped);
+        assert!(!text.contains("s3cret"), "{text}");
+        assert!(text.ends_with("exit code 255: Run aws sso login"), "{text}");
         credential(&exec).await.unwrap_err();
         assert_eq!(runs(&count), 2);
 

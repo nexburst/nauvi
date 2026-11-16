@@ -60,9 +60,13 @@ pub fn chain_text(err: &(dyn StdError + 'static)) -> String {
             Some(kube::Error::Api(r)) => Some(r),
             _ => e.downcast_ref::<ErrorResponse>(),
         };
-        let text = match api {
-            Some(r) => response_text(r),
-            None => own_text(e),
+        let exec_run = e
+            .downcast_ref::<kube::client::AuthError>()
+            .and_then(crate::auth::exec_run_text);
+        let text = match (api, exec_run) {
+            (Some(r), _) => response_text(r),
+            (None, Some(t)) => t,
+            (None, None) => own_text(e),
         };
         if !text.is_empty() && !parts.iter().any(|p| p.contains(&text)) {
             parts.push(text);
