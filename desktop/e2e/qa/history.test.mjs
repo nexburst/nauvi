@@ -66,8 +66,8 @@ describe("back/forward navigation", { timeout: 10 * 60_000 }, () => {
     assert.deepEqual(await arrows(app), { back: false, forward: false }, "nothing to go back to at start");
     await app.shot("dark-start");
 
-    await app.openDetail("ConfigMaps", ns, "hist-a");
-    await app.openDetail("ConfigMaps", ns, "hist-b");
+    await app.openDetail("Config Maps", ns, "hist-a");
+    await app.openDetail("Config Maps", ns, "hist-b");
     await pickNamespaces(app, [ns]);
     await app.waitFor(async () => (await namespaceLabel(app)) === ns, { message: `namespace ${ns}` });
     assert.equal((await arrows(app)).back, true);
@@ -78,9 +78,9 @@ describe("back/forward navigation", { timeout: 10 * 60_000 }, () => {
     });
     assert.match(await panelTitle(app), /hist-b/, "the object stays");
     await altArrow(app, Key.ARROW_LEFT);
-    await waitPlace(app, { table: "ConfigMaps", panel: "", message: "Alt+Left closes the panel (the sidebar click)" });
+    await waitPlace(app, { table: "Config Maps", panel: "", message: "Alt+Left closes the panel (the sidebar click)" });
     await altArrow(app, Key.ARROW_LEFT);
-    await waitPlace(app, { table: "ConfigMaps", panel: "hist-a", message: "Alt+Left back to hist-a" });
+    await waitPlace(app, { table: "Config Maps", panel: "hist-a", message: "Alt+Left back to hist-a" });
     assert.deepEqual(await arrows(app), { back: true, forward: true });
     await app.shot("dark-back-to-a");
 
@@ -126,8 +126,8 @@ describe("back/forward navigation", { timeout: 10 * 60_000 }, () => {
   it("back to a ConfigMap deleted since says it was deleted", T, async () => {
     const { app } = s;
     await setTheme(app, "dark");
-    await app.openDetail("ConfigMaps", ns, "hist-gone");
-    await app.openDetail("ConfigMaps", ns, "hist-a");
+    await app.openDetail("Config Maps", ns, "hist-gone");
+    await app.openDetail("Config Maps", ns, "hist-a");
     kubectl(["-n", ns, "delete", "configmap", "hist-gone", "--wait=true"]);
     // Back over the sidebar click to hist-gone.
     await altArrow(app, Key.ARROW_LEFT);
