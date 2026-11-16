@@ -12,8 +12,8 @@ pub(crate) use approvals::ExecAnswer;
 use approvals::{not_allowed_message, Approvals};
 use kube::config::Kubeconfig;
 use kubeloupe::catalog::{
-    context_login_command, default_kubeconfig_paths, expand_home, flatten_context, load_catalog,
-    sources_fingerprint, Catalog, CatalogInput,
+    context_local_files, context_login_command, default_kubeconfig_paths, expand_home,
+    flatten_context, load_catalog, sources_fingerprint, Catalog, CatalogInput,
 };
 use kubeloupe::errors::kubeconfig_error_text;
 use kubeloupe::{client_for_target, client_from_kubeconfig, ContextTarget};
@@ -197,6 +197,16 @@ impl Approved {
         match self.kubeconfig {
             Some(kc) => client_from_kubeconfig(kc, Some(&self.target.context), false).await,
             None => client_for_target(&self.target, false).await,
+        }
+    }
+
+    /// The local files outside the added file's folder that logging in
+    /// sends (#244), from the file as it was read for the check (`[]`: none,
+    /// or the default kubeconfig).
+    pub(crate) fn local_files(&self) -> Vec<String> {
+        match (&self.kubeconfig, &self.target.kubeconfig) {
+            (Some(kc), Some(file)) => context_local_files(kc, &self.target.context, file),
+            _ => vec![],
         }
     }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ExecCommand } from "../../bindings";
+  import { app } from "../../stores/app.svelte";
   import { answerPrompt } from "../../stores/catalog.svelte";
 
   /** Asks before an added kubeconfig's login commands run (#201): shows
@@ -7,6 +8,11 @@
   let { source, commands }: { source: string; commands: ExecCommand[] } = $props();
 
   const many = $derived(commands.length > 1);
+  /** The local files the contexts of `c` send besides running it (#244). */
+  function filesOf(c: ExecCommand): string[] {
+    const files = app.contexts.filter((x) => c.contexts.includes(x.name)).flatMap((x) => x.local_files);
+    return [...new Set(files)];
+  }
 
   function focus(node: HTMLElement) {
     node.focus();
@@ -22,6 +28,9 @@
       <li>
         <code data-testid="exec-command">{c.command}</code>
         <span class="muted used">Used by {c.contexts.join(", ")}</span>
+        {#if filesOf(c).length}
+          <span class="used files" data-testid="exec-local-files">Also sends local files: {filesOf(c).join(", ")}</span>
+        {/if}
       </li>
     {/each}
   </ul>
@@ -64,6 +73,9 @@
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+  }
+  .files {
+    overflow-wrap: anywhere;
   }
   code {
     display: block;

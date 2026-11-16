@@ -39,9 +39,12 @@ export const commands = {
 	cmdAnswerExecCommand: (source: string, command: string, allow: boolean, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_answer_exec_command", { source, command, allow }, options),
 	/**
 	 *  Log in to context `name`'s cluster and report whether it answers. Never
-	 *  prompts; gives up after 15 s.
+	 *  prompts; gives up after 15 s. `asked`: the user chose to check this
+	 *  context; otherwise (the catalog opening, Check all) an added file's
+	 *  context that sends local files from outside its folder is not checked
+	 *  (#244).
 	 */
-	cmdCheckContext: (name: string, options?: InvokeOptions) => __TAURI_INVOKE<ContextCheck>("cmd_check_context", { name }, options),
+	cmdCheckContext: (name: string, asked: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ContextCheck>("cmd_check_context", { name, asked }, options),
 	/**
 	 *  The login commands (exec plugins) of the added source `source`, with the
 	 *  contexts that run each and whether the user allowed it. The catalog asks
@@ -635,6 +638,13 @@ export type ContextInfo_Deserialize = {
 	 *  `auth-provider`): the catalog checks it only when asked (#201).
 	 */
 	login_plugin: boolean,
+	/**
+	 *  The `tokenFile`, `client-certificate` and `client-key` paths of an
+	 *  added file's context outside that file's folder: logging in sends
+	 *  them, so the catalog checks it only when asked (#244). `[]` for the
+	 *  default kubeconfig.
+	 */
+	local_files: string[],
 };
 
 /**  A context in the catalog. */
@@ -670,6 +680,13 @@ export type ContextInfo_Serialize = {
 	 *  `auth-provider`): the catalog checks it only when asked (#201).
 	 */
 	login_plugin: boolean,
+	/**
+	 *  The `tokenFile`, `client-certificate` and `client-key` paths of an
+	 *  added file's context outside that file's folder: logging in sends
+	 *  them, so the catalog checks it only when asked (#244). `[]` for the
+	 *  default kubeconfig.
+	 */
+	local_files: string[],
 };
 
 /**
@@ -749,7 +766,13 @@ export type ContextState = "connected" |
  *  Logging in runs a command of an added kubeconfig that the user has
  *  not allowed (set by the desktop app, #201).
  */
-"not_allowed";
+"not_allowed" | 
+/**
+ *  Logging in sends local files from outside an added kubeconfig's
+ *  folder (a token file, a client certificate): checked only when the
+ *  user asks (set by the desktop app, #244).
+ */
+"local_files";
 
 /**  What a detail watch reports. */
 export type DetailState = 

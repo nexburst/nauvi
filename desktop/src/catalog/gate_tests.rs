@@ -255,3 +255,56 @@ fn a_local_shell_gets_only_a_copy_of_the_checked_context() {
         .unwrap()
         .contains("swapped"));
 }
+
+/// An added kubeconfig whose user sends `tokenFile: <token>`.
+fn write_token_file(added: &Added, id: &str, token: &str) {
+    std::fs::write(
+        &added.file,
+        format!(
+            "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster: {{server: \"https://127.0.0.1:1\"}}\n\
+             users:\n- name: u\n  user: {{tokenFile: '{token}'}}\n\
+             contexts:\n- name: {id}\n  context: {{cluster: c, user: u}}\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn local_files_come_from_the_file_as_it_was_checked() {
+    let id = "kl-244-local-files";
+    let added = Added::new("local-files");
+    let inside = added.dir.join("token");
+    std::fs::write(&inside, "T").unwrap();
+    let outside = std::env::temp_dir().join(format!("kl-244-token-{}", std::process::id()));
+    write_token_file(&added, id, &outside.display().to_string());
+    let sources = added.sources();
+    let approved = sources.approved(Some(id)).unwrap();
+    assert_eq!(approved.local_files(), vec![outside.display().to_string()]);
+
+    write_token_file(&added, id, &inside.display().to_string());
+    let approved = sources.approved(Some(id)).unwrap();
+    assert!(approved.local_files().is_empty());
+    // Swapped after the check: the checked value is what connects.
+    write_token_file(&added, id, &outside.display().to_string());
+    assert!(approved.local_files().is_empty());
+    let token = approved.kubeconfig.as_ref().unwrap().auth_infos[0]
+        .auth_info
+        .as_ref()
+        .unwrap()
+        .token_file
+        .clone();
+    assert_eq!(token, Some(inside.display().to_string()));
+}
+
+#[test]
+fn the_default_kubeconfig_has_no_local_files_check() {
+    let approved = super::Approved {
+        target: kubeloupe::ContextTarget {
+            id: "kind".to_string(),
+            context: "kind".to_string(),
+            kubeconfig: None,
+        },
+        kubeconfig: None,
+    };
+    assert!(approved.local_files().is_empty());
+}
