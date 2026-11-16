@@ -173,6 +173,7 @@
     class:active={tableFilter.matchCase}
     aria-pressed={tableFilter.matchCase}
     title="Match case"
+    aria-label="Match case"
     onclick={() => toggle("case")}>Aa</button
   >
   <button
@@ -181,6 +182,7 @@
     class:active={tableFilter.regex}
     aria-pressed={tableFilter.regex}
     title="Regular expression"
+    aria-label="Regular expression"
     onclick={() => toggle("regex")}>.*</button
   >
   <button
