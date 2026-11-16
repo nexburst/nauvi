@@ -9,6 +9,7 @@ import { closeDetail, detail, openDetail } from "./detail.svelte";
 import { history } from "./history.svelte";
 import type { Place } from "./history.svelte";
 import { whenDiscarded } from "./unsaved.svelte";
+import { filterKeeps } from "./tableFilter.svelte";
 
 export function currentPlace(): Place {
   return { view: app.view, namespaces: app.selectedNamespaces, target: detail.target };
@@ -54,7 +55,7 @@ function show(place: Place) {
     return;
   }
   // As `openObject`: keep the filter only if the object's row matches it.
-  if (!t.name.toLowerCase().includes(app.search.trim().toLowerCase())) app.search = "";
+  if (!filterKeeps(t.name)) app.search = "";
   const open = detail.target;
   const same =
     open !== null &&

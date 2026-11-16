@@ -17,6 +17,7 @@ import { autoStartForwards } from "./forwards.svelte";
 import { clearProblems } from "./problems.svelte";
 import { whenDiscarded } from "./unsaved.svelte";
 import { history } from "./history.svelte";
+import { filterKeeps } from "./tableFilter.svelte";
 
 /** `"overview"`, or the id of a discovered kind (`apps/v1/deployments`). */
 export type View = string;
@@ -180,7 +181,7 @@ export function openObject(kind: ResourceKind, namespace: string, name: string) 
   whenDiscarded(() => {
     // The filter is shared by every table: keep it only if the opened
     // object's row still matches it, so the row is there (and selected).
-    if (!name.toLowerCase().includes(app.search.trim().toLowerCase())) app.search = "";
+    if (!filterKeeps(name)) app.search = "";
     setView(kind.id);
     openDetail({ resource: kind.resource, namespace, name });
   });

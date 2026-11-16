@@ -16,16 +16,19 @@ const cmp = <V extends string | number>(a: V, b: V): number => (a < b ? -1 : a >
  */
 export function visibleEntries(
   entries: Entry<Row>[],
-  search: string,
+  search: string | ((e: Entry<Row>) => boolean) | null,
   sort: Sort | null,
   columns: Column[],
   ctx: Ctx,
   status = "",
 ): Entry<Row>[] {
-  const q = search.trim().toLowerCase();
+  // A string: plain text ignoring case; a function: the table filter's
+  // match (`ListFilter`, #219); null: no filter.
+  const q = typeof search === "string" ? search.trim().toLowerCase() : "";
+  const match = typeof search === "function" ? search : q ? (e: Entry<Row>) => e.hay.includes(q) : null;
   const filtered =
-    q || status
-      ? entries.filter((e) => matchesStatus(e.row, status) && (!q || e.hay.includes(q)))
+    match || status
+      ? entries.filter((e) => matchesStatus(e.row, status) && (!match || match(e)))
       : entries.slice();
   const col = sort ? columns.find((c) => c.key === sort.key) : undefined;
   if (!col || !sort) {

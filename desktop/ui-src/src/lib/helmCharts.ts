@@ -18,12 +18,20 @@ export function bareName(chart: string): string {
 }
 
 /** Charts whose name, description or app version contain the search text, sorted by name. */
-export function filterCharts(charts: readonly HelmChartVersion[], search: string): HelmChartVersion[] {
-  const q = search.trim().toLowerCase();
-  const out = q
-    ? charts.filter((c) => `${c.name} ${c.description} ${c.app_version}`.toLowerCase().includes(q))
-    : [...charts];
+export function filterCharts(
+  charts: readonly HelmChartVersion[],
+  search: string | ((c: HelmChartVersion) => boolean) | null,
+): HelmChartVersion[] {
+  const q = typeof search === "string" ? search.trim().toLowerCase() : "";
+  const match =
+    typeof search === "function" ? search : q ? (c: HelmChartVersion) => chartHay(c).toLowerCase().includes(q) : null;
+  const out = match ? charts.filter(match) : [...charts];
   return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** What the filter matches in a chart, `sep` between the fields. */
+export function chartHay(c: HelmChartVersion, sep = " "): string {
+  return [c.name, c.description, c.app_version].join(sep);
 }
 
 /** Why `name` is not a valid Helm release name; empty if it is. Mirrors the backend's check. */

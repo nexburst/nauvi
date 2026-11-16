@@ -2,19 +2,19 @@
 // pattern such as `(a+)+$` can backtrack for minutes, and only a worker can
 // be stopped (terminated) while it does.
 
-import { regexRanges } from "./logFilter";
+import { regexRanges, testHit } from "./logFilter";
 import type { SearchReply, SearchRequest } from "./logSearch";
 
 let cached: { key: string; re: RegExp } | null = null;
 
 self.onmessage = (e: MessageEvent<SearchRequest>) => {
-  const { id, source, flags, items } = e.data;
+  const { id, source, flags, items, test } = e.data;
   let reply: SearchReply;
   try {
     const key = flags + "/" + source;
     if (cached?.key !== key) cached = { key, re: new RegExp(source, flags) };
     const re = cached.re;
-    reply = { id, hits: items.map((t) => regexRanges(re, t)) };
+    reply = { id, hits: items.map((t) => (test ? testHit(re, t) : regexRanges(re, t))) };
   } catch (err) {
     reply = { id, error: String(err) };
   }

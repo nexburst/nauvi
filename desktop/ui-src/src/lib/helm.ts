@@ -30,16 +30,23 @@ export function chartsByRelease(charts: readonly HelmChartInfo[]): Map<string, H
 export function visibleReleases(
   rows: readonly HelmReleaseRow[],
   charts: ReadonlyMap<string, HelmChartInfo>,
-  search: string,
+  search: string | ((r: HelmReleaseRow) => boolean) | null,
 ): HelmReleaseRow[] {
-  const q = search.trim().toLowerCase();
-  const out = rows.filter((r) => {
-    if (!q) return true;
-    const c = charts.get(releaseKey(r));
-    const hay = [r.name, r.namespace, r.status, c?.chart ?? "", c?.app_version ?? ""].join(" ").toLowerCase();
-    return hay.includes(q);
-  });
+  const q = typeof search === "string" ? search.trim().toLowerCase() : "";
+  const match =
+    typeof search === "function"
+      ? search
+      : q
+        ? (r: HelmReleaseRow) => releaseHay(r, charts).toLowerCase().includes(q)
+        : null;
+  const out = match ? rows.filter(match) : [...rows];
   return out.sort((a, b) => releaseKey(a).localeCompare(releaseKey(b)));
+}
+
+/** What the filter matches in a release row, `sep` between the fields. */
+export function releaseHay(r: HelmReleaseRow, charts: ReadonlyMap<string, HelmChartInfo>, sep = " "): string {
+  const c = charts.get(releaseKey(r));
+  return [r.name, r.namespace, r.status, c?.chart ?? "", c?.app_version ?? ""].join(sep);
 }
 
 /** Colour class of a release status, like pod phases. */

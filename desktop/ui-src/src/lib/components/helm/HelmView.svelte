@@ -3,7 +3,8 @@
   import VirtualList from "../VirtualList.svelte";
   import { app } from "../../stores/app.svelte";
   import { checkHelm, helm, loadReleases, resetHelmView, selectRelease } from "../../stores/helm.svelte";
-  import { ageOf, chartLabel, releaseKey, statusClass, visibleReleases } from "../../helm";
+  import { ageOf, chartLabel, releaseHay, releaseKey, statusClass, visibleReleases } from "../../helm";
+  import { ListFilter } from "../../stores/tableFilter.svelte";
   import { watchGutter } from "../../scrollGutter";
 
   /** The Helm releases table. Rows come from labels; charts fill in after. */
@@ -38,7 +39,14 @@
     });
   });
 
-  const visible = $derived(visibleReleases(helm.rows, helm.charts, app.search));
+  // The toolbar filter (#219): text, match case or a regex in the worker.
+  const filter = new ListFilter(() => helm.rows, {
+    key: releaseKey,
+    lower: (r) => releaseHay(r, helm.charts).toLowerCase(),
+    text: (r) => releaseHay(r, helm.charts),
+    lines: (r) => releaseHay(r, helm.charts, "\n"),
+  });
+  const visible = $derived(visibleReleases(helm.rows, helm.charts, filter.match));
   const getKey = $derived((i: number) => (visible[i] ? releaseKey(visible[i]) : i));
   const selectedKey = $derived(helm.selected ? releaseKey(helm.selected) : null);
 
