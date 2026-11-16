@@ -121,6 +121,10 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     console.log(`invalid regex: ${err}`);
     assert.match(err, /^Invalid regex: /);
     assert.equal(await (await filterInput(app)).getAttribute("aria-invalid"), "true");
+    const cut = await app.js(
+      `const e = document.querySelector('[data-testid="table-filter-error"]'); return e.scrollWidth > e.clientWidth + 1;`,
+    );
+    assert.equal(cut, false, "the short error is shown whole");
     await waitNames(app, ["web-1", "db-1"], "the last good filter stays");
     await shots(app, "invalid-regex");
   });

@@ -232,14 +232,15 @@
   .mono {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
+  /* Its own width (up to a limit): the toolbar wraps before it is cut. */
   .error {
+    flex: none;
     color: var(--red);
     font-size: 12px;
-    max-width: 260px;
+    max-width: 320px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    min-width: 0;
   }
   .suggestions {
     position: absolute;
