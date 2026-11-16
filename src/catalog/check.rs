@@ -21,6 +21,9 @@ pub enum ContextState {
     Unreachable,
     /// The kubeconfig entry itself is broken (no cluster, unreadable file).
     Invalid,
+    /// Logging in runs a command of an added kubeconfig that the user has
+    /// not allowed (set by the desktop app, #201).
+    NotAllowed,
 }
 
 /// The result of checking one context.

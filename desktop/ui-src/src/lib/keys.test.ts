@@ -46,6 +46,19 @@ describe("bindingFor", () => {
     expect(command(press("3"))).toBeNull();
   });
 
+  it("zooms with Mod+= (or Mod++), Mod+- and Mod+0 (#207)", () => {
+    expect(command(press("=", { ctrlKey: true }))).toBe("zoomIn");
+    expect(command(press("+", { ctrlKey: true, shiftKey: true }))).toBe("zoomIn");
+    expect(command(press("=", { metaKey: true }), true)).toBe("zoomIn");
+    expect(command(press("-", { ctrlKey: true }))).toBe("zoomOut");
+    expect(command(press("0", { ctrlKey: true }))).toBe("zoomReset");
+    expect(command(press("0", { metaKey: true }), true)).toBe("zoomReset");
+    expect(command(press("-"))).toBeNull();
+    expect(command(press("0"))).toBeNull();
+    expect(shortcutHint("zoomIn", false)).toBe("Ctrl+=");
+    expect(shortcutHint("zoomOut", true)).toBe("⌘-");
+  });
+
   it("takes Cmd+Backspace as Delete on macOS only", () => {
     expect(command(press("Delete"))).toBe("deleteRows");
     expect(command(press("Backspace", { metaKey: true }), true)).toBe("deleteRows");

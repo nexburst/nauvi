@@ -2508,6 +2508,7 @@ dependencies = [
  "serde_yaml",
  "specta",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]

@@ -3,7 +3,7 @@
 //! from `cmd_list_contexts`. The user's kubeconfig files are only read;
 //! the app writes and deletes only the pasted files it saved itself.
 
-use crate::catalog::{announce, KubeconfigSources};
+use crate::catalog::{announce, ExecCommand, KubeconfigSources};
 use crate::settings::SettingsStore;
 use crate::state::AppState;
 use kubeloupe::catalog::{
@@ -73,6 +73,13 @@ pub(crate) fn cmd_remove_kubeconfig_source(
         ));
     }
     let file = expand_home(&path);
+    // Added again later, its commands are asked about again.
+    if let Err(e) = state
+        .sources
+        .forget_exec_answers(&file.display().to_string())
+    {
+        eprintln!("kubeloupe: {e}");
+    }
     if is_pasted(&state.sources, &file) {
         if let Err(e) = std::fs::remove_file(&file) {
             if e.kind() != std::io::ErrorKind::NotFound {
@@ -129,7 +136,40 @@ pub(crate) async fn cmd_check_context(
             })
         }
     };
+    if let Err(message) = state.sources.may_log_in(&name) {
+        return Ok(ContextCheck {
+            name,
+            state: ContextState::NotAllowed,
+            message,
+            version: String::new(),
+        });
+    }
     Ok(check_context(&target).await)
+}
+
+/// The login commands (exec plugins) of the added source `source`, with the
+/// contexts that run each and whether the user allowed it. The catalog asks
+/// before any of them runs (#201).
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_exec_commands(
+    state: State<'_, AppState>,
+    source: String,
+) -> Result<Vec<ExecCommand>, String> {
+    Ok(state.sources.exec_commands(&source))
+}
+
+/// Allow (or refuse) running `command` to log in to the contexts of the
+/// added source `source`. Remembered until the source is removed.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_answer_exec_command(
+    state: State<'_, AppState>,
+    source: String,
+    command: String,
+    allow: bool,
+) -> Result<(), String> {
+    state.sources.answer_exec(&source, &command, allow)
 }
 
 /// Change the saved list of added sources, apply it, and tell the windows.

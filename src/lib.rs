@@ -27,6 +27,7 @@ pub mod auth;
 pub mod catalog;
 pub mod debug;
 pub mod errors;
+pub mod exec_credentials;
 pub mod helm;
 pub mod liveness;
 pub mod node_shell;

@@ -15,6 +15,8 @@ on:
   schedule:
     - cron: "17 3 * * *"
 
+permissions: {}
+
 concurrency:
   group: qa-${{ github.ref }}
   cancel-in-progress: true
@@ -25,6 +27,8 @@ env:
 jobs:
   qa:
     name: QA scenarios (WebKitGTK, kind)
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -35,7 +39,9 @@ jobs:
       # the app's watches to time out.
       QA_PAUSE_MAX_MS: "360000"
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       # Two kind clusters, the app and many log streams share the runner's
       # inotify instances (default 128); without more, the kubelet fails log
@@ -58,7 +64,9 @@ jobs:
             ) > "$RUNNER_TEMP/cluster/setup.log" 2>&1
             echo $? > "$RUNNER_TEMP/cluster/rc" ) &
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
       - name: Install Tauri, WebKitWebDriver, Xvfb and xclip
         run: |
           sudo apt-get update
@@ -67,13 +75,13 @@ jobs:
           sudo apt-get install -y webkitgtk-webdriver || sudo apt-get install -y webkit2gtk-driver
           driver="$(command -v WebKitWebDriver || find /usr -name WebKitWebDriver -type f -perm -u+x 2>/dev/null | head -n 1)"
           echo "WEBKIT_DRIVER=$driver" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@v2.7.8
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # Same build as the e2e job in integration.yml.
           shared-key: qa
-      - uses: actions/cache@v4.2.3
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         id: tauri-driver-cache
         with:
           path: ~/.cargo/bin/tauri-driver
@@ -81,11 +89,11 @@ jobs:
       - name: Install tauri-driver
         if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
-      - uses: azure/setup-helm@v4.3.0
+      - uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
         with:
           version: v3.16.4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: desktop/ui-src/.nvmrc
           cache: npm
@@ -131,14 +139,14 @@ jobs:
           if [ -f desktop/e2e/artifacts/qa/report.md ]; then
             cat desktop/e2e/artifacts/qa/report.md >> "$GITHUB_STEP_SUMMARY"
             echo >> "$GITHUB_STEP_SUMMARY"
-            echo "Screenshots, page text and app logs: the \`qa-artifacts\` artifact (\`gh run download ${{ github.run_id }} -n qa-artifacts\`)." >> "$GITHUB_STEP_SUMMARY"
+            echo "Screenshots, page text and app logs: the \`qa-artifacts\` artifact (\`gh run download $GITHUB_RUN_ID -n qa-artifacts\`)." >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No QA report: the run stopped before the scenarios." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload screenshots, page text, logs and the report
         if: always()
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: qa-artifacts
           path: desktop/e2e/artifacts/qa/
@@ -160,6 +168,8 @@ jobs:
   # (desktop/src/webview_args.rs, #93).
   windows:
     name: QA start-up (Windows, WebView2)
+    permissions:
+      contents: read
     runs-on: windows-latest
     timeout-minutes: 60
     env:
@@ -168,14 +178,18 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2.7.8
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
         with:
           # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
           save-if: ${{ github.ref == 'refs/heads/main' }}
           shared-key: qa-windows
-      - uses: actions/cache@v4.2.3
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         id: tauri-driver-cache
         with:
           path: ~/.cargo/bin/tauri-driver.exe
@@ -198,7 +212,7 @@ jobs:
           Expand-Archive "$dir\driver.zip" -DestinationPath $dir -Force
           "NATIVE_DRIVER=$dir\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: desktop/ui-src/.nvmrc
           cache: npm
@@ -232,7 +246,7 @@ jobs:
 
       - name: Upload screenshots, page text and logs
         if: always()
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: qa-artifacts-windows
           path: desktop/e2e/artifacts/qa-windows/

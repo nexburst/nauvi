@@ -12,6 +12,7 @@ import {
   EMPTY_KIND,
   themeAttribute,
 } from "../settings";
+import { clampZoom, DEFAULT_ZOOM, stepZoom } from "../zoom";
 
 class SettingsStore {
   /** Replaced on every change, never mutated. */
@@ -27,6 +28,7 @@ export async function loadSettings() {
     // A broken settings store must not stop the app from starting.
   }
   applyAppearance();
+  applyZoom();
 }
 
 /** Resolves once the backend has the change (or failed to take it). */
@@ -75,3 +77,20 @@ export function applyAppearance() {
   else delete root.dataset.theme;
   root.style.setProperty("--detail-width", `${detailWidth()}px`);
 }
+
+/** Zoom this window's page as the settings say (#207). */
+export function applyZoom() {
+  commands.cmdSetZoom(settings.current.zoom).catch(() => {
+    // Not zoomed: the page stays as it is, the setting is still remembered.
+  });
+}
+
+/** Set and remember the page zoom, in percent. */
+export function setZoom(percent: number) {
+  updateSettings({ zoom: clampZoom(percent) });
+  applyZoom();
+}
+
+export const zoomIn = () => setZoom(stepZoom(settings.current.zoom, "in"));
+export const zoomOut = () => setZoom(stepZoom(settings.current.zoom, "out"));
+export const zoomReset = () => setZoom(DEFAULT_ZOOM);

@@ -14,6 +14,8 @@ export function windowHandlers(s: FakeState) {
     },
     // Unsaved edits block closing the window (#173); tests read the calls.
     cmdSetUnsaved: () => {},
+    // The real backend zooms the webview (#207); tests read the calls.
+    cmdSetZoom: () => null,
     cmdDiscardAndClose: () => null,
   } satisfies AreaHandlers;
 }

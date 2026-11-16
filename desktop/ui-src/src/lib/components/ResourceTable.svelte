@@ -321,6 +321,9 @@
             onclick={() => {
               focusedKey = entry.key;
               onselect?.(entry.row);
+              // The keyboard follows the click (#207), even when focus was in
+              // the filter, the detail panel or the dock.
+              gridEl?.focus({ preventScroll: true });
             }}
             oncontextmenu={(e) => openMenu(e, entry.row)}
           >

@@ -133,7 +133,15 @@ pub(crate) async fn cmd_update_check(
         result.status = UpdateStatus::UpToDate;
         return Ok(result);
     };
+    let exe = updater::exe_path(
+        debug,
+        std::env::var(updater::EXE_PATH_ENV).ok(),
+        std::env::current_exe()
+            .ok()
+            .map(|p| p.to_string_lossy().into_owned()),
+    );
     let InstallSupport { can_install, note } = updater::install_support(
+        &exe,
         tauri::utils::platform::bundle_type(),
         tauri_plugin_updater::target().as_deref().unwrap_or(""),
         &updater::platform_keys(&update.raw_json),

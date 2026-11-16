@@ -92,6 +92,40 @@ test("a long note does not squeeze the banner's text into a column (#124)", asyn
   expect(b.x + b.width - (x.x + x.width)).toBeLessThan(20);
 });
 
+// The notes of `updater::ReadOnlyLocation` (#206).
+const READ_ONLY_NOTES = [
+  "kubeloupe is running from the disk image, which is read-only. Move kubeloupe to Applications to update it in place, or download the new version from the release page.",
+  "macOS runs this copy of kubeloupe from a temporary read-only location (App Translocation). Move kubeloupe to Applications with Finder to update it in place, or download the new version from the release page.",
+];
+
+for (const [i, note] of READ_ONLY_NOTES.entries()) {
+  test(`a copy on a disk image or translocated offers no install (#206, ${i ? "translocated" : "disk image"})`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // `init` is serialized, so the note reaches it through the page.
+    await page.addInitScript((n) => ((window as unknown as { note206: string }).note206 = n), note);
+    await openApp(page, (_c, f) =>
+      f.offerUpdate("0.2.0", false, (window as unknown as { note206: string }).note206),
+    );
+    await expect(banner(page)).toContainText("kubeloupe 0.2.0 is available — Release notes · Download from the release page");
+    await expect(banner(page).getByRole("button", { name: "Install and restart" })).toHaveCount(0);
+    const text = banner(page).locator(".text");
+    const noteEl = banner(page).locator(".note");
+    await expect(noteEl).toHaveText(note);
+    await expect(noteEl).toContainText("Move kubeloupe to Applications");
+    // One line of text with the note next to it or below, inside the banner.
+    const lineHeight = await text.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 18);
+    const t = (await text.boundingBox())!;
+    const n = (await noteEl.boundingBox())!;
+    const b = (await banner(page).boundingBox())!;
+    expect(t.height).toBeLessThan(lineHeight * 1.5);
+    expect(n.x + n.width).toBeLessThanOrEqual(b.x + b.width);
+    await banner(page).getByRole("button", { name: "Download from the release page" }).click();
+    await expect.poll(() => page.evaluate(() => window.__fake.opened())).toEqual([RELEASE]);
+  });
+}
+
 test("the banner can be closed, and checking again brings it back", async ({ page }) => {
   await openApp(page, (_c, f) => f.offerUpdate("0.2.0"));
   await banner(page).getByRole("button", { name: "Dismiss update" }).click();

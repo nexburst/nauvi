@@ -33,10 +33,21 @@ export const commands = {
 	 */
 	cmdAddKubeconfigSource: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_add_kubeconfig_source", { path }, options),
 	/**
+	 *  Allow (or refuse) running `command` to log in to the contexts of the
+	 *  added source `source`. Remembered until the source is removed.
+	 */
+	cmdAnswerExecCommand: (source: string, command: string, allow: boolean, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_answer_exec_command", { source, command, allow }, options),
+	/**
 	 *  Log in to context `name`'s cluster and report whether it answers. Never
 	 *  prompts; gives up after 15 s.
 	 */
 	cmdCheckContext: (name: string, options?: InvokeOptions) => __TAURI_INVOKE<ContextCheck>("cmd_check_context", { name }, options),
+	/**
+	 *  The login commands (exec plugins) of the added source `source`, with the
+	 *  contexts that run each and whether the user allowed it. The catalog asks
+	 *  before any of them runs (#201).
+	 */
+	cmdExecCommands: (source: string, options?: InvokeOptions) => __TAURI_INVOKE<ExecCommand[]>("cmd_exec_commands", { source }, options),
 	/**
 	 *  Every source of contexts: the default kubeconfig's files, then the
 	 *  added ones in order, each with what was read from it or why it could
@@ -336,6 +347,11 @@ export const commands = {
 	 */
 	cmdSetUnsaved: (unsaved: boolean, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_set_unsaved", { unsaved }, options),
 	/**
+	 *  Zoom this window's page to `percent` (#207; kept within 50-200). The
+	 *  frontend remembers the value in the settings and sets it on start.
+	 */
+	cmdSetZoom: (percent: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_set_zoom", { percent }, options),
+	/**
 	 *  The summed usage history of a workload's pods (`kind` is Deployment,
 	 *  StatefulSet, DaemonSet, ReplicaSet or Job), for the charts in its detail
 	 *  panel, with their summed requests and limits. Polled while the panel is
@@ -609,6 +625,16 @@ export type ContextInfo_Deserialize = {
 	 *  `""` for the default kubeconfig.
 	 */
 	source: string,
+	/**
+	 *  The command logging in runs: the exec plugin's command and
+	 *  arguments, or the gcp auth provider's `cmd-path` (`""`: none).
+	 */
+	login_command: string,
+	/**
+	 *  Logging in runs a plugin or an auth provider (`exec` or
+	 *  `auth-provider`): the catalog checks it only when asked (#201).
+	 */
+	login_plugin: boolean,
 };
 
 /**  A context in the catalog. */
@@ -634,6 +660,16 @@ export type ContextInfo_Serialize = {
 	 *  `""` for the default kubeconfig.
 	 */
 	source: string,
+	/**
+	 *  The command logging in runs: the exec plugin's command and
+	 *  arguments, or the gcp auth provider's `cmd-path` (`""`: none).
+	 */
+	login_command: string,
+	/**
+	 *  Logging in runs a plugin or an auth provider (`exec` or
+	 *  `auth-provider`): the catalog checks it only when asked (#201).
+	 */
+	login_plugin: boolean,
 };
 
 /**
@@ -708,7 +744,12 @@ export type ContextState = "connected" |
 /**  The credentials or the exec plugin failed. */
 "auth_error" | "certificate_error" | "unreachable" | 
 /**  The kubeconfig entry itself is broken (no cluster, unreadable file). */
-"invalid";
+"invalid" | 
+/**
+ *  Logging in runs a command of an added kubeconfig that the user has
+ *  not allowed (set by the desktop app, #201).
+ */
+"not_allowed";
 
 /**  What a detail watch reports. */
 export type DetailState = 
@@ -791,8 +832,22 @@ export type EventInfo = {
 	count: number,
 };
 
+/**  The user's answer for one command of one source. */
+export type ExecAnswer = 
+/**  Not asked yet (or the source was added again). */
+"unanswered" | "allowed" | "denied";
+
 /**  The shell of a terminal session exited (payload: the session id). */
 export type ExecClosed = string;
+
+/**  A login command of an added source, and the contexts that run it. */
+export type ExecCommand = {
+	/**  The command line, as it runs. */
+	command: string,
+	/**  The ids of the contexts that log in with it. */
+	contexts: string[],
+	answer: ExecAnswer,
+};
 
 /**  Output of a terminal session. */
 export type ExecOutput = {
@@ -1621,6 +1676,8 @@ export type SettingsPatch_Deserialize = {
 	kinds?: { [key in string]: KindSettings_Deserialize } | null,
 	windows?: string[] | null,
 	favourites?: string[] | null,
+	zoom?: number | null,
+	terminal_font_size?: number | null,
 };
 
 /**
@@ -1638,6 +1695,8 @@ export type SettingsPatch_Serialize = {
 	kinds?: { [key in string]: KindSettings_Serialize } | null,
 	windows?: string[] | null,
 	favourites?: string[] | null,
+	zoom?: number | null,
+	terminal_font_size?: number | null,
 };
 
 export type Settings_Deserialize = {
@@ -1670,6 +1729,10 @@ export type Settings_Deserialize = {
 	 *  palette.
 	 */
 	favourites?: string[],
+	/**  The page zoom in percent (#207), within `ZOOM_RANGE`. */
+	zoom?: number,
+	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */
+	terminal_font_size?: number,
 };
 
 export type Settings_Serialize = {
@@ -1702,6 +1765,10 @@ export type Settings_Serialize = {
 	 *  palette.
 	 */
 	favourites: string[],
+	/**  The page zoom in percent (#207), within `ZOOM_RANGE`. */
+	zoom: number,
+	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */
+	terminal_font_size: number,
 };
 
 /**  One source of contexts, for the catalog's list of sources. */

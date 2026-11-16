@@ -221,7 +221,8 @@ session killed by systemd-oomd.
 
 Agent definitions live in `.claude/agents/`: `coordinator` (start a session
 with `claude --agent coordinator`), `dev` (one issue per worktree), `qa`
-(real-app checks per area) and `reviewer` (read-only pre-merge review).
+(real-app checks per area), `reviewer` (read-only pre-merge review) and
+`security` (read-only security review).
 
 - `main` is protected: the CI checks must pass, but branches don't have to be
   up to date with `main`. Merge with `gh pr merge --auto --squash`; update a
@@ -230,6 +231,20 @@ with `claude --agent coordinator`), `dev` (one issue per worktree), `qa`
   desktop changes a QA scenario run in CI
   (`gh workflow run qa.yml --ref <branch> -f scenario='<names>'`) whose
   screenshots someone looked at.
+- PRs that touch any of these sensitive paths also need a `security`
+  verdict of "merge":
+  - `desktop/capabilities/`, `desktop/tauri.conf.json`, `.github/workflows/`
+  - `src/client.rs`, `src/auth.rs`, `src/exec_credentials.rs`,
+    `src/catalog/`, `desktop/src/catalog/` (exec-plugin approvals)
+  - `src/exec.rs`, `src/attach.rs`, `src/debug.rs`, `src/node_shell.rs`,
+    `desktop/src/commands/exec.rs`, `desktop/src/commands/debug.rs`
+  - `src/shell_kubeconfig.rs`, `desktop/src/shell_env.rs`,
+    `desktop/src/local_shell.rs`, `desktop/src/commands/local_shell.rs`
+  - `src/helm/`, `desktop/src/commands/helm*.rs`
+  - `desktop/src/updater.rs`, `desktop/src/commands/updater.rs`
+
+  A full `security` pass on `main` runs before each release; its findings
+  are filed as issues labelled `security`.
 - Heavy commands go through `scripts/dev/capped.sh`, which waits for one of
   two build slots and caps memory.
 - Agents act through the maintainer's GitHub account. Only the coordinator
