@@ -259,17 +259,43 @@ export const commands = {
 	 */
 	cmdOverviewStart: (id: number, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_start", { id, namespace }, options),
 	cmdOverviewStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_stop", { id }, options),
+	/**
+	 *  Start the saved forwards of the selected context marked "Start
+	 *  automatically", except those another window runs already. Called when
+	 *  a window connects to a context. Returns the ones that failed.
+	 */
+	cmdPortforwardAutostart: (options?: InvokeOptions) => __TAURI_INVOKE<AutoStartError[]>("cmd_portforward_autostart", undefined, options),
+	/**
+	 *  Stop the saved forward `id` and forget it. Deleting one that is gone is
+	 *  not an error.
+	 */
+	cmdPortforwardDelete: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_portforward_delete", { id }, options),
 	/**  Every running forward, oldest first. */
 	cmdPortforwardList: (options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo[]>("cmd_portforward_list", undefined, options),
+	/**
+	 *  Save `forward` for the selected context: a new one (id `""`) or an
+	 *  edit. A running forward keeps its old settings until it is started
+	 *  again (`cmd_portforward_start_saved`).
+	 */
+	cmdPortforwardSave: (forward: SavedForward, options?: InvokeOptions) => __TAURI_INVOKE<SavedForward>("cmd_portforward_save", { forward }, options),
+	/**  The saved forwards of the selected context, in the order they were added. */
+	cmdPortforwardSaved: (options?: InvokeOptions) => __TAURI_INVOKE<SavedForward[]>("cmd_portforward_saved", undefined, options),
 	/**
 	 *  Start forwarding `remote_port` (a number or a port name) of a pod,
 	 *  Service or workload. `local_port`: none picks the remote port if it is
 	 *  free and at least 1024, else a random one; 0 is random; any other
 	 *  number is used as is or fails if taken. Asking again for a forward that
 	 *  already runs (same target and port, no explicit local port) returns it.
+	 *  The forward is saved for the context (or reuses the saved one with the
+	 *  same target and ports).
 	 */
 	cmdPortforwardStart: (target: ForwardTarget, remotePort: string, localPort: number | null, options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo>("cmd_portforward_start", { target, remotePort, localPort }, options),
-	/**  Stop a forward. Stopping one that is already gone is not an error. */
+	/**  Start the saved forward `id`, or restart it if it runs. */
+	cmdPortforwardStartSaved: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo>("cmd_portforward_start_saved", { id }, options),
+	/**
+	 *  Stop a forward. Stopping one that is already gone is not an error. It
+	 *  stays saved.
+	 */
 	cmdPortforwardStop: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_portforward_stop", { id }, options),
 	/**  The ports of a Service, for its per-port Forward buttons. */
 	cmdServicePorts: (namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ServicePortInfo[]>("cmd_service_ports", { namespace, name }, options),
@@ -511,6 +537,12 @@ export type ApplyStatus =
  *  this same manifest creates.
  */
 "pending";
+
+/**  A saved forward that did not start automatically, and why. */
+export type AutoStartError = {
+	saved_id: string,
+	error: string,
+};
 
 /**  Outcome of one object in a bulk delete. */
 export type BulkItemResult = {
@@ -922,13 +954,15 @@ export type FieldTakeover = {
 /**  One running forward, with its live status. */
 export type ForwardInfo = {
 	id: string,
+	/**  The saved forward it runs (see `cmd_portforward_saved`). */
+	saved_id: string,
 	target: ForwardTarget,
 	/**  The remote port as asked for: a number or a port name. */
 	remote: string,
 	/**  Its number on the target (the Service port or the pod port). */
 	remote_port: number,
 	local_port: number,
-	/**  `http://127.0.0.1:<local_port>`. */
+	/**  `http://127.0.0.1:<local_port>`, or `https://` for a TLS target. */
 	url: string,
 	/**  Epoch milliseconds. */
 	started_at: number,
@@ -1688,6 +1722,32 @@ export type ResourceRow = {
 	problem: string,
 };
 
+/**
+ *  A port-forward kept across restarts (#217). Only what is needed to start
+ *  it again: no credentials, nothing from the cluster.
+ */
+export type SavedForward = {
+	/**  Stable across restarts (`""` when the UI creates one). */
+	id: string,
+	target: ForwardTarget,
+	/**  The remote port: a number or a port name. */
+	remote: string,
+	/**
+	 *  The local port as typed: `""` automatic, `"0"` any free port, else
+	 *  that port.
+	 */
+	local_port: string,
+	/**  The target speaks TLS: its URL is `https://`. */
+	https: boolean,
+	/**  Open the URL in the browser when the user starts it. */
+	open_in_browser: boolean,
+	/**
+	 *  Start it when a window connects to its context (else it comes back
+	 *  stopped).
+	 */
+	auto_start: boolean,
+};
+
 export type SecretKey = {
 	key: string,
 	/**  Decoded size in bytes. */
@@ -1792,6 +1852,11 @@ export type Settings_Deserialize = {
 	zoom?: number,
 	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */
 	terminal_font_size?: number,
+	/**
+	 *  Saved port-forwards (#217), by context id. Changed only through the
+	 *  port-forward commands.
+	 */
+	forwards?: { [key in string]: SavedForward[] },
 };
 
 export type Settings_Serialize = {
@@ -1828,6 +1893,11 @@ export type Settings_Serialize = {
 	zoom: number,
 	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */
 	terminal_font_size: number,
+	/**
+	 *  Saved port-forwards (#217), by context id. Changed only through the
+	 *  port-forward commands.
+	 */
+	forwards: { [key in string]: SavedForward[] },
 };
 
 /**  One source of contexts, for the catalog's list of sources. */

@@ -1,26 +1,52 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { forwardLabel, forwardState, portsLabel } from "../forwards";
+  import { forwardLabel, forwardRows, forwardState, plannedUrl, portsLabel, savedPortsLabel } from "../forwards";
   import { app } from "../stores/app.svelte";
-  import { copyForwardUrl, forwards, openForward, pollForwards, stopForward } from "../stores/forwards.svelte";
+  import {
+    copyForwardUrl,
+    deleteSaved,
+    forwards,
+    openEditForwardDialog,
+    openForward,
+    pollForwards,
+    startSaved,
+    stopForward,
+  } from "../stores/forwards.svelte";
 
-  /** Network → Port Forwards: every forward the backend runs, with its
-   *  live status. Forwards outlive this view; leaving it stops nothing. */
+  /** Network → Port Forwards: the forwards saved for this cluster (#217)
+   *  and the ones running in this window, with their live status. Forwards
+   *  outlive this view; leaving it stops nothing. */
   const stopPolling = pollForwards();
   onDestroy(stopPolling);
 
+  const rows = $derived(forwardRows(forwards.saved, forwards.list));
+  let starting = $state.raw<string[]>([]);
+
   $effect(() => {
-    const n = forwards.list.length;
-    app.count = n === 1 ? "1 forward" : `${n} forwards`;
+    const running = forwards.list.length;
+    const n = rows.length;
+    app.count = `${n === 1 ? "1 forward" : `${n} forwards`}, ${running} running`;
   });
+
+  async function start(id: string) {
+    const f = forwards.saved.find((s) => s.id === id);
+    if (!f || starting.includes(id)) return;
+    starting = [...starting, id];
+    try {
+      await startSaved(f);
+    } finally {
+      starting = starting.filter((s) => s !== id);
+    }
+  }
 </script>
 
 <div class="forwards" data-testid="port-forwards">
   <p class="note muted">
-    Forwards keep running when you close panels or leave this view. Switching context stops all of them.
+    Forwards are saved for this cluster. They keep running when you close panels or leave this view; switching
+    context or quitting stops them, and they come back stopped unless you check Start automatically.
   </p>
-  {#if forwards.list.length === 0}
-    <p class="empty muted">
+  {#if rows.length === 0}
+    <p class="empty muted" data-testid="forwards-empty">
       No port-forwards. Start one from a pod, Service or workload: right-click it and pick Port forward…, or use the
       Forward buttons in its details.
     </p>
@@ -37,20 +63,61 @@
         </tr>
       </thead>
       <tbody>
-        {#each forwards.list as f (f.id)}
-          {@const st = forwardState(f)}
-          <tr data-testid="forward-row">
-            <td class="mono">{forwardLabel(f.target)}</td>
-            <td class="mono">{portsLabel(f)}</td>
-            <td class="mono">{f.url}</td>
-            <td class="mono">{f.status.pod || "—"}</td>
-            <td class:error-text={st.tone === "error"} class:ok={st.tone === "ok"}>{st.text}</td>
+        {#each rows as r (r.key)}
+          {@const f = r.running}
+          {@const s = r.saved}
+          {@const target = (f?.target ?? s?.target)!}
+          {@const url = f ? f.url : s ? plannedUrl(s) : ""}
+          {@const error = s ? forwards.errors[s.id] : ""}
+          <tr data-testid="forward-row" class:stopped={!f}>
+            <td class="mono">
+              {forwardLabel(target)}
+              {#if s?.https}<span class="tag">https</span>{/if}
+              {#if s?.auto_start}<span class="tag">auto-start</span>{/if}
+            </td>
+            <td class="mono">{f ? portsLabel(f) : s ? savedPortsLabel(s) : ""}</td>
+            <td class="mono">{url || "—"}</td>
+            <td class="mono">{f?.status.pod || "—"}</td>
+            {#if f}
+              {@const st = forwardState(f)}
+              <td class:error-text={st.tone === "error"} class:ok={st.tone === "ok"}>{st.text}</td>
+            {:else if error}
+              <td class="error-text">{error}</td>
+            {:else}
+              <td class="muted">{s && starting.includes(s.id) ? "Starting…" : "Stopped"}</td>
+            {/if}
             <td class="actions">
-              <button type="button" class="btn" aria-label="Open {f.url} in the browser" onclick={() => openForward(f)}
-                >Open</button
-              >
-              <button type="button" class="btn" aria-label="Copy {f.url}" onclick={() => copyForwardUrl(f)}>Copy URL</button>
-              <button type="button" class="btn" aria-label="Stop {f.url}" onclick={() => stopForward(f.id)}>Stop</button>
+              {#if f}
+                <button type="button" class="btn" aria-label="Open {f.url} in the browser" onclick={() => openForward(f)}
+                  >Open</button
+                >
+                <button type="button" class="btn" aria-label="Copy {f.url}" onclick={() => copyForwardUrl(f)}
+                  >Copy URL</button
+                >
+                <button type="button" class="btn" aria-label="Stop {f.url}" onclick={() => stopForward(f.id)}>Stop</button>
+              {:else if s}
+                <button
+                  type="button"
+                  class="btn primary"
+                  aria-label="Start {forwardLabel(s.target)}:{s.remote}"
+                  disabled={starting.includes(s.id)}
+                  onclick={() => start(s.id)}>Start</button
+                >
+              {/if}
+              {#if s}
+                <button
+                  type="button"
+                  class="btn"
+                  aria-label="Edit {forwardLabel(s.target)}:{s.remote}"
+                  onclick={() => openEditForwardDialog(s)}>Edit</button
+                >
+                <button
+                  type="button"
+                  class="btn"
+                  aria-label="Delete {forwardLabel(s.target)}:{s.remote}"
+                  onclick={() => deleteSaved(s)}>Delete</button
+                >
+              {/if}
             </td>
           </tr>
         {/each}
@@ -94,6 +161,16 @@
   }
   .ok {
     color: var(--green);
+  }
+  .tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 5px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    font-size: 11px;
+    color: var(--text-muted);
+    word-break: normal;
   }
   .actions {
     white-space: nowrap;

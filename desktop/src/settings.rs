@@ -120,6 +120,30 @@ pub(crate) struct Settings {
     pub(crate) zoom: u32,
     /// The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`.
     pub(crate) terminal_font_size: u32,
+    /// Saved port-forwards (#217), by context id. Changed only through the
+    /// port-forward commands.
+    pub(crate) forwards: BTreeMap<String, Vec<SavedForward>>,
+}
+
+/// A port-forward kept across restarts (#217). Only what is needed to start
+/// it again: no credentials, nothing from the cluster.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+pub(crate) struct SavedForward {
+    /// Stable across restarts (`""` when the UI creates one).
+    pub(crate) id: String,
+    pub(crate) target: kubeloupe::ForwardTarget,
+    /// The remote port: a number or a port name.
+    pub(crate) remote: String,
+    /// The local port as typed: `""` automatic, `"0"` any free port, else
+    /// that port.
+    pub(crate) local_port: String,
+    /// The target speaks TLS: its URL is `https://`.
+    pub(crate) https: bool,
+    /// Open the URL in the browser when the user starts it.
+    pub(crate) open_in_browser: bool,
+    /// Start it when a window connects to its context (else it comes back
+    /// stopped).
+    pub(crate) auto_start: bool,
 }
 
 /// What `zoom` may be, in percent.
@@ -144,6 +168,7 @@ impl Default for Settings {
             favourites: Vec::new(),
             zoom: 100,
             terminal_font_size: 12,
+            forwards: BTreeMap::new(),
         }
     }
 }

@@ -33,7 +33,7 @@ test("a pod forward outlives its panel and is listed, opened and stopped from Po
   expect(await fake.calls("cmdPortforwardStop")).toEqual([]);
 
   await openForwardsView(page);
-  await expect(page.getByText("Switching context stops all of them.")).toBeVisible();
+  await expect(page.getByText("Forwards are saved for this cluster.")).toBeVisible();
   await expect(forwardRows(page)).toHaveCount(1);
   const r = forwardRows(page).first();
   await expect(r).toContainText("pod/demo/web-1");
@@ -49,9 +49,15 @@ test("a pod forward outlives its panel and is listed, opened and stopped from Po
   await fake.setCluster((c) => (c.forwards[0].status.last_error = "pod web-1: Already gone: the object no longer exists."), null);
   await expect(r).toContainText("pod web-1: Already gone: the object no longer exists.");
 
+  // Stopping keeps it saved: it can start again, or be deleted.
   await r.getByRole("button", { name: "Stop http://127.0.0.1:18080" }).click();
-  await expect(forwardRows(page)).toHaveCount(0);
   expect((await fake.lastCall("cmdPortforwardStop")).id).toMatch(/^pf-/);
+  await expect(r).toContainText("Stopped");
+  await expect(r).toContainText("18080 → 8080");
+  await r.getByRole("button", { name: "Start pod/demo/web-1:8080" }).click();
+  await expect(r).toContainText("Listening");
+  await r.getByRole("button", { name: "Delete pod/demo/web-1:8080" }).click();
+  await expect(forwardRows(page)).toHaveCount(0);
   await expect(page.getByText("No port-forwards.")).toBeVisible();
   expect(fake.errors).toEqual([]);
 });
@@ -87,7 +93,7 @@ test("the context menu starts a Service forward on a chosen port", async ({ page
 
   const d = dialog(page);
   await expect(d).toContainText("svc/demo/api");
-  await expect(d).toContainText("Switching context stops all forwards.");
+  await expect(d).toContainText("switching context or quitting stops it.");
   // Only the TCP ports are offered, the first one picked.
   const select = d.getByLabel("Service port");
   await expect(select.locator("option")).toHaveText(["80/http → web", "9090/metrics → 9090"]);
@@ -100,10 +106,14 @@ test("the context menu starts a Service forward on a chosen port", async ({ page
   await d.getByLabel("Local port").fill("9000");
   await d.getByTestId("forward-confirm").click();
   await expect(d).toHaveCount(0);
-  expect(await fake.lastCall("cmdPortforwardStart")).toEqual({
+  expect((await fake.lastCall("cmdPortforwardSave")).forward).toEqual({
+    id: "",
     target: { kind: "service", namespace: "demo", name: "api" },
-    remotePort: "80",
-    localPort: 9000,
+    remote: "80",
+    local_port: "9000",
+    https: false,
+    open_in_browser: false,
+    auto_start: false,
   });
   await expect(page.getByText("Forwarding http://127.0.0.1:9000 → svc/demo/api:80")).toBeVisible();
 
@@ -161,9 +171,9 @@ test("a deployment forward asks for a port name or number", async ({ page }) => 
   await d.getByLabel("Remote port").fill("http");
   await d.getByLabel("Remote port").press("Enter");
   await expect(d).toHaveCount(0);
-  expect(await fake.lastCall("cmdPortforwardStart")).toEqual({
+  expect((await fake.lastCall("cmdPortforwardSave")).forward).toMatchObject({
     target: { kind: "deployment", namespace: "demo", name: "web" },
-    remotePort: "http",
-    localPort: null,
+    remote: "http",
+    local_port: "",
   });
 });

@@ -78,6 +78,10 @@ pub(crate) struct ForwardSession {
     pub(crate) forward: kubeloupe::PortForward,
     /// Epoch milliseconds, to list forwards in the order they started.
     pub(crate) started_at: u64,
+    /// The saved forward it runs (#217).
+    pub(crate) saved_id: String,
+    /// Its URL is `https://`.
+    pub(crate) https: bool,
 }
 
 /// One window's connection to a cluster, and everything started from it.
@@ -142,6 +146,16 @@ impl ClusterSession {
 
     pub(crate) fn selected_context(&self) -> Option<String> {
         self.context.lock().unwrap().clone()
+    }
+
+    /// The catalog id of the selected context, which per-context settings
+    /// are keyed by. Reads the kubeconfig files; no login.
+    pub(crate) fn context_id(&self) -> Result<String, String> {
+        self.sources
+            .catalog()
+            .resolve(self.selected_context().as_deref())
+            .map(|t| t.id)
+            .map_err(|e| e.to_string())
     }
 
     /// The cached client for the selected context, building it on first use.
@@ -367,6 +381,19 @@ impl AppState {
         let sessions: Vec<Arc<ClusterSession>> =
             self.sessions.lock().unwrap().values().cloned().collect();
         sessions.iter().flat_map(|s| s.node_shell_pods()).collect()
+    }
+
+    /// Whether any window runs the saved forward `saved_id` (#217).
+    pub(crate) fn runs_forward(&self, saved_id: &str) -> bool {
+        let sessions: Vec<Arc<ClusterSession>> =
+            self.sessions.lock().unwrap().values().cloned().collect();
+        sessions.iter().any(|s| {
+            s.forwards
+                .lock()
+                .unwrap()
+                .values()
+                .any(|f| f.saved_id == saved_id)
+        })
     }
 
     /// The context of every open window other than `except`, by label.

@@ -13,6 +13,7 @@ import { closeDetail, detail, openDetail } from "./detail.svelte";
 import { checkLeftovers } from "./debug.svelte";
 import { contextSettings, loadSettings, settings, updateContext, updateSettings } from "./settings.svelte";
 import { closeAllDockTabs, dock } from "./dock.svelte";
+import { autoStartForwards } from "./forwards.svelte";
 import { clearProblems } from "./problems.svelte";
 import { whenDiscarded } from "./unsaved.svelte";
 
@@ -292,6 +293,7 @@ async function restoreScope() {
   } else await initScope();
   pendingView = saved.view || null;
   markUsed();
+  void autoStartForwards();
 }
 
 /** The catalog's "last used" (#78): this window is connected to the context now. */
