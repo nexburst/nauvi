@@ -30,6 +30,17 @@ pub(crate) fn cmd_set_unsaved(webview: Webview, unsaved: bool) {
     close_guard::set_unsaved(webview.label(), unsaved);
 }
 
+/// Zoom this window's page to `percent` (#207; kept within 50-200). The
+/// frontend remembers the value in the settings and sets it on start.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_set_zoom(webview: Webview, percent: u32) -> Result<(), String> {
+    let (min, max) = crate::settings::ZOOM_RANGE;
+    webview
+        .set_zoom(f64::from(percent.clamp(min, max)) / 100.0)
+        .map_err(|e| format!("Could not zoom the window: {e}"))
+}
+
 /// The user discarded this window's unsaved edits after an
 /// `UnsavedCloseRequested`: go on closing the window (`quit`: quitting the
 /// app).

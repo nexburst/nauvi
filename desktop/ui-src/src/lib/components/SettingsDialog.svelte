@@ -7,11 +7,25 @@
   import { currentContextName } from "../stores/app.svelte";
   import { closeSettings } from "../stores/keyboard.svelte";
   import { contextLabel, openClusterSettings } from "../stores/catalog.svelte";
-  import { applyAppearance, contextSettings, settings, updateContext, updateSettings } from "../stores/settings.svelte";
+  import {
+    applyAppearance,
+    contextSettings,
+    settings,
+    updateContext,
+    updateSettings,
+    zoomIn,
+    zoomOut,
+    zoomReset,
+  } from "../stores/settings.svelte";
   import HelmRepos from "./helm/HelmRepos.svelte";
   import { loadCharts } from "../stores/helmCharts.svelte";
   import { checkForUpdates, updates } from "../stores/updates.svelte";
   import { checkSummary } from "../updates";
+  import { isMacPlatform, shortcutHint } from "../keys";
+  import { clampTerminalFont, DEFAULT_ZOOM, MAX_TERMINAL_FONT, MIN_TERMINAL_FONT, ZOOM_STEPS } from "../zoom";
+
+  const mac = isMacPlatform();
+  const zoomHint = `${shortcutHint("zoomIn", mac)}, ${shortcutHint("zoomOut", mac)} and ${shortcutHint("zoomReset", mac)} zoom this window; other windows take the zoom when they open`;
 
   /** The Settings page (gear in the header, Mod+, or the palette). Every
    *  change applies and is saved at once. */
@@ -103,6 +117,48 @@
         {/each}
       </div>
       <p class="muted hint">System follows your desktop's light or dark preference.</p>
+    </fieldset>
+
+    <fieldset data-testid="zoom-settings">
+      <legend>Zoom and text</legend>
+      <div class="row">
+        <span>Zoom: <span data-testid="zoom-level">{current.zoom}%</span></span>
+        <span class="buttons">
+          <button type="button" class="btn" aria-label="Zoom out" disabled={current.zoom <= ZOOM_STEPS[0]} onclick={zoomOut}
+            >−</button
+          >
+          <button
+            type="button"
+            class="btn"
+            aria-label="Zoom in"
+            disabled={current.zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
+            onclick={zoomIn}>+</button
+          >
+          <button type="button" class="btn" disabled={current.zoom === DEFAULT_ZOOM} onclick={zoomReset}>Reset</button>
+        </span>
+      </div>
+      <label class="row">
+        <span>Terminal font size</span>
+        <span class="buttons">
+          <input
+            class="input font"
+            type="number"
+            aria-label="Terminal font size"
+            min={MIN_TERMINAL_FONT}
+            max={MAX_TERMINAL_FONT}
+            value={current.terminal_font_size}
+            onchange={(e) => {
+              const size = clampTerminalFont(e.currentTarget.valueAsNumber);
+              e.currentTarget.value = String(size);
+              updateSettings({ terminal_font_size: size });
+            }}
+          />
+          px
+        </span>
+      </label>
+      <p class="muted hint">
+        {zoomHint}. The terminal font size applies to open terminals at once.
+      </p>
     </fieldset>
 
     <fieldset>
@@ -312,6 +368,14 @@
   }
   .input.prom {
     width: 260px;
+  }
+  .buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .input.font {
+    width: 64px;
   }
   .status {
     font-size: 12px;

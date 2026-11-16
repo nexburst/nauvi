@@ -19,6 +19,9 @@ export type Command =
   | "detailTab"
   | "toggleDock"
   | "newLocalShell"
+  | "zoomIn"
+  | "zoomOut"
+  | "zoomReset"
   | "escape";
 
 export interface Key {
@@ -134,6 +137,36 @@ export const KEYMAP: Binding[] = [
       { key: "j", mod: true, shift: true, terminal: false },
     ],
     label: "New local terminal (kubectl on this machine, at the app's context and namespace)",
+    group: "General",
+    inInputs: true,
+    inTerminal: true,
+  },
+  // Zoom (#207), as in a browser. `+` is Shift+= on many layouts and its
+  // own key on others (and on the keypad).
+  {
+    command: "zoomIn",
+    keys: [
+      { key: "=", mod: true },
+      { key: "+", mod: true },
+    ],
+    display: ["Mod+="],
+    label: "Zoom in",
+    group: "General",
+    inInputs: true,
+    inTerminal: true,
+  },
+  {
+    command: "zoomOut",
+    keys: [{ key: "-", mod: true }],
+    label: "Zoom out",
+    group: "General",
+    inInputs: true,
+    inTerminal: true,
+  },
+  {
+    command: "zoomReset",
+    keys: [{ key: "0", mod: true }],
+    label: "Reset the zoom",
     group: "General",
     inInputs: true,
     inTerminal: true,

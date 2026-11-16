@@ -347,6 +347,11 @@ export const commands = {
 	 */
 	cmdSetUnsaved: (unsaved: boolean, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_set_unsaved", { unsaved }, options),
 	/**
+	 *  Zoom this window's page to `percent` (#207; kept within 50-200). The
+	 *  frontend remembers the value in the settings and sets it on start.
+	 */
+	cmdSetZoom: (percent: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_set_zoom", { percent }, options),
+	/**
 	 *  The summed usage history of a workload's pods (`kind` is Deployment,
 	 *  StatefulSet, DaemonSet, ReplicaSet or Job), for the charts in its detail
 	 *  panel, with their summed requests and limits. Polled while the panel is
@@ -1671,6 +1676,8 @@ export type SettingsPatch_Deserialize = {
 	kinds?: { [key in string]: KindSettings_Deserialize } | null,
 	windows?: string[] | null,
 	favourites?: string[] | null,
+	zoom?: number | null,
+	terminal_font_size?: number | null,
 };
 
 /**
@@ -1688,6 +1695,8 @@ export type SettingsPatch_Serialize = {
 	kinds?: { [key in string]: KindSettings_Serialize } | null,
 	windows?: string[] | null,
 	favourites?: string[] | null,
+	zoom?: number | null,
+	terminal_font_size?: number | null,
 };
 
 export type Settings_Deserialize = {
@@ -1720,6 +1729,10 @@ export type Settings_Deserialize = {
 	 *  palette.
 	 */
 	favourites?: string[],
+	/**  The page zoom in percent (#207), within `ZOOM_RANGE`. */
+	zoom?: number,
+	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */
+	terminal_font_size?: number,
 };
 
 export type Settings_Serialize = {
@@ -1752,6 +1765,10 @@ export type Settings_Serialize = {
 	 *  palette.
 	 */
 	favourites: string[],
+	/**  The page zoom in percent (#207), within `ZOOM_RANGE`. */
+	zoom: number,
+	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */
+	terminal_font_size: number,
 };
 
 /**  One source of contexts, for the catalog's list of sources. */

@@ -44,6 +44,12 @@
     };
   });
 
+  function pick(item: MenuItem | undefined) {
+    if (!item || item.disabled) return;
+    onclose();
+    item.run();
+  }
+
   function onkeydown(e: KeyboardEvent) {
     if (e.key === "Escape" || e.key === "Tab") {
       e.preventDefault();
@@ -53,6 +59,14 @@
     const all = [...(el?.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)') ?? [])];
     if (all.length === 0) return;
     const at = all.indexOf(document.activeElement as HTMLElement);
+    // Pick the item here, with the key's default prevented: left to the
+    // button, the click would open a shell that then gets the same Enter
+    // (its keypress) as input (#207).
+    if ((e.key === "Enter" || e.key === " ") && at >= 0) {
+      e.preventDefault();
+      pick(items.filter((i) => !i.disabled)[at]);
+      return;
+    }
     const go = ({ ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 } as Record<string, number>)[
       e.key
     ];
@@ -75,10 +89,7 @@
       tabindex="-1"
       class:danger={item.danger}
       disabled={item.disabled}
-      onclick={() => {
-        onclose();
-        item.run();
-      }}>{item.label}</button
+      onclick={() => pick(item)}>{item.label}</button
     >
   {/each}
 </div>
