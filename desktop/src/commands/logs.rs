@@ -84,7 +84,10 @@ pub(crate) async fn cmd_stream_pod_logs(
             // The sender was dropped with the closure, so the batcher flushes and exits.
             let _ = batcher.await;
             if let Err(e) = result {
-                let msg = format!("Log stream ended with an error: {e}");
+                let msg = format!(
+                    "Log stream ended with an error: {}",
+                    kubeloupe::errors::error_text(&e)
+                );
                 out.emit(PodLogError {
                     stream_id,
                     data: msg,
@@ -277,7 +280,10 @@ fn end_tagged(out: &WindowEmitter, stream_id: u64, result: anyhow::Result<()>) {
     if let Err(e) = result {
         out.emit(PodLogError {
             stream_id,
-            data: format!("Log stream ended with an error: {e}"),
+            data: format!(
+                "Log stream ended with an error: {}",
+                kubeloupe::errors::error_text(&e)
+            ),
         });
     }
     out.emit(PodLogDone { stream_id });

@@ -160,6 +160,8 @@ pub fn display_server(url: &str) -> String {
 /// - the connection failed (refused, closed, reset, a TLS or HTTP error):
 ///   [`lost_connection`];
 /// - the API server answered with an error: its message;
+/// - the credential plugin exited with an error: its exit code and stderr,
+///   never its environment or stdout;
 /// - anything else (credentials that could not be refreshed, a response
 ///   that could not be read): the error chain, which then is the message.
 ///
@@ -172,12 +174,30 @@ pub fn failure_text(err: &(dyn StdError + 'static), server: &str) -> String {
             "The API server answered with an error: {}",
             crate::errors::response_text(r)
         )
+    } else if let Some(t) = exec_run_text(err) {
+        format!("Could not refresh the login: {t}")
     } else if is_connection_error(err) {
         lost_connection(server)
     } else {
         chain
     };
     retrying(&text)
+}
+
+/// The text of a credential plugin that exited with an error, if that is
+/// what `err` is (see [`crate::auth::exec_run_text`]).
+fn exec_run_text(err: &(dyn StdError + 'static)) -> Option<String> {
+    let mut cur: Option<&(dyn StdError + 'static)> = Some(err);
+    while let Some(e) = cur {
+        if let Some(t) = e
+            .downcast_ref::<kube::client::AuthError>()
+            .and_then(crate::auth::exec_run_text)
+        {
+            return Some(t);
+        }
+        cur = e.source();
+    }
+    None
 }
 
 /// `text` followed by "; retrying.".
@@ -387,6 +407,40 @@ mod tests {
             failure_text(&e, "https://x"),
             "The API server answered with an error: etcdserver: request timed out; retrying."
         );
+    }
+
+    #[cfg(unix)]
+    fn failed_run() -> kube::client::AuthError {
+        use std::os::unix::process::ExitStatusExt;
+        let mut cmd = std::process::Command::new("aws");
+        cmd.arg("eks").env("VAULT_TOKEN", "s3cret-env-value");
+        kube::client::AuthError::AuthExecRun {
+            cmd: format!("{cmd:?}"),
+            status: std::process::ExitStatus::from_raw(255 << 8),
+            out: std::process::Output {
+                status: std::process::ExitStatus::from_raw(255 << 8),
+                stdout: b"{\"token\":\"s3cret-stdout\"}".to_vec(),
+                stderr: b"Error: SSO session expired. Run aws sso login\n".to_vec(),
+            },
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_plugin_shows_stderr_but_not_env_or_stdout() {
+        // kube's own text has both, so the test means something.
+        let raw = failed_run().to_string();
+        assert!(raw.contains("s3cret-env-value"), "{raw}");
+        assert!(raw.contains("s3cret-stdout"), "{raw}");
+        let e = watcher::Error::WatchFailed(kube::Error::Auth(failed_run()));
+        assert_eq!(
+            failure_text(&e, "https://x"),
+            "Could not refresh the login: the credential plugin exited with exit code 255: \
+             Error: SSO session expired. Run aws sso login; retrying."
+        );
+        let chain = crate::errors::chain_text(&e);
+        assert!(!chain.contains("s3cret"), "{chain}");
+        assert!(chain.contains("Run aws sso login"), "{chain}");
     }
 
     #[test]
