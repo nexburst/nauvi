@@ -151,6 +151,12 @@ export const commands = {
 	 */
 	cmdExecStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { namespace, name, container, cols, rows }, options),
 	/**
+	 *  Ask where to save a CSV file (starting in Downloads, with `filename`
+	 *  suggested) and write `content` there. Returns the path written, or `None`
+	 *  when the user cancelled the dialog.
+	 */
+	cmdSaveCsv: (filename: string, content: string, options?: InvokeOptions) => __TAURI_INVOKE<string | null>("cmd_save_csv", { filename, content }, options),
+	/**
 	 *  The chart of each given revision (a few payloads downloaded at a time),
 	 *  for the list's chart columns. Errors are per release.
 	 */

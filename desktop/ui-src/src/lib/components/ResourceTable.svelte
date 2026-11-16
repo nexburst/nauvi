@@ -21,6 +21,8 @@
   import type { Sort } from "../view";
   import { sortOf, withSort } from "../settings";
   import { kindSettings, updateSettings } from "../stores/settings.svelte";
+  import { registerTableExport } from "../stores/tableExport.svelte";
+  import { tableCsv } from "../csv";
 
   interface Props {
     kind: ResourceKind;
@@ -236,6 +238,22 @@
           : { targets: [], row: null };
       },
       focus: () => gridEl?.focus({ preventScroll: true }),
+    }),
+  );
+
+  // The toolbar's Export CSV (#221): what is on screen, as it is shown.
+  onMount(() =>
+    registerTableExport({
+      get kind() {
+        return kind;
+      },
+      rows: () => visible.length,
+      csv: () =>
+        tableCsv(
+          columns,
+          visible.map((e) => e.row),
+          { metrics, now },
+        ),
     }),
   );
 
