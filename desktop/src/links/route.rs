@@ -82,7 +82,17 @@ pub(crate) fn opened(app: &AppHandle, urls: &[url::Url]) {
 /// on Windows.
 fn spawn_open(app: &AppHandle, link: String) {
     let app = app.clone();
-    tauri::async_runtime::spawn(async move { open(&app, &link) });
+    tauri::async_runtime::spawn(one_at_a_time(move || open(&app, &link)));
+}
+
+/// Links are routed one after another: a window opened for one link is
+/// built (and found by the next) before the next link looks for a window
+/// on its context, so links arriving together open one window, not one each.
+static ROUTING: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+async fn one_at_a_time<T>(f: impl FnOnce() -> T) -> T {
+    let _turn = ROUTING.lock().await;
+    f()
 }
 
 fn open(app: &AppHandle, raw: &str) {
@@ -229,6 +239,30 @@ mod tests {
             Some("cluster-9")
         );
         assert_eq!(pick_window(vec![]), None);
+    }
+
+    /// Two links for one context at once: as `open`, each looks for a built
+    /// window and opens one if there is none, and building takes a while.
+    /// Routed one at a time, the second finds the first one's window.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn links_arriving_together_open_one_window() {
+        use std::sync::Arc;
+        let built: Arc<Mutex<Vec<String>>> = Arc::default();
+        let route = |built: Arc<Mutex<Vec<String>>>| {
+            tokio::spawn(one_at_a_time(move || {
+                if let Some(w) = built.lock().unwrap().first().cloned() {
+                    return w;
+                }
+                // Building the window: not visible to others until done.
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                let label = format!("cluster-{}", built.lock().unwrap().len() + 1);
+                built.lock().unwrap().push(label.clone());
+                label
+            }))
+        };
+        let (a, b) = tokio::join!(route(built.clone()), route(built.clone()));
+        assert_eq!(a.unwrap(), b.unwrap(), "both links go to one window");
+        assert_eq!(built.lock().unwrap().len(), 1, "one window opened");
     }
 
     #[test]
