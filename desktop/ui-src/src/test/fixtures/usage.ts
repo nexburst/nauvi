@@ -150,7 +150,7 @@ export function prometheusFixture(): FakePrometheus {
   const total = sum(app, sidecar);
   return {
     detected: "monitoring/prometheus-k8s:web",
-    disks: [{ name: "node-1", used_bytes: 21.5 * 1024 ** 3, size_bytes: 50 * 1024 ** 3 }],
+    disks: [{ name: "node-1", mountpoint: "/", used_bytes: 21.5 * 1024 ** 3, size_bytes: 50 * 1024 ** 3 }],
     note: "",
     failure: "",
     series: {

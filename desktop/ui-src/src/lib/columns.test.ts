@@ -146,10 +146,10 @@ describe("columnsFor", () => {
     );
     const disk = cols[1];
     const node = row(["node-1", ""], { key: "node-1", name: "node-1", namespace: "" });
-    expect(shownColumns(cols, [], ctx).map((c) => c.key)).toEqual(["name"]);
+    expect(shownColumns(cols, [], metrics).map((c) => c.key)).toEqual(["name"]);
     const withDisks: Metrics = {
       ...metrics,
-      disks: new Map([["node-1", { name: "node-1", used_bytes: 10 * 1024 ** 3, size_bytes: 40 * 1024 ** 3 }]]),
+      disks: new Map([["node-1", { name: "node-1", mountpoint: "/", used_bytes: 10 * 1024 ** 3, size_bytes: 40 * 1024 ** 3 }]]),
     };
     const c2: Ctx = { metrics: withDisks, now: 0 };
     expect(shownColumns(cols, [], withDisks).map((c) => c.key)).toEqual(["name", "disk"]);

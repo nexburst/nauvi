@@ -1466,10 +1466,12 @@ export type NodeCounts = {
 	ready: number,
 };
 
-/**  The root filesystem of one node. */
+/**  The filesystem of one node that holds the kubelet's data. */
 export type NodeDisk = {
 	/**  The node name. */
 	name: string,
+	/**  Where it is mounted (`/`, `/var`, ...). */
+	mountpoint: string,
 	used_bytes: number,
 	size_bytes: number,
 };
