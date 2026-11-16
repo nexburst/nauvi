@@ -4,15 +4,15 @@
 //! [`AppState`] holds the sessions by window label; commands get the
 //! calling window's session through the [`Cluster`] argument.
 
-use crate::catalog::KubeconfigSources;
+use crate::catalog::{Approved, KubeconfigSources};
 use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
 use kube::api::TerminalSize;
 use kube::Client;
+use kubeloupe::client_for_context_with;
 use kubeloupe::liveness::Prober;
 use kubeloupe::resources::ResourceKind;
 use kubeloupe::UsageHistory;
-use kubeloupe::{client_for_context_with, client_for_target, ContextTarget};
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -114,6 +114,9 @@ pub(crate) struct ClusterSession {
     /// Set once the window is gone: whatever a command still in flight
     /// adds afterwards is stopped right away instead of leaking.
     closed: AtomicBool,
+    /// The window's page has started loading once (#205): any later load
+    /// is a reload, which gets a fresh session.
+    page_loaded: AtomicBool,
 }
 
 impl ClusterSession {
@@ -159,11 +162,9 @@ impl ClusterSession {
         let c = match selected.as_deref() {
             // The default kubeconfig's current-context, or in-cluster config.
             None => client_for_context_with(None, false).await,
-            Some(id) => {
-                // An added kubeconfig's login command runs once allowed (#201).
-                self.sources.may_log_in(id)?;
-                client_for_target(&self.sources.resolve(Some(id))?, false).await
-            }
+            // An added kubeconfig's login command runs once allowed (#201),
+            // from the file as it was read for that check (#242).
+            Some(id) => self.sources.approved(Some(id))?.client().await,
         }
         .map_err(|e| kubeloupe::error_text(&e))?;
         let server = self.sources.server(selected.as_deref());
@@ -172,19 +173,15 @@ impl ClusterSession {
         Ok(c)
     }
 
-    /// The kubeconfig file and context name the selected context connects
-    /// with. Everything that runs outside the client (helm, local shells)
-    /// takes these, so it reaches the same cluster as the app.
+    /// The selected context, for what runs outside the client (helm,
+    /// local shells), so it reaches the same cluster as the app.
     ///
     /// Helm and kubectl in a local shell run the exec plugin themselves, so
     /// an added kubeconfig's login command must be allowed first (#201),
-    /// as for the client.
-    pub(crate) fn target(&self) -> Result<ContextTarget, String> {
-        let selected = self.selected_context();
-        if let Some(id) = selected.as_deref() {
-            self.sources.may_log_in(id)?;
-        }
-        self.sources.resolve(selected.as_deref())
+    /// as for the client, and they get [`Approved::flat`], the context as
+    /// it was read for that check, never the added file itself (#242).
+    pub(crate) fn target(&self) -> Result<Approved, String> {
+        Ok(self.sources.approved(self.selected_context().as_deref())?)
     }
 
     /// Switch to `context`: stop everything of the old one and forget its
@@ -335,6 +332,30 @@ impl AppState {
         session.map(|s| s.close()).unwrap_or_default()
     }
 
+    /// A page load started in window `label` (#205). The first one is the
+    /// window opening. A later one is a reload: the page that started the
+    /// streams and shells is gone, so the window gets a fresh session on
+    /// the same context and the old one is closed. Returns, for a reload,
+    /// the old session's terminal sessions, still to close.
+    pub(crate) fn page_load(&self, label: &str) -> Option<Vec<ExecSession>> {
+        if self.gone.lock().unwrap().contains(label) {
+            return None;
+        }
+        let old = {
+            let mut sessions = self.sessions.lock().unwrap();
+            let current = sessions
+                .entry(label.to_string())
+                .or_insert_with(|| Arc::new(ClusterSession::new(None, self.sources.clone())));
+            if !current.page_loaded.swap(true, Ordering::SeqCst) {
+                return None;
+            }
+            let fresh = ClusterSession::new(current.selected_context(), self.sources.clone());
+            fresh.page_loaded.store(true, Ordering::SeqCst);
+            std::mem::replace(current, Arc::new(fresh))
+        };
+        Some(old.close())
+    }
+
     /// Close every session (the app is quitting).
     pub(crate) fn close_all(&self) -> Vec<ExecSession> {
         let labels: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
@@ -472,6 +493,41 @@ mod tests {
             state.contexts(MAIN_WINDOW),
             vec![("cluster-1".to_string(), Some("staging".to_string()))]
         );
+    }
+
+    #[test]
+    fn a_reload_gets_a_fresh_session_on_the_same_context() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("staging".into()));
+        let first = state.session("cluster-1");
+        // The window opening: nothing changes.
+        assert!(state.page_load("cluster-1").is_none());
+        assert!(Arc::ptr_eq(&first, &state.session("cluster-1")));
+        assert!(!first.is_closed());
+        // A reload: the old session is closed, the new one is live.
+        assert!(state.page_load("cluster-1").is_some());
+        assert!(first.is_closed());
+        let second = state.session("cluster-1");
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(!second.is_closed());
+        assert_eq!(second.selected_context().as_deref(), Some("staging"));
+        // And so on for every later reload.
+        state.page_load("cluster-1");
+        assert!(second.is_closed());
+    }
+
+    #[test]
+    fn the_first_page_load_keeps_a_session_made_before_it() {
+        let state = AppState::default();
+        // The main window's session is made on its first command.
+        assert!(state.page_load(MAIN_WINDOW).is_none());
+        let main = state.session(MAIN_WINDOW);
+        state.page_load(MAIN_WINDOW);
+        assert!(main.is_closed());
+        // A closed window's late page load makes no session.
+        state.close(MAIN_WINDOW);
+        assert!(state.page_load(MAIN_WINDOW).is_none());
+        assert!(state.session(MAIN_WINDOW).is_closed());
     }
 
     #[test]

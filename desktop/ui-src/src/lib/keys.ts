@@ -19,6 +19,7 @@ export type Command =
   | "detailTab"
   | "toggleDock"
   | "newLocalShell"
+  | "refresh"
   | "zoomIn"
   | "zoomOut"
   | "zoomReset"
@@ -45,8 +46,10 @@ export interface Key {
   /**
    * false: this key of an `inTerminal` binding is left to the shell outside
    * macOS (Ctrl+J is LF, which fzf, vim and emacs use; ⌘J never reaches it).
+   * "always": left to the shell on every platform (F5 is a key programs
+   * like mc and htop use).
    */
-  terminal?: false;
+  terminal?: false | "always";
 }
 
 export interface Binding {
@@ -61,6 +64,8 @@ export interface Binding {
   inInputs?: boolean;
   /** Also fires from the terminal, which otherwise keeps every key. */
   inTerminal?: boolean;
+  /** Also fires from the YAML editor, which otherwise keeps every key. */
+  inEditor?: boolean;
 }
 
 const digits = Array.from({ length: 9 }, (_, i) => ({ key: String(i + 1), mod: true }));
@@ -140,6 +145,25 @@ export const KEYMAP: Binding[] = [
     group: "General",
     inInputs: true,
     inTerminal: true,
+  },
+  {
+    command: "refresh",
+    // The engine's reload keys (#205), plain and forced: reloading the
+    // page would skip the unsaved-edit prompt and drop the dock's tabs.
+    keys: [
+      { key: "F5", terminal: "always" },
+      { key: "F5", mod: true, terminal: "always" },
+      { key: "F5", shift: true, terminal: "always" },
+      // Ctrl+R is the shell's history search.
+      { key: "r", mod: true, terminal: false },
+      { key: "r", mod: true, shift: true },
+    ],
+    display: ["F5", "Mod+R"],
+    label: "Refresh",
+    group: "General",
+    inInputs: true,
+    inTerminal: true,
+    inEditor: true,
   },
   // Zoom (#207), as in a browser. `+` is Shift+= on many layouts and its
   // own key on others (and on the keypad).
@@ -253,7 +277,8 @@ export function shortcutHint(command: Command, mac: boolean): string {
 
 /** Whether the key `hit` matched goes to the terminal instead of the app. */
 export function leftToTerminal(binding: Binding, index: number, mac: boolean): boolean {
-  return binding.keys[index]?.terminal === false && !mac;
+  const terminal = binding.keys[index]?.terminal;
+  return terminal === "always" || (terminal === false && !mac);
 }
 
 /** Where typing goes: shortcuts stay out of the way there. */

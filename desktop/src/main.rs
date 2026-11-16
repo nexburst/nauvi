@@ -10,6 +10,7 @@ mod close_guard;
 mod commands;
 mod local_shell;
 mod log_streams;
+mod page_load;
 mod settings;
 #[cfg(unix)]
 mod shell_env;
@@ -49,14 +50,17 @@ fn main() {
         // First: a second launch focuses the running app and exits (#202).
         .plugin(single_instance::plugin(&context.config().identifier))
         .manage(AppState::default())
-        // Opens forwarded URLs in the browser; the capability limits it to
-        // http://127.0.0.1 and http://localhost.
+        // Opens forwarded URLs, the release page and links in terminal output
+        // (#245) in the browser; the capability limits it to http(s) URLs
+        // without credentials.
         .plugin(tauri_plugin_opener::init())
         // In-app updates (#30): the check and the install run from
-        // `commands/updater.rs`; `process` restarts into the new version.
+        // `commands/updater.rs`, which restarts with `request_restart`. The
+        // webview gets no updater or process permission (#245).
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .invoke_handler(builder.invoke_handler())
+        // A reload starts the window's session over (#205).
+        .on_page_load(page_load::on_page_load)
         .setup(move |app| {
             builder.mount_events(app);
             let config_dir = app.path().app_config_dir().ok();
@@ -68,6 +72,8 @@ fn main() {
             sources.set_pasted_dir(config_dir.map(|d| d.join("kubeconfigs")));
             sources.set_extra(&store.get().kubeconfig_sources);
             catalog::watch(app.handle().clone(), sources);
+            // Temp kubeconfigs a crashed run left behind (#242).
+            std::thread::spawn(kubeloupe::sweep_stale_temp_kubeconfigs);
             app.manage(store);
             commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());

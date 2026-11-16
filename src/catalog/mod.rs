@@ -13,9 +13,13 @@
 
 mod check;
 mod files;
+mod flat;
+mod local_files;
 
 pub use check::*;
 pub use files::*;
+pub use flat::*;
+pub use local_files::*;
 
 use anyhow::{anyhow, Result};
 use kube::config::Kubeconfig;
@@ -79,6 +83,11 @@ pub struct ContextInfo {
     /// Logging in runs a plugin or an auth provider (`exec` or
     /// `auth-provider`): the catalog checks it only when asked (#201).
     pub login_plugin: bool,
+    /// The `tokenFile`, `client-certificate` and `client-key` paths of an
+    /// added file's context outside that file's folder: logging in sends
+    /// them, so the catalog checks it only when asked (#244). `[]` for the
+    /// default kubeconfig.
+    pub local_files: Vec<String>,
 }
 
 /// What to connect to for a context id: its name in its kubeconfig and
@@ -304,6 +313,12 @@ fn context_info(
         ),
         None => (String::new(), false),
     };
+    let local_files = match auth {
+        Some(a) if !source.as_os_str().is_empty() => {
+            local_files_outside(a, file.parent().unwrap_or(Path::new("")))
+        }
+        _ => vec![],
+    };
     ContextInfo {
         name: id,
         context: name.to_string(),
@@ -316,6 +331,7 @@ fn context_info(
         source: source.display().to_string(),
         login_command,
         login_plugin,
+        local_files,
     }
 }
 
@@ -404,7 +420,7 @@ fn shell_word(word: &str) -> String {
 
 /// Control (Cc), format (Cf) and line/paragraph separator characters:
 /// those that show as nothing, move text or reorder it.
-fn is_invisible(c: char) -> bool {
+pub(crate) fn is_invisible(c: char) -> bool {
     c.is_control()
         || matches!(c as u32,
             0x00AD

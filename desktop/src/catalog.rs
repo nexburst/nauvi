@@ -10,10 +10,13 @@ mod gate_tests;
 pub(crate) use approvals::ExecAnswer;
 
 use approvals::{not_allowed_message, Approvals};
+use kube::config::Kubeconfig;
 use kubeloupe::catalog::{
-    default_kubeconfig_paths, expand_home, load_catalog, sources_fingerprint, Catalog, CatalogInput,
+    context_local_files, context_login_command, default_kubeconfig_paths, expand_home,
+    flatten_context, load_catalog, sources_fingerprint, Catalog, CatalogInput,
 };
-use kubeloupe::ContextTarget;
+use kubeloupe::errors::kubeconfig_error_text;
+use kubeloupe::{client_for_target, client_from_kubeconfig, ContextTarget};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -65,12 +68,6 @@ impl KubeconfigSources {
     /// Every context and source, read from the files now.
     pub(crate) fn catalog(&self) -> Catalog {
         load_catalog(&self.input())
-    }
-
-    /// Which file and context the context id `id` connects with (`None`:
-    /// the default kubeconfig's current-context).
-    pub(crate) fn resolve(&self, id: Option<&str>) -> Result<ContextTarget, String> {
-        self.catalog().resolve(id).map_err(|e| e.to_string())
     }
 
     /// The API server URL of context `id` (`None`: the default kubeconfig's
@@ -133,21 +130,47 @@ impl KubeconfigSources {
         self.with_approvals(|a| a.forget_source(source))
     }
 
-    /// Whether logging in to context `id` may run its login command: always
-    /// for the default kubeconfig, and for an added source once the user
-    /// allowed that command. The error is the message to show.
-    pub(crate) fn may_log_in(&self, id: &str) -> Result<(), String> {
+    /// Context `id` (`None`: the default kubeconfig's current-context),
+    /// checked against the answers about added kubeconfigs' login commands
+    /// (#201): the default kubeconfig always passes, an added file's
+    /// context once the user allowed its command.
+    ///
+    /// The added file is read once, here: the command checked is the one
+    /// in the returned [`Approved::kubeconfig`], which is what the client,
+    /// helm and local shells then use (#242). A file swapped afterwards is
+    /// not read again.
+    pub(crate) fn approved(&self, id: Option<&str>) -> Result<Approved, GateError> {
         let catalog = self.catalog();
-        let Some(c) = catalog.find(id) else {
-            return Ok(());
+        let target = catalog
+            .resolve(id)
+            .map_err(|e| GateError::Invalid(e.to_string()))?;
+        let Some(file) = target.kubeconfig.clone() else {
+            return Ok(Approved {
+                target,
+                kubeconfig: None,
+            });
         };
-        if c.source.is_empty() || c.login_command.is_empty() {
-            return Ok(());
+        let source = catalog
+            .find(&target.id)
+            .map(|c| c.source.clone())
+            .unwrap_or_default();
+        let kubeconfig = Kubeconfig::read_from(&file)
+            .map_err(|e| GateError::Invalid(kubeconfig_error_text(&e, Some(&file))))?;
+        let command = context_login_command(&kubeconfig, &target.context);
+        if !command.is_empty() {
+            match self.with_approvals(|a| a.answer(&source, &command)) {
+                ExecAnswer::Allowed => {}
+                answer => {
+                    return Err(GateError::NotAllowed(not_allowed_message(
+                        &target.id, &command, &source, answer,
+                    )))
+                }
+            }
         }
-        match self.with_approvals(|a| a.answer(&c.source, &c.login_command)) {
-            ExecAnswer::Allowed => Ok(()),
-            answer => Err(not_allowed_message(id, &c.login_command, &c.source, answer)),
-        }
+        Ok(Approved {
+            target,
+            kubeconfig: Some(kubeconfig),
+        })
     }
 
     /// The files and folders whose changes the windows hear about.
@@ -155,6 +178,64 @@ impl KubeconfigSources {
         let mut paths = default_kubeconfig_paths();
         paths.extend(self.extra.lock().unwrap().iter().cloned());
         paths
+    }
+}
+
+/// A context that may log in (see [`KubeconfigSources::approved`]).
+#[derive(Debug)]
+pub(crate) struct Approved {
+    pub(crate) target: ContextTarget,
+    /// The added file as it was read for the check (`None`: the default
+    /// kubeconfig, which has no check).
+    pub(crate) kubeconfig: Option<Kubeconfig>,
+}
+
+impl Approved {
+    /// The client of the context, from the checked kubeconfig. Never
+    /// prompts.
+    pub(crate) async fn client(self) -> anyhow::Result<kube::Client> {
+        match self.kubeconfig {
+            Some(kc) => client_from_kubeconfig(kc, Some(&self.target.context), false).await,
+            None => client_for_target(&self.target, false).await,
+        }
+    }
+
+    /// The local files outside the added file's folder that logging in
+    /// sends (#244), from the file as it was read for the check (`[]`: none,
+    /// or the default kubeconfig).
+    pub(crate) fn local_files(&self) -> Vec<String> {
+        match (&self.kubeconfig, &self.target.kubeconfig) {
+            (Some(kc), Some(file)) => context_local_files(kc, &self.target.context, file),
+            _ => vec![],
+        }
+    }
+
+    /// A private temp copy of an added file's context for helm and local
+    /// shells (`None`: the default kubeconfig, which they read themselves).
+    pub(crate) fn flat(&self) -> Result<Option<Kubeconfig>, String> {
+        let (Some(kc), Some(file)) = (&self.kubeconfig, &self.target.kubeconfig) else {
+            return Ok(None);
+        };
+        flatten_context(kc, &self.target.context, file)
+            .map(Some)
+            .map_err(|e| format!("{e:#}"))
+    }
+}
+
+/// Why a context may not log in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum GateError {
+    /// Its id, file or entry is broken.
+    Invalid(String),
+    /// Its login command is not allowed (yet).
+    NotAllowed(String),
+}
+
+impl From<GateError> for String {
+    fn from(e: GateError) -> String {
+        match e {
+            GateError::Invalid(m) | GateError::NotAllowed(m) => m,
+        }
     }
 }
 

@@ -1,0 +1,92 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "crashed",
+    "namespace": "demo",
+    "creationTimestamp": "2026-11-13T18:05:18Z"
+  },
+  "spec": {
+    "restartPolicy": "Always",
+    "containers": [
+      {
+        "name": "app",
+        "image": "busybox:1.36"
+      }
+    ]
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T05:55:44Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodReadyToStartContainers"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-13T18:05:18Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "Initialized"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:46:23Z",
+        "message": "containers with unready status: [app]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotReady",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:46:23Z",
+        "message": "containers with unready status: [app]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotReady",
+        "status": "False",
+        "type": "ContainersReady"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-13T18:05:18Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodScheduled"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "image": "docker.io/library/busybox:1.36",
+        "lastState": {
+          "terminated": {
+            "containerID": "containerd://a51807b62796714f326b5ebccdddeb444745d4a0cf010639e8c0ee59400d3ffa",
+            "exitCode": 1,
+            "finishedAt": "2026-11-16T10:46:22Z",
+            "reason": "Error",
+            "startedAt": "2026-11-16T10:46:19Z"
+          }
+        },
+        "name": "app",
+        "ready": false,
+        "restartCount": 739,
+        "started": false,
+        "state": {
+          "waiting": {
+            "message": "back-off 5m0s restarting failed container=app pod=crashed_demo(ec297cbb-1ca6-4ceb-bc12-b0beea9224fe)",
+            "reason": "CrashLoopBackOff"
+          }
+        }
+      }
+    ],
+    "hostIP": "172.18.0.2",
+    "observedGeneration": 1,
+    "phase": "Running",
+    "podIP": "10.244.1.7",
+    "resources": {},
+    "startTime": "2026-11-13T18:05:18Z",
+    "initContainerStatuses": null
+  }
+}

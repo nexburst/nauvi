@@ -5,6 +5,9 @@
   import { live } from "../stores/live.svelte";
   import { openSettings } from "../stores/keyboard.svelte";
   import { confirmDiscard } from "../stores/unsaved.svelte";
+  import { isMacPlatform, shortcutHint } from "../keys";
+
+  const REFRESH_SHORTCUT = shortcutHint("refresh", isMacPlatform());
 
   async function onContextChange(select: HTMLSelectElement) {
     const name = select.value;
@@ -91,7 +94,7 @@
       </svg>
     </button>
   {/if}
-  <button class="refresh" type="button" onclick={refresh}>Refresh</button>
+  <button class="refresh" type="button" title={`Refresh (${REFRESH_SHORTCUT})`} onclick={refresh}>Refresh</button>
   <button class="gear" type="button" aria-label="Settings" title="Settings" onclick={openSettings}>
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
       <path

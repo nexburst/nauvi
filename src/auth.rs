@@ -146,18 +146,78 @@ pub fn not_found_message(cmd: &str, ctx: &str, path: &str) -> String {
 
 /// The message for an exec plugin that exited with an error, with its stderr.
 pub fn exec_failed_message(cmd: &str, ctx: &str, status: ExitStatus, stderr: &[u8]) -> String {
-    let stderr = String::from_utf8_lossy(stderr);
-    let stderr = stderr.trim();
+    format!(
+        "{LOGIN_FAILED}{ctx}` failed: {}",
+        exec_exit_text(&format!("`{cmd}`"), status, stderr)
+    )
+}
+
+/// What a plugin that exited with an error said, for error chains that
+/// don't know the context (a token refresh during a watch): its exit code
+/// and stderr, never its environment or stdout.
+pub fn exec_run_text(err: &AuthError) -> Option<String> {
+    match err {
+        AuthError::AuthExecRun { status, out, .. } => Some(exec_exit_text(
+            "the credential plugin",
+            *status,
+            &out.stderr,
+        )),
+        _ => None,
+    }
+}
+
+/// "`who` exited with exit code N: stderr".
+///
+/// kube's own text for this error prints the command with `{:?}`, which on
+/// Unix includes the environment it set (tokens from the kubeconfig's
+/// `env`), and the plugin's stdout (possibly a credential): neither may
+/// reach a message.
+fn exec_exit_text(who: &str, status: ExitStatus, stderr: &[u8]) -> String {
+    let stderr = stderr_tail(stderr);
     let output = if stderr.is_empty() {
         "it printed no error message".to_string()
     } else {
-        stderr.to_string()
+        stderr
     };
     let status = match status.code() {
         Some(code) => format!("exit code {code}"),
         None => status.to_string(),
     };
-    format!("{LOGIN_FAILED}{ctx}` failed: `{cmd}` exited with {status}: {output}")
+    format!("{who} exited with {status}: {output}")
+}
+
+/// How much of a plugin's stderr a message keeps: its last lines...
+const STDERR_LINES: usize = 10;
+/// ...and at most this many bytes of them.
+const STDERR_BYTES: usize = 1024;
+
+/// The end of a plugin's stderr for a message: trimmed, its last
+/// [`STDERR_LINES`] lines and [`STDERR_BYTES`] bytes ("…" first when cut),
+/// with control, bidi and other invisible characters (ANSI escapes
+/// included) written as `\u{..}`, so they can't restyle a terminal or
+/// reorder the text. Newlines are kept. Running it again changes nothing.
+pub fn stderr_tail(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let lines: Vec<&str> = text.trim().lines().collect();
+    let mut cut = lines.len() > STDERR_LINES;
+    let kept = lines[lines.len().saturating_sub(STDERR_LINES)..].join("\n");
+    let mut start = kept.len().saturating_sub(STDERR_BYTES);
+    while !kept.is_char_boundary(start) {
+        start += 1;
+    }
+    cut |= start > 0;
+    let mut out = String::new();
+    if cut {
+        out.push('…');
+    }
+    for c in kept[start..].chars() {
+        if c != '\n' && crate::catalog::is_invisible(c) {
+            out.push_str(&format!("\\u{{{:x}}}", c as u32));
+        } else {
+            out.push(c);
+        }
+    }
+    out
 }
 
 /// The first error in the chain of type `T`.
@@ -227,6 +287,30 @@ mod tests {
         assert!(msg.ends_with("Run aws sso login"), "{msg}");
         let empty = exec_failed_message("aws", "prod", exit_status(1), b"  ");
         assert!(empty.contains("no error message"), "{empty}");
+    }
+
+    #[test]
+    fn stderr_is_cut_to_its_end_and_escaped() {
+        let many: String = (1..=30).map(|i| format!("line {i}\n")).collect();
+        assert_eq!(
+            stderr_tail(many.as_bytes()),
+            format!(
+                "…{}",
+                (21..=30)
+                    .map(|i| format!("line {i}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        );
+        let long = "x".repeat(5000) + "é end";
+        let t = stderr_tail(long.as_bytes());
+        assert!(t.starts_with('…') && t.ends_with("é end"), "{t}");
+        assert!(t.len() <= STDERR_BYTES + '…'.len_utf8(), "{}", t.len());
+        let nasty = "\u{1b}[31mred\u{1b}[0m \u{202e}evil\rx\nok";
+        let t = stderr_tail(nasty.as_bytes());
+        assert_eq!(t, "\\u{1b}[31mred\\u{1b}[0m \\u{202e}evil\\u{d}x\nok");
+        assert_eq!(stderr_tail(t.as_bytes()), t, "idempotent");
+        assert_eq!(stderr_tail(b"  \n "), "");
     }
 
     #[test]

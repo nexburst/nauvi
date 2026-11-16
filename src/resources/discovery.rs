@@ -91,7 +91,10 @@ pub async fn discover(client: &Client) -> Result<Vec<ResourceKind>> {
                 match res {
                     Ok(l) => Some(l),
                     Err(e) => {
-                        tracing::warn!("discovery of {gv} failed: {e}");
+                        tracing::warn!(
+                            "discovery of {gv} failed: {}",
+                            crate::errors::chain_text(&e)
+                        );
                         None
                     }
                 }

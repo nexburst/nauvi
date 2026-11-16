@@ -24,6 +24,10 @@ pub enum ContextState {
     /// Logging in runs a command of an added kubeconfig that the user has
     /// not allowed (set by the desktop app, #201).
     NotAllowed,
+    /// Logging in sends local files from outside an added kubeconfig's
+    /// folder (a token file, a client certificate): checked only when the
+    /// user asks (set by the desktop app, #244).
+    LocalFiles,
 }
 
 /// The result of checking one context.
@@ -54,8 +58,17 @@ pub fn classify(message: &str) -> ContextState {
 
 /// Log in to the context's cluster (never prompting) and ask its version.
 pub async fn check_context(target: &ContextTarget) -> ContextCheck {
+    check_with(&target.id, client_for_target(target, false)).await
+}
+
+/// [`check_context`] with the client `connect` builds: the desktop app
+/// builds it from the kubeconfig it read to allow the login command (#242).
+pub async fn check_with(
+    id: &str,
+    connect: impl std::future::Future<Output = anyhow::Result<kube::Client>>,
+) -> ContextCheck {
     let attempt = async {
-        let client = client_for_target(target, false).await?;
+        let client = connect.await?;
         let version = client.apiserver_version().await?;
         anyhow::Ok(version.git_version)
     };
@@ -69,14 +82,14 @@ pub async fn check_context(target: &ContextTarget) -> ContextCheck {
             ContextState::Unreachable,
             format!(
                 "{UNREACHABLE} for `{}`: no answer within {} s",
-                target.id,
+                id,
                 CHECK_TIMEOUT.as_secs()
             ),
             String::new(),
         ),
     };
     ContextCheck {
-        name: target.id.clone(),
+        name: id.to_string(),
         state,
         message,
         version,

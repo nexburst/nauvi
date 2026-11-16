@@ -20,7 +20,9 @@ class CatalogStore {
   /** The context id whose settings page is open, or null. */
   settingsFor = $state<string | null>(null);
   /** Login commands of an added source waiting for the user's OK (#201). */
-  prompt = $state.raw<{ source: string; commands: ExecCommand[] } | null>(null);
+  /** `asked`: the context the user chose Check on ("" when adding a source
+   *  opened the prompt); only that one may send local files after Allow (#244). */
+  prompt = $state.raw<{ source: string; commands: ExecCommand[]; asked: string } | null>(null);
 }
 export const catalog = new CatalogStore();
 
@@ -38,11 +40,15 @@ function setCheck(id: string, check: ContextCheck | "checking") {
   catalog.checks = next;
 }
 
-/** Log in to one cluster and record whether it answered. */
-export async function checkContext(id: string) {
+/**
+ * Log in to one cluster and record whether it answered. `asked`: the user
+ * chose this context; otherwise one that sends local files from outside
+ * its added kubeconfig's folder is not checked (#244).
+ */
+export async function checkContext(id: string, asked = false) {
   setCheck(id, "checking");
   try {
-    setCheck(id, await commands.cmdCheckContext(id));
+    setCheck(id, await commands.cmdCheckContext(id, asked));
   } catch (e) {
     setCheck(id, { name: id, state: "invalid", message: String(e), version: "" });
   }
@@ -53,13 +59,13 @@ export function checkAll(): Promise<void> {
   return runLimited(
     app.contexts.map((c) => c.name),
     CHECKS_AT_ONCE,
-    checkContext,
+    (id) => checkContext(id),
   );
 }
 
 /** What opening the catalog checks: every context that logs in without running a plugin. */
 export function checkOnOpen(): Promise<void> {
-  return runLimited(checkedOnOpen(app.contexts), CHECKS_AT_ONCE, checkContext);
+  return runLimited(checkedOnOpen(app.contexts), CHECKS_AT_ONCE, (id) => checkContext(id));
 }
 
 /**
@@ -71,11 +77,11 @@ export async function checkOnDemand(id: string) {
   if (ctx?.source && ctx.login_command) {
     const ask = commandsToAsk(await execCommands(ctx.source), [id]);
     if (ask.length) {
-      catalog.prompt = { source: ctx.source, commands: ask };
+      catalog.prompt = { source: ctx.source, commands: ask, asked: id };
       return;
     }
   }
-  await checkContext(id);
+  await checkContext(id, true);
 }
 
 async function execCommands(source: string): Promise<ExecCommand[]> {
@@ -98,9 +104,10 @@ export async function answerPrompt(allow: boolean) {
     catalog.error = String(e);
     return;
   }
-  // Refused: the check says so without running anything.
+  // Refused: the check says so without running anything. Allowing a
+  // command is not choosing to send the other contexts' local files (#244).
   const ids = prompt.commands.flatMap((c) => c.contexts);
-  await runLimited(ids, CHECKS_AT_ONCE, checkContext);
+  await runLimited(ids, CHECKS_AT_ONCE, (id) => checkContext(id, id === prompt.asked));
 }
 
 /** After a source changed: the contexts, the sources, and the new contexts' status. */
@@ -108,7 +115,7 @@ async function reload() {
   const known = new Set(app.contexts.map((c) => c.name));
   await Promise.all([loadContexts(), loadSources()]);
   const added = app.contexts.filter((c) => !known.has(c.name));
-  void runLimited(checkedOnOpen(added), CHECKS_AT_ONCE, checkContext);
+  void runLimited(checkedOnOpen(added), CHECKS_AT_ONCE, (id) => checkContext(id));
 }
 
 /** After adding a source: ask about the login commands it brought (#201). */
@@ -117,7 +124,7 @@ async function askAboutNewSources(before: readonly string[]) {
     if (before.includes(s.path)) continue;
     const ask = commandsToAsk(await execCommands(s.path));
     if (ask.length) {
-      catalog.prompt = { source: s.path, commands: ask };
+      catalog.prompt = { source: s.path, commands: ask, asked: "" };
       return;
     }
   }

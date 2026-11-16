@@ -25,6 +25,7 @@ const ctx = (name: string, extra: Partial<ContextInfo> = {}): ContextInfo => ({
   source: "",
   login_command: "",
   login_plugin: false,
+  local_files: [],
   ...extra,
 });
 
@@ -35,6 +36,11 @@ describe("catalog helpers", () => {
       ctx("eks", { login_plugin: true, login_command: "aws eks get-token" }),
       ctx("oidc", { login_plugin: true }),
     ];
+    expect(checkedOnOpen(all)).toEqual(["kind"]);
+  });
+
+  it("checks on open no context that sends local files from outside its folder (#244)", () => {
+    const all = [ctx("kind"), ctx("stolen", { source: "/tmp/x.yaml", local_files: ["/var/run/token"] })];
     expect(checkedOnOpen(all)).toEqual(["kind"]);
   });
 

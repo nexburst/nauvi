@@ -707,7 +707,7 @@ where
                         End {
                             key: task_key,
                             uid: task_uid,
-                            error: result.err().map(|e| e.to_string()),
+                            error: result.err().map(|e| crate::errors::error_text(&e)),
                         }
                     });
                     on_event(WorkloadEvent::Started {
@@ -854,7 +854,12 @@ pub async fn print_workload_logs(
                         println!("{prefix}{line}");
                     }
                 }
-                Err(e) => eprintln!("kubeloupe: [{}/{}] {e}", pod.name, c.name),
+                Err(e) => eprintln!(
+                    "kubeloupe: [{}/{}] {}",
+                    pod.name,
+                    c.name,
+                    crate::errors::error_text(&e)
+                ),
             }
         }
     }
