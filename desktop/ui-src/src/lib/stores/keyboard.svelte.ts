@@ -16,6 +16,7 @@ import { closeDetail, detail } from "./detail.svelte";
 import { toggleDock } from "./dock.svelte";
 import { openLocalShell } from "./localShell";
 import { unsaved } from "./unsaved.svelte";
+import { refresh } from "./app.svelte";
 
 export const keyboard = $state({
   palette: false,
@@ -127,9 +128,16 @@ export function handleKey(e: KeyboardEvent) {
   if (!hit) return;
   const target = e.target instanceof Element ? e.target : document.activeElement;
   const inXterm = !!target?.closest(".xterm");
-  if (inEditorOrTerminal(target) && !(hit.binding.inTerminal && inXterm)) return;
+  const allowedHere = inXterm ? hit.binding.inTerminal : hit.binding.inEditor;
+  if (inEditorOrTerminal(target) && !allowedHere) return;
   if (inXterm && leftToTerminal(hit.binding, hit.index, mac)) return;
   if (isTextEntry(target) && !hit.binding.inInputs) return;
+  if (hit.binding.command === "refresh") {
+    // Never the engine's reload (#205); behind a dialog, nothing more.
+    e.preventDefault();
+    if (!modalOpen()) done(e, refresh);
+    return;
+  }
   if (modalOpen()) return;
 
   const command = hit.binding.command;

@@ -114,6 +114,9 @@ pub(crate) struct ClusterSession {
     /// Set once the window is gone: whatever a command still in flight
     /// adds afterwards is stopped right away instead of leaking.
     closed: AtomicBool,
+    /// The window's page has started loading once (#205): any later load
+    /// is a reload, which gets a fresh session.
+    page_loaded: AtomicBool,
 }
 
 impl ClusterSession {
@@ -323,6 +326,30 @@ impl AppState {
         session.map(|s| s.close()).unwrap_or_default()
     }
 
+    /// A page load started in window `label` (#205). The first one is the
+    /// window opening. A later one is a reload: the page that started the
+    /// streams and shells is gone, so the window gets a fresh session on
+    /// the same context and the old one is closed. Returns, for a reload,
+    /// the old session's terminal sessions, still to close.
+    pub(crate) fn page_load(&self, label: &str) -> Option<Vec<ExecSession>> {
+        if self.gone.lock().unwrap().contains(label) {
+            return None;
+        }
+        let old = {
+            let mut sessions = self.sessions.lock().unwrap();
+            let current = sessions
+                .entry(label.to_string())
+                .or_insert_with(|| Arc::new(ClusterSession::new(None, self.sources.clone())));
+            if !current.page_loaded.swap(true, Ordering::SeqCst) {
+                return None;
+            }
+            let fresh = ClusterSession::new(current.selected_context(), self.sources.clone());
+            fresh.page_loaded.store(true, Ordering::SeqCst);
+            std::mem::replace(current, Arc::new(fresh))
+        };
+        Some(old.close())
+    }
+
     /// Close every session (the app is quitting).
     pub(crate) fn close_all(&self) -> Vec<ExecSession> {
         let labels: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
@@ -460,6 +487,41 @@ mod tests {
             state.contexts(MAIN_WINDOW),
             vec![("cluster-1".to_string(), Some("staging".to_string()))]
         );
+    }
+
+    #[test]
+    fn a_reload_gets_a_fresh_session_on_the_same_context() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("staging".into()));
+        let first = state.session("cluster-1");
+        // The window opening: nothing changes.
+        assert!(state.page_load("cluster-1").is_none());
+        assert!(Arc::ptr_eq(&first, &state.session("cluster-1")));
+        assert!(!first.is_closed());
+        // A reload: the old session is closed, the new one is live.
+        assert!(state.page_load("cluster-1").is_some());
+        assert!(first.is_closed());
+        let second = state.session("cluster-1");
+        assert!(!Arc::ptr_eq(&first, &second));
+        assert!(!second.is_closed());
+        assert_eq!(second.selected_context().as_deref(), Some("staging"));
+        // And so on for every later reload.
+        state.page_load("cluster-1");
+        assert!(second.is_closed());
+    }
+
+    #[test]
+    fn the_first_page_load_keeps_a_session_made_before_it() {
+        let state = AppState::default();
+        // The main window's session is made on its first command.
+        assert!(state.page_load(MAIN_WINDOW).is_none());
+        let main = state.session(MAIN_WINDOW);
+        state.page_load(MAIN_WINDOW);
+        assert!(main.is_closed());
+        // A closed window's late page load makes no session.
+        state.close(MAIN_WINDOW);
+        assert!(state.page_load(MAIN_WINDOW).is_none());
+        assert!(state.session(MAIN_WINDOW).is_closed());
     }
 
     #[test]

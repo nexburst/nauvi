@@ -97,6 +97,29 @@ describe("bindingFor", () => {
     expect(hit(press("Dead", { code: "Backquote", ctrlKey: true }), false)).toBe(false);
   });
 
+  it("takes the engine's reload keys for Refresh (#205)", () => {
+    expect(command(press("F5"))).toBe("refresh");
+    expect(command(press("F5", { ctrlKey: true }))).toBe("refresh");
+    expect(command(press("F5", { shiftKey: true }))).toBe("refresh");
+    expect(command(press("r", { ctrlKey: true }))).toBe("refresh");
+    expect(command(press("R", { ctrlKey: true, shiftKey: true }))).toBe("refresh");
+    expect(command(press("r", { metaKey: true }), true)).toBe("refresh");
+    expect(command(press("r"))).toBeNull();
+    expect(command(press("r", { ctrlKey: true }), true)).toBeNull();
+  });
+
+  it("leaves F5 and Ctrl+R to the shell inside a terminal, but not ⌘R", () => {
+    const left = (e: KeyEventLike, mac: boolean) => {
+      const h = bindingFor(e, mac)!;
+      return leftToTerminal(h.binding, h.index, mac);
+    };
+    expect(left(press("F5"), false)).toBe(true);
+    expect(left(press("F5"), true)).toBe(true);
+    expect(left(press("r", { ctrlKey: true }), false)).toBe(true);
+    expect(left(press("R", { ctrlKey: true, shiftKey: true }), false)).toBe(false);
+    expect(left(press("r", { metaKey: true }), true)).toBe(false);
+  });
+
   it("leaves Space with Shift alone", () => {
     expect(command(press(" "))).toBe("toggleRow");
     expect(command(press(" ", { shiftKey: true }))).toBeNull();
@@ -119,6 +142,8 @@ describe("formatBinding", () => {
     expect(formatBinding(of("newLocalShell"), false)).toEqual(["Ctrl+Shift+`", "Ctrl+Shift+J"]);
     expect(formatBinding(of("newLocalShell"), true)).toEqual(["⇧⌘J", "⌃⇧`"]);
     expect(shortcutHint("toggleDock", true)).toBe("⌘J or ⌃`");
+    expect(formatBinding(of("refresh"), false)).toEqual(["F5", "Ctrl+R"]);
+    expect(shortcutHint("refresh", true)).toBe("F5 or ⌘R");
   });
 
   it("covers every binding with a label", () => {

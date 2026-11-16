@@ -10,6 +10,7 @@ mod close_guard;
 mod commands;
 mod local_shell;
 mod log_streams;
+mod page_load;
 mod settings;
 #[cfg(unix)]
 mod shell_env;
@@ -57,6 +58,8 @@ fn main() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .invoke_handler(builder.invoke_handler())
+        // A reload starts the window's session over (#205).
+        .on_page_load(page_load::on_page_load)
         .setup(move |app| {
             builder.mount_events(app);
             let config_dir = app.path().app_config_dir().ok();
