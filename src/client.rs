@@ -142,13 +142,25 @@ async fn connect(mut config: kube::Config, context: String, interactive: bool) -
     if let Some(exec) = config.auth_info.exec.as_mut() {
         prepare_exec(exec, interactive, &target).map_err(|msg| anyhow!(msg))?;
     }
-    // Building the client runs the exec plugin, if any.
-    let client =
-        Client::try_from(config).map_err(|e| anyhow!(describe_client_error(&e, &target)))?;
-    client
-        .apiserver_version()
-        .await
-        .map_err(|e| anyhow!(describe_client_error(&e, &target)))?;
+    // An exec plugin runs once, through the credential cache (#201), not
+    // the ~3 times kube-client would run it for each client.
+    let exec = crate::exec_credentials::logs_in_with_exec(&config)
+        .then(|| config.auth_info.exec.clone())
+        .flatten();
+    let client = match &exec {
+        Some(_) => crate::exec_credentials::client_with_exec(config).await,
+        None => Client::try_from(config),
+    }
+    .map_err(|e| anyhow!(describe_client_error(&e, &target)))?;
+    if let Err(e) = client.apiserver_version().await {
+        if let (Some(exec), kube::Error::Api(resp)) = (&exec, &e) {
+            if resp.code == 401 {
+                // Rejected: the next attempt asks the plugin again.
+                crate::exec_credentials::forget(exec);
+            }
+        }
+        return Err(anyhow!(describe_client_error(&e, &target)));
+    }
     Ok(client)
 }
 

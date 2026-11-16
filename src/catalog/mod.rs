@@ -73,6 +73,12 @@ pub struct ContextInfo {
     /// The added source it came from (a file, folder or pasted file);
     /// `""` for the default kubeconfig.
     pub source: String,
+    /// The command logging in runs: the exec plugin's command and
+    /// arguments, or the gcp auth provider's `cmd-path` (`""`: none).
+    pub login_command: String,
+    /// Logging in runs a plugin or an auth provider (`exec` or
+    /// `auth-provider`): the catalog checks it only when asked (#201).
+    pub login_plugin: bool,
 }
 
 /// What to connect to for a context id: its name in its kubeconfig and
@@ -285,17 +291,143 @@ fn context_info(
         .and_then(|c| c.cluster.as_ref())
         .and_then(|c| c.server.clone())
         .unwrap_or_default();
+    let user = ctx.and_then(|c| c.user.clone()).unwrap_or_default();
+    let auth = kc
+        .auth_infos
+        .iter()
+        .find(|a| a.name == user)
+        .and_then(|a| a.auth_info.as_ref());
+    let (login_command, login_plugin) = match auth {
+        Some(a) => (
+            login_command(a),
+            a.exec.is_some() || a.auth_provider.is_some(),
+        ),
+        None => (String::new(), false),
+    };
     ContextInfo {
         name: id,
         context: name.to_string(),
         current: false,
         namespace: ctx.and_then(|c| c.namespace.clone()),
         cluster,
-        user: ctx.and_then(|c| c.user.clone()).unwrap_or_default(),
+        user,
         server,
         file: file.display().to_string(),
         source: source.display().to_string(),
+        login_command,
+        login_plugin,
     }
+}
+
+/// The command line logging in as `auth` runs (`""`: none), as it is
+/// shown before it may run: the exec plugin's, or the gcp auth provider's.
+///
+/// An exec plugin's `env` is part of it (`env A=1 B=2 aws …`, names
+/// sorted, values quoted): it can change what runs (`PATH`, `LD_PRELOAD`),
+/// so the user sees it, and a changed env is a new command to allow (#201).
+pub fn login_command(auth: &kube::config::AuthInfo) -> String {
+    let mut prefix: Vec<String> = Vec::new();
+    let (command, args) = if let Some(exec) = &auth.exec {
+        let mut env: Vec<(&String, &String)> = exec
+            .env
+            .iter()
+            .flatten()
+            .filter_map(|e| Some((e.get("name")?, e.get("value")?)))
+            .collect();
+        // Stable: of two entries with one name, the last one still wins.
+        env.sort_by(|a, b| a.0.cmp(b.0));
+        if !env.is_empty() {
+            prefix.push("env".to_string());
+            prefix.extend(
+                env.into_iter()
+                    .map(|(name, value)| format!("{}={}", shell_word(name), shell_word(value))),
+            );
+        }
+        (
+            exec.command.clone().unwrap_or_default(),
+            exec.args.clone().unwrap_or_default(),
+        )
+    } else if let Some(p) = auth.auth_provider.as_ref().filter(|p| p.name == "gcp") {
+        let Some(path) = p.config.get("cmd-path") else {
+            return String::new();
+        };
+        let args = p
+            .config
+            .get("cmd-args")
+            .map(|a| a.split_whitespace().map(str::to_string).collect())
+            .unwrap_or_default();
+        (path.clone(), args)
+    } else {
+        return String::new();
+    };
+    prefix
+        .into_iter()
+        .chain(std::iter::once(command).chain(args).map(|a| shell_word(&a)))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// `word` quoted for a shell if it needs it, so the command shown is exact.
+///
+/// Control and format characters (newlines, bidi overrides, zero-width
+/// characters, …) are written as visible escapes in bash's `$'…'` form, so
+/// they cannot hide or reorder the rest of the command in the prompt (#201).
+fn shell_word(word: &str) -> String {
+    let plain = !word.is_empty()
+        && word
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "-_./:=,@%+".contains(c));
+    if plain {
+        return word.to_string();
+    }
+    if !word.chars().any(is_invisible) {
+        return format!("'{}'", word.replace('\'', r"'\''"));
+    }
+    let mut out = String::from("$'");
+    for c in word.chars() {
+        match c {
+            '\\' => out.push_str(r"\\"),
+            '\'' => out.push_str(r"\'"),
+            '\n' => out.push_str(r"\n"),
+            '\t' => out.push_str(r"\t"),
+            '\r' => out.push_str(r"\r"),
+            c if is_invisible(c) && (c as u32) <= 0xffff => {
+                out.push_str(&format!(r"\u{:04x}", c as u32))
+            }
+            c if is_invisible(c) => out.push_str(&format!(r"\U{:08x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('\'');
+    out
+}
+
+/// Control (Cc), format (Cf) and line/paragraph separator characters:
+/// those that show as nothing, move text or reorder it.
+fn is_invisible(c: char) -> bool {
+    c.is_control()
+        || matches!(c as u32,
+            0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x2028..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F)
 }
 
 /// A unique id for context `name` from `file`: the name if it is free,

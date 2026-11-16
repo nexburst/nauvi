@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkedOnOpen,
+  commandsToAsk,
   displayName,
   filterContexts,
   lastUsedText,
@@ -21,10 +23,32 @@ const ctx = (name: string, extra: Partial<ContextInfo> = {}): ContextInfo => ({
   server: `https://${name}.example`,
   file: "/home/u/.kube/config",
   source: "",
+  login_command: "",
+  login_plugin: false,
   ...extra,
 });
 
 describe("catalog helpers", () => {
+  it("checks on open only the contexts that log in without a plugin (#201)", () => {
+    const all = [
+      ctx("kind"),
+      ctx("eks", { login_plugin: true, login_command: "aws eks get-token" }),
+      ctx("oidc", { login_plugin: true }),
+    ];
+    expect(checkedOnOpen(all)).toEqual(["kind"]);
+  });
+
+  it("asks only about commands not allowed yet, for the given contexts", () => {
+    const cmds = [
+      { command: "aws", contexts: ["a", "b"], answer: "unanswered" },
+      { command: "gcloud", contexts: ["c"], answer: "allowed" },
+      { command: "sh", contexts: ["d"], answer: "denied" },
+    ];
+    expect(commandsToAsk(cmds).map((c) => c.command)).toEqual(["aws", "sh"]);
+    expect(commandsToAsk(cmds, ["b"]).map((c) => c.command)).toEqual(["aws"]);
+    expect(commandsToAsk(cmds, ["c"])).toEqual([]);
+  });
+
   it("names a context by its display name, else its id", () => {
     expect(displayName(ctx("prod"), { display_name: "  Production " })).toBe("Production");
     expect(displayName(ctx("prod"), { display_name: "" })).toBe("prod");
