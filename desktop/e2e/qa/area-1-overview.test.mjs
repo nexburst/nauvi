@@ -5,19 +5,26 @@
 // select is hidden with a single context; the sidebar switches views; the
 // namespace control shows only on namespaced kinds and lists the namespaces.
 //
-// Only reads the cluster. Other agents may add namespaces and pods at the
-// same time, so the kubectl comparison is retried until both sides agree.
+// #263: a running pod whose other container exited with an error reads
+// "Error" in the Overview's problem pods, as STATUS does in the Pods table
+// (not "Not ready"); light and dark theme.
+//
+// Reads the cluster, except for that pod, which lives in a temp namespace.
+// Other agents may add namespaces and pods at the same time, so the kubectl
+// comparison is retried until both sides agree.
 
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
-import { kubectl } from "../lib/cluster.mjs";
+import { deleteNamespace, kubectl, tempNamespace } from "../lib/cluster.mjs";
+import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import {
   bannerText,
+  tableData,
   closeNamespacePicker,
   namespaceControlVisible,
   namespaceOptions,
@@ -92,6 +99,84 @@ describe("area 1: status, Overview, Refresh, sidebar", { timeout: 10 * 60_000 },
       `return document.querySelector('.overview section[aria-label="Warnings"]')?.innerText ?? ""`,
     );
     assert.match(warnings, /Warnings/);
+  });
+
+  // Running (one container still sleeps), not ready, STATUS "Error".
+  const halfFailed = `apiVersion: v1
+kind: Pod
+metadata:
+  name: half-failed
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: fail
+      image: busybox:1.36
+      command: ["sh", "-c", "exit 1"]
+    - name: app
+      image: busybox:1.36
+      command: ["sleep", "3600"]
+`;
+  let ns = "";
+  after(() => deleteNamespace(ns));
+
+  it("a running pod whose container failed reads Error in the problem pods and the Pods table (#263)", T, async () => {
+    const { app } = s;
+    ns = tempNamespace("qa-i263", halfFailed);
+    const status = () =>
+      JSON.parse(kubectl(["-n", ns, "get", "pod", "half-failed", "-o", "json"])).status?.containerStatuses ?? [];
+    await app.waitFor(
+      () => status().some((c) => c.name === "fail" && c.state?.terminated) && status().some((c) => c.state?.running),
+      { timeout: 90_000, interval: 1000, message: "half-failed: one container exited, one running" },
+    );
+    await app.nav("Overview");
+    const entry = () =>
+      app.js(
+        `const p = Array.from(document.querySelectorAll('.overview section[aria-label="Problem pods"] .problem'))
+           .find((el) => el.querySelector("button, span")?.textContent.trim() === arguments[0]);
+         const r = p?.querySelector(".reason");
+         return r ? { reason: r.textContent.trim(), error: r.classList.contains("error") } : null;`,
+        `${ns}/half-failed`,
+      );
+    const got = await app.waitFor(entry, { timeout: 60_000, message: `${ns}/half-failed in the problem pods` });
+    console.log(`overview problem: ${JSON.stringify(got)}`);
+    assert.equal(got.reason, "Error", "the problem text is the pod's STATUS");
+    assert.ok(got.error, "shown as an error, like other STATUS problems");
+    await app.js(
+      `document.querySelector('.overview section[aria-label="Problem pods"]')?.scrollIntoView({ block: "start" })`,
+    );
+    for (const theme of ["dark", "light"]) {
+      await setTheme(app, theme);
+      // Until #276's helper is on main: wait for the background to follow.
+      await app.waitFor(
+        async () => {
+          const rgb = await app.js("return getComputedStyle(document.body).backgroundColor");
+          const sum = (rgb.match(/\d+/g) ?? []).slice(0, 3).reduce((a, v) => a + Number(v), 0) / 765;
+          return theme === "dark" ? sum < 0.2 : sum > 0.8;
+        },
+        { message: `the ${theme} theme` },
+      );
+      await app.driver.executeAsyncScript(
+        "const done = arguments[arguments.length - 1]; requestAnimationFrame(() => requestAnimationFrame(() => done()))",
+      );
+      await app.shot(`problem-pods-error-${theme}`);
+    }
+    await setTheme(app, null);
+
+    // The same text in the Pods table, where the problem pod opens.
+    await app.js(
+      `Array.from(document.querySelectorAll('.overview section[aria-label="Problem pods"] .problem button'))
+         .find((b) => b.textContent.trim() === arguments[0])?.click()`,
+      `${ns}/half-failed`,
+    );
+    const row = await app.waitFor(
+      async () => (await tableData(app))?.rows.find((r) => r.Name === "half-failed" && r.Namespace === ns),
+      { timeout: 30_000, message: "half-failed in the Pods table" },
+    );
+    console.log(`pods row: ${JSON.stringify(row)}`);
+    assert.equal(row.Status, "Error");
+    assert.equal(row._problem, "Error");
+    await app.nav("Overview");
   });
 
   it("Refresh reloads the Overview: Connecting… then Live again", T, async () => {

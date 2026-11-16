@@ -57,7 +57,7 @@ pub use pod_detail::{
     MountInfo, PodExtras, PortInfo, ProbeInfo, StateInfo,
 };
 pub use pod_printer::printed_pod_status;
-pub use problems::row_problem;
+pub use problems::{not_ready_reason, row_problem};
 pub use related::{get_related, related_objects, Fact, Related, RelatedGroup, RelatedItem};
 pub use status::{classify, pod_status_of, statuses_of, WorkloadStatus, STARTING, WORKLOAD_KINDS};
 pub use table::{align_columns, render_table, table_cells, table_header};
