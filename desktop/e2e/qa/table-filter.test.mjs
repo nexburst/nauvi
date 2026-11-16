@@ -67,7 +67,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     const { app } = s;
     await waitLive(app);
     await resizeWindow(app, 1280, 800);
-    await app.nav("ConfigMaps");
+    await app.nav("Config Maps");
     await pickNamespaces(app, [ns]);
     await waitNames(app, ["web-1", "web-22", "db-1", SLOW, "kube-root-ca.crt"], "every ConfigMap");
     assert.equal(await pressed(app, "Match case"), false);
@@ -159,7 +159,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     await (await filterInput(app)).sendKeys(Key.ENTER);
     assert.equal(await (await filterInput(app)).getAttribute("value"), "^web-\\d+$");
     assert.equal(await pressed(app, "Regular expression"), true);
-    await app.nav("ConfigMaps");
+    await app.nav("Config Maps");
     await waitNames(app, ["web-1", "web-22"], "the picked search filters");
 
     // Only the typed strings and toggles are in settings.json.
