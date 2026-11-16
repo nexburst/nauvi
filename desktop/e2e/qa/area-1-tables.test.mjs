@@ -98,14 +98,20 @@ describe("area 1: live Pods, Nodes and Namespaces tables", { timeout: 15 * 60_00
     console.log(`web: CPU ${row.CPU}, Memory ${row.Memory}`);
     assert.match(row.CPU, /\d/);
     assert.match(row.Memory, /\d/);
-    // A young pod's age is in seconds and changes as time passes.
+    // The age changes as time passes, without a refresh. The pod may already
+    // be past a minute (an earlier test waited long), where it reads "1m"
+    // until "2m": wait up to 75 s for the change.
     await app.filter(dep);
     const age = async () => (await tableData(app)).rows.find((r) => r.Namespace === ns)?.Age;
     const first = await app.waitFor(age, { message: "the age of our pod" });
-    await sleep(17_000);
-    const second = await age();
+    const second = await app.waitFor(
+      async () => {
+        const a = await age();
+        return a && a !== first ? a : null;
+      },
+      { timeout: 75_000, interval: 1000, message: `the age to change from ${first}` },
+    );
     console.log(`age: ${first} -> ${second}`);
-    assert.notEqual(second, first);
   });
 
   it("a row click opens the pod panel with logs, terminal and forward", T, async () => {
