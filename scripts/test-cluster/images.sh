@@ -96,7 +96,7 @@ case "$cmd" in
       kind load image-archive --name "$cluster" "${args[1]}"
     else
       pull_all
-      archive="$(mktemp --suffix=.tar)"
+      archive="$(mktemp "${TMPDIR:-/tmp}/kl-images.XXXXXX")"
       trap 'rm -f "$archive"' EXIT
       docker save --platform "$PLATFORM" -o "$archive" "${IMAGES[@]}"
       kind load image-archive --name "$cluster" "$archive"
