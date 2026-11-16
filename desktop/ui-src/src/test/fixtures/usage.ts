@@ -1,7 +1,7 @@
 // Usage history (#47) of the fake cluster: what `cmd_usage_history` returns
 // and the sparklines `cmd_get_metrics` sends.
 
-import type { SeriesView, Spark, UsageReference, UsageSample } from "../../lib/bindings";
+import type { NodeDisk, SeriesView, Spark, UsageReference, UsageSample } from "../../lib/bindings";
 
 /** One object's metrics-server history and reference lines. */
 export interface UsageFixture {
@@ -19,6 +19,8 @@ export interface FakePrometheus {
   failure: string;
   /** Series by `pods|namespace/name|range`, `nodes|name|range` or `workloads|Kind|namespace/name|range`. */
   series: Record<string, SeriesView>;
+  /** Root filesystems node-exporter reports (`cmd_node_disk_usage`). */
+  disks: NodeDisk[];
 }
 
 export const NO_PROMETHEUS: FakePrometheus = {
@@ -26,6 +28,7 @@ export const NO_PROMETHEUS: FakePrometheus = {
   note: "No Prometheus Service found (looked for prometheus-k8s, kube-prometheus-stack-prometheus, prometheus-operated, prometheus-server and the label app.kubernetes.io/name=prometheus).",
   failure: "",
   series: {},
+  disks: [],
 };
 
 const MI = 1024 * 1024;
@@ -147,6 +150,7 @@ export function prometheusFixture(): FakePrometheus {
   const total = sum(app, sidecar);
   return {
     detected: "monitoring/prometheus-k8s:web",
+    disks: [{ name: "node-1", mountpoint: "/", used_bytes: 21.5 * 1024 ** 3, size_bytes: 50 * 1024 ** 3 }],
     note: "",
     failure: "",
     series: {

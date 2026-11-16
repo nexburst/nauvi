@@ -14,7 +14,7 @@
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove } from "../stores/keyboard.svelte";
   import type { ResourceKind } from "../bindings";
-  import { columnsFor } from "../columns";
+  import { columnsFor, shownColumns } from "../columns";
   import type { Metrics, Row } from "../columns";
   import type { KeyedStore } from "../stores/keyed.svelte";
   import { visibleEntries } from "../view";
@@ -66,7 +66,7 @@
   // The columns the user has not hidden (column chooser in the toolbar),
   // and the sort, both remembered per kind.
   const hidden = $derived(kindSettings(kind.id).hidden);
-  const columns = $derived(columnsFor(kind).filter((c) => !hidden.includes(c.key)));
+  const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics));
   const template = $derived(["32px", ...columns.map((c) => c.width)].join(" "));
   // svelte-ignore state_referenced_locally
   let sort = $state.raw<Sort | null>(sortOf(kindSettings(kind.id)));

@@ -1,4 +1,5 @@
-import type { ColumnDef, NodeUsage, PodUsage, ResourceKind, ResourceRow, Spark } from "./bindings";
+import type { ColumnDef, NodeDisk, NodeUsage, PodUsage, ResourceKind, ResourceRow, Spark } from "./bindings";
+import { diskPercent, diskText } from "./metricsAddons";
 import { formatAge, formatCpu, formatMemory } from "./format";
 
 export type Row = ResourceRow;
@@ -11,6 +12,9 @@ export interface Metrics {
   sparks: Map<string, Spark>;
   /** Epoch ms the history of what is shown starts at (0 = none yet). */
   since: number;
+  /** Root filesystem use by node name, from Prometheus (#225); empty or
+   *  missing without node-exporter, and then the Disk column is hidden. */
+  disks?: Map<string, NodeDisk>;
 }
 
 /** Things a cell may depend on besides the row itself. */
@@ -32,6 +36,13 @@ export interface Column {
   cls?(row: Row): string;
   /** Values of the cell's sparkline, oldest first (metric columns only). */
   spark?(row: Row, ctx: Ctx): readonly number[];
+  /** Whether the column has anything to show; shown when missing. */
+  shown?(metrics: Metrics): boolean;
+}
+
+/** The columns to draw: not hidden by the user, and with data where they need it. */
+export function shownColumns(cols: Column[], hidden: readonly string[], metrics: Metrics): Column[] {
+  return cols.filter((c) => !hidden.includes(c.key) && (c.shown?.(metrics) ?? true));
 }
 
 export const EMPTY_METRICS: Metrics = { pods: new Map(), nodes: new Map(), sparks: new Map(), since: 0 };
@@ -56,6 +67,8 @@ function widthFor(def: ColumnDef): string {
       return "minmax(140px, 1fr)";
     case "nodeMemory":
       return "minmax(160px, 1fr)";
+    case "nodeDisk":
+      return "minmax(170px, 1fr)";
   }
   if (def.key === "name") return "minmax(160px, 2.2fr)";
   if (def.key === "namespace") return "minmax(120px, 1.2fr)";
@@ -127,6 +140,19 @@ function column(def: ColumnDef, index: number): Column {
         },
         sort: (r, c) => c.metrics.nodes.get(r.name)?.memory_bytes ?? -1,
         spark: (r, c) => c.metrics.sparks.get(r.name)?.memory ?? NO_SPARK,
+      };
+    case "nodeDisk":
+      return {
+        ...base,
+        text: (r, c) => {
+          const d = c.metrics.disks?.get(r.name);
+          return d ? diskText(d) : "—";
+        },
+        sort: (r, c) => {
+          const d = c.metrics.disks?.get(r.name);
+          return d ? diskPercent(d) : -1;
+        },
+        shown: (m) => (m.disks?.size ?? 0) > 0,
       };
     case "number":
       return { ...base, text: cell, sort: (r) => numeric(cell(r)) };

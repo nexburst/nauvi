@@ -232,6 +232,9 @@ export class LiveTable {
     const token = this.#token;
     // Pod metrics only for the namespaces the table shows, one call each.
     const scopes = what === "pods" ? [...this.#watches.keys()].map((k) => k || null) : [null];
+    // Nodes' root filesystems from Prometheus (#225), for the Disk column:
+    // merged when they arrive, so a slow Prometheus never holds up CPU and memory.
+    if (what === "nodes") void this.#loadDisks(token);
     const results = await Promise.allSettled(scopes.map((ns) => commands.cmdGetMetrics(ns, what)));
     if (token !== this.#token) return;
     // Metrics are best effort; the tables show "—" without them.
@@ -244,8 +247,15 @@ export class LiveTable {
       // The backend records each poll into its usage history (#47).
       sparks: new Map(snaps.flatMap((s) => Object.entries(s.sparks))),
       since: earliest(snaps.map((s) => s.since)),
+      disks: what === "nodes" ? this.metrics.disks : undefined,
     };
     this.now = Date.now();
+  }
+
+  async #loadDisks(token: number) {
+    const view = await commands.cmdNodeDiskUsage().catch(() => null);
+    if (token !== this.#token) return;
+    this.metrics = { ...this.metrics, disks: new Map((view?.nodes ?? []).map((d) => [d.name, d] as const)) };
   }
 }
 

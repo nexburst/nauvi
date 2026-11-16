@@ -28,6 +28,8 @@ import { relatedFixtures } from "./related";
 import { defaultApplications } from "./applications";
 import { defaultHelm } from "./helm";
 import type { FakeHelm } from "./helm";
+import { noAddons } from "./metricsAddons";
+import type { FakeMetricsAddons } from "./metricsAddons";
 import { NO_PROMETHEUS, sparkFixtures, usageFixtures } from "./usage";
 import type { FakePrometheus, UsageFixture } from "./usage";
 import { upToDate } from "./updates";
@@ -111,6 +113,8 @@ export interface FakeCluster {
   usage: Record<string, UsageFixture>;
   /** The context's Prometheus (#47 phase 2); none by default. */
   prometheus: FakePrometheus;
+  /** One-click metrics (#225): RBAC refusals and installs. */
+  metricsAddons: FakeMetricsAddons;
   /** What the update check finds (#30); up to date by default. */
   update: FakeUpdate;
   /** The save dialog (`cmd_save_csv`) is cancelled by the user this many more times. */
@@ -251,7 +255,7 @@ export function fakeStatus(kindId: string, cells: Record<string, string>): strin
   }
 }
 
-const UI_FILLED = new Set<ColumnKind>(["age", "podCpu", "podMemory", "nodeCpu", "nodeMemory"]);
+const UI_FILLED = new Set<ColumnKind>(["age", "podCpu", "podMemory", "nodeCpu", "nodeMemory", "nodeDisk"]);
 
 /** A CRD, so the sidebar's "Custom Resources" section has something in it. */
 const WIDGETS: ResourceKind = {
@@ -493,6 +497,7 @@ export function defaultCluster(): FakeCluster {
     },
     usage: usageFixtures(),
     prometheus: structuredClone(NO_PROMETHEUS),
+    metricsAddons: noAddons(),
     metrics: {
       available: true,
       sparks: sparkFixtures(),

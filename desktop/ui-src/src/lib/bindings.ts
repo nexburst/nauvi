@@ -271,6 +271,15 @@ export const commands = {
 	 */
 	cmdStreamWorkloadLogs: (kind: string, namespace: string, name: string, options: WorkloadLogOptions_Deserialize, streamId: number, _options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_workload_logs", { kind, namespace, name, options, streamId }, _options),
 	/**
+	 *  Whether the user may install `addon` into `namespace` (RBAC), with the
+	 *  first refused object as the reason.
+	 */
+	cmdMetricsAddonAccess: (addon: MetricsAddonId, namespace: string, options?: InvokeOptions) => __TAURI_INVOKE<ActionAccess>("cmd_metrics_addon_access", { addon, namespace }, options),
+	/**  `helm install` (or its dry run) of an add-on into the window's cluster. */
+	cmdMetricsAddonInstall: (request: MetricsAddonRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_metrics_addon_install", { request }, options),
+	/**  Every add-on, with its pinned chart, repository and starting values. */
+	cmdMetricsAddons: (options?: InvokeOptions) => __TAURI_INVOKE<MetricsAddon[]>("cmd_metrics_addons", undefined, options),
+	/**
 	 *  Start the overview feed `id` (chosen by the UI, so no event can arrive
 	 *  before it knows the id). Parts the user may not see cluster-wide fall
 	 *  back to `namespace` (`null` = the context's namespace). Replaces a feed
@@ -318,6 +327,11 @@ export const commands = {
 	cmdPortforwardStop: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_portforward_stop", { id }, options),
 	/**  The ports of a Service, for its per-port Forward buttons. */
 	cmdServicePorts: (namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ServicePortInfo[]>("cmd_service_ports", { namespace, name }, options),
+	/**
+	 *  Disk use per node from the context's Prometheus. Without one (or
+	 *  without node-exporter) the list is empty and `note` says why.
+	 */
+	cmdNodeDiskUsage: (options?: InvokeOptions) => __TAURI_INVOKE<NodeDiskView>("cmd_node_disk_usage", undefined, options),
 	/**
 	 *  Which Prometheus the usage charts use for the selected context, or why
 	 *  there is none. `redetect` looks again instead of using the cached answer.
@@ -715,7 +729,9 @@ export type ColumnKind = "text" |
 /**  Coloured by value (Running, Pending, Failed, ...). */
 "status" | 
 /**  Live usage merged in by the UI from the metrics API. */
-"podCpu" | "podMemory" | "nodeCpu" | "nodeMemory";
+"podCpu" | "podMemory" | "nodeCpu" | "nodeMemory" | 
+/**  A node's root filesystem, from Prometheus (node-exporter). */
+"nodeDisk";
 
 export type ConditionInfo = {
 	type: string,
@@ -1445,6 +1461,60 @@ export type LogDefaults_Serialize = {
 	wrap: boolean,
 };
 
+/**  One add-on: what it installs, from where, and its starting values. */
+export type MetricsAddon = {
+	id: MetricsAddonId,
+	title: string,
+	/**  One sentence: what the app gets from it. */
+	summary: string,
+	/**  What runs in the cluster afterwards. */
+	components: string[],
+	/**  The chart repository (the project's own), as helm's `--repo`. */
+	repo_url: string,
+	chart: string,
+	/**  The exact chart version installed. */
+	version: string,
+	app_version: string,
+	/**  The suggested release name and namespace. */
+	release: string,
+	namespace: string,
+	/**  The starting values (YAML), shown and editable. */
+	values: string,
+	options: MetricsAddonOption[],
+};
+
+/**  The add-ons kubeloupe offers. */
+export type MetricsAddonId = "metrics-server" | "prometheus";
+
+/**
+ *  A setting of an add-on that is off unless the user ticks it, shown as
+ *  its own checkbox (never applied silently).
+ */
+export type MetricsAddonOption = {
+	id: string,
+	label: string,
+	/**  What it does and when it is needed. */
+	detail: string,
+	/**  The container argument it adds to the chart's `args`. */
+	arg: string,
+};
+
+/**  What the user chose for an add-on install (or its dry run). */
+export type MetricsAddonRequest = {
+	addon: MetricsAddonId,
+	/**  The release name. */
+	name: string,
+	namespace: string,
+	/**  The edited values (YAML). */
+	values: string,
+	/**  Ids of the ticked [`MetricsAddonOption`]s. */
+	options: string[],
+	create_namespace: boolean,
+	dry_run: boolean,
+	/**  Show Secret values in the returned manifest. */
+	reveal: boolean,
+};
+
 /**  Which metrics a view shows. */
 export type MetricsKind = "pods" | "nodes";
 
@@ -1479,6 +1549,29 @@ export type NamespaceInfo = {
 export type NodeCounts = {
 	total: number,
 	ready: number,
+};
+
+/**  The filesystem of one node that holds the kubelet's data. */
+export type NodeDisk = {
+	/**  The node name. */
+	name: string,
+	/**  Where it is mounted (`/`, `/var`, ...). */
+	mountpoint: string,
+	used_bytes: number,
+	size_bytes: number,
+};
+
+/**
+ *  The disk use of the nodes' root filesystems from Prometheus
+ *  (node-exporter), for the Nodes table's Disk column.
+ */
+export type NodeDiskView = {
+	/**  Empty without a Prometheus or without node-exporter. */
+	nodes: NodeDisk[],
+	/**  The Prometheus asked (`namespace/service:port`), or "". */
+	source: string,
+	/**  Why there are no numbers ("" when there are). */
+	note: string,
 };
 
 /**  A node shell pod still in the cluster. */

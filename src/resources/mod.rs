@@ -155,6 +155,8 @@ pub enum ColumnKind {
     PodMemory,
     NodeCpu,
     NodeMemory,
+    /// A node's root filesystem, from Prometheus (node-exporter).
+    NodeDisk,
 }
 
 /// A table column as the UI sees it.

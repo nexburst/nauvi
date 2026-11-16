@@ -88,12 +88,22 @@ fn check_request(req: &HelmDeployRequest) -> Result<()> {
     check_values(&req.values)
 }
 
-fn deploy_args(mode: Mode, target: &HelmTarget, req: &HelmDeployRequest) -> Vec<String> {
+fn deploy_args(
+    mode: Mode,
+    target: &HelmTarget,
+    req: &HelmDeployRequest,
+    repo: Option<&str>,
+) -> Vec<String> {
     let verb = match mode {
         Mode::Install => "install",
         Mode::Upgrade => "upgrade",
     };
     let mut args: Vec<String> = vec![verb.into(), req.name.clone(), req.chart.clone()];
+    // A chart straight from a repository URL, without adding the repository
+    // to the user's helm configuration (the metrics add-ons).
+    if let Some(url) = repo {
+        args.extend(["--repo".into(), url.to_string()]);
+    }
     args.extend(["--namespace".into(), req.namespace.clone()]);
     if !req.version.is_empty() {
         args.extend(["--version".into(), req.version.clone()]);
@@ -154,6 +164,7 @@ async fn deploy(
     mode: Mode,
     target: &HelmTarget,
     req: &HelmDeployRequest,
+    repo: Option<&str>,
 ) -> Result<HelmDeployResult> {
     check_request(req)?;
     let input = (!req.values.trim().is_empty()).then_some(req.values.as_str());
@@ -163,7 +174,7 @@ async fn deploy(
         (Mode::Install, true) => "Dry run of the install",
         (Mode::Upgrade, true) => "Dry run of the upgrade",
     };
-    let args = deploy_args(mode, target, req);
+    let args = deploy_args(mode, target, req, repo);
     let out = run_helm_with_input(&args, input, Some(req.storage))
         .await
         .map_err(|e| {
@@ -196,7 +207,18 @@ pub async fn helm_install(
     target: &HelmTarget,
     req: &HelmDeployRequest,
 ) -> Result<HelmDeployResult> {
-    deploy(Mode::Install, target, req).await
+    deploy(Mode::Install, target, req, None).await
+}
+
+/// [`helm_install`] of `req.chart` from the repository at `repo_url`
+/// (`--repo`), which is not added to the user's repositories. Only for the
+/// charts kubeloupe names itself ([`super::addons`]).
+pub(crate) async fn helm_install_from_repo(
+    target: &HelmTarget,
+    req: &HelmDeployRequest,
+    repo_url: &str,
+) -> Result<HelmDeployResult> {
+    deploy(Mode::Install, target, req, Some(repo_url)).await
 }
 
 /// `helm upgrade <name> <chart> -n <namespace> --reset-values [--version]
@@ -205,7 +227,7 @@ pub async fn helm_upgrade(
     target: &HelmTarget,
     req: &HelmDeployRequest,
 ) -> Result<HelmDeployResult> {
-    deploy(Mode::Upgrade, target, req).await
+    deploy(Mode::Upgrade, target, req, None).await
 }
 
 #[cfg(test)]
@@ -228,7 +250,7 @@ mod tests {
             context: Some("kind-x".into()),
         };
         assert_eq!(
-            deploy_args(Mode::Install, &t, &req()).join(" "),
+            deploy_args(Mode::Install, &t, &req(), None).join(" "),
             "install web local/demo --namespace apps --output json --kube-context kind-x"
         );
         let full = HelmDeployRequest {
@@ -239,12 +261,16 @@ mod tests {
             ..req()
         };
         assert_eq!(
-            deploy_args(Mode::Install, &HelmTarget::default(), &full).join(" "),
+            deploy_args(Mode::Install, &HelmTarget::default(), &full, None).join(" "),
             "install web local/demo --namespace apps --version 0.2.0 --values - --create-namespace --dry-run=server --output json"
         );
         assert_eq!(
-            deploy_args(Mode::Upgrade, &HelmTarget::default(), &full).join(" "),
+            deploy_args(Mode::Upgrade, &HelmTarget::default(), &full, None).join(" "),
             "upgrade web local/demo --namespace apps --version 0.2.0 --values - --reset-values --dry-run=server --output json"
+        );
+        assert_eq!(
+            deploy_args(Mode::Install, &t, &req(), Some("https://charts.example.com/x")).join(" "),
+            "install web local/demo --repo https://charts.example.com/x --namespace apps --output json --kube-context kind-x"
         );
     }
 

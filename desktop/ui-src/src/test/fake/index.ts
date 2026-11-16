@@ -17,6 +17,7 @@ import { helmHandlers } from "./helm";
 import { helmChartsHandlers } from "./helm-charts";
 import { localShellHandlers } from "./local-shell";
 import { logsHandlers } from "./logs";
+import { metricsAddonsHandlers } from "./metrics-addons";
 import { overviewHandlers } from "./overview";
 import { portforwardHandlers } from "./portforward";
 import { prometheusHandlers } from "./prometheus";
@@ -45,6 +46,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...helmChartsHandlers(s),
     ...localShellHandlers(s),
     ...logsHandlers(s),
+    ...metricsAddonsHandlers(s),
     ...overviewHandlers(s),
     ...portforwardHandlers(s),
     ...prometheusHandlers(s),

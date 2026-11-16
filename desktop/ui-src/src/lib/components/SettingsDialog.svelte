@@ -18,6 +18,7 @@
     zoomReset,
   } from "../stores/settings.svelte";
   import HelmRepos from "./helm/HelmRepos.svelte";
+  import MetricsOffer from "./helm/MetricsOffer.svelte";
   import AboutSection from "./AboutSection.svelte";
   import { loadCharts } from "../stores/helmCharts.svelte";
   import { checkForUpdates, updates } from "../stores/updates.svelte";
@@ -241,6 +242,14 @@
           >Detect again</button
         >
       </div>
+      {#if promStatus && !promStatus.target && !promStatus.from_settings && !promValue.trim()}
+        <MetricsOffer
+          addon="prometheus"
+          label="Install Prometheus…"
+          text="None here? Install a small one (Prometheus, kube-state-metrics, node-exporter) with helm."
+          onopen={closeSettings}
+        />
+      {/if}
       <p class="muted hint">
         Usage charts show 1h, 6h and 24h from Prometheus, through the API server's service proxy. Leave empty to detect
         it, type namespace/service:port to choose one, or off to use only metrics-server.
