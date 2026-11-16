@@ -27,6 +27,8 @@ serde_json = "1"
 serde_yaml = "0.9"
 specta = { version = "=2.0.0-rc.28", features = ["derive"], optional = true }
 tokio = { version = "1", features = ["full"] }
+# The port-forward WebSocket, with pings (#304); the version kube uses.
+tokio-tungstenite = "0.30"
 # The layer that adds cached exec plugin tokens to requests (#201).
 tower = { version = "0.5", features = ["buffer", "filter"] }
 tracing = "0.1"

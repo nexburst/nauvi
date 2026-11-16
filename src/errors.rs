@@ -188,7 +188,10 @@ fn own_text(e: &(dyn StdError + 'static)) -> String {
     if let Some(kube::config::KubeconfigError::Parse(p)) =
         e.downcast_ref::<kube::config::KubeconfigError>()
     {
-        return format!("failed to parse kubeconfig YAML: {}", p.without_snippet());
+        return format!(
+            "failed to parse kubeconfig YAML: {}",
+            hide_values(&p.without_snippet().to_string())
+        );
     }
     let text = e.to_string();
     let Some(source) = e.source() else {
@@ -201,6 +204,66 @@ fn own_text(e: &(dyn StdError + 'static)) -> String {
         Some(i) => text[..i].trim_end_matches([' ', ':', '(', ',']).to_string(),
         None => text,
     }
+}
+
+/// Serde's type errors quote the value they got: `invalid type: string
+/// "s3cret", expected ..`, `unknown variant `s3cret`, expected one of ..`.
+/// In a kubeconfig that value may be a token or a password typed in the
+/// wrong place (#304), so keep only its kind.
+fn hide_values(msg: &str) -> String {
+    const HIDDEN: &str = "(value hidden)";
+    let mut out = String::with_capacity(msg.len());
+    let mut rest = msg;
+    loop {
+        let found = ["invalid type: ", "invalid value: ", "unknown variant "]
+            .iter()
+            .filter_map(|p| rest.find(p).map(|i| (i, *p)))
+            .min();
+        let Some((i, prefix)) = found else { break };
+        out.push_str(&rest[..i + prefix.len()]);
+        let after = &rest[i + prefix.len()..];
+        // The kind is what comes before the quoted value: `string`,
+        // `floating point`, nothing for a variant.
+        let Some(open) = after.find(['"', '`']).filter(|&o| {
+            after[..o]
+                .chars()
+                .all(|c| c.is_ascii_alphabetic() || c == ' ')
+        }) else {
+            rest = after;
+            continue;
+        };
+        let quote = after.as_bytes()[open] as char;
+        let Some(len) = quoted_len(&after[open + 1..], quote) else {
+            // No closing quote: hide everything after it.
+            out.push_str(&after[..open]);
+            out.push_str(HIDDEN);
+            return out;
+        };
+        out.push_str(&after[..open]);
+        out.push_str(HIDDEN);
+        rest = &after[open + 1 + len + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The length of a quoted value up to its closing `quote`. A `"` string is
+/// Rust-escaped; a `` ` `` one is not escaped, so it ends at the `` ` ``
+/// that comes before ", expected" (or the last one).
+fn quoted_len(s: &str, quote: char) -> Option<usize> {
+    if quote == '`' {
+        return s.find("`, expected").or_else(|| s.rfind('`'));
+    }
+    let mut escaped = false;
+    for (i, c) in s.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '"' => return Some(i),
+            _ => {}
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -347,6 +410,59 @@ mod tests {
             let e = kube::config::Kubeconfig::from_yaml(yaml).unwrap_err();
             let text = kubeconfig_error_text(&e, None);
             assert!(!text.contains("s3cret"), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_mistyped_value_in_a_kubeconfig_is_not_quoted() {
+        // interactiveMode is an enum: serde quotes the unknown variant.
+        let yaml = "apiVersion: v1\nusers:\n- name: u\n  user:\n    exec:\n      interactiveMode: s3cret-k\n";
+        let e = kube::config::Kubeconfig::from_yaml(yaml).unwrap_err();
+        let text = kubeconfig_error_text(&e, None);
+        assert_eq!(
+            text,
+            "Cannot use the kubeconfig: failed to parse kubeconfig YAML: unknown variant (value hidden), expected one of Never, IfAvailable, Always at line 6, column 24"
+        );
+    }
+
+    #[test]
+    fn serde_value_quotes_are_hidden() {
+        let cases = [
+            (
+                r#"invalid type: string "s3cret", expected a boolean at line 3, column 4"#,
+                "invalid type: string (value hidden), expected a boolean at line 3, column 4",
+            ),
+            (
+                r#"invalid value: string "a \"s3cret\" b", expected base64"#,
+                "invalid value: string (value hidden), expected base64",
+            ),
+            (
+                "unknown variant `s3c`ret`, expected one of `A`, `B`",
+                "unknown variant (value hidden), expected one of `A`, `B`",
+            ),
+            (
+                "invalid type: floating point `1.5`, expected a string",
+                "invalid type: floating point (value hidden), expected a string",
+            ),
+            // Nothing quoted: unchanged.
+            (
+                "invalid type: map, expected one of `Never`",
+                "invalid type: map, expected one of `Never`",
+            ),
+            ("expected mapping start at line 4", "expected mapping start at line 4"),
+            // A cut-off quote hides the rest.
+            (
+                r#"invalid type: string "s3cret"#,
+                "invalid type: string (value hidden)",
+            ),
+            // Two in one message.
+            (
+                r#"invalid type: string "s3cret-1", then unknown variant `s3cret-2`, expected x"#,
+                "invalid type: string (value hidden), then unknown variant (value hidden), expected x",
+            ),
+        ];
+        for (msg, want) in cases {
+            assert_eq!(hide_values(msg), want, "{msg}");
         }
     }
 }
