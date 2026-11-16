@@ -63,17 +63,29 @@ Svelte) and a CLI, both built on the same Rust core.
   Ctrl+J (⌘J on macOS) to hide or show it. Ctrl+` is the key left of 1 (or
   next to the left Shift), so it also works on layouts where the backtick is
   a dead key. On Linux and Windows, Ctrl+J inside a terminal goes to the
-  shell; use Ctrl+` there. At most 10 log streams run at once.
+  shell; use Ctrl+` there. At most 10 log streams run at once. Links a
+  terminal prints (OSC 8) open in your browser when they are http or https;
+  other links are ignored.
 - **Local terminal** (Ctrl+Shift+` or Ctrl+Shift+J (⇧⌘J on macOS), the
   dock's `+` or "New local terminal" in the palette): your own shell
   (`$SHELL -l`; on Windows `pwsh`, `powershell` or `cmd`) in your home
   directory, with `kubectl` and `helm` already pointed at the app's context
-  and namespace. The app writes a small temp kubeconfig (mode 0600) with just
-  that context entry and puts it first in `KUBECONFIG`, so your own
-  kubeconfig files are never changed; the file is deleted when the tab closes
-  or the app exits. After a force-quit or a crash, `kubeloupe-shell-*.yaml`
-  files stay in the system temp directory; they hold only the context entry
-  (no credentials) and can be deleted. The tab shows
+  and namespace. The app writes a temp kubeconfig, `kubeloupe-shell-*.yaml`
+  in the system temp directory, so your own kubeconfig files are never
+  changed. For a context of your default kubeconfig it holds just that
+  context entry and comes first in `KUBECONFIG`, before your own files. For
+  a context of an added kubeconfig it is a private copy of that one context,
+  made when its login was checked, and the shell sees only it: `kubectl
+  config use-context` can't switch to the file's other contexts, and changes
+  to the added file apply after the next check. That copy can hold the
+  context's credentials (for example a token written in the file). On Linux
+  and macOS the file is readable only by you (mode 0600); on Windows no mode
+  is set, so who can read it depends on the temp folder's permissions. It is
+  deleted when
+  the tab closes or the app exits; after a crash, the next start deletes it
+  (except on Windows, where leftover files can be deleted by hand). Helm
+  actions on an added kubeconfig use the same kind of copy, deleted when the
+  command ends. The tab shows
   `<context> · <namespace>`; changing the app's namespace later does not
   change shells that are already open.
 - **YAML editor** with server-side apply. After saving, it tells you which
@@ -100,7 +112,10 @@ Svelte) and a CLI, both built on the same Rust core.
   `win ` ("Open context in new window…") opens a context in a new window.
   Arrow keys or j/k move through the table, Enter opens, Space selects,
   Delete deletes, Shift+F10 opens the row menu, `/` focuses the filter and
-  `?` lists every shortcut.
+  `?` lists every shortcut. F5 or Ctrl+R (⌘R on macOS) refreshes the current
+  view; it never reloads the window. Inside a terminal, F5 and Ctrl+R go to
+  the shell. Ctrl+= / Ctrl+- / Ctrl+0 (⌘ on macOS) zoom in, zoom out and
+  reset the zoom.
 - **Helm releases**: a Helm section lists releases with their chart, app
   version, revision and status, read straight from the cluster (no `helm`
   binary needed; the list reads only labels). The detail shows notes,
@@ -125,11 +140,16 @@ Svelte) and a CLI, both built on the same Rust core.
   and at their size; "New window" opens offset from the current window. On
   macOS, closing the last window keeps kubeloupe in the Dock (that window's
   port-forwards, shells and logs stop with it); click the Dock icon to open a
-  window again.
+  window again. kubeloupe runs once per user: launching it again (from the
+  menu, a shortcut or the command line) brings the running app's window to
+  the front instead of starting a second copy. On Linux this uses the D-Bus
+  session bus; without one, each launch starts its own copy.
 - **Cluster catalog** (the grid button next to the context selector, or
   "Go to Cluster catalog" in the palette): every context with its API
   server, user, source file, last use and status (connected, login failed,
-  certificate problem, unreachable), checked when the catalog opens. Add more
+  certificate problem, unreachable, not allowed), checked when the catalog
+  opens, except the contexts below that are checked only when you click
+  **Check**. Add more
   kubeconfig files or a folder of them (watched for changes), or paste a
   kubeconfig (saved as `kubeconfigs/<name>.yaml`, mode 0600, in the app's
   config directory). Each added file connects on its own; a context whose
@@ -139,11 +159,27 @@ Svelte) and a CLI, both built on the same Rust core.
   namespaces, Prometheus Service and the local terminal's working directory.
   kubeloupe only reads your kubeconfig files; removing an added file or
   folder leaves it as it is.
+- **Login commands** (exec credential plugins: EKS, GKE, AKS, kubelogin, …)
+  run when kubeloupe logs in. The credential is cached per plugin
+  configuration (command, arguments and environment) and reused until it
+  expires. The catalog checks these contexts only when you click
+  **Check**. When an added kubeconfig file, folder or pasted kubeconfig logs
+  in by running a command, kubeloupe shows the exact command and runs it
+  only if you choose **Allow and check** (**Don't run** marks its contexts
+  "Not allowed"). The answer is remembered per source and command (in
+  `exec-approvals.json` in the app's config directory) until you remove the
+  source; a changed command asks again. Commands from your default
+  kubeconfig (`KUBECONFIG` or `~/.kube/config`) run without asking, as in
+  kubectl. Contexts of an added kubeconfig that send a token file or client
+  certificate/key from outside that kubeconfig's folder are also checked only
+  when you click **Check**; the row lists them under "Sends local files".
 - **Remembers where you were**: the last context, and per context the view
   and namespaces; per kind the table sort and hidden columns (Columns
   button); the detail panel width (drag its left edge). The Settings page
-  (gear in the header, Ctrl+, / Cmd+,) has the theme (System, Dark, Light)
-  and the log viewer defaults. Saved in `settings.json` in the app's config
+  (gear in the header, Ctrl+, / Cmd+,) has the theme (System, Dark, Light),
+  the log viewer defaults, and **Zoom and text**: the window zoom (50–200%)
+  and the terminal font size (8–32 px), both remembered; a new font size
+  applies to open terminals at once. Saved in `settings.json` in the app's config
   directory (`~/.config/com.kubeloupe.app/` on Linux,
   `~/Library/Application Support/com.kubeloupe.app/` on macOS,
   `%APPDATA%\com.kubeloupe.app\` on Windows).
@@ -238,6 +274,9 @@ proxy, set `proxy-url` (an `http://` proxy) on that cluster in the
 kubeconfig. `helm` and `kubectl` started from the app (Helm actions, the
 local terminal) still use the environment as usual.
 
+The app window itself loads nothing from the network: a strict Content
+Security Policy allows only the app's own files and its IPC.
+
 ### Updates
 
 The desktop app checks for a newer release once on start (turn it off in
@@ -247,6 +286,10 @@ nothing is downloaded until you click it. The update is verified against the
 signing key built into the app. The AppImage, the macOS app and the Windows
 installers update in place; a `.deb` install does so only when the release has
 a signed `.deb` update, otherwise the banner links to the release page.
+On macOS, a copy run straight from the disk image, or from a temporary
+location (App Translocation, when a downloaded app was not moved with
+Finder), can't update itself: the banner says so and links to the release
+page. Drag kubeloupe into Applications with Finder to update it in place.
 
 ## Build and run from source
 
