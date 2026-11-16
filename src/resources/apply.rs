@@ -473,7 +473,7 @@ pub async fn cli_apply(
 }
 
 /// `deployment.apps/web created`, kubectl style.
-fn result_line(r: &ApplyResult, dry_run: bool) -> String {
+pub(crate) fn result_line(r: &ApplyResult, dry_run: bool) -> String {
     let (group, _) = split_api_version(&r.api_version);
     let what = match (r.kind.is_empty(), group.is_empty()) {
         (true, _) => format!("document {} (line {})", r.document, r.line),

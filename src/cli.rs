@@ -53,7 +53,7 @@ fn nodes_table(nodes: &[NodeInfo]) -> String {
     })
 }
 
-fn top_pods_table(usages: &[PodUsage]) -> String {
+pub(crate) fn top_pods_table(usages: &[PodUsage]) -> String {
     table(&["NAME", "NAMESPACE", "CPU", "MEMORY"], usages, |u| {
         vec![
             u.name.clone(),
@@ -73,7 +73,7 @@ fn of_capacity(used: u64, capacity: u64, format: fn(u64) -> String) -> String {
     }
 }
 
-fn top_nodes_table(usages: &[NodeUsage]) -> String {
+pub(crate) fn top_nodes_table(usages: &[NodeUsage]) -> String {
     table(&["NAME", "CPU", "MEMORY"], usages, |u| {
         vec![
             u.name.clone(),

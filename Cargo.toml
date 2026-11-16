@@ -21,6 +21,8 @@ futures = "0.3"
 home = "0.5"
 http = "1"
 k8s-openapi = { version = "0.29", features = ["latest"] }
+# The official Model Context Protocol SDK, for `kubeloupe mcp` (#298).
+rmcp = { version = "3.10", default-features = false, features = ["server", "transport-io"], optional = true }
 kube = { version = "5", features = ["runtime", "http-proxy", "ws", "oidc", "gzip"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -33,9 +35,18 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
+# `kubeloupe mcp`, the MCP server (#298). The CLI needs it; the desktop app
+# turns default features off so it does not build the MCP SDK.
+default = ["mcp"]
+mcp = ["dep:rmcp"]
 # `specta::Type` derives on the IPC structs, used by the desktop app to
 # generate TypeScript bindings. The CLI does not enable it.
 specta = ["dep:specta"]
+
+[[bin]]
+name = "kubeloupe"
+path = "src/main.rs"
+required-features = ["mcp"]
 
 [target.'cfg(unix)'.dependencies]
 # Restore the default SIGPIPE action in the CLI (`kubeloupe get pods | head`).

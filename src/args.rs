@@ -71,6 +71,14 @@ pub enum Commands {
         #[arg(short, long)]
         namespace: Option<String>,
     },
+    /// Serve the Model Context Protocol on stdio for AI assistants
+    /// (read-only unless --allow-writes)
+    Mcp {
+        /// Also offer the tools that change the cluster: scale, restart,
+        /// delete and apply (RBAC still applies)
+        #[arg(long)]
+        allow_writes: bool,
+    },
     /// Stream live changes to any resource type (until Ctrl-C)
     Watch {
         /// What to watch: pods, nodes, deployments, a CRD, ...

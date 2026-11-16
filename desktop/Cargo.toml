@@ -12,7 +12,7 @@ base64 = "0.23"
 anyhow = "1"
 futures = "0.3"
 kube = { version = "5", features = ["ws"] }
-kubeloupe = { path = "..", features = ["specta"] }
+kubeloupe = { path = "..", default-features = false, features = ["specta"] }
 portable-pty = "0.9"
 # Secret-looking text is masked in the app log (#208).
 regex = "1"
