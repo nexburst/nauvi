@@ -14,7 +14,8 @@
 #       Pulls them and writes them into one archive (`docker save`).
 #   bash scripts/test-cluster/images.sh load <cluster> [<file.tar>] [--prometheus]
 #       Loads them into every node of a kind cluster: from the archive if
-#       given, else pulls them first.
+#       given, else pulls them first. Needs Docker 28 or later
+#       (`docker save --platform`).
 #
 # --prometheus adds prom/prometheus (scripts/test-cluster/prometheus.yaml).
 set -euo pipefail
@@ -28,6 +29,12 @@ IMAGES=(
   nginx:1.27
 )
 PROMETHEUS_IMAGE=prom/prometheus:v2.55.1
+# The kind nodes' platform. Saved archives hold only it: with Docker's
+# containerd image store a plain `docker save` (and so `kind load
+# docker-image`) lists every platform of a multi-arch image but has the
+# content of one, and the nodes' `ctr import` fails on "content digest not
+# found".
+PLATFORM="linux/$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
 
 # Docker Hub short name -> repository path on a mirror (library/ for
 # official images).
@@ -43,7 +50,7 @@ pull_one() {
   path="$(hub_path "$image")"
   for src in "mirror.gcr.io/$path" "docker.io/$path"; do
     for attempt in 1 2 3; do
-      if docker pull --quiet "$src" >/dev/null; then
+      if docker pull --quiet --platform "$PLATFORM" "$src" >/dev/null; then
         docker tag "$src" "$image"
         echo "pulled $image (from $src)"
         return 0
@@ -78,7 +85,7 @@ case "$cmd" in
   save)
     [ "${#args[@]}" -eq 1 ] || { echo "usage: images.sh save <file.tar> [--prometheus]" >&2; exit 2; }
     pull_all
-    docker save -o "${args[0]}" "${IMAGES[@]}"
+    docker save --platform "$PLATFORM" -o "${args[0]}" "${IMAGES[@]}"
     echo "saved ${IMAGES[*]} to ${args[0]}"
     ;;
   load)
@@ -89,7 +96,10 @@ case "$cmd" in
       kind load image-archive --name "$cluster" "${args[1]}"
     else
       pull_all
-      kind load docker-image --name "$cluster" "${IMAGES[@]}"
+      archive="$(mktemp --suffix=.tar)"
+      trap 'rm -f "$archive"' EXIT
+      docker save --platform "$PLATFORM" -o "$archive" "${IMAGES[@]}"
+      kind load image-archive --name "$cluster" "$archive"
     fi
     echo "loaded the test images into kind cluster $cluster"
     ;;
