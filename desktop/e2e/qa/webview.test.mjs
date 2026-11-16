@@ -17,7 +17,10 @@ import { deleteNamespace, podNames, tempNamespace } from "../lib/cluster.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { terminal } from "../lib/terminal.mjs";
-import { contextMenu, closeMenu, editor, editorValue, openKind } from "./area-2-helpers.mjs";
+import { appPid } from "../lib/dock.mjs";
+import { clickX11, cannotCloseLikeUser } from "../lib/window.mjs";
+import { closeNamespacePicker, pickNamespaces } from "../lib/table.mjs";
+import { contextMenu, closeMenu, editor, editorValue } from "./area-2-helpers.mjs";
 
 const T = { timeout: 180_000 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -48,16 +51,25 @@ async function engineMenuOn(app, el) {
       window.__qaMenu = !e.defaultPrevented;
       e.preventDefault();
     }, { once: true });`);
+  await app.js("arguments[0].scrollIntoView({ block: 'center' })", el);
   await app.driver.actions().contextClick(el).perform();
   await app.waitFor(() => app.js("return window.__qaMenu !== null"), { message: "the contextmenu event" });
   return app.js("return window.__qaMenu");
+}
+
+/** Open a kind showing only `namespace`, filtered to `text`. */
+async function showKind(app, label, namespace, text) {
+  await app.nav(label);
+  await pickNamespaces(app, [namespace]);
+  await closeNamespacePicker(app);
+  await app.filter(text);
 }
 
 const markPage = (app) => app.js("window.__qa205 = 'same page'");
 const samePage = (app) => app.js("return window.__qa205 === 'same page'");
 
 async function openYaml(app) {
-  await openKind(app, "Config Maps", ns, "qa205-cm");
+  await showKind(app, "Config Maps", ns, "qa205-cm");
   await (await app.find(app.row("qa205-cm", ns))).click();
   const panel = await app.find(By.css('[data-testid="detail-panel"]'));
   await (await panel.findElement(By.xpath(`.//button[@role='tab'][normalize-space()='YAML']`))).click();
@@ -80,10 +92,11 @@ describe("#205: webview menu, reload keys, page reload and CSP", { timeout: 15 *
   it("runs under the CSP: eval is blocked", T, async () => {
     const { app } = s;
     await waitLive(app);
-    await watchViolations(app);
     const evalResult = await app.js(`try { return "allowed: " + (0, eval)("1 + 1"); } catch (e) { return e.name; }`);
     console.log(`eval under the CSP: ${evalResult}`);
     assert.equal(evalResult, "EvalError", "the CSP blocks eval");
+    // From here on, any violation is the app's (the eval above is ours).
+    await watchViolations(app);
   });
 
   it("CodeMirror renders and edits under the CSP (light and dark)", T, async () => {
@@ -151,7 +164,7 @@ describe("#205: webview menu, reload keys, page reload and CSP", { timeout: 15 *
     const { app } = s;
     const pod = podNames("demo", "app=web")[0];
     assert.ok(pod, "a demo/web pod");
-    await openKind(app, "Pods", "demo", pod);
+    await showKind(app, "Pods", "demo", pod);
     await (await app.find(app.row(pod, "demo"))).click();
     const chart = await app.waitFor(
       () =>
@@ -185,7 +198,7 @@ describe("#205: webview menu, reload keys, page reload and CSP", { timeout: 15 *
     const tabs = await app.js(`return document.querySelectorAll('[data-testid="dock"] [role="tab"]').length`);
     assert.equal(tabs, 0, "no dock tabs after the reload");
     // The fresh session works: a table loads and a new shell starts.
-    await openKind(app, "Config Maps", ns, "qa205-cm");
+    await showKind(app, "Config Maps", ns, "qa205-cm");
     await app.find(app.row("qa205-cm", ns));
     await watchViolations(app);
     await app.palette("local term", "New local terminal");
@@ -207,12 +220,35 @@ describe("#205: webview menu, reload keys, page reload and CSP", { timeout: 15 *
     assert.equal(await engineMenuOn(app, panelTitle), false, "panel title suppresses it");
     const refresh = await app.find(By.xpath("//button[normalize-space()='Refresh']"));
     assert.equal(await engineMenuOn(app, refresh), false, "header suppresses it");
-    assert.equal(await engineMenuOn(app, await app.find(By.css("nav"))), false, "sidebar suppresses it");
+    assert.equal(await engineMenuOn(app, await app.find(By.css("nav h4"))), false, "sidebar suppresses it");
     assert.equal(await engineMenuOn(app, await app.find(By.css("#table-filter"))), true, "filter keeps it");
+    assert.ok(await app.find(By.css('[data-testid="detail-panel"] .title')), "the panel is still open");
     // A row still opens the app's own menu.
     const menu = await contextMenu(app, "qa205-cm", ns);
     console.log(`row menu: ${JSON.stringify(menu)}`);
     await app.shot("row-menu");
     await closeMenu(app);
+  });
+
+  // In the first run the panel closed after WebDriver right-clicked the
+  // centre of the sidebar, which is the Config Maps button: its synthesized
+  // right click fired `click` there. A real (XTEST) right click must not.
+  it("a real right click on a sidebar item does not open it", { ...T, skip: cannotCloseLikeUser() }, async () => {
+    const { app } = s;
+    await app.find(By.css('[data-testid="detail-panel"] .title'));
+    const rect = await app.js(`
+      window.__qaClicks = [];
+      window.addEventListener("click", (e) => window.__qaClicks.push(e.button), true);
+      const b = Array.from(document.querySelectorAll("nav button")).find((x) => x.textContent.trim() === "Config Maps");
+      b.scrollIntoView({ block: "center" });
+      const r = b.getBoundingClientRect();
+      return { x: r.x + r.width / 2, y: r.y + r.height / 2 };`);
+    assert.ok(clickX11(appPid(app.profile.home), rect.x, rect.y, 3), "an X11 window");
+    await sleep(800);
+    const clicks = await app.js("return window.__qaClicks");
+    console.log(`clicks from a real right click: ${JSON.stringify(clicks)}`);
+    assert.deepEqual(clicks, [], "no click event");
+    assert.ok(await app.find(By.css('[data-testid="detail-panel"] .title')), "the panel is still open");
+    await app.shot("after-real-right-click");
   });
 });
