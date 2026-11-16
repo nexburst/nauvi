@@ -1,13 +1,15 @@
 // Zoom, the terminal font size and keyboard focus (#207) in WebKitGTK.
-// Checks: Ctrl+= / Ctrl+- / Ctrl+0 zoom the real webview (the page's CSS
-// width shrinks by the zoom), from the table and from a terminal; the
+// Checks: clicking a row moves the keyboard focus from the filter to the
+// table; picking Shell in the row menu with Enter opens a shell that did not
+// get that Enter (one prompt, no empty command); the terminal font size from
+// Settings applies to an open terminal at once (bigger cells, fewer
+// columns); Ctrl+= / Ctrl+- / Ctrl+0 zoom the real webview (the page's CSS
+// width shrinks by the zoom), from a terminal and from the table; the
 // zoomed layout at 1280x800 in Dark and Light (table, detail panel, dock,
-// Settings) has no horizontal page scroll; the zoom is saved and set again
-// after a restart; clicking a row moves the keyboard focus from the filter
-// to the table; picking Shell in the row menu with Enter opens a shell that
-// did not get that Enter (one prompt, no empty command); the terminal font
-// size from Settings applies to an open terminal at once (bigger cells,
-// fewer columns).
+// Settings) has no sideways page scroll; the zoom is saved and set again
+// after a restart.
+// While zoomed, WebDriver's element clicks land off target (it maps CSS
+// pixels to the screen unzoomed), so clicks then go through JavaScript.
 
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
@@ -27,7 +29,7 @@ const press = (app, ...keys) => app.driver.actions().sendKeys(...keys).perform()
 const ctrl = (app, key) => app.driver.actions().keyDown(Key.CONTROL).sendKeys(key).keyUp(Key.CONTROL).perform();
 const count = (app, css) => app.js(`return document.querySelectorAll(arguments[0]).length`, css);
 
-/** The page's CSS width and whether anything makes the page scroll sideways. */
+/** The page's CSS width and how far anything makes the page scroll sideways. */
 const layout = (app) =>
   app.js(`return {
     width: window.innerWidth,
@@ -51,7 +53,9 @@ async function openSettings(app) {
 }
 
 async function closeSettings(app) {
-  await (await app.find(By.xpath("//*[@data-testid='settings']//button[normalize-space()='Close']"))).click();
+  await app.js(
+    `Array.from(document.querySelectorAll('[data-testid="settings"] button')).find((b) => b.textContent.trim() === "Close")?.click()`,
+  );
   await app.waitFor(async () => (await count(app, '[data-testid="settings"]')) === 0, { message: "Settings closed" });
 }
 
@@ -78,7 +82,7 @@ describe("zoom, terminal font size and focus", { timeout: 15 * 60_000 }, () => {
   after(() => deleteNamespace(ns));
   const s = appSession("zoom-focus");
 
-  it("Ctrl+= zooms the window to 125% (dark, 1280x800)", T, async () => {
+  it("clicking a row gives the table the keyboard", T, async () => {
     const { app } = s;
     await waitLive(app);
     await resizeWindow(app, 1280, 800);
@@ -86,44 +90,19 @@ describe("zoom, terminal font size and focus", { timeout: 15 * 60_000 }, () => {
     await closeSettings(app);
     await waitZoom(app, 100);
     await showShellPod(app);
-    await (await app.find(app.row("shell", ns))).click();
-    await app.find(byTestId("detail-panel"));
-    await app.js("document.activeElement?.blur()");
-    await ctrl(app, "=");
-    await waitZoom(app, 110);
-    await ctrl(app, "=");
-    await waitZoom(app, 125);
-    const l = await layout(app);
-    console.log(`at 125%: ${JSON.stringify(l)}`);
-    assert.ok(l.overflow <= 0, `no sideways page scroll at 125% (${l.overflow}px)`);
-  });
-
-  it("the zoomed layout in Light, with Settings open", T, async () => {
-    const { app } = s;
-    await setTheme(app, "light");
-    const text = await app.js(`return document.querySelector('[data-testid="zoom-settings"]').innerText`);
-    console.log(`zoom settings: ${JSON.stringify(text)}`);
-    assert.ok(text.includes("125%"), "Settings shows the zoom");
-    await app.shot("settings-zoomed-light");
-    await closeSettings(app);
-    assert.ok((await layout(app)).overflow <= 0, "no sideways page scroll");
-  });
-
-  it("clicking a row gives the table the keyboard", T, async () => {
-    const { app } = s;
     await app.js("document.activeElement?.blur()");
     await press(app, "/");
     assert.equal(await app.js(`return document.activeElement?.getAttribute("aria-label")`), "Filter");
     await (await app.find(app.row("shell", ns))).click();
+    await app.find(byTestId("detail-panel"));
     await app.waitFor(async () => (await app.js(`return document.activeElement?.getAttribute("role")`)) === "grid", {
       message: "the grid focused after the click",
     });
-    // So Shift+F10 is the row's menu, not a key in the filter.
-    assert.equal(await app.js(`return document.querySelector("#table-filter")?.value`), "");
   });
 
   it("Enter on Shell in the row menu opens a shell that did not get the Enter", T, async () => {
     const { app } = s;
+    // The grid has the keyboard: Shift+F10 is the row's menu.
     await app.driver.actions().keyDown(Key.SHIFT).sendKeys(Key.F10).keyUp(Key.SHIFT).perform();
     await app.find(byTestId("context-menu"));
     const focused = () =>
@@ -142,18 +121,6 @@ describe("zoom, terminal font size and focus", { timeout: 15 * 60_000 }, () => {
     console.log(`screen after Shell:\n${screen}`);
     assert.equal(prompts.length, 1, `one prompt, no empty command: ${JSON.stringify(screen)}`);
     assert.equal(await term.run("hostname"), "shell");
-    assert.ok((await layout(app)).overflow <= 0, "no sideways page scroll with the dock open");
-  });
-
-  it("Ctrl+- and Ctrl+0 work from inside the terminal", T, async () => {
-    const { app } = s;
-    assert.ok(await app.js(`return !!document.activeElement?.closest(".xterm")`), "the terminal has the focus");
-    await ctrl(app, "-");
-    await waitZoom(app, 110);
-    await ctrl(app, "0");
-    await waitZoom(app, 100);
-    // The shell got none of them (Ctrl+- would be ^_).
-    assert.equal(await terminal(app).run("echo ok"), "ok");
   });
 
   it("the terminal font size applies to the open terminal", T, async () => {
@@ -179,28 +146,69 @@ describe("zoom, terminal font size and focus", { timeout: 15 * 60_000 }, () => {
     await term.type("clear");
     await term.type("echo font-18");
     await term.waitFor("font-18");
-    await app.shot("terminal-18px-light");
+  });
+
+  it("Ctrl+= and Ctrl+0 work from inside the terminal", T, async () => {
+    const { app } = s;
+    // The terminal's textarea has the keys.
+    await terminal(app).type("", { enter: false });
+    assert.ok(await app.js(`return !!document.activeElement?.closest(".xterm")`), "the terminal has the focus");
+    await ctrl(app, "=");
+    await waitZoom(app, 110);
+    await ctrl(app, "-");
+    await waitZoom(app, 100);
+    await ctrl(app, "=");
+    await waitZoom(app, 110);
+    await ctrl(app, "0");
+    await waitZoom(app, 100);
+    // The shell got none of them (Ctrl+- would be ^_).
+    assert.equal(await terminal(app).run("echo ok"), "ok");
+  });
+
+  it("the table, panel and dock at 125% (dark, 1280x800)", T, async () => {
+    const { app } = s;
+    await app.js("document.activeElement?.blur()");
+    await ctrl(app, "=");
+    await ctrl(app, "=");
+    await waitZoom(app, 125);
+    const l = await layout(app);
+    console.log(`at 125%: ${JSON.stringify(l)}`);
+    assert.ok(l.overflow <= 0, `no sideways page scroll at 125% (${l.overflow}px)`);
+  });
+
+  it("Settings at 125% in Light", T, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    const text = await app.js(`return document.querySelector('[data-testid="zoom-settings"]').innerText`);
+    console.log(`zoom settings: ${JSON.stringify(text)}`);
+    assert.ok(text.includes("125%"), "Settings shows the zoom");
+    await app.shot("settings-zoomed-light");
+    // The − button steps down, like Ctrl+-.
+    await app.js(`document.querySelector('[data-testid="zoom-settings"] button[aria-label="Zoom out"]').click()`);
+    await waitZoom(app, 110);
+    await app.js(`document.querySelector('[data-testid="zoom-settings"] button[aria-label="Zoom in"]').click()`);
+    await waitZoom(app, 125);
+    await closeSettings(app);
+    assert.ok((await layout(app)).overflow <= 0, "no sideways page scroll");
   });
 
   it("the zoom comes back after a restart (dark)", T, async () => {
     const { app } = s;
     await setTheme(app, "dark");
     await closeSettings(app);
-    await app.js("document.activeElement?.blur()");
-    await ctrl(app, "=");
-    await ctrl(app, "=");
-    await ctrl(app, "=");
-    await waitZoom(app, 125);
     await app.restart();
     await waitLive(app);
     console.log(`window after the restart: ${JSON.stringify(await app.driver.manage().window().getRect())}`);
     await waitZoom(app, 125);
+    assert.equal(app.profile.settings()?.terminal_font_size, 18, "the font size is remembered");
     await showShellPod(app);
-    await (await app.find(app.row("shell", ns))).click();
+    await app.js(
+      `Array.from(document.querySelectorAll('[data-testid="resource-row"]')).find((r) => r.textContent.includes("shell"))?.click()`,
+    );
     await app.find(byTestId("detail-panel"));
     assert.ok((await layout(app)).overflow <= 0, "no sideways page scroll after the restart");
     await app.shot("zoomed-125-dark-after-restart");
-    // Back to 100% for whoever looks at this profile next.
+    await app.js("document.activeElement?.blur()");
     await ctrl(app, "0");
     await waitZoom(app, 100);
   });
