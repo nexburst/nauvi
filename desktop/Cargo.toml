@@ -39,3 +39,8 @@ tauri-specta = { version = "=2.0.0-rc.29", features = ["derive", "typescript"] }
 # Quit confirmation (#173): answers `applicationShouldTerminate:`. The same
 # version tao uses.
 objc2 = "0.6"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# The OS version in About and the diagnostics (#294), read from the registry.
+# Already in the tree through hyper-util.
+windows-registry = "0.6"
