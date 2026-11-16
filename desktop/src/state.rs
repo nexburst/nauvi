@@ -222,14 +222,20 @@ impl ClusterSession {
     /// client, kinds, usage history and Prometheus. Returns the terminal
     /// sessions still to close.
     pub(crate) async fn set_context(&self, context: Option<String>) -> Vec<ExecSession> {
-        // The context first: what is added for the old one afterwards is
-        // refused (`add_forward_on`), what was added before is stopped here.
-        *self.context.lock().unwrap() = context;
+        // The context and the client together, under the client's lock: a
+        // client lookup never pairs the new context with the old client
+        // (`context_client`). Then the rest: what is added for the old
+        // context afterwards is refused (`add_forward_on`), what was added
+        // before is stopped here.
+        {
+            let mut client = self.client.lock().await;
+            *self.context.lock().unwrap() = context;
+            *client = None;
+        }
         let sessions = self.stop_all();
         self.kinds.lock().unwrap().clear();
         self.usage.lock().unwrap().clear();
         *self.prometheus.lock().unwrap() = None;
-        *self.client.lock().await = None;
         sessions
     }
 
@@ -552,6 +558,32 @@ mod tests {
 
     fn forever() -> JoinHandle<()> {
         tauri::async_runtime::spawn(std::future::pending())
+    }
+
+    #[test]
+    fn the_context_changes_only_together_with_the_client() {
+        tauri::async_runtime::block_on(async {
+            let s = Arc::new(ClusterSession::new(Some("a".into()), Arc::default()));
+            // A client lookup for "a" in flight holds the client slot.
+            let slot = s.client.lock().await;
+            let switch = {
+                let s = s.clone();
+                tauri::async_runtime::spawn(async move { s.set_context(Some("b".into())).await })
+            };
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            assert_eq!(
+                s.selected_context().as_deref(),
+                Some("a"),
+                "not switched under a lookup"
+            );
+            drop(slot);
+            switch.await.unwrap();
+            assert_eq!(s.selected_context().as_deref(), Some("b"));
+            assert!(
+                s.client.lock().await.is_none(),
+                "the old client is gone with the old context"
+            );
+        });
     }
 
     #[test]
