@@ -156,10 +156,13 @@ Svelte) and a CLI, both built on the same Rust core.
   group, `_` for no namespace). Opening one (from a browser, a chat, or
   `xdg-open`, `open`, `start`) brings kubeloupe to the front and shows that
   object in a window on that context, opening one if needed. A link only
-  shows an object, it never changes or runs anything; a link to a context
-  that is not in your kubeconfigs only shows a notice. The installers
-  register the scheme (Linux .deb and AppImage, macOS, Windows); a build
-  from source does not.
+  opens a view; it never changes the cluster. Opening a context from your
+  default kubeconfig may run its login plugin, as switching to it does. A
+  link to a context that is not in your kubeconfigs only shows a notice.
+  The Linux `.deb`, the macOS app and the Windows installers register the
+  `kubeloupe://` scheme. The AppImage doesn't: it handles links only if you
+  set up desktop integration (for example with AppImageLauncher). A build
+  from source doesn't either.
 - **Debugging**: "Debug…" on a pod adds an ephemeral debug container
   (`busybox:1.37` by default, or e.g. `nicolaka/netshoot`) that sees a chosen
   container's processes, and attaches to it in a dock tab. It works on images
