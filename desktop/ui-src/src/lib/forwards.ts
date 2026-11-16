@@ -1,4 +1,4 @@
-import type { ForwardInfo, ForwardKind, ForwardTarget, ResourceRef } from "./bindings";
+import type { ForwardInfo, ForwardKind, ForwardTarget, ResourceRef, SavedForward } from "./bindings";
 
 /** The sidebar view that lists the running forwards. */
 export const PORT_FORWARDS_VIEW = "port-forwards";
@@ -61,9 +61,41 @@ export function parseRemotePort(text: string): Parsed<string> {
   return name ? { ok: true, value: s } : { ok: false, error: `"${s}" is neither a port number nor a port name.` };
 }
 
-/** Only forwarded URLs on this machine may be opened (the capability says the same). */
+/** Only forwarded URLs on this machine may be opened (the opener allows http and https only). */
 export function isLocalUrl(url: string): boolean {
-  return /^http:\/\/(127\.0\.0\.1|localhost):\d{1,5}(\/.*)?$/.test(url);
+  return /^https?:\/\/(127\.0\.0\.1|localhost):\d{1,5}(\/.*)?$/.test(url);
+}
+
+/** One row of Network → Port Forwards (#217): a saved forward and its run
+ *  in this window, if any. A run without a saved forward (saved in another
+ *  window, or deleted there) still gets a row. */
+export interface ForwardRow {
+  key: string;
+  saved: SavedForward | null;
+  running: ForwardInfo | null;
+}
+
+export function forwardRows(saved: SavedForward[], running: ForwardInfo[]): ForwardRow[] {
+  const rows: ForwardRow[] = saved.map((s) => ({
+    key: s.id,
+    saved: s,
+    running: running.find((r) => r.saved_id === s.id) ?? null,
+  }));
+  for (const r of running) {
+    if (!saved.some((s) => s.id === r.saved_id)) rows.push({ key: r.id, saved: null, running: r });
+  }
+  return rows;
+}
+
+/** The URL of a stopped forward, if its local port is fixed: `https://127.0.0.1:8443`. */
+export function plannedUrl(f: SavedForward): string {
+  return /^[1-9]\d*$/.test(f.local_port) ? `${f.https ? "https" : "http"}://127.0.0.1:${f.local_port}` : "";
+}
+
+/** "8080 → 80" or "auto → 80" for a stopped forward. */
+export function savedPortsLabel(f: SavedForward): string {
+  const local = f.local_port === "" ? "auto" : f.local_port === "0" ? "any" : f.local_port;
+  return `${local} → ${f.remote}`;
 }
 
 export interface ForwardState {

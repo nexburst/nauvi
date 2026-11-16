@@ -5,8 +5,10 @@
   import { closeForwardDialog, confirmForwardDialog, forwardDialog } from "../stores/forwards.svelte";
 
   /** Start a port-forward to a pod, Service or workload: remote port
-   *  (offered from the Service's ports) and an optional local port. */
+   *  (offered from the Service's ports), an optional local port and how to
+   *  open it. Also edits a saved forward (#217). */
   const target = $derived(forwardDialog.target);
+  const editing = $derived(forwardDialog.editId !== "");
   let servicePorts = $state.raw<ServicePortInfo[]>([]);
 
   $effect(() => {
@@ -43,8 +45,8 @@
 {#if target}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="backdrop" onclick={(e) => e.target === e.currentTarget && closeForwardDialog()}>
-    <div class="dialog" role="dialog" data-testid="forward-dialog" aria-modal="true" aria-label="Port forward" use:focusFirst>
-      <h2>Port forward</h2>
+    <div class="dialog" role="dialog" data-testid="forward-dialog" aria-modal="true" aria-label={editing ? "Edit port forward" : "Port forward"} use:focusFirst>
+      <h2>{editing ? "Edit port forward" : "Port forward"}</h2>
       <p class="lead mono">{forwardLabel(target)}</p>
 
       {#if servicePorts.length > 0}
@@ -84,9 +86,22 @@
         >
       </label>
 
+      <label class="check">
+        <input type="checkbox" aria-label="https" bind:checked={forwardDialog.https} />
+        <span>https <span class="muted">(the target speaks TLS: open and copy an https:// URL)</span></span>
+      </label>
+      <label class="check">
+        <input type="checkbox" aria-label="Open in browser" bind:checked={forwardDialog.openInBrowser} />
+        <span>Open in browser when it starts</span>
+      </label>
+      <label class="check">
+        <input type="checkbox" aria-label="Start automatically" bind:checked={forwardDialog.autoStart} />
+        <span>Start automatically <span class="muted">(when the app connects to this cluster)</span></span>
+      </label>
+
       <p class="hint muted">
-        The forward keeps running when you close panels; see Network → Port Forwards. Switching context stops all
-        forwards.
+        Saved for this cluster in Network → Port Forwards. It keeps running when you close panels; switching context
+        or quitting stops it.
       </p>
 
       {#if forwardDialog.error}<p class="error-text" role="alert">{forwardDialog.error}</p>{/if}
@@ -100,7 +115,11 @@
           disabled={forwardDialog.busy}
           onclick={() => void confirmForwardDialog()}
         >
-          {forwardDialog.busy ? "Starting…" : "Start"}
+          {#if editing}
+            {forwardDialog.busy ? "Saving…" : forwardDialog.wasRunning ? "Save and restart" : "Save"}
+          {:else}
+            {forwardDialog.busy ? "Starting…" : "Start"}
+          {/if}
         </button>
       </div>
     </div>
@@ -144,6 +163,16 @@
     gap: 4px;
     margin-bottom: 12px;
     font-size: 13px;
+  }
+  .check {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+  }
+  .check .muted {
+    font-size: 12px;
   }
   .hint {
     font-size: 12px;

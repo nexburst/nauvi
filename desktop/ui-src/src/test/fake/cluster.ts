@@ -10,8 +10,9 @@ export function clusterHandlers(s: FakeState) {
     cmdListContexts: () => cluster.contexts.map(fullContext),
     cmdSetContext: (name) => {
       cluster.contexts = cluster.contexts.map((c) => ({ ...c, current: c.name === name }));
-      // Like the backend: a context switch stops every log stream.
+      // Like the backend: a context switch stops every log stream and forward.
       s.logStreams.clear();
+      cluster.forwards = [];
       return null;
     },
     cmdListNamespaces: () => cluster.namespaces,

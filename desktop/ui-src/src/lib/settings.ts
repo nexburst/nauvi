@@ -57,6 +57,7 @@ export function defaultSettings(): Settings {
     favourites: [],
     zoom: DEFAULT_ZOOM,
     terminal_font_size: DEFAULT_TERMINAL_FONT,
+    forwards: {},
   };
 }
 
