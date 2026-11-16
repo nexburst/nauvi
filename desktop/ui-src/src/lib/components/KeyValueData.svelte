@@ -112,6 +112,8 @@
       return await commands.cmdRevealDataValue(target.resource, target.namespace, target.name, e.key);
     } catch (err) {
       error = `Could not read "${e.key}": ${err}`;
+      // The list may be stale (the key removed meanwhile): refresh it.
+      void load();
       return null;
     }
   }

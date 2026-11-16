@@ -304,6 +304,10 @@ describe("data editor (#224)", { timeout: 20 * 60_000 }, () => {
     kubectl(["-n", ns, "patch", "secret", "qa-creds", "--type=json", "-p", '[{"op":"remove","path":"/data/gone"}]']);
     await click(app, "Reveal", "gone");
     await waitEditorText(app, 'Could not read "gone": the Secret has no key "gone" any more');
+    // The list was refreshed: the key is gone from it.
+    await app.waitFor(async () => (await app.driver.findElements(By.css(entryCss("gone")))).length === 0, {
+      message: "gone removed from the list",
+    });
     await app.shot("reveal-error-dark");
     await closePanel(app);
     await openObject(app, "Config Maps", ns, "qa-empty");
@@ -344,6 +348,7 @@ describe("data editor: read but not patch (#224)", { timeout: 10 * 60_000 }, () 
     assert.ok(!(await (await button(app, "Add key")).isEnabled()), "Add key is greyed");
     await click(app, "Reveal", "username");
     await waitEditorText(app, "admin");
+    await setTheme(app, "dark");
     await app.shot("reader-readonly-dark");
     await setTheme(app, "light");
     await app.shot("reader-readonly-light");
@@ -385,6 +390,7 @@ describe("data editor: limited user in team-a (#224)", { timeout: 10 * 60_000, s
     await click(app, "Save");
     await waitEditorText(app, "Saved.");
     assert.equal(secretValue(LIMITED_NS, LIMITED_SECRET, "token"), NEW_PASSWORD);
+    await setTheme(app, "dark");
     await app.shot("limited-saved-dark");
   });
 });
