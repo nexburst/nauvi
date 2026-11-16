@@ -10,6 +10,7 @@ import type {
   Theme,
 } from "./bindings";
 import type { Sort } from "./view";
+import { clampTerminalFont, clampZoom, DEFAULT_TERMINAL_FONT, DEFAULT_ZOOM } from "./zoom";
 
 // The backend fills in missing fields, so what it sends always has them all.
 export type Settings = Settings_Serialize;
@@ -33,6 +34,10 @@ export interface SettingsPatch {
   windows?: string[];
   /** Pinned context ids, in order (#78). */
   favourites?: string[];
+  /** Page zoom in percent (#207). */
+  zoom?: number;
+  /** Terminal font size in pixels (#207). */
+  terminal_font_size?: number;
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -50,6 +55,8 @@ export function defaultSettings(): Settings {
     windows: [],
     kubeconfig_sources: [],
     favourites: [],
+    zoom: DEFAULT_ZOOM,
+    terminal_font_size: DEFAULT_TERMINAL_FONT,
   };
 }
 
@@ -96,6 +103,8 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.kinds != null) next.kinds = { ...settings.kinds, ...patch.kinds };
   if (patch.windows != null) next.windows = patch.windows;
   if (patch.favourites != null) next.favourites = patch.favourites;
+  if (patch.zoom != null) next.zoom = clampZoom(patch.zoom);
+  if (patch.terminal_font_size != null) next.terminal_font_size = clampTerminalFont(patch.terminal_font_size);
   return next;
 }
 

@@ -87,6 +87,7 @@
   import "@xterm/xterm/css/xterm.css";
   import { events } from "../bindings";
   import { thisWindow } from "../window";
+  import { settings } from "../stores/settings.svelte";
 
   interface Props {
     target: TerminalTarget;
@@ -128,12 +129,21 @@
     if (active && session) term?.focus();
   });
 
+  // The font size from Settings (#207), changed live: refit to the new cell size.
+  const fontSize = $derived(settings.current.terminal_font_size);
+  $effect(() => {
+    const size = fontSize;
+    if (!term || term.options.fontSize === size) return;
+    term.options.fontSize = size;
+    sendResize();
+  });
+
   onMount(async () => {
     const b = backendFor(target);
     backend = b;
     const t = new Terminal({
       cursorBlink: true,
-      fontSize: 12,
+      fontSize,
       theme: { background: "#0d1013" },
     });
     const f = new FitAddon();

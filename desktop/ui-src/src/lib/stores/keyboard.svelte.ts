@@ -6,6 +6,7 @@
 import type { ResourceKind } from "../bindings";
 import type { ActionTarget } from "../actions";
 import type { Row } from "../columns";
+import type { Command } from "../keys";
 import { bindingFor, inEditorOrTerminal, isActivatable, isMacPlatform, isTextEntry, leftToTerminal } from "../keys";
 import { actionUi } from "./actions.svelte";
 import { helm, selectRelease } from "./helm.svelte";
@@ -15,6 +16,7 @@ import { createUi } from "./create.svelte";
 import { closeDetail, detail } from "./detail.svelte";
 import { toggleDock } from "./dock.svelte";
 import { openLocalShell } from "./localShell";
+import { zoomIn, zoomOut, zoomReset } from "./settings.svelte";
 import { unsaved } from "./unsaved.svelte";
 
 export const keyboard = $state({
@@ -117,6 +119,8 @@ function modalOpen(): boolean {
 
 const mac = isMacPlatform();
 
+const ZOOM: Partial<Record<Command, () => void>> = { zoomIn, zoomOut, zoomReset };
+
 /**
  * The window's keydown handler (capture phase, so it sees the state before
  * a menu or dialog reacts to the same key).
@@ -125,6 +129,9 @@ export function handleKey(e: KeyboardEvent) {
   if (e.defaultPrevented || e.isComposing) return;
   const hit = bindingFor(e, mac);
   if (!hit) return;
+  // Zoom (#207) works everywhere: over menus and dialogs, in the editor and the terminal.
+  const zoom = ZOOM[hit.binding.command];
+  if (zoom) return done(e, zoom);
   const target = e.target instanceof Element ? e.target : document.activeElement;
   const inXterm = !!target?.closest(".xterm");
   if (inEditorOrTerminal(target) && !(hit.binding.inTerminal && inXterm)) return;

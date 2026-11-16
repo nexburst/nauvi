@@ -107,6 +107,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             window::cmd_discard_and_close,
             window::cmd_open_window,
             window::cmd_set_unsaved,
+            window::cmd_set_zoom,
             workload_usage::cmd_workload_usage_history,
             workloads::cmd_workloads_start,
             workloads::cmd_workloads_stop,

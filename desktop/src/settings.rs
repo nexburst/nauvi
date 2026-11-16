@@ -116,7 +116,16 @@ pub(crate) struct Settings {
     /// Pinned context ids, in order: first in the context selector and the
     /// palette.
     pub(crate) favourites: Vec<String>,
+    /// The page zoom in percent (#207), within `ZOOM_RANGE`.
+    pub(crate) zoom: u32,
+    /// The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`.
+    pub(crate) terminal_font_size: u32,
 }
+
+/// What `zoom` may be, in percent.
+pub(crate) const ZOOM_RANGE: (u32, u32) = (50, 200);
+/// What `terminal_font_size` may be, in pixels.
+pub(crate) const TERMINAL_FONT_RANGE: (u32, u32) = (8, 32);
 
 impl Default for Settings {
     fn default() -> Self {
@@ -133,6 +142,8 @@ impl Default for Settings {
             windows: Vec::new(),
             kubeconfig_sources: Vec::new(),
             favourites: Vec::new(),
+            zoom: 100,
+            terminal_font_size: 12,
         }
     }
 }
@@ -161,6 +172,10 @@ pub(crate) struct SettingsPatch {
     pub(crate) windows: Option<Vec<String>>,
     #[specta(optional)]
     pub(crate) favourites: Option<Vec<String>>,
+    #[specta(optional)]
+    pub(crate) zoom: Option<u32>,
+    #[specta(optional)]
+    pub(crate) terminal_font_size: Option<u32>,
 }
 
 impl Settings {
@@ -188,6 +203,12 @@ impl Settings {
         }
         if let Some(v) = patch.favourites {
             self.favourites = v;
+        }
+        if let Some(v) = patch.zoom {
+            self.zoom = v.clamp(ZOOM_RANGE.0, ZOOM_RANGE.1);
+        }
+        if let Some(v) = patch.terminal_font_size {
+            self.terminal_font_size = v.clamp(TERMINAL_FONT_RANGE.0, TERMINAL_FONT_RANGE.1);
         }
         self.contexts.extend(patch.contexts.unwrap_or_default());
         self.kinds.extend(patch.kinds.unwrap_or_default());
@@ -478,6 +499,24 @@ mod tests {
         assert_eq!(s.kinds["b"].sort_key, "age");
         assert_eq!(s.last_context, "prod");
         assert_eq!(s.theme, Theme::System);
+    }
+
+    #[test]
+    fn zoom_and_terminal_font_are_kept_in_range() {
+        let mut s = Settings::default();
+        assert_eq!((s.zoom, s.terminal_font_size), (100, 12));
+        s.apply(SettingsPatch {
+            zoom: Some(500),
+            terminal_font_size: Some(2),
+            ..Default::default()
+        });
+        assert_eq!((s.zoom, s.terminal_font_size), (200, 8));
+        s.apply(SettingsPatch {
+            zoom: Some(125),
+            terminal_font_size: Some(16),
+            ..Default::default()
+        });
+        assert_eq!((s.zoom, s.terminal_font_size), (125, 16));
     }
 
     #[test]
