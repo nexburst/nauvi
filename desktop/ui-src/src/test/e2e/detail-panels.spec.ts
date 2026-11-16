@@ -123,7 +123,7 @@ test("a deleted pod says so and disables its actions", async ({ page }) => {
   await expect(panel(page).getByRole("status")).toHaveText("This Pod was deleted. Showing its last known state.");
   for (const b of await actions(page).all()) await expect(b).toBeDisabled();
   await expect(card(page, "app").getByRole("button", { name: "Forward port 8080" })).toBeDisabled();
-  await expect(panel(page).getByRole("button", { name: "Open terminal" })).toBeDisabled();
+  await expect(panel(page).getByRole("button", { name: "Shell", exact: true })).toBeDisabled();
   // The last known state stays.
   await expect(card(page, "app")).toBeVisible();
 

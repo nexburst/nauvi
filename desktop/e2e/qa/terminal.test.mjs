@@ -26,7 +26,7 @@ describe("pod terminal", { timeout: 10 * 60_000 }, () => {
     const { app } = s;
     await waitLive(app);
     await app.openDetail("Pods", ns, "shell");
-    await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Open terminal']"))).click();
+    await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Shell']"))).click();
     const term = terminal(app);
     await term.waitForPrompt();
     assert.equal(await term.run("echo qa-$((6*7))"), "qa-42");

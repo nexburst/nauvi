@@ -14,7 +14,6 @@
   import { crdInstancesKind, isCrdDefinitions } from "../crd";
   import { kinds, setView } from "../stores/app.svelte";
   import { closeDetail } from "../stores/detail.svelte";
-  import { openDockTab } from "../stores/dock.svelte";
   import { registerTabs } from "../stores/keyboard.svelte";
   import type { Target } from "../stores/detail.svelte";
   import { LiveDetail } from "../stores/live-detail.svelte";
@@ -39,11 +38,10 @@
     if (live.info) related.seen(live.info);
   });
 
-  /** Workloads get a Logs button: their pods' logs, merged, in a dock tab. */
+  /** Workloads get usage charts of all their pods (and Logs in the header). */
   const isWorkload = $derived(isWorkloadResource(target.resource));
   /** A CRD gets a button to the table of its instances. */
   const instances = $derived(isCrdDefinitions(target.resource) ? crdInstancesKind(kinds.all, target.name) : undefined);
-  const workload = $derived({ kind: target.resource.kind, namespace: target.namespace, name: target.name });
   const tabs = $derived([
     { id: "overview", label: "Overview" },
     { id: "yaml", label: "YAML" },
@@ -65,12 +63,13 @@
 </script>
 
 <aside data-testid="detail-panel">
-  <div class="header">
-    <span class="title"><span class="muted">{target.resource.kind}</span> {title}</span>
-    <button type="button" class="close" aria-label="Close details" onclick={closeDetail}>✕</button>
+  <div class="top">
+    <div class="header">
+      <span class="title"><span class="muted">{target.resource.kind}</span> {title}</span>
+      <button type="button" class="close" aria-label="Close details" onclick={closeDetail}>✕</button>
+    </div>
+    <ActionBar {target} disabled={live.deleted} onEdit={() => (tab = "yaml")} />
   </div>
-
-  <ActionBar {target} disabled={live.deleted} />
   <DetailNotices {live} kind={target.resource.kind} />
 
   <div class="tabs" role="tablist">
@@ -83,14 +82,6 @@
         onclick={() => (tab = t.id)}>{t.label}</button
       >
     {/each}
-    {#if isWorkload}
-      <button
-        type="button"
-        class="btn dock-logs"
-        title="Opens the merged logs of its pods in the dock below"
-        onclick={() => openDockTab({ type: "workloadLogs", workload })}>Logs</button
-      >
-    {/if}
     {#if instances}
       {@const to = instances}
       <button
@@ -155,13 +146,20 @@
   aside > :global(*) {
     flex-shrink: 0;
   }
+  /* The title and the actions stay in view while the panel scrolls. */
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    background: var(--bg-raised);
+    border-bottom: 1px solid var(--border);
+  }
   .header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
+    padding: 10px 16px 2px;
     font-weight: 600;
     font-size: 13px;
     word-break: break-all;
@@ -196,7 +194,6 @@
     color: var(--text);
     border-bottom-color: var(--accent);
   }
-  .tabs .dock-logs,
   .tabs .instances {
     margin: 4px 0 4px auto;
     align-self: center;

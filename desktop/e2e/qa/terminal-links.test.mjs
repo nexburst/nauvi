@@ -87,7 +87,7 @@ describe("terminal links", { timeout: 10 * 60_000 }, () => {
     const { app } = s;
     await waitLive(app);
     await app.openDetail("Pods", ns, "shell");
-    await panelButton(app, "Open terminal");
+    await panelButton(app, "Shell");
     const term = terminal(app);
     await term.waitForPrompt();
     await term.type("clear");

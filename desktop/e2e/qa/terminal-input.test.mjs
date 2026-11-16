@@ -101,7 +101,7 @@ describe("terminal input order", { timeout: 10 * 60_000 }, () => {
   it("a pod exec terminal gets a long command typed in one burst", T, async () => {
     const { app } = s;
     await app.openDetail("Pods", ns, "shell");
-    await panelButton(app, "Open terminal");
+    await panelButton(app, "Shell");
     const term = terminal(app);
     await term.waitForPrompt();
     // The local shell's tab is still open: this one must be the visible one.

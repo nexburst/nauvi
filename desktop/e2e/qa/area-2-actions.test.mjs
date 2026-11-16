@@ -372,12 +372,11 @@ describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
       const bar = await actionBarLabels(app);
       report.push(`${label}: menu ${JSON.stringify(items)} / panel ${JSON.stringify(bar)}`);
       await app.shot(`panel-${label}`);
-      // Every panel action is in the menu; the menu may add the dock entries
-      // (Logs / Shell / Attach), which the panel has as its own buttons.
-      for (const b of bar) assert.ok(items.includes(b), `${label}: the menu has "${b}"`);
-      for (const i of items.filter((i) => !bar.includes(i))) {
-        assert.ok(["Logs", "Shell", "Attach"].includes(i), `${label}: the panel lacks "${i}"`);
-      }
+      // The panel's header and the menu come from the same registry (#218):
+      // the same items, plus the panel's Edit (its YAML editor).
+      for (const b of bar.filter((b) => b !== "Edit")) assert.ok(items.includes(b), `${label}: the menu has "${b}"`);
+      for (const i of items) assert.ok(bar.includes(i), `${label}: the panel lacks "${i}"`);
+      assert.ok(bar.includes("Edit"), `${label}: the panel has Edit`);
     }
     console.log(report.join("\n"));
     await app.driver.actions().sendKeys(Key.ESCAPE).perform();
