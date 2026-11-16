@@ -79,6 +79,23 @@ describe("bindingFor", () => {
     expect(command(press("~", { shiftKey: true }))).toBeNull();
   });
 
+  it("searches the terminal with Ctrl+Shift+F, ⌘F on macOS, and leaves Ctrl+F to the shell (#222)", () => {
+    expect(command(press("F", { ctrlKey: true, shiftKey: true, code: "KeyF" }))).toBe("terminalSearch");
+    expect(command(press("f", { ctrlKey: true, code: "KeyF" }))).toBeNull();
+    expect(command(press("f", { metaKey: true, code: "KeyF" }), true)).toBe("terminalSearch");
+    expect(command(press("f", { ctrlKey: true, code: "KeyF" }), true)).toBeNull();
+    expect(command(press("F", { metaKey: true, shiftKey: true, code: "KeyF" }), true)).toBeNull();
+    expect(command(press("F", { ctrlKey: true, shiftKey: true, altKey: true, code: "KeyF" }))).toBeNull();
+    // Cyrillic: the F key types "а", so by the physical key.
+    expect(command(press("А", { ctrlKey: true, shiftKey: true, code: "KeyF" }))).toBe("terminalSearch");
+    expect(command(press("а", { metaKey: true, code: "KeyF" }), true)).toBe("terminalSearch");
+    // Dvorak: the key at F types "u"; the F is elsewhere and is what counts.
+    expect(command(press("U", { ctrlKey: true, shiftKey: true, code: "KeyF" }))).toBeNull();
+    expect(command(press("F", { ctrlKey: true, shiftKey: true, code: "KeyY" }))).toBe("terminalSearch");
+    expect(shortcutHint("terminalSearch", false)).toBe("Ctrl+Shift+F");
+    expect(shortcutHint("terminalSearch", true)).toBe("⌘F");
+  });
+
   it("takes the Backquote key where the backtick is a dead key", () => {
     // Spanish / Latin American / German: the key has no plain `.
     expect(command(press("Dead", { code: "Backquote", ctrlKey: true }))).toBe("toggleDock");
