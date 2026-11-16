@@ -6,11 +6,12 @@
 //! between cannot run another command. Helm and the local shell run outside
 //! the app and would read the file again; they get [`flatten_context`]
 //! instead, written to a private temp file: the context, its cluster and
-//! its user, with the certificate files inlined.
+//! its user. File references (certificates, token files) stay paths, made
+//! absolute when the file was read: swapping one cannot change what runs,
+//! and the copy holds no credential the added file did not hold inline.
 
 use super::login_command;
-use anyhow::{anyhow, Context as _, Result};
-use base64::Engine as _;
+use anyhow::{anyhow, Result};
 use kube::config::{Kubeconfig, NamedAuthInfo, NamedCluster, NamedContext};
 use std::path::Path;
 
@@ -31,10 +32,10 @@ pub fn context_login_command(kubeconfig: &Kubeconfig, context: &str) -> String {
 
 /// `context` of `kubeconfig` (read from `file`) on its own: that context
 /// as `current-context`, with only its cluster and user, like
-/// `kubectl config view --minify --flatten`. The certificate files are
-/// inlined, and a relative exec command with a `/` is made absolute from
-/// the file's folder, as kubectl resolves it, so the copy runs what the
-/// file does wherever it is written.
+/// `kubectl config view --minify`. A relative exec command with a `/` is
+/// made absolute from the file's folder, as kubectl resolves it, so the
+/// copy runs what the file does wherever it is written. Other file paths
+/// are already absolute ([`Kubeconfig::read_from`] makes them so).
 pub fn flatten_context(kubeconfig: &Kubeconfig, context: &str, file: &Path) -> Result<Kubeconfig> {
     let named = kubeconfig
         .contexts
@@ -45,7 +46,7 @@ pub fn flatten_context(kubeconfig: &Kubeconfig, context: &str, file: &Path) -> R
         .context
         .as_ref()
         .ok_or_else(|| anyhow!("context {context:?} in {} is empty", file.display()))?;
-    let mut clusters: Vec<NamedCluster> = kubeconfig
+    let clusters: Vec<NamedCluster> = kubeconfig
         .clusters
         .iter()
         .filter(|c| c.name == entry.cluster)
@@ -62,19 +63,8 @@ pub fn flatten_context(kubeconfig: &Kubeconfig, context: &str, file: &Path) -> R
             .collect(),
         None => vec![],
     };
-    for cluster in clusters.iter_mut().filter_map(|c| c.cluster.as_mut()) {
-        if let Some(path) = cluster.certificate_authority.take() {
-            cluster.certificate_authority_data = Some(inline(&path)?);
-        }
-    }
     let dir = file.parent().unwrap_or(Path::new(""));
     for user in users.iter_mut().filter_map(|u| u.auth_info.as_mut()) {
-        if let Some(path) = user.client_certificate.take() {
-            user.client_certificate_data = Some(inline(&path)?);
-        }
-        if let Some(path) = user.client_key.take() {
-            user.client_key_data = Some(inline(&path)?.into());
-        }
         if let Some(exec) = user.exec.as_mut() {
             if let Some(command) = exec.command.as_mut() {
                 let path = Path::new(command.as_str());
@@ -96,12 +86,6 @@ pub fn flatten_context(kubeconfig: &Kubeconfig, context: &str, file: &Path) -> R
         current_context: Some(named.name.clone()),
         ..Default::default()
     })
-}
-
-/// The file at `path`, base64-encoded for a `*-data` field.
-fn inline(path: &str) -> Result<String> {
-    let bytes = std::fs::read(path).with_context(|| format!("cannot read {path}"))?;
-    Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
 /// `kubeconfig` as YAML.
@@ -174,8 +158,8 @@ contexts:
     }
 
     #[test]
-    fn only_the_context_its_cluster_and_user_inlined() {
-        let (dir, file) = written("inlined");
+    fn only_the_context_its_cluster_and_user() {
+        let (dir, file) = written("minified");
         let kc = Kubeconfig::read_from(&file).unwrap();
         let flat = flatten_context(&kc, "one", &file).unwrap();
         // It reads back as the same context, on its own.
@@ -188,18 +172,17 @@ contexts:
         assert_eq!(ctx.namespace.as_deref(), Some("orig"));
         let cluster = back.clusters[0].cluster.as_ref().unwrap();
         assert_eq!(cluster.server.as_deref(), Some("https://one.example"));
-        assert_eq!(cluster.certificate_authority, None);
-        assert_eq!(cluster.certificate_authority_data.as_deref(), Some("Q0E="));
+        // File references stay paths (absolute), never their contents.
+        let abs = |p: &str| Some(dir.0.join(p).display().to_string());
+        assert_eq!(cluster.certificate_authority, abs("ca.pem"));
+        assert_eq!(cluster.certificate_authority_data, None);
         let user = back.auth_infos[0].auth_info.as_ref().unwrap();
-        assert_eq!(
-            (user.client_certificate.as_ref(), user.client_key.as_ref()),
-            (None, None)
-        );
-        assert_eq!(user.client_certificate_data.as_deref(), Some("Q1JU"));
-        assert!(user.client_key_data.is_some());
-        assert!(kubeconfig_yaml(&flat)
-            .unwrap()
-            .contains("client-key-data: S0VZ"));
+        assert_eq!(user.client_certificate, abs("certs/crt.pem"));
+        assert_eq!(user.client_key, abs("certs/key.pem"));
+        assert_eq!(user.client_certificate_data, None);
+        assert!(user.client_key_data.is_none());
+        let yaml = kubeconfig_yaml(&flat).unwrap();
+        assert!(!yaml.contains("CRT") && !yaml.contains("KEY"), "{yaml}");
         let exec = user.exec.as_ref().unwrap();
         // kubectl resolves it only with the platform's separator in it.
         let command = if cfg!(windows) {
@@ -216,13 +199,10 @@ contexts:
     }
 
     #[test]
-    fn missing_context_or_file_is_an_error() {
-        let (dir, file) = written("missing");
+    fn a_missing_context_is_an_error() {
+        let (_dir, file) = written("missing");
         let kc = Kubeconfig::read_from(&file).unwrap();
         let err = flatten_context(&kc, "nope", &file).unwrap_err().to_string();
         assert!(err.starts_with("context \"nope\" is not in "), "{err}");
-        std::fs::remove_file(dir.0.join("ca.pem")).unwrap();
-        let err = format!("{:#}", flatten_context(&kc, "one", &file).unwrap_err());
-        assert!(err.starts_with("cannot read "), "{err}");
     }
 }

@@ -231,6 +231,86 @@ impl Drop for TempKubeconfig {
     }
 }
 
+/// Delete the temp kubeconfigs a kubeloupe that is gone left in the system
+/// temp directory (it crashed or was killed before dropping them; they may
+/// hold a context's credentials, #242). Returns how many were deleted.
+pub fn sweep_stale_temp_kubeconfigs() -> usize {
+    sweep_stale_in(&std::env::temp_dir(), process_alive)
+}
+
+/// [`sweep_stale_temp_kubeconfigs`] in `dir`, with `alive` telling whether
+/// a process id still runs. Only `kubeloupe-shell-<pid>-<n>.yaml` files of
+/// another, gone process, that are regular files (a symlink is never
+/// followed or removed) owned by the current user, are deleted.
+pub fn sweep_stale_in(dir: &Path, alive: impl Fn(u32) -> bool) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let Some(pid) = entry.file_name().to_str().and_then(temp_file_pid) else {
+            continue;
+        };
+        if pid == std::process::id() || alive(pid) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if meta.file_type().is_file() && owned_by_me(&meta) && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
+/// The process id in a [`TempKubeconfig`] file name.
+fn temp_file_pid(name: &str) -> Option<u32> {
+    let rest = name
+        .strip_prefix("kubeloupe-shell-")?
+        .strip_suffix(".yaml")?;
+    let (pid, n) = rest.split_once('-')?;
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    if !digits(n) || !digits(pid) {
+        return None;
+    }
+    pid.parse().ok()
+}
+
+#[cfg(unix)]
+fn owned_by_me(meta: &std::fs::Metadata) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    // SAFETY: getuid has no preconditions and cannot fail.
+    meta.uid() == unsafe { libc::getuid() }
+}
+
+/// The temp directory is the user's own on Windows.
+#[cfg(not(unix))]
+fn owned_by_me(_meta: &std::fs::Metadata) -> bool {
+    true
+}
+
+/// Whether process `pid` runs (a process of another user counts).
+#[cfg(unix)]
+fn process_alive(pid: u32) -> bool {
+    let Ok(pid) = libc::pid_t::try_from(pid) else {
+        return true;
+    };
+    if pid <= 0 {
+        return true;
+    }
+    // SAFETY: signal 0 only checks that the process exists.
+    let found = unsafe { libc::kill(pid, 0) } == 0;
+    found || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+}
+
+/// No portable check here: keep every file.
+#[cfg(not(unix))]
+fn process_alive(_pid: u32) -> bool {
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,6 +449,55 @@ contexts:
         assert_eq!(v(None), r"C:\Temp\k.yaml;C:\Users\u\.kube\config");
         assert_eq!(v(Some(r"C:\a;D:\b")), r"C:\Temp\k.yaml;C:\a;D:\b");
         assert_eq!(v(Some(";")), r"C:\Temp\k.yaml;C:\Users\u\.kube\config");
+    }
+
+    #[test]
+    fn sweep_removes_only_files_of_gone_processes() {
+        let dir = std::env::temp_dir().join(format!("kubeloupe-242-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = |name: &str| {
+            let p = dir.join(name);
+            std::fs::write(&p, "token: t").unwrap();
+            p
+        };
+        let gone = file("kubeloupe-shell-4000001-1.yaml");
+        let gone2 = file("kubeloupe-shell-4000001-7.yaml");
+        let running = file("kubeloupe-shell-4000002-1.yaml");
+        let ours = TempKubeconfig::create_in(&dir, "x").unwrap();
+        let others = [
+            file("kubeloupe-shell-4000001.yaml"),
+            file("kubeloupe-shell-4000001-1.yml"),
+            file("kubeloupe-shell-x-1.yaml"),
+            file("other-4000001-1.yaml"),
+        ];
+        // A link named like ours, to a file elsewhere: neither is touched.
+        #[cfg(unix)]
+        let (target, link) = {
+            let target = file("target.yaml");
+            let link = dir.join("kubeloupe-shell-4000001-9.yaml");
+            std::os::unix::fs::symlink(&target, &link).unwrap();
+            (target, link)
+        };
+        let removed = sweep_stale_in(&dir, |pid| pid == 4000002);
+        assert_eq!(removed, 2);
+        assert!(!gone.exists() && !gone2.exists());
+        assert!(running.exists() && ours.path().exists());
+        assert!(others.iter().all(|p| p.exists()));
+        #[cfg(unix)]
+        {
+            assert!(std::fs::symlink_metadata(&link).is_ok());
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), "token: t");
+        }
+        drop(ours);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn this_process_is_alive() {
+        assert!(process_alive(std::process::id()));
+        assert!(process_alive(1), "another user's process counts as running");
     }
 
     #[test]
