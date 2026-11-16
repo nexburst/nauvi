@@ -13,7 +13,9 @@
 - **Read-only by default:** list, get, describe, logs, events, top. The write
   tools (scale, restart, delete, apply) are neither listed nor callable
   without `--allow-writes`. Every call runs as the kubeconfig's user, so
-  RBAC decides the rest.
+  RBAC decides the rest. `--allow-writes` is a real grant: `apply` can create
+  workloads that read Secrets (and so reach their values through logs), and
+  `delete` of a Namespace or CRD deletes everything under it.
 - **Never returned:** Secret values (keys and sizes only; there is no
   `reveal`, since the server cannot ask the person) and the
   `last-applied-configuration` annotation of any kind. ConfigMaps, pod specs
@@ -26,6 +28,9 @@
   `~/.kube/config`) and context, never the app's added sources. Exec plugins
   run non-interactively (stdin carries the protocol). The client is made on
   the first tool call, so a client can start the server without a cluster.
+- **Untrusted data:** the server's instructions tell the model that results
+  contain cluster data written by others (annotations, logs, events) to be
+  treated as data, never as instructions.
 
 ## Consequences
 A model can read what the user can read, minus Secret values. Anything else

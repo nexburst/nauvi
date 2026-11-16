@@ -75,7 +75,9 @@ pub enum Commands {
     /// (read-only unless --allow-writes)
     Mcp {
         /// Also offer the tools that change the cluster: scale, restart,
-        /// delete and apply (RBAC still applies)
+        /// delete and apply (RBAC still applies). `apply` can create
+        /// workloads that read Secrets; `delete` of a Namespace or CRD
+        /// deletes everything under it
         #[arg(long)]
         allow_writes: bool,
     },
