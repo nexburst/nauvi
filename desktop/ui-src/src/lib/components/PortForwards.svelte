@@ -70,10 +70,14 @@
           {@const url = f ? f.url : s ? plannedUrl(s) : ""}
           {@const error = s ? forwards.errors[s.id] : ""}
           <tr data-testid="forward-row" class:stopped={!f}>
-            <td class="mono">
+            <td class="mono target">
               {forwardLabel(target)}
-              {#if s?.https}<span class="tag">https</span>{/if}
-              {#if s?.auto_start}<span class="tag">auto-start</span>{/if}
+              {#if s?.https || s?.auto_start}
+                <div class="tags">
+                  {#if s?.https}<span class="tag">https</span>{/if}
+                  {#if s?.auto_start}<span class="tag">auto-start</span>{/if}
+                </div>
+              {/if}
             </td>
             <td class="mono">{f ? portsLabel(f) : s ? savedPortsLabel(s) : ""}</td>
             <td class="mono">{url || "—"}</td>
@@ -92,7 +96,7 @@
                   >Open</button
                 >
                 <button type="button" class="btn" aria-label="Copy {f.url}" onclick={() => copyForwardUrl(f)}
-                  >Copy URL</button
+                  >Copy</button
                 >
                 <button type="button" class="btn" aria-label="Stop {f.url}" onclick={() => stopForward(f.id)}>Stop</button>
               {:else if s}
@@ -162,9 +166,15 @@
   .ok {
     color: var(--green);
   }
+  .target {
+    max-width: 280px;
+  }
+  .tags {
+    margin-top: 3px;
+  }
   .tag {
     display: inline-block;
-    margin-left: 6px;
+    margin-right: 6px;
     padding: 0 5px;
     border: 1px solid var(--border);
     border-radius: 3px;

@@ -110,6 +110,10 @@ describe("saved port-forwards (#217)", { timeout: 15 * 60_000 }, () => {
     await app.waitFor(async () => (await rowTexts(app)).length === 2, { message: "two saved forwards" });
     console.log(`rows: ${JSON.stringify(await rowTexts(app))}`);
     await app.shot("manager-light");
+    const overflow = await app.js(
+      `const v = document.querySelector('[data-testid="port-forwards"]'); return v.scrollWidth - v.clientWidth;`,
+    );
+    assert.ok(overflow <= 0, `the manager fits at 1280 px without scrolling sideways (overflow ${overflow} px)`);
     await setTheme(app, "dark");
     await app.shot("manager-dark");
     await setTheme(app, "light");
