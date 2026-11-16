@@ -405,7 +405,14 @@ fn kill_tree(child: &mut std::process::Child, interactive: bool) {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let _ = interactive;
-        let _ = std::process::Command::new("taskkill")
+        // By its full path: a `taskkill` earlier on PATH must not run.
+        let root = std::env::var_os("SystemRoot")
+            .filter(|r| !r.is_empty())
+            .unwrap_or_else(|| r"C:\Windows".into());
+        let taskkill = std::path::Path::new(&root)
+            .join("System32")
+            .join("taskkill.exe");
+        let _ = std::process::Command::new(taskkill)
             .args(["/T", "/F", "/PID", &child.id().to_string()])
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
