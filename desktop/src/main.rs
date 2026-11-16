@@ -68,6 +68,8 @@ fn main() {
             sources.set_pasted_dir(config_dir.map(|d| d.join("kubeconfigs")));
             sources.set_extra(&store.get().kubeconfig_sources);
             catalog::watch(app.handle().clone(), sources);
+            // Temp kubeconfigs a crashed run left behind (#242).
+            std::thread::spawn(kubeloupe::sweep_stale_temp_kubeconfigs);
             app.manage(store);
             commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());

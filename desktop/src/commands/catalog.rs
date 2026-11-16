@@ -3,11 +3,11 @@
 //! from `cmd_list_contexts`. The user's kubeconfig files are only read;
 //! the app writes and deletes only the pasted files it saved itself.
 
-use crate::catalog::{announce, ExecCommand, KubeconfigSources};
+use crate::catalog::{announce, ExecCommand, GateError, KubeconfigSources};
 use crate::settings::SettingsStore;
 use crate::state::AppState;
 use kubeloupe::catalog::{
-    check_context, check_source, expand_home, save_pasted_kubeconfig, ContextCheck, ContextState,
+    check_source, check_with, expand_home, save_pasted_kubeconfig, ContextCheck, ContextState,
     SourceInfo,
 };
 use std::path::{Path, PathBuf};
@@ -125,26 +125,21 @@ pub(crate) async fn cmd_check_context(
     state: State<'_, AppState>,
     name: String,
 ) -> Result<ContextCheck, String> {
-    let target = match state.sources.resolve(Some(&name)) {
-        Ok(t) => t,
-        Err(message) => {
-            return Ok(ContextCheck {
-                name,
-                state: ContextState::Invalid,
-                message,
-                version: String::new(),
-            })
+    // The client is built from the file as it was read for the gate (#242).
+    let (state, message) = match state.sources.approved(Some(&name)) {
+        Ok(approved) => {
+            let id = approved.target.id.clone();
+            return Ok(check_with(&id, approved.client()).await);
         }
+        Err(GateError::Invalid(message)) => (ContextState::Invalid, message),
+        Err(GateError::NotAllowed(message)) => (ContextState::NotAllowed, message),
     };
-    if let Err(message) = state.sources.may_log_in(&name) {
-        return Ok(ContextCheck {
-            name,
-            state: ContextState::NotAllowed,
-            message,
-            version: String::new(),
-        });
-    }
-    Ok(check_context(&target).await)
+    Ok(ContextCheck {
+        name,
+        state,
+        message,
+        version: String::new(),
+    })
 }
 
 /// The login commands (exec plugins) of the added source `source`, with the
