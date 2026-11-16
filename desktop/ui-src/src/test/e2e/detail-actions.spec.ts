@@ -22,13 +22,14 @@ test("the pod header has Logs, Shell, Attach, Edit and Delete, and no Logs and s
     "Attach",
     "Debug…",
     "Edit",
+    "Copy link",
     "Evict",
     "Delete",
     "Force delete…",
   ]);
   await expect(panel(page).getByText("Logs and shell")).toHaveCount(0);
   // Every item has an icon.
-  await expect(bar(page).locator("button svg")).toHaveCount(9);
+  await expect(bar(page).locator("button svg")).toHaveCount(10);
   // One access check for all of them.
   await expect.poll(() => fake.calls("cmdCheckActions")).toHaveLength(1);
   expect((await fake.lastCall("cmdCheckActions")).ids).toEqual([
@@ -54,14 +55,14 @@ test("a deployment has Logs, Scale and Restart; a node Shell, Cordon and Drain",
   await openApp(page);
   await openKind(page, "Deployments");
   await row(page, "web").click();
-  await expect(bar(page).getByRole("button")).toHaveText(["Logs", "Scale…", "Rollout restart", "Port forward…", "Edit", "Delete"]);
+  await expect(bar(page).getByRole("button")).toHaveText(["Logs", "Scale…", "Rollout restart", "Port forward…", "Edit", "Copy link", "Delete"]);
   await button(page, "Scale…").click();
   await expect(dialog(page)).toHaveAccessibleName("Scale Deployment");
   await dialog(page).getByRole("button", { name: "Cancel" }).click();
 
   await openKind(page, "Nodes");
   await row(page, "node-1").click();
-  await expect(bar(page).getByRole("button")).toHaveText(["Shell", "Cordon", "Uncordon", "Edit", "Drain…", "Delete"]);
+  await expect(bar(page).getByRole("button")).toHaveText(["Shell", "Cordon", "Uncordon", "Edit", "Copy link", "Drain…", "Delete"]);
 });
 
 test("Edit opens the YAML tab of a generic panel", async ({ page }) => {
@@ -157,6 +158,6 @@ test("a failed access check offers every action", async ({ page }) => {
   await openApp(page, (_cluster, fake) => fake.failNext("cmdCheckActions", "the API server is down"));
   await openKind(page, "Pods");
   await row(page, "web-1").click();
-  await expect(bar(page).getByRole("button")).toHaveCount(9);
+  await expect(bar(page).getByRole("button")).toHaveCount(10);
   for (const b of await bar(page).getByRole("button").all()) await expect(b).not.toHaveAttribute("aria-disabled");
 });

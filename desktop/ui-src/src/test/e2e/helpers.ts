@@ -1,6 +1,6 @@
 import { expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import type { DetailState, Overview_Serialize, ResourceRow, WatchBatch, WatchState } from "../../lib/bindings";
+import type { DetailState, LinkRequest, Overview_Serialize, ResourceRow, WatchBatch, WatchState } from "../../lib/bindings";
 import type { CallArgs, CommandName, FakeApi } from "../fake-backend";
 import type { FakeCluster } from "../fixtures/cluster";
 
@@ -112,6 +112,11 @@ export class Fake {
 
   emitTaggedLines(lines: { pod: string; container: string; line: string }[], streamId?: number): Promise<void> {
     return this.page.evaluate(([l, id]) => window.__fake.emitTaggedLines(l, id), [lines, streamId] as const);
+  }
+
+  /** A kubeloupe:// link request reaches the window (#299), as from a second launch. */
+  openLink(request: LinkRequest): Promise<void> {
+    return this.page.evaluate((r) => window.__fake.openLink(r), request);
   }
 
   /** Change the fake cluster in the page. */

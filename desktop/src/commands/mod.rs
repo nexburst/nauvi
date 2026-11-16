@@ -16,6 +16,7 @@ pub(crate) mod files;
 pub(crate) mod helm;
 pub(crate) mod helm_charts;
 pub(crate) mod help;
+pub(crate) mod links;
 pub(crate) mod local_shell;
 pub(crate) mod logs;
 pub(crate) mod metrics_addons;
@@ -87,6 +88,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             help::cmd_diagnostics,
             help::cmd_help_open,
             help::cmd_log_ui_error,
+            links::cmd_object_link,
+            links::cmd_take_link,
             local_shell::cmd_local_shell_close,
             local_shell::cmd_local_shell_input,
             local_shell::cmd_local_shell_resize,
@@ -146,6 +149,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             crate::catalog::KubeconfigsChanged,
             exec::ExecClosed,
             exec::ExecOutput,
+            links::LinkPending,
             logs::PodLog,
             logs::PodLogDone,
             logs::PodLogError,

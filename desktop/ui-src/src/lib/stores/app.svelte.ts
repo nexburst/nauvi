@@ -19,6 +19,7 @@ import { clearProblems } from "./problems.svelte";
 import { whenDiscarded } from "./unsaved.svelte";
 import { history } from "./history.svelte";
 import { filterKeeps } from "./tableFilter.svelte";
+import { startupLinkContext } from "./links.svelte";
 
 /** `"overview"`, or the id of a discovered kind (`apps/v1/deployments`). */
 export type View = string;
@@ -323,8 +324,10 @@ export async function startApp() {
   const docked = settings.current.dock_height;
   if (docked > 0) dock.height = clampHeight(docked, window.innerHeight - 160);
   await loadContexts();
-  // A window opened for a context is already connected to it.
-  const remembered = isMainWindow() ? contextToRestore(settings.current.last_context, app.contexts) : null;
+  // A window opened for a context is already connected to it. The main
+  // window started from a kubeloupe:// link (#299) starts on its context.
+  const linked = isMainWindow() ? await startupLinkContext() : null;
+  const remembered = isMainWindow() ? (linked ?? contextToRestore(settings.current.last_context, app.contexts)) : null;
   if (remembered) {
     try {
       await commands.cmdSetContext(remembered);

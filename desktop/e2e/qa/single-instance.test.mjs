@@ -11,113 +11,25 @@
 // session or another agent's run (CI has no session bus at all).
 
 import assert from "node:assert/strict";
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { after, describe, it } from "node:test";
-import { ARTIFACTS, CONTEXT, REPO } from "../lib/app.mjs";
+import { ARTIFACTS, CONTEXT } from "../lib/app.mjs";
 import { appPid } from "../lib/dock.mjs";
 import { createProfile } from "../lib/profile.mjs";
 import { appSession, unreachableKubeconfig, waitLive } from "../lib/qa.mjs";
+import { appPids, cannotLaunchTwice, launchDirect, startBus } from "../lib/second-launch.mjs";
 import { x11Titles, x11Windows } from "../lib/window.mjs";
 
 const T = { timeout: 180_000 };
 const NAME = "single-instance";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function cannotRun() {
-  if (process.platform !== "linux") return "the D-Bus check is Linux-only (Windows and macOS: by hand)";
-  if (!process.env.DISPLAY) return "no $DISPLAY";
-  for (const tool of ["dbus-daemon", "xwininfo", "xprop"]) {
-    try {
-      execFileSync("sh", ["-c", `command -v ${tool}`], { stdio: "ignore" });
-    } catch {
-      return `no ${tool}`;
-    }
-  }
-  return false;
-}
-
-function appBinary() {
-  if (process.env.KUBELOUPE_APP) return resolve(process.env.KUBELOUPE_APP);
-  const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : join(REPO, "target");
-  return join(target, "debug", "kubeloupe-desktop");
-}
-
-/**
- * A private session bus with no activatable services (no portals or
- * accessibility bus get started on it); resolves to { address, stop }.
- */
-function startBus() {
-  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-bus-"));
-  const config = join(dir, "session.conf");
-  writeFileSync(
-    config,
-    `<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig>
-  <type>session</type>
-  <listen>unix:dir=${dir}</listen>
-  <auth>EXTERNAL</auth>
-  <policy context="default">
-    <allow send_destination="*" eavesdrop="true"/>
-    <allow eavesdrop="true"/>
-    <allow own="*"/>
-  </policy>
-</busconfig>
-`,
-  );
-  const proc = spawn("dbus-daemon", [`--config-file=${config}`, "--nofork", "--nopidfile", "--print-address=1"], {
-    stdio: ["ignore", "pipe", "ignore"],
-  });
-  const stop = () => {
-    proc.kill("SIGKILL");
-    rmSync(dir, { recursive: true, force: true });
-  };
-  return new Promise((ok, fail) => {
-    let out = "";
-    proc.once("error", fail);
-    proc.stdout.on("data", (d) => {
-      out += d;
-      if (out.includes("\n")) ok({ address: out.split("\n")[0].trim(), stop });
-    });
-    setTimeout(() => fail(new Error("dbus-daemon printed no address")), 10_000);
-  });
-}
-
-/** PIDs of kubeloupe-desktop processes whose HOME is `home`. */
-function appPids(home) {
-  const out = execFileSync("sh", ["-c", "pgrep -f kubeloupe-desktop || true"], { encoding: "utf8" });
-  return out
-    .split("\n")
-    .filter(Boolean)
-    .map(Number)
-    .filter((pid) => {
-      try {
-        const comm = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
-        return comm.startsWith("kubeloupe-desk") && readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").includes(`HOME=${home}`);
-      } catch {
-        return false;
-      }
-    });
-}
-
-/** Run the app binary directly, like a second click on its icon. */
-function launchDirect(env) {
-  const proc = spawn(appBinary(), [], { env, stdio: ["ignore", "pipe", "pipe"] });
-  let output = "";
-  proc.stdout.on("data", (d) => (output += d));
-  proc.stderr.on("data", (d) => (output += d));
-  const exited = new Promise((ok) => proc.once("exit", (code, signal) => ok({ code, signal })));
-  return { proc, exited, output: () => output };
-}
-
 function timeout(ms) {
   return sleep(ms).then(() => "still running");
 }
 
-describe("#202: single instance", { timeout: 10 * 60_000, skip: cannotRun() }, () => {
+describe("#202: single instance", { timeout: 10 * 60_000, skip: cannotLaunchTwice() }, () => {
   let bus;
   const kubeconfigs = [];
   const others = [];

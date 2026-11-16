@@ -142,7 +142,7 @@ export function sameResource(a: ResourceRef, b: ResourceRef): boolean {
 
 /** What a detail panel action is checked and drawn as: an ActionId, or
  *  one of the panel's own entries. */
-export type PanelActionId = ActionId | "logs" | "shell" | "edit";
+export type PanelActionId = ActionId | "logs" | "shell" | "edit" | "link";
 
 /** One icon in the detail panel's action header (#218). */
 export type PanelAction<Spec> = {
@@ -152,12 +152,13 @@ export type PanelAction<Spec> = {
   /** The tooltip: the label without its "…". */
   tip: string;
   danger: boolean;
-} & ({ run: "dock"; spec: Spec } | { run: "edit" } | { run: "action"; action: ActionDef });
+} & ({ run: "dock"; spec: Spec } | { run: "edit" } | { run: "link" } | { run: "action"; action: ActionDef });
 
 /**
  * The detail panel's actions: the row menu's dock entries (Logs, Shell) and
- * registry actions, plus Edit (the YAML editor). Opening things comes
- * first, then the other actions, Edit, and the destructive ones last.
+ * registry actions, plus Edit (the YAML editor) and Copy link (#299).
+ * Opening things comes first, then the other actions, Edit, Copy link, and
+ * the destructive ones last.
  */
 export function panelActions<Spec>(dock: { label: string; spec: Spec }[], actions: ActionDef[]): PanelAction<Spec>[] {
   const fromRegistry = (a: ActionDef): PanelAction<Spec> => ({
@@ -181,6 +182,7 @@ export function panelActions<Spec>(dock: { label: string; spec: Spec }[], action
     ),
     ...actions.filter((a) => !a.destructive).map(fromRegistry),
     { id: "edit", label: "Edit", tip: "Edit YAML", danger: false, run: "edit" },
+    { id: "link", label: "Copy link", tip: "Copy link", danger: false, run: "link" },
     ...actions.filter((a) => a.destructive).map(fromRegistry),
   ];
 }

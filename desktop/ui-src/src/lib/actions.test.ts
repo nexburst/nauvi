@@ -125,7 +125,7 @@ describe("sameResource", () => {
 });
 
 describe("panelActions", () => {
-  it("puts the dock entries first, Edit before the destructive ones", () => {
+  it("puts the dock entries first, Edit and Copy link before the destructive ones", () => {
     const dock = [
       { label: "Logs", spec: "l" },
       { label: "Shell", spec: "s" },
@@ -135,8 +135,16 @@ describe("panelActions", () => {
       action("delete", { label: "Delete", destructive: true }),
       action("attach", { label: "Attach" }),
     ]);
-    expect(list.map((a) => a.id)).toEqual(["logs", "shell", "portForward", "attach", "edit", "delete"]);
-    expect(list.map((a) => a.tip)).toEqual(["Logs", "Shell", "Port forward", "Attach", "Edit YAML", "Delete"]);
+    expect(list.map((a) => a.id)).toEqual(["logs", "shell", "portForward", "attach", "edit", "link", "delete"]);
+    expect(list.map((a) => a.tip)).toEqual([
+      "Logs",
+      "Shell",
+      "Port forward",
+      "Attach",
+      "Edit YAML",
+      "Copy link",
+      "Delete",
+    ]);
     expect(list.find((a) => a.id === "delete")?.danger).toBe(true);
     expect(list[1]).toMatchObject({ run: "dock", spec: "s" });
   });
@@ -146,6 +154,6 @@ describe("panelActions", () => {
       [],
       [action("nodeShell", { label: "Shell" }), action("drain", { label: "Drain…", destructive: true })],
     );
-    expect(list.map((a) => a.label)).toEqual(["Shell", "Edit", "Drain…"]);
+    expect(list.map((a) => a.label)).toEqual(["Shell", "Edit", "Copy link", "Drain…"]);
   });
 });
