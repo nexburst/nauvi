@@ -9,6 +9,7 @@
   import GenericDetail from "./lib/components/GenericDetail.svelte";
   import Dock from "./lib/components/Dock.svelte";
   import PanelResizer from "./lib/components/PanelResizer.svelte";
+  import Boundary from "./lib/components/Boundary.svelte";
   import { dock } from "./lib/stores/dock.svelte";
   import { isPod } from "./lib/columns";
   import { app, checkAccess, currentKind, loadKinds, startApp } from "./lib/stores/app.svelte";
@@ -62,15 +63,18 @@
         <b.component {...b.props()} />
       {/if}
     {/each}
-    {#if !app.ready}
-      <!-- Restoring the remembered context and namespaces. -->
-    {:else if view}
-      <view.component />
-    {:else if kind}
-      {#key kind.id}
-        <TableView {kind} />
-      {/key}
-    {/if}
+    <!-- A render error shows here and goes to the app log (#208). -->
+    <Boundary area="view">
+      {#if !app.ready}
+        <!-- Restoring the remembered context and namespaces. -->
+      {:else if view}
+        <view.component />
+      {:else if kind}
+        {#key kind.id}
+          <TableView {kind} />
+        {/key}
+      {/if}
+    </Boundary>
   </section>
   {#if detail.target && kind && detail.target.resource.kind === kind.resource.kind &&
     detail.target.resource.group === kind.resource.group}

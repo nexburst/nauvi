@@ -201,6 +201,18 @@ export const commands = {
 	cmdHelmSearch: (query: string, allVersions: boolean, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_search", { query, allVersions }, options),
 	/**  `helm upgrade` (or its dry run) of a release in the window's cluster. */
 	cmdHelmUpgrade: (request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_upgrade", { request }, options),
+	/**
+	 *  The version, commit, OS and webview, and the text "Copy diagnostics"
+	 *  copies.
+	 */
+	cmdDiagnostics: (options?: InvokeOptions) => __TAURI_INVOKE<Diagnostics>("cmd_diagnostics", undefined, options),
+	/**  Open the documentation, a prefilled bug report or the log folder. */
+	cmdHelpOpen: (item: HelpItem, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_help_open", { item }, options),
+	/**
+	 *  Write an error the UI caught to the app log. `source`: where it was
+	 *  caught (`boundary`, `error`, `rejection`).
+	 */
+	cmdLogUiError: (source: string, message: string, stack: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_log_ui_error", { source, message, stack }, options),
 	/**  Kill the shell and delete its temp kubeconfig. */
 	cmdLocalShellClose: (session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_close", { session }, options),
 	cmdLocalShellInput: (session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_input", { session, data }, options),
@@ -788,6 +800,21 @@ export type DetailWatchEvent = {
 	id: string,
 } & DetailState;
 
+/**  The facts in About and in the copied diagnostics. */
+export type Diagnostics = {
+	version: string,
+	commit: string,
+	/**  The OS and its version, e.g. "Ubuntu 24.04.1 LTS, Linux 6.8.0". */
+	os: string,
+	arch: string,
+	/**  The webview engine and its version. */
+	webview: string,
+	/**  Whether this is a debug build (`cargo tauri dev`). */
+	debug_build: boolean,
+	/**  All of the above as text, for the clipboard and a bug report. */
+	text: string,
+};
+
 /**  Progress of a drain. */
 export type DrainEvent = { type: "cordoned"; node: string } | 
 /**  What the drain is going to do. */
@@ -1127,6 +1154,15 @@ export type HelmRevisionKey = {
  *  where kubeloupe does not look.)
  */
 export type HelmStorage = "secret" | "configmap";
+
+/**  An item of the Help menu. */
+export type HelpItem = 
+/**  The README, in the browser. */
+"documentation" | 
+/**  A new GitHub issue with the diagnostics filled in. */
+"report_bug" | 
+/**  The folder with the app log, in the file manager. */
+"log_folder";
 
 /**  The counts of one workload kind. */
 export type KindCounts = {
