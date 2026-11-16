@@ -6,6 +6,7 @@ use kubeloupe::actions::describe_error;
 use kubeloupe::helm::{
     self, HelmChartInfo, HelmRelease, HelmReleaseList, HelmRevisionKey, HelmStorage, HelmTarget,
 };
+use kubeloupe::TempKubeconfig;
 
 /// The releases in `namespaces` (empty = all), from labels only. Namespaces
 /// whose Secrets may not be listed come back as `warnings`.
@@ -58,16 +59,43 @@ pub(crate) async fn cmd_helm_version() -> Result<String, String> {
     helm::helm_version().await.map_err(|e| format!("{e:#}"))
 }
 
-/// Helm talks to the app's context, from the kubeconfig file it came from
-/// (#78). Without a selection, name the kubeconfig's current context
-/// explicitly, so helm cannot drift to another one if the file changes
-/// meanwhile.
-pub(crate) fn target(state: &ClusterSession) -> Result<HelmTarget, String> {
-    let target = state.target()?;
-    Ok(HelmTarget {
-        kubeconfig: target.kubeconfig,
-        context: Some(target.context),
+/// Helm talks to the app's context (#78). Without a selection, name the
+/// kubeconfig's current context explicitly, so helm cannot drift to another
+/// one if the file changes meanwhile. An added kubeconfig's context goes to
+/// helm as a private temp copy of the context as it was read when its login
+/// command was checked, never the added file (#242): an edit to that file
+/// cannot make helm run another command.
+pub(crate) fn target(state: &ClusterSession) -> Result<HelmRun, String> {
+    let approved = state.target()?;
+    let temp = match approved.flat()? {
+        Some(flat) => Some(
+            kubeloupe::catalog::kubeconfig_yaml(&flat)
+                .and_then(|yaml| TempKubeconfig::create(&yaml))
+                .map_err(|e| format!("{e:#}"))?,
+        ),
+        None => None,
+    };
+    Ok(HelmRun {
+        target: HelmTarget {
+            kubeconfig: temp.as_ref().map(|t| t.path().to_path_buf()),
+            context: Some(approved.target.context),
+        },
+        _temp: temp,
     })
+}
+
+/// A [`HelmTarget`] and the temp kubeconfig it names, deleted when this is
+/// dropped (after the helm command it was made for).
+pub(crate) struct HelmRun {
+    pub(crate) target: HelmTarget,
+    _temp: Option<TempKubeconfig>,
+}
+
+impl std::ops::Deref for HelmRun {
+    type Target = HelmTarget;
+    fn deref(&self) -> &HelmTarget {
+        &self.target
+    }
 }
 
 /// `helm rollback <name> <revision>` of a release kept in `storage`
@@ -81,7 +109,7 @@ pub(crate) async fn cmd_helm_rollback(
     revision: u32,
     storage: HelmStorage,
 ) -> Result<String, String> {
-    helm::helm_rollback(&target(&cluster)?, &namespace, &name, revision, storage)
+    helm::helm_rollback(&*target(&cluster)?, &namespace, &name, revision, storage)
         .await
         .map_err(|e| format!("{e:#}"))
 }
@@ -96,7 +124,7 @@ pub(crate) async fn cmd_helm_uninstall(
     name: String,
     storage: HelmStorage,
 ) -> Result<String, String> {
-    helm::helm_uninstall(&target(&cluster)?, &namespace, &name, storage)
+    helm::helm_uninstall(&*target(&cluster)?, &namespace, &name, storage)
         .await
         .map_err(|e| format!("{e:#}"))
 }

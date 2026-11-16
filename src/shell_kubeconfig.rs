@@ -99,6 +99,32 @@ pub fn shell_kubeconfig(
     })
 }
 
+/// The temp kubeconfig for a shell at an added kubeconfig's context (#242):
+/// `flat` (from [`crate::catalog::flatten_context`]) whole, its context set
+/// to `namespace` (`None`: the context's own, or `default`). The shell gets
+/// only this file in `KUBECONFIG`, never the added file, so an edit to that
+/// file cannot make kubectl run a login command the user did not allow.
+pub fn flat_shell_kubeconfig(
+    flat: &Kubeconfig,
+    namespace: Option<&str>,
+) -> Result<ShellKubeconfig> {
+    let picked = shell_kubeconfig(flat, None, namespace)?;
+    let mut flat = flat.clone();
+    for named in flat
+        .contexts
+        .iter_mut()
+        .filter(|c| c.name == picked.context)
+    {
+        if let Some(ctx) = named.context.as_mut() {
+            ctx.namespace = Some(picked.namespace.clone());
+        }
+    }
+    Ok(ShellKubeconfig {
+        yaml: serde_yaml::to_string(&flat)?,
+        ..picked
+    })
+}
+
 /// The `KUBECONFIG` value for the shell: `temp`, then the user's
 /// `KUBECONFIG` (`existing`) if it names any file, otherwise
 /// `default_path` (`~/.kube/config`). `windows` picks `;` as the separator.
@@ -298,6 +324,25 @@ contexts:
         assert_eq!(merged.clusters.len(), 2);
         assert_eq!(merged.auth_infos.len(), 2);
         assert_eq!(merged.contexts.len(), 2);
+    }
+
+    #[test]
+    fn flat_file_holds_everything_with_the_namespace() {
+        let flat =
+            crate::catalog::flatten_context(&real(), "one", Path::new("/k/team.yaml")).unwrap();
+        let out = flat_shell_kubeconfig(&flat, Some("team-a")).unwrap();
+        assert_eq!(
+            (out.context.as_str(), out.namespace.as_str()),
+            ("one", "team-a")
+        );
+        let back = Kubeconfig::from_yaml(&out.yaml).unwrap();
+        assert_eq!(back.current_context.as_deref(), Some("one"));
+        let ctx = back.contexts[0].context.as_ref().unwrap();
+        assert_eq!(ctx.namespace.as_deref(), Some("team-a"));
+        assert_eq!(back.auth_infos[0].name, "u1");
+        assert!(out.yaml.contains("secret-one") && !out.yaml.contains("secret-two"));
+        let out = flat_shell_kubeconfig(&flat, None).unwrap();
+        assert_eq!(out.namespace, "orig");
     }
 
     #[test]
