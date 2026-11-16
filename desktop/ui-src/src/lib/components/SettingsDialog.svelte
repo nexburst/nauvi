@@ -7,20 +7,22 @@
   import { currentContextName } from "../stores/app.svelte";
   import { closeSettings } from "../stores/keyboard.svelte";
   import { contextLabel, openClusterSettings } from "../stores/catalog.svelte";
-  import { applyAppearance, contextSettings, settings, updateContext, updateSettings } from "../stores/settings.svelte";
+  import {
+    applyAppearance,
+    contextSettings,
+    settings,
+    updateContext,
+    updateSettings,
+    zoomIn,
+    zoomOut,
+    zoomReset,
+  } from "../stores/settings.svelte";
   import HelmRepos from "./helm/HelmRepos.svelte";
   import { loadCharts } from "../stores/helmCharts.svelte";
   import { checkForUpdates, updates } from "../stores/updates.svelte";
   import { checkSummary } from "../updates";
   import { isMacPlatform, shortcutHint } from "../keys";
-  import { zoomIn, zoomOut, zoomReset } from "../stores/settings.svelte";
-  import {
-    clampTerminalFont,
-    DEFAULT_ZOOM,
-    MAX_TERMINAL_FONT,
-    MIN_TERMINAL_FONT,
-    ZOOM_STEPS,
-  } from "../zoom";
+  import { clampTerminalFont, DEFAULT_ZOOM, MAX_TERMINAL_FONT, MIN_TERMINAL_FONT, ZOOM_STEPS } from "../zoom";
 
   const mac = isMacPlatform();
   const zoomHint = `${shortcutHint("zoomIn", mac)}, ${shortcutHint("zoomOut", mac)} and ${shortcutHint("zoomReset", mac)} zoom this window; other windows take the zoom when they open`;
