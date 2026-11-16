@@ -23,10 +23,36 @@ pub(crate) async fn cmd_save_csv(
     let Some(path) = ask_save_path(&window, &name).await? else {
         return Ok(None);
     };
+    // The dialog asked about replacing the name the user typed, not the one
+    // with `.csv` added: never replace that one silently.
+    let added = path.extension().is_none();
     let path = with_extension(path, "csv");
-    std::fs::write(&path, content)
-        .map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+    write_file(&path, content.as_bytes(), added)?;
     Ok(Some(path.display().to_string()))
+}
+
+/// Write `content` to `path`; with `create_new`, refuse an existing file.
+fn write_file(path: &std::path::Path, content: &[u8], create_new: bool) -> Result<(), String> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true);
+    if create_new {
+        options.create_new(true);
+    } else {
+        options.create(true).truncate(true);
+    }
+    let mut file = options.open(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::AlreadyExists {
+            format!(
+                "{} already exists. Choose another name, or type the name with .csv to replace it.",
+                path.display()
+            )
+        } else {
+            format!("Could not write {}: {e}", path.display())
+        }
+    })?;
+    file.write_all(content)
+        .map_err(|e| format!("Could not write {}: {e}", path.display()))
 }
 
 async fn ask_save_path(
@@ -124,6 +150,21 @@ mod tests {
         assert_eq!(safe_filename("", "csv"), "export.csv");
         assert_eq!(safe_filename("...", "csv"), "export.csv");
         assert_eq!(safe_filename("pods", "csv"), "pods.csv");
+    }
+
+    #[test]
+    fn write_file_never_replaces_a_file_when_asked_for_a_new_one() {
+        let dir = std::env::temp_dir().join(format!("kubeloupe-221-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("report.csv");
+        write_file(&path, b"old", true).unwrap();
+        let err = write_file(&path, b"new", true).unwrap_err();
+        assert!(err.contains("already exists"), "{err}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"old");
+        // Chosen in the dialog with its extension: replaced (the dialog asked).
+        write_file(&path, b"new", false).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

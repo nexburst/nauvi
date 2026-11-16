@@ -4,12 +4,13 @@
 import type { Column, Ctx, Row } from "./columns";
 
 /**
- * Characters that make a spreadsheet read a cell as a formula (or, for tab
- * and CR, that some of them strip before doing so). Cluster data such as
+ * Cells a spreadsheet may read as a formula: `=`, `+`, `-` or `@` first, also
+ * after leading whitespace (which some spreadsheets trim), and a leading tab
+ * or CR (which some strip). Cluster data such as
  * names, labels and annotations is set by whoever can write to the cluster,
  * so a cell like `=HYPERLINK(...)` must stay text (OWASP "CSV injection").
  */
-const FORMULA_START = /^[=+\-@\t\r]/;
+const FORMULA_START = /^\s*[=+\-@]|^[\t\r]/;
 
 /** One field: formula starts get a leading `'`; quoted when RFC 4180 needs it. */
 export function csvField(value: string): string {

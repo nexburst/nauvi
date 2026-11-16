@@ -27,9 +27,15 @@ describe("csvField (#221)", () => {
     expect(csvField("\r=1")).toBe('"\'\r=1"');
     // Prefixed and then quoted: the quote does not hide the formula.
     expect(csvField('=HYPERLINK("http://x","y")')).toBe('"\'=HYPERLINK(""http://x"",""y"")"');
-    // Only the first character counts.
+    // Also after leading whitespace, which some spreadsheets trim.
+    expect(csvField(" =1")).toBe("' =1");
+    expect(csvField("  +1")).toBe("'  +1");
+    expect(csvField(' =HYPERLINK("http://x","y")')).toBe('"\' =HYPERLINK(""http://x"",""y"")"');
+    expect(csvField("\n=cmd")).toBe("\"'\n=cmd\"");
+    expect(csvField("\t")).toBe("'\t");
+    // Not when the formula character comes after text.
     expect(csvField("a=1")).toBe("a=1");
-    expect(csvField(" =1")).toBe(" =1");
+    expect(csvField(" a=1")).toBe(" a=1");
   });
 });
 
