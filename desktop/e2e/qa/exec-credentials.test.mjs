@@ -231,7 +231,10 @@ describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () 
     // The catalog asks about the new command instead of running it.
     await click(app, 'button[aria-label="Cluster catalog"]');
     await app.find(By.css('[data-testid="catalog"]'));
-    await click(app, `${row(ID)} button[aria-label=${JSON.stringify(`Check ${ID}`)}]`);
+    // Connected: Check is in the row's More menu.
+    await click(app, `${row(ID)} button[aria-label=${JSON.stringify(`More actions for ${ID}`)}]`);
+    await app.find(By.css('[role="menu"]'));
+    assert.ok(await clickText(app, '[role="menu"]', "Check connection"));
     await app.find(By.css(PROMPT));
     const shown = await app.js(`return document.querySelector('[data-testid="exec-command"]').textContent`);
     assert.equal(shown, SWAPPED_COMMAND, "the swapped command is asked about");
