@@ -25,7 +25,7 @@
   const AGE_TICK_MS = 15_000;
   const ROW_HEIGHT = 32;
   const template =
-    "minmax(140px, 2fr) minmax(100px, 1fr) 110px minmax(130px, 1.4fr) minmax(100px, 1fr) 90px 110px 64px";
+    "minmax(140px, 1.6fr) minmax(100px, 1fr) 110px minmax(130px, 1.2fr) minmax(100px, 1fr) 80px 124px 64px";
   const HEADERS: { label: string; sort?: AppSortKey }[] = [
     { label: "Name", sort: "name" },
     { label: "Namespace", sort: "namespace" },

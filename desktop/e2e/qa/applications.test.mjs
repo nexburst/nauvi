@@ -154,6 +154,16 @@ describe("applications", { timeout: 15 * 60_000 }, () => {
     });
   });
 
+  it("a Helm application opens its release", { ...T, skip: helm ? false : "helm is not on PATH" }, async () => {
+    const { app } = s;
+    await openApplications(app);
+    await (await app.find(By.css(`[data-testid="application-row"][data-key="${ns}/qa-rel"]`))).click();
+    const panel = await app.find(byTestId("application-detail"));
+    await (await panel.findElement(By.xpath(".//button[normalize-space()='Open Helm release']"))).click();
+    const detail = await app.find(byTestId("helm-detail"));
+    await app.waitFor(async () => (await detail.getText()).includes(`${ns}/qa-rel`), { message: "the release's detail" });
+  });
+
   it("live: without the broken workload the application is Healthy", T, async () => {
     const { app } = s;
     await openApplications(app);
