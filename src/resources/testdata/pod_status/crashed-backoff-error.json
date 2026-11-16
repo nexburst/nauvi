@@ -1,0 +1,95 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "crashed",
+    "namespace": "demo",
+    "creationTimestamp": "2026-11-13T18:05:18Z"
+  },
+  "spec": {
+    "restartPolicy": "Always",
+    "containers": [
+      {
+        "name": "app",
+        "image": "busybox:1.36"
+      }
+    ]
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T05:55:44Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodReadyToStartContainers"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-13T18:05:18Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "Initialized"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:51:28Z",
+        "message": "containers with unready status: [app]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotReady",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:51:28Z",
+        "message": "containers with unready status: [app]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotReady",
+        "status": "False",
+        "type": "ContainersReady"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-13T18:05:18Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodScheduled"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "image": "docker.io/library/busybox:1.36",
+        "lastState": {
+          "terminated": {
+            "containerID": "containerd://a51807b62796714f326b5ebccdddeb444745d4a0cf010639e8c0ee59400d3ffa",
+            "exitCode": 1,
+            "finishedAt": "2026-11-16T10:46:22Z",
+            "reason": "Error",
+            "startedAt": "2026-11-16T10:46:19Z"
+          }
+        },
+        "name": "app",
+        "ready": false,
+        "restartCount": 740,
+        "started": false,
+        "state": {
+          "terminated": {
+            "containerID": "containerd://e398a6eb0d9570a74da0c5ef7376810d4b81d34af96384d0c76c9890da852fa2",
+            "exitCode": 1,
+            "finishedAt": "2026-11-16T10:51:27Z",
+            "reason": "Error",
+            "startedAt": "2026-11-16T10:51:24Z"
+          }
+        }
+      }
+    ],
+    "hostIP": "172.18.0.2",
+    "observedGeneration": 1,
+    "phase": "Running",
+    "podIP": "10.244.1.7",
+    "resources": {},
+    "startTime": "2026-11-13T18:05:18Z",
+    "initContainerStatuses": null
+  }
+}

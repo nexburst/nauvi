@@ -1,0 +1,87 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "web-557577df75-kmvtw",
+    "namespace": "demo",
+    "creationTimestamp": "2026-11-13T17:13:30Z"
+  },
+  "spec": {
+    "restartPolicy": "Always",
+    "containers": [
+      {
+        "name": "nginx",
+        "image": "nginx:1.27"
+      }
+    ]
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T05:55:44Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodReadyToStartContainers"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-13T17:13:42Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "Initialized"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T05:55:45Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "Ready"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T05:55:45Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "ContainersReady"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-13T17:13:42Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodScheduled"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "image": "docker.io/library/nginx:1.27",
+        "lastState": {
+          "terminated": {
+            "containerID": "containerd://a5d94f686abb58ebddcb175ad6f9a5144abe3fbb7bb47f5d4299f89ffc22db22",
+            "exitCode": 255,
+            "finishedAt": "2026-11-16T05:55:36Z",
+            "reason": "Unknown",
+            "startedAt": "2026-11-15T21:04:00Z"
+          }
+        },
+        "name": "nginx",
+        "ready": true,
+        "restartCount": 2,
+        "started": true,
+        "state": {
+          "running": {
+            "startedAt": "2026-11-16T05:55:45Z"
+          }
+        }
+      }
+    ],
+    "hostIP": "172.18.0.2",
+    "observedGeneration": 1,
+    "phase": "Running",
+    "podIP": "10.244.1.8",
+    "resources": {},
+    "startTime": "2026-11-13T17:13:42Z",
+    "initContainerStatuses": null
+  }
+}

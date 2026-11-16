@@ -1,0 +1,100 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "sidecar",
+    "namespace": "i258-fixtures",
+    "creationTimestamp": "2026-11-16T10:47:28Z"
+  },
+  "spec": {
+    "restartPolicy": "Always",
+    "initContainers": [
+      {
+        "name": "proxy",
+        "image": "busybox:1.36",
+        "restartPolicy": "Always"
+      }
+    ],
+    "containers": [
+      {
+        "name": "app",
+        "image": "busybox:1.36"
+      }
+    ]
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:29Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodReadyToStartContainers"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:30Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "Initialized"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:30Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "Ready"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:30Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "ContainersReady"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodScheduled"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "image": "docker.io/library/busybox:1.36",
+        "lastState": {},
+        "name": "app",
+        "ready": true,
+        "restartCount": 0,
+        "started": true,
+        "state": {
+          "running": {
+            "startedAt": "2026-11-16T10:47:30Z"
+          }
+        }
+      }
+    ],
+    "hostIP": "172.18.0.2",
+    "initContainerStatuses": [
+      {
+        "image": "docker.io/library/busybox:1.36",
+        "lastState": {},
+        "name": "proxy",
+        "ready": true,
+        "restartCount": 0,
+        "started": true,
+        "state": {
+          "running": {
+            "startedAt": "2026-11-16T10:47:30Z"
+          }
+        }
+      }
+    ],
+    "observedGeneration": 1,
+    "phase": "Running",
+    "podIP": "10.244.1.17",
+    "resources": {},
+    "startTime": "2026-11-16T10:47:28Z"
+  }
+}

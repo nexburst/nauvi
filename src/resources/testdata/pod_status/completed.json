@@ -1,0 +1,88 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "completed",
+    "namespace": "i258-fixtures",
+    "creationTimestamp": "2026-11-16T10:47:28Z"
+  },
+  "spec": {
+    "restartPolicy": "Never",
+    "containers": [
+      {
+        "name": "app",
+        "image": "busybox:1.36"
+      }
+    ]
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:33Z",
+        "message": "pod sandbox is not ready",
+        "observedGeneration": 1,
+        "reason": "PodSandboxNotReady",
+        "status": "False",
+        "type": "PodReadyToStartContainers"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "observedGeneration": 1,
+        "reason": "PodCompleted",
+        "status": "True",
+        "type": "Initialized"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:31Z",
+        "observedGeneration": 1,
+        "reason": "PodCompleted",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:31Z",
+        "observedGeneration": 1,
+        "reason": "PodCompleted",
+        "status": "False",
+        "type": "ContainersReady"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodScheduled"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "image": "docker.io/library/busybox:1.36",
+        "lastState": {},
+        "name": "app",
+        "ready": false,
+        "restartCount": 0,
+        "started": false,
+        "state": {
+          "terminated": {
+            "containerID": "containerd://7ce80955fbca5e88ceb69351ba471eb6a822cf2aea4e5ad425013ddcedd478db",
+            "exitCode": 0,
+            "finishedAt": "2026-11-16T10:47:30Z",
+            "reason": "Completed",
+            "startedAt": "2026-11-16T10:47:30Z"
+          }
+        }
+      }
+    ],
+    "hostIP": "172.18.0.2",
+    "observedGeneration": 1,
+    "phase": "Succeeded",
+    "podIP": "10.244.1.12",
+    "resources": {},
+    "startTime": "2026-11-16T10:47:28Z",
+    "initContainerStatuses": null
+  }
+}
