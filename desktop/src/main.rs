@@ -13,6 +13,7 @@ mod log_streams;
 mod settings;
 #[cfg(unix)]
 mod shell_env;
+mod single_instance;
 mod state;
 mod updater;
 mod webview_args;
@@ -45,6 +46,8 @@ fn main() {
     }
 
     tauri::Builder::default()
+        // First: a second launch focuses the running app and exits (#202).
+        .plugin(single_instance::plugin(&context.config().identifier))
         .manage(AppState::default())
         // Opens forwarded URLs in the browser; the capability limits it to
         // http://127.0.0.1 and http://localhost.
