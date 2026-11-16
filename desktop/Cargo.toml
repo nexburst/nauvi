@@ -43,4 +43,4 @@ objc2 = "0.6"
 [target.'cfg(target_os = "windows")'.dependencies]
 # The OS version in About and the diagnostics (#294), read from the registry.
 # Already in the tree through hyper-util.
-windows-registry = "0.6"
+windows-registry = "0.100"
