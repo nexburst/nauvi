@@ -231,3 +231,102 @@ async fn plugin_token_lists_pods_on_kind() -> Result<()> {
     let _ = namespaces.delete(&ns, &DeleteParams::background()).await;
     result
 }
+
+/// The plugin runs once for a catalog check and a connect of the same
+/// context (#201): a stand-in plugin counts its runs, and prints a token
+/// that expires in 10 minutes.
+#[tokio::test]
+#[ignore]
+async fn check_and_connect_share_one_plugin_run_on_kind() -> Result<()> {
+    use k8s_openapi::api::authentication::v1::TokenRequest;
+    use k8s_openapi::api::core::v1::{Namespace, ServiceAccount};
+    use kube::api::{Api, DeleteParams, PostParams};
+    use kubeloupe::catalog::{check_context, ContextState};
+
+    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
+        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+    let admin = kubeloupe::client_for_context(Some(&ctx)).await?;
+    let real = Kubeconfig::read()?;
+    let cluster_name = real
+        .contexts
+        .iter()
+        .find(|c| c.name == ctx)
+        .and_then(|c| c.context.as_ref())
+        .map(|c| c.cluster.clone())
+        .context("test context not in kubeconfig")?;
+    let cluster = real
+        .clusters
+        .iter()
+        .find(|c| c.name == cluster_name)
+        .and_then(|c| c.cluster.clone())
+        .context("test cluster not in kubeconfig")?;
+    let cluster = serde_json::to_value(cluster)?;
+
+    let suffix = std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros();
+    let ns = format!("kl-exec-{suffix:x}");
+    let namespaces: Api<Namespace> = Api::all(admin.clone());
+    namespaces
+        .create(
+            &PostParams::default(),
+            &serde_json::from_value(serde_json::json!({"metadata": {"name": ns}}))?,
+        )
+        .await?;
+
+    let result = async {
+        let pp = PostParams::default();
+        let sas: Api<ServiceAccount> = Api::namespaced(admin.clone(), &ns);
+        sas.create(
+            &pp,
+            &serde_json::from_value(serde_json::json!({"metadata": {"name": "counted"}}))?,
+        )
+        .await?;
+        let token = sas
+            .create_token_request(
+                "counted",
+                &pp,
+                &serde_json::from_value::<TokenRequest>(
+                    serde_json::json!({"spec": {"audiences": [], "expirationSeconds": 900}}),
+                )?,
+            )
+            .await?
+            .status
+            .context("token request has no status")?
+            .token;
+
+        let expires = (chrono::Utc::now() + chrono::Duration::minutes(10)).to_rfc3339();
+        let dir = plugin_dir("")?;
+        let runs = dir.join("runs");
+        std::fs::write(
+            dir.join(PLUGIN),
+            format!(
+                "#!/bin/sh\necho run >> '{}'\ncat <<'EOF'\n{{\"apiVersion\":\"client.authentication.k8s.io/v1\",\"kind\":\"ExecCredential\",\"status\":{{\"token\":\"{token}\",\"expirationTimestamp\":\"{expires}\"}}}}\nEOF\n",
+                runs.display()
+            ),
+        )?;
+        let file = dir.join("kubeconfig.yaml");
+        let kc = kubeconfig(cluster.clone(), &dir, serde_json::json!({}));
+        std::fs::write(&file, serde_yaml::to_string(&kc)?)?;
+        let target = kubeloupe::ContextTarget {
+            id: "fake".into(),
+            context: "fake".into(),
+            kubeconfig: Some(file),
+        };
+        let count = || {
+            std::fs::read_to_string(&runs)
+                .map(|s| s.lines().count())
+                .unwrap_or(0)
+        };
+
+        let check = check_context(&target).await;
+        assert_eq!(check.state, ContextState::Connected, "{}", check.message);
+        let client = kubeloupe::client_for_target(&target, false).await?;
+        client.apiserver_version().await?;
+        let again = check_context(&target).await;
+        assert_eq!(again.state, ContextState::Connected, "{}", again.message);
+        assert_eq!(count(), 1, "the plugin ran {} times", count());
+        anyhow::Ok(())
+    }
+    .await;
+    let _ = namespaces.delete(&ns, &DeleteParams::background()).await;
+    result
+}

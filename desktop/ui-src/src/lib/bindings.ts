@@ -33,10 +33,21 @@ export const commands = {
 	 */
 	cmdAddKubeconfigSource: (path: string, options?: InvokeOptions) => __TAURI_INVOKE<SourceInfo[]>("cmd_add_kubeconfig_source", { path }, options),
 	/**
+	 *  Allow (or refuse) running `command` to log in to the contexts of the
+	 *  added source `source`. Remembered until the source is removed.
+	 */
+	cmdAnswerExecCommand: (source: string, command: string, allow: boolean, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_answer_exec_command", { source, command, allow }, options),
+	/**
 	 *  Log in to context `name`'s cluster and report whether it answers. Never
 	 *  prompts; gives up after 15 s.
 	 */
 	cmdCheckContext: (name: string, options?: InvokeOptions) => __TAURI_INVOKE<ContextCheck>("cmd_check_context", { name }, options),
+	/**
+	 *  The login commands (exec plugins) of the added source `source`, with the
+	 *  contexts that run each and whether the user allowed it. The catalog asks
+	 *  before any of them runs (#201).
+	 */
+	cmdExecCommands: (source: string, options?: InvokeOptions) => __TAURI_INVOKE<ExecCommand[]>("cmd_exec_commands", { source }, options),
 	/**
 	 *  Every source of contexts: the default kubeconfig's files, then the
 	 *  added ones in order, each with what was read from it or why it could
@@ -609,6 +620,16 @@ export type ContextInfo_Deserialize = {
 	 *  `""` for the default kubeconfig.
 	 */
 	source: string,
+	/**
+	 *  The command logging in runs: the exec plugin's command and
+	 *  arguments, or the gcp auth provider's `cmd-path` (`""`: none).
+	 */
+	login_command: string,
+	/**
+	 *  Logging in runs a plugin or an auth provider (`exec` or
+	 *  `auth-provider`): the catalog checks it only when asked (#201).
+	 */
+	login_plugin: boolean,
 };
 
 /**  A context in the catalog. */
@@ -634,6 +655,16 @@ export type ContextInfo_Serialize = {
 	 *  `""` for the default kubeconfig.
 	 */
 	source: string,
+	/**
+	 *  The command logging in runs: the exec plugin's command and
+	 *  arguments, or the gcp auth provider's `cmd-path` (`""`: none).
+	 */
+	login_command: string,
+	/**
+	 *  Logging in runs a plugin or an auth provider (`exec` or
+	 *  `auth-provider`): the catalog checks it only when asked (#201).
+	 */
+	login_plugin: boolean,
 };
 
 /**
@@ -708,7 +739,12 @@ export type ContextState = "connected" |
 /**  The credentials or the exec plugin failed. */
 "auth_error" | "certificate_error" | "unreachable" | 
 /**  The kubeconfig entry itself is broken (no cluster, unreadable file). */
-"invalid";
+"invalid" | 
+/**
+ *  Logging in runs a command of an added kubeconfig that the user has
+ *  not allowed (set by the desktop app, #201).
+ */
+"not_allowed";
 
 /**  What a detail watch reports. */
 export type DetailState = 
@@ -791,8 +827,22 @@ export type EventInfo = {
 	count: number,
 };
 
+/**  The user's answer for one command of one source. */
+export type ExecAnswer = 
+/**  Not asked yet (or the source was added again). */
+"unanswered" | "allowed" | "denied";
+
 /**  The shell of a terminal session exited (payload: the session id). */
 export type ExecClosed = string;
+
+/**  A login command of an added source, and the contexts that run it. */
+export type ExecCommand = {
+	/**  The command line, as it runs. */
+	command: string,
+	/**  The ids of the contexts that log in with it. */
+	contexts: string[],
+	answer: ExecAnswer,
+};
 
 /**  Output of a terminal session. */
 export type ExecOutput = {

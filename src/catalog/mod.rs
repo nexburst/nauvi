@@ -298,7 +298,10 @@ fn context_info(
         .find(|a| a.name == user)
         .and_then(|a| a.auth_info.as_ref());
     let (login_command, login_plugin) = match auth {
-        Some(a) => (login_command(a), a.exec.is_some() || a.auth_provider.is_some()),
+        Some(a) => (
+            login_command(a),
+            a.exec.is_some() || a.auth_provider.is_some(),
+        ),
         None => (String::new(), false),
     };
     ContextInfo {

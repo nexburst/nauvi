@@ -38,7 +38,26 @@ export const STATE_LABELS: Record<ContextState, string> = {
   certificate_error: "Certificate problem",
   unreachable: "Unreachable",
   invalid: "Invalid",
+  not_allowed: "Not allowed",
 };
+
+/**
+ * The contexts opening the catalog checks by itself: not those whose login
+ * runs a plugin (`aws eks get-token`, …), which are checked when asked (#201).
+ */
+export function checkedOnOpen<T extends Pick<ContextInfo, "name" | "login_plugin">>(contexts: readonly T[]): string[] {
+  return contexts.filter((c) => !c.login_plugin).map((c) => c.name);
+}
+
+/** The commands of `commands` the user still has to allow before `contexts` can log in. */
+export function commandsToAsk<T extends { contexts: string[]; answer: string }>(
+  commands: readonly T[],
+  contexts?: readonly string[],
+): T[] {
+  return commands.filter(
+    (c) => c.answer !== "allowed" && (!contexts || c.contexts.some((id) => contexts.includes(id))),
+  );
+}
 
 export const SOURCE_LABELS: Record<SourceKind, string> = {
   kubeconfig: "Kubeconfig",

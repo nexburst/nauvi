@@ -14,7 +14,8 @@
   import {
     catalog,
     checkAll,
-    checkContext,
+    checkOnDemand,
+    checkOnOpen,
     isPinned,
     loadSources,
     openClusterSettings,
@@ -25,12 +26,14 @@
   import { contextSettings, settings } from "../../stores/settings.svelte";
   import { confirmDiscard } from "../../stores/unsaved.svelte";
   import AddSource from "./AddSource.svelte";
+  import ExecPrompt from "./ExecPrompt.svelte";
   import ContextMenu from "../ContextMenu.svelte";
   import type { MenuItem } from "../ContextMenu.svelte";
 
   /** The cluster catalog (#78): every context from every kubeconfig source,
    *  with its status, pin, source file and last use. Opening it checks
-   *  every cluster. */
+   *  every cluster that logs in without running a plugin; the others show
+   *  a Check button (#201). */
   let query = $state("");
   let adding = $state(false);
   /** The source a Remove is waiting to be confirmed for. */
@@ -41,7 +44,7 @@
 
   onMount(() => {
     void loadSources();
-    void checkAll();
+    void checkOnOpen();
   });
 
   const nameOf = (c: ContextInfo) => displayName(c, contextSettings(c.name));
@@ -91,7 +94,7 @@
       {
         label: "Check connection",
         disabled: catalog.checks.get(c.name) === "checking",
-        run: () => void checkContext(c.name),
+        run: () => void checkOnDemand(c.name),
       },
       { label: "Settings…", run: () => openClusterSettings(c.name) },
     ];
@@ -118,6 +121,9 @@
 
   {#if adding}
     <AddSource onclose={() => (adding = false)} />
+  {/if}
+  {#if catalog.prompt}
+    <ExecPrompt source={catalog.prompt.source} commands={catalog.prompt.commands} />
   {/if}
   {#if catalog.error}
     <p class="error-text message" role="alert" data-testid="catalog-error">{catalog.error}</p>
@@ -202,6 +208,20 @@
                 {#if check.state !== "connected"}
                   <div class="why muted" data-testid="catalog-status-message" title={check.message}>{check.message}</div>
                 {/if}
+                {#if check.state === "not_allowed"}
+                  <button type="button" class="btn small" aria-label="Check {name}" onclick={() => void checkOnDemand(c.name)}
+                    >Check</button
+                  >
+                {/if}
+              {:else if c.login_plugin}
+                <!-- Checking runs the login plugin: only when asked (#201). -->
+                <button
+                  type="button"
+                  class="btn small"
+                  aria-label="Check {name}"
+                  title={c.login_command ? `Logs in by running ${c.login_command}` : "Logs in through an auth provider"}
+                  onclick={() => void checkOnDemand(c.name)}>Check</button
+                >
               {:else}
                 <span class="muted">Not checked</span>
               {/if}
@@ -450,6 +470,11 @@
   }
   .more {
     padding-inline: 8px;
+  }
+  .btn.small {
+    font-size: 12px;
+    padding: 1px 8px;
+    margin-top: 2px;
   }
   .sources {
     list-style: none;

@@ -159,7 +159,11 @@ impl ClusterSession {
         let c = match selected.as_deref() {
             // The default kubeconfig's current-context, or in-cluster config.
             None => client_for_context_with(None, false).await,
-            Some(id) => client_for_target(&self.sources.resolve(Some(id))?, false).await,
+            Some(id) => {
+                // An added kubeconfig's login command runs once allowed (#201).
+                self.sources.may_log_in(id)?;
+                client_for_target(&self.sources.resolve(Some(id))?, false).await
+            }
         }
         .map_err(|e| kubeloupe::error_text(&e))?;
         let server = self.sources.server(selected.as_deref());

@@ -153,7 +153,10 @@ fn run_plugin(exec: &ExecConfig) -> Result<ExecCredential, AuthError> {
     }
     let mut spec = serde_json::json!({ "interactive": interactive });
     if exec.provide_cluster_info {
-        let cluster = exec.cluster.as_ref().ok_or(AuthError::ExecMissingClusterInfo)?;
+        let cluster = exec
+            .cluster
+            .as_ref()
+            .ok_or(AuthError::ExecMissingClusterInfo)?;
         spec["cluster"] = serde_json::to_value(cluster).map_err(AuthError::AuthExecSerialize)?;
     }
     let info = serde_json::json!({
@@ -381,14 +384,19 @@ mod tests {
         let err = credential(&exec).await.unwrap_err();
         assert!(matches!(err, AuthError::AuthExecRun { .. }), "{err:?}");
         if let AuthError::AuthExecRun { out, .. } = &err {
-            assert_eq!(String::from_utf8_lossy(&out.stderr).trim(), "Run aws sso login");
+            assert_eq!(
+                String::from_utf8_lossy(&out.stderr).trim(),
+                "Run aws sso login"
+            );
         }
         credential(&exec).await.unwrap_err();
         assert_eq!(runs(&count), 2);
 
         let missing = exec_for(&dir.join("nope"), "x");
         let err = credential(&missing).await.unwrap_err();
-        assert!(matches!(err, AuthError::AuthExecStart(ref io) if io.kind() == std::io::ErrorKind::NotFound));
+        assert!(
+            matches!(err, AuthError::AuthExecStart(ref io) if io.kind() == std::io::ErrorKind::NotFound)
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

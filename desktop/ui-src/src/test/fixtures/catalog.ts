@@ -17,6 +17,8 @@ export function fullContext(ctx: FakeContext): ContextInfo_Serialize {
     server: `https://${ctx.name.replace(/[^a-z0-9-]/gi, "-")}.example:6443`,
     file: DEFAULT_KUBECONFIG,
     source: "",
+    login_command: "",
+    login_plugin: false,
     ...ctx,
   };
 }
@@ -29,6 +31,10 @@ export interface FakeCatalog {
   files: Record<string, FakeContext[]>;
   /** Where pasted kubeconfigs are saved. */
   pastedDir: string;
+  /** The answers about added sources' login commands, by `source\ncommand` (#201). */
+  answers: Record<string, boolean>;
+  /** Login plugin runs per context id: what a check would have started. */
+  pluginRuns: Record<string, number>;
 }
 
 export function defaultCatalog(): FakeCatalog {
@@ -37,6 +43,8 @@ export function defaultCatalog(): FakeCatalog {
     checks: {},
     files: {},
     pastedDir: "/home/user/.config/dev.kubeloupe.app/kubeconfigs",
+    answers: {},
+    pluginRuns: {},
   };
 }
 
