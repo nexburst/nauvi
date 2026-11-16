@@ -7,6 +7,8 @@
 //! (a ClusterRole, a ClusterRoleBinding, a CRD) have unique names and are
 //! deleted afterwards whatever happens.
 
+mod common;
+
 use std::future::Future;
 use std::process::Command;
 use std::time::Duration;
@@ -38,7 +40,7 @@ async fn connect() -> Result<Client> {
 fn unique(prefix: &str) -> String {
     static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     format!("{prefix}-{suffix:x}-{seq}")
 }
 

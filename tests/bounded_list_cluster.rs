@@ -5,6 +5,8 @@
 //! Each test creates Events in a temporary namespace, which it deletes
 //! afterwards.
 
+mod common;
+
 use std::future::Future;
 use std::time::Duration;
 
@@ -31,7 +33,7 @@ where
     Fut: Future<Output = Result<()>>,
 {
     let client = connect().await?;
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("{prefix}-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({

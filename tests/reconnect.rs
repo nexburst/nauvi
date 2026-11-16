@@ -7,6 +7,8 @@
 //! port that the test closes (every connection with it, then the port
 //! refuses) and opens again on the same port.
 
+mod common;
+
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
@@ -104,7 +106,7 @@ async fn a_dropped_connection_goes_live_again_without_a_change() -> Result<()> {
     // The namespace first, straight to the API server: nothing to stop if
     // it cannot be made.
     let direct = kubeloupe::client_for_context(Some(&context())).await?;
-    let ns = format!("reconnect-{:x}", std::process::id() ^ rand_suffix());
+    let ns = format!("reconnect-{:x}", common::unique_suffix());
     let namespaces: Api<Namespace> = Api::all(direct.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({
         "apiVersion": "v1", "kind": "Namespace", "metadata": { "name": ns }
@@ -166,11 +168,4 @@ async fn a_dropped_connection_goes_live_again_without_a_change() -> Result<()> {
     proxy.abort();
     let _ = namespaces.delete(&ns, &DeleteParams::default()).await;
     result
-}
-
-fn rand_suffix() -> u32 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_micros())
-        .unwrap_or(0)
 }

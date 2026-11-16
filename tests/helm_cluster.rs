@@ -6,6 +6,8 @@
 //! without it, except in CI, where a missing helm fails them. Each test
 //! installs its release in its own temporary namespace and deletes it.
 
+mod common;
+
 use std::future::Future;
 use std::process::Command;
 use std::time::Duration;
@@ -98,7 +100,7 @@ where
     )
     .await
     .context("timed out building client")??;
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("{prefix}-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({

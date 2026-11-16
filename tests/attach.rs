@@ -5,6 +5,8 @@
 //! The attach tests use interactive pods they create in a temporary
 //! namespace; the others only read the shared demo objects.
 
+mod common;
+
 use std::collections::BTreeSet;
 use std::future::Future;
 use std::process::{Command, Stdio};
@@ -45,7 +47,7 @@ where
     let client = connect().await?;
     static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("{prefix}-{suffix:x}-{seq}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({

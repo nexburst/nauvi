@@ -8,6 +8,8 @@
 //! developer's own repositories. Like `helm_cluster.rs`, it needs `helm` and
 //! skips without it, except in CI.
 
+mod common;
+
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -57,7 +59,7 @@ async fn have_helm() -> Result<bool> {
 
 /// A fresh temporary directory.
 fn temp_dir(what: &str) -> Result<PathBuf> {
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let dir = std::env::temp_dir().join(format!("kubeloupe-{what}-{suffix:x}"));
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
@@ -201,7 +203,7 @@ async fn helm_repos_search_install_and_upgrade_with_values() -> Result<()> {
     build_repo(&repo_dir, &server.url)?;
 
     let client = client().await?;
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     // Created by helm (`--create-namespace`), deleted below.
     let ns = format!("kl-it-charts-{suffix:x}");
     let result = tokio::time::timeout(Duration::from_secs(240), body(&client, &server, &ns))

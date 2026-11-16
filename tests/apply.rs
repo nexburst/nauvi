@@ -3,6 +3,8 @@
 //! `cargo test --test apply -- --ignored`. Everything is created in
 //! temporary namespaces, with a CRD group unique to the run, and removed.
 
+mod common;
+
 use std::future::Future;
 use std::time::Duration;
 
@@ -27,10 +29,7 @@ async fn connect() -> Result<Client> {
 }
 
 fn suffix() -> String {
-    format!(
-        "{:x}",
-        std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32
-    )
+    format!("{:x}", common::unique_suffix())
 }
 
 /// Run `body` in a fresh namespace, deleting it afterwards even on error.

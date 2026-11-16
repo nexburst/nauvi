@@ -7,6 +7,8 @@
 //! their pod whatever happens, and are the only node-level tests in this
 //! binary (test binaries run one after another).
 
+mod common;
+
 use std::future::Future;
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -49,7 +51,7 @@ where
     let client = connect().await?;
     static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("{prefix}-{suffix:x}-{seq}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({
