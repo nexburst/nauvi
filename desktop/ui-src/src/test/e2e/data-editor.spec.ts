@@ -201,6 +201,29 @@ test("unsaved edits are guarded and kept across the YAML tab", async ({ page }) 
   await expect(entry(page.getByTestId("data-editor"), "mode").getByTestId("data-value")).toHaveText("dev");
 });
 
+test("a kept draft does not follow the user to another context", async ({ page }) => {
+  const { fake, editor } = await open(page, "Config Maps", "settings");
+  await btn(entry(editor, "mode"), "Edit").click();
+  await entry(editor, "mode").getByRole("textbox").fill("prod");
+  // Kept while the editor is unmounted.
+  const aside = page.locator("aside");
+  await aside.getByRole("tab", { name: "YAML" }).click();
+
+  const context = page.getByRole("combobox", { name: "Cluster context" });
+  const dialog = page.getByRole("alertdialog", { name: "Discard changes?" });
+  await context.selectOption("prod");
+  await dialog.getByRole("button", { name: "Discard changes" }).click();
+  expect(await fake.lastCall("cmdSetContext")).toEqual({ name: "prod" });
+
+  // The same-named ConfigMap in the other context: the server's value.
+  await openKind(page, "Config Maps");
+  await row(page, "settings").click();
+  const other = page.getByTestId("data-editor");
+  await expect(entry(other, "mode").getByTestId("data-value")).toHaveText("dev");
+  await expect(other.getByRole("textbox")).toHaveCount(0);
+  await expect(btn(other, "Save")).toHaveCount(0);
+});
+
 test("revealed values are dropped when the panel closes", async ({ page }) => {
   const { fake, editor } = await open(page, "Secrets", "db-creds");
   await btn(entry(editor, "password"), "Reveal").click();
