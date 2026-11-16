@@ -1,0 +1,9 @@
+# zizmor (https://docs.zizmor.sh) runs on the workflows in security.yml.
+rules:
+  cache-poisoning:
+    ignore:
+      # The release jobs restore the Rust and npm caches on purpose (build
+      # time). A tag run only restores caches saved by main (a PR's caches
+      # are scoped to that PR), main is protected, and save-if keeps the tag
+      # runs from saving the Rust caches.
+      - release.yml
