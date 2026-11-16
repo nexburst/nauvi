@@ -172,11 +172,13 @@ fn joined_lines(s: &str, max: usize) -> String {
 }
 
 /// What is written for one formatted event: redacted, then on one line (a
-/// message with a newline can't forge a line of its own), at most
-/// [`MAX_LINE_BYTES`], ending in exactly one newline.
+/// message with a newline can't forge a line of its own), redacted again
+/// (flattening turns a zero-width or bidi character that split a token
+/// into a space the patterns match), at most [`MAX_LINE_BYTES`], ending in
+/// exactly one newline.
 fn event_line(raw: &str) -> String {
     let text = redact(raw);
-    let mut line = flatten(text.trim_end_matches(['\n', '\r']));
+    let mut line = redact(&flatten(text.trim_end_matches(['\n', '\r'])));
     if line.len() > MAX_LINE_BYTES - 4 {
         let mut cut = MAX_LINE_BYTES - 4;
         while !line.is_char_boundary(cut) {
@@ -483,6 +485,15 @@ mod tests {
         let line = event_line(&"é".repeat(MAX_LINE_BYTES));
         assert!(line.len() <= MAX_LINE_BYTES, "{}", line.len());
         assert!(line.ends_with("…\n"));
+    }
+
+    #[test]
+    fn a_token_split_by_an_invisible_character_is_redacted() {
+        let line = event_line("auth failed: Bearer\u{200B}abcdefgh12345678 rejected\n");
+        assert!(!line.contains("abcdefgh12345678"), "{line:?}");
+        assert!(line.contains("rejected"), "{line:?}");
+        let line = event_line("token\u{200B}= s3cr3tvalue\n");
+        assert!(!line.contains("s3cr3tvalue"), "{line:?}");
     }
 
     #[test]
