@@ -36,7 +36,7 @@ jobs:
     env:
       TAURI_DRIVER_VERSION: 2.1.0
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
@@ -60,7 +60,7 @@ jobs:
       - name: Install tauri-driver
         if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
         run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: desktop/ui-src/.nvmrc
           cache: npm
@@ -75,7 +75,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/qa-app"
           cp target/debug/kubeloupe-desktop target/debug/kubeloupe ~/.cargo/bin/tauri-driver "$RUNNER_TEMP/qa-app/"
       - name: Upload the build
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qa-app
           path: ${{ runner.temp }}/qa-app/
@@ -106,7 +106,7 @@ jobs:
       # the app's watches to time out.
       QA_PAUSE_MAX_MS: "360000"
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
@@ -142,7 +142,7 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
         with:
           version: v3.16.4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: desktop/ui-src/.nvmrc
           cache: npm
@@ -151,7 +151,7 @@ jobs:
         run: npm --prefix desktop/e2e ci
 
       - name: Download the build
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: qa-app
           path: ${{ runner.temp }}/qa-app
@@ -191,7 +191,7 @@ jobs:
 
       - name: Upload screenshots, page text, logs and the report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qa-shard-${{ matrix.shard }}
           path: desktop/e2e/artifacts/qa/
@@ -216,12 +216,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           sparse-checkout: desktop/e2e/lib
       - name: Download the shards' output
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: qa-shard-*
           path: ${{ runner.temp }}/shards
@@ -248,7 +248,7 @@ jobs:
             echo "No QA report: the shards stopped before the scenarios." >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Upload screenshots, page text, logs and the report
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qa-artifacts
           path: ${{ runner.temp }}/qa/
@@ -273,7 +273,7 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
@@ -307,7 +307,7 @@ jobs:
           Expand-Archive "$dir\driver.zip" -DestinationPath $dir -Force
           "NATIVE_DRIVER=$dir\msedgedriver.exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: desktop/ui-src/.nvmrc
           cache: npm
@@ -341,7 +341,7 @@ jobs:
 
       - name: Upload screenshots, page text and logs
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: qa-artifacts-windows
           path: desktop/e2e/artifacts/qa-windows/
