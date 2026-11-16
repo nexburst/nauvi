@@ -1,0 +1,52 @@
+# Version updates (#214): weekly, one grouped PR per ecosystem, so the PR
+# count stays low. Major versions come one PR each, since they may need
+# code changes. Security updates are enabled in the repository settings
+# and still come as separate PRs, as soon as an advisory is published.
+#
+# The 7-day cooldown skips releases younger than a week (a compromised
+# release is usually caught by then); it doesn't delay security updates.
+#
+# Actions are pinned to commit SHAs with the version in a comment; Dependabot
+# updates both.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directories:
+      - /desktop/ui-src
+      - /desktop/e2e
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
+        update-types: [minor, patch]
