@@ -231,11 +231,20 @@ with `claude --agent coordinator`), `dev` (one issue per worktree), `qa`
   desktop changes a QA scenario run in CI
   (`gh workflow run qa.yml --ref <branch> -f scenario='<names>'`) whose
   screenshots someone looked at.
-- PRs that touch `desktop/capabilities/`, `desktop/tauri.conf.json`,
-  `.github/workflows/`, `src/exec.rs`, `src/client.rs`, helm (`src/helm/`,
-  `desktop/src/commands/helm*.rs`), the local shell or the updater also need
-  a `security` verdict of "merge". A full `security` pass on `main` runs
-  before each release; its findings are filed as issues labelled `security`.
+- PRs that touch any of these sensitive paths also need a `security`
+  verdict of "merge":
+  - `desktop/capabilities/`, `desktop/tauri.conf.json`, `.github/workflows/`
+  - `src/client.rs`, `src/auth.rs`, `src/exec_credentials.rs`,
+    `src/catalog/`, `desktop/src/catalog/` (exec-plugin approvals)
+  - `src/exec.rs`, `src/attach.rs`, `src/debug.rs`, `src/node_shell.rs`,
+    `desktop/src/commands/exec.rs`, `desktop/src/commands/debug.rs`
+  - `src/shell_kubeconfig.rs`, `desktop/src/shell_env.rs`,
+    `desktop/src/local_shell.rs`, `desktop/src/commands/local_shell.rs`
+  - `src/helm/`, `desktop/src/commands/helm*.rs`
+  - `desktop/src/updater.rs`, `desktop/src/commands/updater.rs`
+
+  A full `security` pass on `main` runs before each release; its findings
+  are filed as issues labelled `security`.
 - Heavy commands go through `scripts/dev/capped.sh`, which waits for one of
   two build slots and caps memory.
 - Agents act through the maintainer's GitHub account. Only the coordinator
