@@ -470,7 +470,7 @@ mod tests {
             let mut first = [0u8; 16];
             c.read_exact(&mut first).await.unwrap();
             // SO_LINGER 0: close with a reset, unread data still pending.
-            c.set_linger(Some(Duration::ZERO)).unwrap();
+            c.set_zero_linger().unwrap();
             drop(c);
         });
         let (mut socket, _) = listener.accept().await.unwrap();
