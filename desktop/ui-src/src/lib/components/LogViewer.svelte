@@ -13,14 +13,25 @@
     LogBuffer,
     LOG_BUFFER_MAX,
     lineCountLabel,
-    logMatches,
     offerAllContainers,
     SAVED_NOTE_MS,
     savedLabel,
-    splitHighlights,
     tagLabel,
   } from "../logs";
   import type { TaggedText, WorkloadRef } from "../logs";
+  import {
+    compileQuery,
+    findTime,
+    indexOfId,
+    lineTime,
+    matchCountLabel,
+    parseJumpTime,
+    segments,
+    stepMatch,
+  } from "../logFilter";
+  import type { CompiledQuery } from "../logFilter";
+  import { LogSearcher } from "../logSearch";
+  import type { Hits } from "../logSearch";
   import type { PodRef } from "../stores/detail.svelte";
   import { settings } from "../stores/settings.svelte";
   import { TAIL_OPTIONS } from "../settings";
@@ -49,6 +60,9 @@
     /** Workload mode: the pod prefix and its colour. */
     prefix?: string;
     color?: string;
+    /** Search hits in `text` / `prefix` (ranges, see logFilter.ts). */
+    hits?: Hits;
+    prefixHits?: Hits;
   }
 
   const LINE_HEIGHT = 18;
@@ -66,8 +80,21 @@
   let timestamps = $state(defaults.timestamps);
   let wrap = $state(defaults.wrap);
   let follow = $state(true);
+  // Search (#220): what is typed, the toggles, and the query in use.
   let filterInput = $state("");
-  let filter = $state("");
+  let regex = $state(false);
+  let matchCase = $state(false);
+  /** Highlight the matches among all lines instead of hiding the others. */
+  let highlightMode = $state(false);
+  let query = $state.raw<CompiledQuery>({ kind: "none" });
+  /** An invalid regex, or one that was too slow; shown next to the box. */
+  let searchError = $state("");
+  /** Id of the current match (n / N), or -1. */
+  let currentId = $state(-1);
+  let jumpInput = $state("");
+  let jumpNote = $state("");
+  /** Id of the line "Jump to time" went to, or -1. */
+  let jumpedId = $state(-1);
   let paused = $state(false);
   // Where the last Download went: shown in the header for SAVED_NOTE_MS,
   // apart from the line count that every batch updates (#178).
@@ -79,15 +106,22 @@
   let knownContainers = $state<string[]>([]);
   let truncatedNote = $state("");
   const containersByPod = new Map<string, Set<string>>();
-  let tagInfoCache = new Map<number, { prefix: string; lower: string; color: string }>();
+  let tagInfoCache = new Map<number, { prefix: string; color: string }>();
 
   // The ring buffer and the lines waiting for the next frame live outside
   // reactive state; only the displayed lines are signalled, by `rev`.
   const buf = new LogBuffer();
   let pending: string[] = [];
   let pendingTags: number[] = [];
-  const d = { lines: [] as Line[] };
+  // `matches`: ids of the shown lines that match, in order (ids only grow).
+  const d = { lines: [] as Line[], matches: [] as number[] };
   let rev = $state(0);
+  const searcher = new LogSearcher();
+  // Display updates run one at a time, in order: matching a regex is async
+  // (a worker). `gen` changes on a rebuild or a clear; an update that
+  // started before drops its result (the rebuild covers its lines).
+  let queue: Promise<void> = Promise.resolve();
+  let gen = 0;
   let lineCount = $state(0);
   let nextLineId = 0;
   let raf = 0;
@@ -102,7 +136,15 @@
   /** Whether `streamId` has been started (and must be stopped). */
   let streaming = false;
 
-  const filterLower = $derived(filter.toLowerCase());
+  const searching = $derived(query.kind === "text" || query.kind === "regex");
+  const matchLabel = $derived.by(() => {
+    void rev;
+    return matchCountLabel(searching, currentId < 0 ? -1 : indexOfId(d.matches, currentId), d.matches.length);
+  });
+  const matchTotal = $derived.by(() => {
+    void rev;
+    return d.matches.length;
+  });
   const count = $derived.by(() => {
     void rev;
     return d.lines.length;
@@ -132,35 +174,34 @@
   /** Append a system message (error, "stream ended"); it is not in the buffer. */
   function appendLog(text: string, cls?: string) {
     // Lines that came before it go first.
-    if (pending.length > 0) {
+    if (raf) {
       cancelAnimationFrame(raf);
-      flush();
+      raf = 0;
     }
-    const atBottom = isAtBottom();
-    d.lines.push({ id: nextLineId++, text, cls });
-    rev++;
-    followIfNeeded(atBottom);
+    if (pending.length > 0) enqueue(flushNow);
+    enqueue(() => {
+      const atBottom = isAtBottom();
+      d.lines.push({ id: nextLineId++, text, cls });
+      rev++;
+      followIfNeeded(atBottom);
+    });
   }
 
-  /** Prefix, lowercase prefix (for filtering) and colour of a workload line's tag. */
+  /** Run a display update after the ones before it. */
+  function enqueue(task: () => Promise<void> | void) {
+    queue = queue.then(task).catch((e) => console.error("log viewer update failed", e));
+  }
+
+  /** Prefix and colour of a workload line's tag. */
   function tagInfo(tagId: number) {
     let info = tagInfoCache.get(tagId);
     if (!info) {
       const tag = buf.tags[tagId];
       const multi = (containersByPod.get(tag.pod)?.size ?? 0) > 1;
-      const { prefix, color } = tagLabel(tag, !isWorkload, multi);
-      info = { prefix, lower: prefix.toLowerCase(), color };
+      info = tagLabel(tag, !isWorkload, multi);
       tagInfoCache.set(tagId, info);
     }
     return info;
-  }
-
-  /** Whether a buffered line is shown under the pod filter and the text filter. */
-  function passes(text: string, tagId: number): boolean {
-    if (!tagId) return logMatches(text, filterLower);
-    if (podFilter && buf.tags[tagId].pod !== podFilter) return false;
-    // The filter also matches the pod (and container) name.
-    return !filterLower || tagInfo(tagId).lower.includes(filterLower) || logMatches(text, filterLower);
   }
 
   function makeLine(text: string, tagId: number): Line {
@@ -169,20 +210,97 @@
     return { id: nextLineId++, text, prefix: info.prefix, color: info.color };
   }
 
-  function flush() {
-    raf = 0;
-    if (paused || pending.length === 0) return;
-    const lines = pending;
-    const tags = pendingTags;
-    pending = [];
-    pendingTags = [];
-    const atBottom = isAtBottom();
-    for (let i = 0; i < lines.length; i++) {
-      if (passes(lines[i], tags[i])) d.lines.push(makeLine(lines[i], tags[i]));
+  interface LineHits {
+    text: Hits[];
+    /** By tag id: the filter also matches the pod (and container) prefix. */
+    prefix: Map<number, Hits>;
+  }
+
+  /**
+   * The search hits of `texts` (tagged `tags`): null without a query,
+   * undefined when a newer update made this one stale, or the regex failed
+   * (it is then dropped and the display rebuilt without it).
+   */
+  async function matchLines(texts: string[], tags: number[], g: number): Promise<LineHits | null | undefined> {
+    const q = query;
+    if (q.kind !== "text" && q.kind !== "regex") return null;
+    const uniq = [...new Set(tags)].filter((t) => t !== 0);
+    const items = uniq.length > 0 ? texts.concat(uniq.map((t) => tagInfo(t).prefix)) : texts;
+    let res: Hits[] | null;
+    try {
+      res = await searcher.run(q, items, () => g !== gen);
+    } catch (e) {
+      if (g === gen) {
+        searchError = e instanceof Error ? e.message : String(e);
+        query = { kind: "none" };
+        renderLogs();
+      }
+      return undefined;
+    }
+    if (!res || g !== gen) return undefined;
+    const prefix = new Map<number, Hits>();
+    uniq.forEach((t, k) => prefix.set(t, res[texts.length + k]));
+    return { text: res, prefix };
+  }
+
+  /** The lines the pod filter keeps (workload mode). */
+  function byPod(texts: string[], tags: number[]): [string[], number[]] {
+    if (!podFilter) return [texts, tags];
+    const t: string[] = [];
+    const g: number[] = [];
+    for (let i = 0; i < texts.length; i++) {
+      if (tags[i] && buf.tags[tags[i]].pod !== podFilter) continue;
+      t.push(texts[i]);
+      g.push(tags[i]);
+    }
+    return [t, g];
+  }
+
+  /** Append lines to the display: all of them, or only the matches when filtering. */
+  function addLines(texts: string[], tags: number[], m: LineHits | null) {
+    for (let i = 0; i < texts.length; i++) {
+      const tagId = tags[i];
+      if (!m) {
+        d.lines.push(makeLine(texts[i], tagId));
+        continue;
+      }
+      const th = m.text[i];
+      const ph = tagId ? (m.prefix.get(tagId) ?? null) : null;
+      const hit = th !== null || ph !== null;
+      if (!hit && !highlightMode) continue;
+      const line = makeLine(texts[i], tagId);
+      if (hit) {
+        line.hits = th;
+        line.prefixHits = ph;
+        d.matches.push(line.id);
+      }
+      d.lines.push(line);
     }
     if (d.lines.length > LOG_BUFFER_MAX + LOG_BUFFER_MAX / 10) {
       d.lines.splice(0, d.lines.length - LOG_BUFFER_MAX);
+      const first = d.lines[0].id;
+      let k = 0;
+      while (k < d.matches.length && d.matches[k] < first) k++;
+      if (k > 0) d.matches.splice(0, k);
     }
+  }
+
+  function flush() {
+    raf = 0;
+    if (paused || pending.length === 0) return;
+    enqueue(flushNow);
+  }
+
+  async function flushNow() {
+    if (paused || pending.length === 0) return;
+    const [lines, tags] = byPod(pending, pendingTags);
+    pending = [];
+    pendingTags = [];
+    const g = gen;
+    const m = await matchLines(lines, tags, g);
+    if (m === undefined || g !== gen) return;
+    const atBottom = isAtBottom();
+    addLines(lines, tags, m);
     rev++;
     updateStatus();
     followIfNeeded(atBottom);
@@ -271,23 +389,40 @@
 
   /** Rebuild the display from the buffer (filter change, resume). */
   function renderLogs() {
+    const want = ++gen;
+    // Whatever the worker still runs is for an older query or display.
+    searcher.cancel();
+    enqueue(() => renderNow(want));
+  }
+
+  async function renderNow(want: number) {
+    if (want !== gen) return; // a newer rebuild is queued
     pending = [];
     pendingTags = [];
+    // A copy: the buffer keeps growing (and trimming) while a regex runs.
+    const [texts, tags] = byPod(buf.lines.slice(), buf.tagIds.slice());
+    const m = await matchLines(texts, tags, want);
+    if (m === undefined || want !== gen) return;
     d.lines = [];
-    for (let i = 0; i < buf.lines.length; i++) {
-      const text = buf.lines[i];
-      if (passes(text, buf.tagIds[i])) d.lines.push(makeLine(text, buf.tagIds[i]));
-    }
+    d.matches = [];
+    currentId = -1;
+    jumpedId = -1;
+    addLines(texts, tags, m);
     rev++;
     updateStatus();
     followIfNeeded(true);
   }
 
   function resetLogs() {
+    gen++;
+    searcher.cancel();
     buf.clear();
     pending = [];
     pendingTags = [];
     d.lines = [];
+    d.matches = [];
+    currentId = -1;
+    jumpedId = -1;
     rev++;
     updateStatus();
   }
@@ -376,12 +511,128 @@
     }
   }
 
+  /** Use what is in the search box with the toggles; an invalid regex keeps the last good query. */
+  function applySearch() {
+    clearTimeout(filterTimer);
+    filterTimer = undefined;
+    const q = compileQuery({ text: filterInput, regex, matchCase });
+    if (q.kind === "error") {
+      searchError = `Invalid regex: ${q.message}`;
+      return;
+    }
+    searchError = "";
+    query = q;
+    renderLogs();
+  }
+
+  // Typing is debounced: each search rebuilds the display from the buffer.
   function onFilterInput() {
     clearTimeout(filterTimer);
-    filterTimer = setTimeout(() => {
-      filter = filterInput;
-      renderLogs();
-    }, FILTER_DEBOUNCE_MS);
+    filterTimer = setTimeout(applySearch, FILTER_DEBOUNCE_MS);
+  }
+
+  function toggle(which: "case" | "regex" | "mode") {
+    if (which === "case") matchCase = !matchCase;
+    else if (which === "regex") regex = !regex;
+    else highlightMode = !highlightMode;
+    applySearch();
+  }
+
+  /** Index of the shown line with id `id`, or -1 (ids grow down the list). */
+  function lineIndex(id: number): number {
+    const lines = d.lines;
+    let lo = 0;
+    let hi = lines.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (lines[mid].id === id) return mid;
+      if (lines[mid].id < id) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    return -1;
+  }
+
+  /**
+   * Where n / N start without a current match: just before the first line
+   * in view going forward (so it counts), the last one in view going back.
+   */
+  function viewEdgeId(forward: boolean): number {
+    if (!scrollEl) return -1;
+    const top = scrollEl.getBoundingClientRect();
+    let first = Infinity;
+    let last = -1;
+    for (const row of scrollEl.querySelectorAll<HTMLElement>(".vrow")) {
+      const r = row.getBoundingClientRect();
+      if (r.bottom <= top.top || r.top >= top.bottom) continue;
+      const i = Number(row.dataset.index);
+      first = Math.min(first, i);
+      last = Math.max(last, i);
+    }
+    if (last < 0) return -1;
+    return forward ? (d.lines[first]?.id ?? 0) - 1 : (d.lines[last]?.id ?? -1);
+  }
+
+  /** Go to the next / previous match (after the display has caught up). */
+  function goMatch(forward: boolean) {
+    // Enter right after typing: run the search first.
+    if (filterTimer !== undefined) applySearch();
+    enqueue(async () => {
+      // Without a current match (or once it is trimmed off a busy stream):
+      // from the lines in view.
+      const cur = currentId >= 0 && indexOfId(d.matches, currentId) >= 0 ? currentId : -1;
+      const pos = stepMatch(d.matches, cur, forward, cur < 0 ? viewEdgeId(forward) : -1);
+      if (pos < 0) return;
+      currentId = d.matches[pos];
+      const index = lineIndex(currentId);
+      await tick();
+      list?.scrollToIndex(index, "center");
+    });
+  }
+
+  function onSearchKey(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      goMatch(!e.shiftKey);
+    }
+  }
+
+  /** n / N in the log output, like less and vim. */
+  function onOutputKey(e: KeyboardEvent) {
+    if (e.ctrlKey || e.metaKey || e.altKey || !searching) return;
+    if (e.key === "n" || e.key === "N") {
+      e.preventDefault();
+      goMatch(e.key === "n");
+    }
+  }
+
+  const textOf = (i: number) => (d.lines[i]?.cls ? undefined : d.lines[i]?.text);
+
+  /** Scroll to the first shown line at or after the time in the box. */
+  async function jumpToTime() {
+    jumpNote = "";
+    let latest = NaN;
+    for (let i = d.lines.length - 1; i >= 0 && Number.isNaN(latest); i--) {
+      const t = textOf(i);
+      if (t !== undefined) latest = lineTime(t);
+    }
+    const target = parseJumpTime(jumpInput, latest);
+    if (Number.isNaN(target)) {
+      jumpNote = "Not a time: type HH:MM[:SS] or 2026-11-16 10:30";
+      return;
+    }
+    const r = findTime(d.lines.length, textOf, target);
+    if (r.kind === "no-times") {
+      jumpNote = timestamps ? "No line here has a time" : "The lines have no time: turn on Timestamps";
+      return;
+    }
+    if (r.kind === "after-last") jumpNote = "Nothing that late: at the newest line";
+    else if (r.first) {
+      const first = lineTime(d.lines[r.index].text);
+      if (first > target + 1000) jumpNote = `Nothing that early: the oldest line is from ${new Date(first).toLocaleString()}`;
+    }
+    jumpedId = d.lines[r.index].id;
+    await tick();
+    list?.scrollToIndex(r.index, "start");
   }
 
   // Start streaming once the pod's containers are known (or failed to load).
@@ -431,6 +682,8 @@
     unlisteners.forEach((f) => f());
     cancelAnimationFrame(raf);
     clearTimeout(filterTimer);
+    gen++;
+    searcher.stop();
     clearTimeout(savedTimer);
     const ownStream = streamId;
     streamId = ++streamCounter;
@@ -497,17 +750,99 @@
   </select>
   <label class="check"><input type="checkbox" bind:checked={timestamps} onchange={restart} /> Timestamps</label>
   <label class="check"><input type="checkbox" bind:checked={wrap} onchange={toggleWrap} /> Wrap</label>
-  <input
-    class="mini filter"
-    type="search"
-    placeholder="Filter logs…"
-    bind:value={filterInput}
-    oninput={onFilterInput}
-  />
   <span class="muted">{status}</span>
   {#if truncatedNote}<span class="warn" title="At most 20 containers are followed at once">{truncatedNote}</span>{/if}
 </div>
-<div class="output" data-testid="log-output" style:--line-height="{LINE_HEIGHT}px">
+<div class="logs-search" data-testid="log-search">
+  <input
+    class="mini filter"
+    class:invalid={searchError !== ""}
+    type="search"
+    placeholder={highlightMode ? "Find in logs…" : "Filter logs…"}
+    aria-label={highlightMode ? "Find in logs" : "Filter logs"}
+    aria-invalid={searchError !== "" ? "true" : undefined}
+    title="Enter: next match, Shift+Enter: previous"
+    spellcheck="false"
+    autocomplete="off"
+    bind:value={filterInput}
+    oninput={onFilterInput}
+    onkeydown={onSearchKey}
+  />
+  <button
+    type="button"
+    class="btn icon"
+    class:active={matchCase}
+    aria-pressed={matchCase}
+    title="Match case"
+    onclick={() => toggle("case")}>Aa</button
+  >
+  <button
+    type="button"
+    class="btn icon mono"
+    class:active={regex}
+    aria-pressed={regex}
+    title="Regular expression"
+    onclick={() => toggle("regex")}>.*</button
+  >
+  <button
+    type="button"
+    class="btn icon"
+    class:active={highlightMode}
+    aria-pressed={highlightMode}
+    title="Highlight the matches and keep the other lines, instead of filtering"
+    onclick={() => toggle("mode")}>Highlight</button
+  >
+  <span class="count" role="status" data-testid="log-match-count">{matchLabel}</span>
+  <button
+    type="button"
+    class="btn icon"
+    title="Previous match (Shift+Enter, or N in the log)"
+    aria-label="Previous match"
+    disabled={matchTotal === 0}
+    onclick={() => goMatch(false)}>↑</button
+  >
+  <button
+    type="button"
+    class="btn icon"
+    title="Next match (Enter, or n in the log)"
+    aria-label="Next match"
+    disabled={matchTotal === 0}
+    onclick={() => goMatch(true)}>↓</button
+  >
+  {#if searchError}<span class="search-error" role="alert" data-testid="log-search-error" title={searchError}
+      >{searchError}</span
+    >{/if}
+  {#if jumpNote}<span class="jump-note" role="status" data-testid="log-jump-note" title={jumpNote}>{jumpNote}</span>{/if}
+  <form
+    class="jump"
+    onsubmit={(e) => {
+      e.preventDefault();
+      jumpToTime();
+    }}
+  >
+    <input
+      class="mini jump-input"
+      type="text"
+      placeholder="Jump to time"
+      aria-label="Jump to time"
+      title="HH:MM[:SS] (local time) or 2026-11-16 10:30; needs lines with a time (Timestamps)"
+      spellcheck="false"
+      autocomplete="off"
+      bind:value={jumpInput}
+    />
+    <button type="submit" class="btn icon" disabled={jumpInput.trim() === ""}>Go</button>
+  </form>
+</div>
+<!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+<div
+  class="output"
+  data-testid="log-output"
+  style:--line-height="{LINE_HEIGHT}px"
+  tabindex="0"
+  role="log"
+  aria-label="Log lines (n / N: next / previous match)"
+  onkeydown={onOutputKey}
+>
   {#key wrap}
     <VirtualList
       bind:this={list}
@@ -522,11 +857,17 @@
       {#snippet row(i)}
         {@const line = d.lines[i]}
         {#if line}
-          <div class="line {line.cls ?? ''}" class:wrap data-testid="log-line">
+          <div
+            class="line {line.cls ?? ''}"
+            class:wrap
+            class:current={line.id === currentId}
+            class:jumped={line.id === jumpedId}
+            data-testid="log-line"
+          >
             {#if line.prefix}<span class="pod" style:color={line.color}
-                >{#each splitHighlights(line.prefix, filter) as seg}{#if seg.hit}<mark>{seg.text}</mark
+                >{#each segments(line.prefix, line.prefixHits) as seg}{#if seg.hit}<mark>{seg.text}</mark
                     >{:else}{seg.text}{/if}{/each}</span
-              >{/if}{#each splitHighlights(line.text, line.cls ? '' : filter) as seg}{#if seg.hit}<mark>{seg.text}</mark
+              >{/if}{#each segments(line.text, line.hits) as seg}{#if seg.hit}<mark>{seg.text}</mark
                 >{:else}{seg.text}{/if}{/each}
           </div>
         {/if}
@@ -584,9 +925,85 @@
   .mini option {
     background: var(--bg-raised);
   }
+  .logs-search {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 16px 6px;
+    font-size: 12px;
+    min-width: 0;
+  }
+  /* A set width: an error next to it shrinks (with an ellipsis), not the box. */
   .filter {
-    flex: 1;
-    min-width: 120px;
+    flex: 0 0 auto;
+    width: clamp(140px, 35vw, 480px);
+  }
+  .mini:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .mini.invalid {
+    border-color: var(--red);
+  }
+  .icon {
+    padding: 2px 7px;
+    line-height: 1.2;
+    flex-shrink: 0;
+  }
+  .icon.mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  .icon:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .count {
+    min-width: 72px;
+    padding: 0 4px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    text-align: center;
+    flex-shrink: 0;
+  }
+  .search-error,
+  .jump-note {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .search-error {
+    color: var(--red);
+  }
+  /* Next to the box it is about, at the right end. */
+  .jump-note {
+    margin-left: auto;
+    padding-left: 8px;
+  }
+  .jump-note + .jump {
+    margin-left: 0;
+  }
+  .jump-note {
+    color: var(--amber);
+  }
+  .jump {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    /* At the right end: an error or note before it does not move it. */
+    margin-left: auto;
+    padding-left: 8px;
+    flex-shrink: 0;
+  }
+  .jump-input {
+    width: 130px;
+  }
+  .output:focus {
+    outline: none;
+  }
+  .output:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
   .output {
     display: flex;
@@ -617,6 +1034,18 @@
     background: #8a6d00;
     color: inherit;
     border-radius: 2px;
+  }
+  /* The current match (n / N) and the line "Jump to time" went to. */
+  .line.current {
+    background: rgba(209, 134, 22, 0.18);
+  }
+  .line.current mark {
+    background: #d18616;
+    color: #0d1013;
+  }
+  .line.jumped {
+    box-shadow: inset 3px 0 0 var(--accent);
+    background: rgba(79, 156, 247, 0.12);
   }
   .muted {
     color: var(--text-muted);

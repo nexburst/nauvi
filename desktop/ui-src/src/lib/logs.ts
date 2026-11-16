@@ -84,11 +84,6 @@ export function lineCountLabel(count: number): string {
   return count >= LOG_BUFFER_MAX ? `${LOG_BUFFER_MAX.toLocaleString()}+ lines` : `${count.toLocaleString()} lines`;
 }
 
-/** Case-insensitive substring match; an empty filter matches everything. */
-export function logMatches(text: string, filterLower: string): boolean {
-  return !filterLower || text.toLowerCase().includes(filterLower);
-}
-
 /** Distinct colours that read on the dark log background. */
 export const POD_COLORS = [
   "#4fb3ff",
@@ -132,29 +127,6 @@ export function offerAllContainers(containers: readonly { init: boolean }[]): bo
 export function tagLabel(tag: LineTag, byContainer: boolean, withContainer: boolean): { prefix: string; color: string } {
   if (byContainer) return { prefix: `[${tag.container}]`, color: podColor(tag.container) };
   return { prefix: linePrefix(tag, withContainer), color: podColor(tag.pod) };
-}
-
-export interface Segment {
-  text: string;
-  hit: boolean;
-}
-
-/** Split `text` into plain and highlighted (case-insensitive match) segments. */
-export function splitHighlights(text: string, filter: string): Segment[] {
-  if (!filter) return [{ text, hit: false }];
-  const lower = text.toLowerCase();
-  const needle = filter.toLowerCase();
-  const out: Segment[] = [];
-  let pos = 0;
-  for (;;) {
-    const i = lower.indexOf(needle, pos);
-    if (i < 0) break;
-    if (i > pos) out.push({ text: text.slice(pos, i), hit: false });
-    out.push({ text: text.slice(i, i + needle.length), hit: true });
-    pos = i + needle.length;
-  }
-  if (pos < text.length) out.push({ text: text.slice(pos), hit: false });
-  return out;
 }
 
 /** How long "Saved to …" stays after a Download (#178), whatever the stream does. */

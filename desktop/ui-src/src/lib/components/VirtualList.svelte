@@ -63,9 +63,9 @@
     if (scrollEl) scrollEl.scrollTop = 0;
   }
 
-  /** Scroll just enough to show row `index` (keyboard focus). */
-  export function scrollToIndex(index: number) {
-    if (index >= 0 && index < count) get(virtualizer).scrollToIndex(index, { align: "auto" });
+  /** Scroll just enough to show row `index` (keyboard focus), or put it at `align`. */
+  export function scrollToIndex(index: number, align: "auto" | "start" | "center" = "auto") {
+    if (index >= 0 && index < count) get(virtualizer).scrollToIndex(index, { align });
   }
 </script>
 

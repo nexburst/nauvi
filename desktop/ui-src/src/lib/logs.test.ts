@@ -5,10 +5,8 @@ import {
   POD_COLORS,
   lineCountLabel,
   linePrefix,
-  logMatches,
   offerAllContainers,
   podColor,
-  splitHighlights,
   tagLabel,
 } from "./logs";
 
@@ -81,41 +79,6 @@ describe("lineCountLabel", () => {
     expect(lineCountLabel(LOG_BUFFER_MAX)).toBe(cap);
     expect(lineCountLabel(52_241)).toBe(cap);
     expect(lineCountLabel(LOG_BUFFER_MAX + LOG_BUFFER_MAX / 10)).toBe(cap);
-  });
-});
-
-describe("logMatches", () => {
-  it("matches everything with an empty filter", () => {
-    expect(logMatches("anything", "")).toBe(true);
-  });
-  it("is a case-insensitive substring match against a lowercased filter", () => {
-    expect(logMatches("GET /Health 200", "health")).toBe(true);
-    expect(logMatches("GET /Health 200", "error")).toBe(false);
-  });
-});
-
-describe("splitHighlights", () => {
-  it("returns the whole text unhighlighted without a filter", () => {
-    expect(splitHighlights("abc", "")).toEqual([{ text: "abc", hit: false }]);
-  });
-
-  it("marks every case-insensitive match and keeps the original case", () => {
-    expect(splitHighlights("Error: error", "ERROR")).toEqual([
-      { text: "Error", hit: true },
-      { text: ": ", hit: false },
-      { text: "error", hit: true },
-    ]);
-  });
-
-  it("joins back to the original text", () => {
-    const text = "aaXaaXa";
-    const segs = splitHighlights(text, "x");
-    expect(segs.map((s) => s.text).join("")).toBe(text);
-    expect(segs.filter((s) => s.hit)).toHaveLength(2);
-  });
-
-  it("returns no segments for an empty text with a filter", () => {
-    expect(splitHighlights("", "x")).toEqual([]);
   });
 });
 
