@@ -9,6 +9,7 @@ import type { Row } from "../columns";
 import type { Command } from "../keys";
 import { bindingFor, inEditorOrTerminal, isActivatable, isMacPlatform, isTextEntry, leftToTerminal } from "../keys";
 import { actionUi } from "./actions.svelte";
+import { apps, selectApplication } from "./applications.svelte";
 import { helm, selectRelease } from "./helm.svelte";
 import { catalog } from "./catalog.svelte";
 import { charts, selectChart } from "./helmCharts.svelte";
@@ -190,6 +191,7 @@ export function handleKey(e: KeyboardEvent) {
       if (detail.target) done(e, closeDetail);
       else if (helm.selected) done(e, () => selectRelease(null));
       else if (charts.selected) done(e, () => selectChart(null));
+      else if (apps.selected) done(e, () => selectApplication(null));
       return;
     case "focusFilter": {
       const filter = document.getElementById("table-filter");

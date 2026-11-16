@@ -10,11 +10,13 @@
 //! selected namespace: status counts per workload kind, problem workloads
 //! and warning events about workloads.
 
+mod applications_live;
 mod live;
 mod summary;
 mod workloads;
 mod workloads_live;
 
+pub use applications_live::{watch_applications, ApplicationsUpdate};
 pub use live::{watch_overview, OverviewUpdate};
 pub use summary::{pod_problem, pod_status, PENDING_TOO_LONG_SECS};
 pub use workloads::{KindCounts, ProblemWorkload, StatusCount, WorkloadsOverview};

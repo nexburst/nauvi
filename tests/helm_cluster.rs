@@ -11,16 +11,21 @@ use std::process::Command;
 use std::time::Duration;
 
 use anyhow::{bail, ensure, Context, Result};
+use futures::StreamExt;
+use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::{Api, DeleteParams, PostParams};
 use kube::Client;
+use kubeloupe::applications::{AppHealth, AppSource, ApplicationsList};
 use kubeloupe::client_for_context;
 use kubeloupe::helm::{
     get_helm_release, helm_rollback, helm_uninstall, helm_upgrade, helm_version,
     list_helm_releases, release_charts, HelmDeployRequest, HelmRevisionKey, HelmStorage,
     HelmTarget,
 };
+use kubeloupe::liveness::Prober;
 use kubeloupe::resources::REDACTED;
+use kubeloupe::{watch_applications, ApplicationsUpdate};
 
 fn context() -> String {
     std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".to_string())
@@ -365,6 +370,189 @@ async fn limited_user_helm_listing_degrades_per_namespace() -> Result<()> {
     ensure!(
         e.to_string().starts_with("Not allowed to list Secrets"),
         "{e}"
+    );
+    Ok(())
+}
+
+/// A Deployment of one replica of `image` with `labels` on the object.
+fn labelled_deployment(name: &str, labels: serde_json::Value, image: &str) -> Result<Deployment> {
+    Ok(serde_json::from_value(serde_json::json!({
+        "apiVersion": "apps/v1", "kind": "Deployment",
+        "metadata": { "name": name, "labels": labels },
+        "spec": {
+            "replicas": 1,
+            "selector": { "matchLabels": { "kl-app-test": name } },
+            "template": {
+                "metadata": { "labels": { "kl-app-test": name } },
+                "spec": {
+                    "terminationGracePeriodSeconds": 0,
+                    "containers": [{ "name": "c", "image": image, "command": ["sleep", "3600"] }]
+                }
+            }
+        }
+    }))?)
+}
+
+/// The first list from `updates` that `done` accepts, within 120 s.
+async fn applications_until(
+    updates: &mut futures::stream::BoxStream<'static, ApplicationsUpdate>,
+    what: &str,
+    done: impl Fn(&ApplicationsList) -> bool,
+) -> Result<ApplicationsList> {
+    let mut last = None;
+    let wait = async {
+        while let Some(u) = updates.next().await {
+            if let ApplicationsUpdate::List(list) = u {
+                if done(&list) {
+                    return Some(*list);
+                }
+                last = Some(list);
+            }
+        }
+        None
+    };
+    match tokio::time::timeout(Duration::from_secs(120), wait).await {
+        Ok(Some(list)) => Ok(list),
+        _ => bail!("{what}: timed out; last list: {last:?}"),
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn applications_group_labelled_workloads_and_helm_releases() -> Result<()> {
+    if !have_helm().await? {
+        return Ok(());
+    }
+    in_temp_ns("kl-it-apps", |client, ns| async move {
+        let deployments: Api<Deployment> = Api::namespaced(client.clone(), &ns);
+        let labels = |name: &str| {
+            serde_json::json!({
+                "app.kubernetes.io/instance": "shop",
+                "app.kubernetes.io/name": name,
+                "app.kubernetes.io/version": "1.0",
+            })
+        };
+        let pp = PostParams::default();
+        deployments
+            .create(
+                &pp,
+                &labelled_deployment("shop-web", labels("web"), "busybox:1.36")?,
+            )
+            .await?;
+        // Never ready: the application is still progressing.
+        deployments
+            .create(
+                &pp,
+                &labelled_deployment("shop-api", labels("api"), "kubeloupe.invalid/nope:1")?,
+            )
+            .await?;
+        deployments
+            .create(
+                &pp,
+                &labelled_deployment(
+                    "cache",
+                    serde_json::json!({ "app.kubernetes.io/name": "redis" }),
+                    "busybox:1.36",
+                )?,
+            )
+            .await?;
+        // Not part of an application.
+        deployments
+            .create(
+                &pp,
+                &labelled_deployment("loner", serde_json::json!({}), "busybox:1.36")?,
+            )
+            .await?;
+        helm(&["install", "kl-app", CHART, "-n", &ns])?;
+
+        let prober = Prober::new(client.clone());
+        let mut updates = watch_applications(&client, &prober, std::slice::from_ref(&ns));
+        let list = applications_until(&mut updates, "every application", |l| {
+            l.applications.len() == 3
+                && l.applications
+                    .iter()
+                    .find(|a| a.name == "shop")
+                    .is_some_and(|a| a.workloads.len() == 2 && a.health == AppHealth::Progressing)
+        })
+        .await?;
+        ensure!(list.notes.is_empty(), "{:?}", list.notes);
+        let names: Vec<&str> = list.applications.iter().map(|a| a.name.as_str()).collect();
+        ensure!(names == ["kl-app", "redis", "shop"], "{names:?}");
+        let helm_app = &list.applications[0];
+        ensure!(
+            helm_app.source == AppSource::Helm
+                && helm_app.managed_by == ["Helm"]
+                && helm_app.workloads.len() == 1
+                && helm_app.workloads[0].name == "kl-app-app",
+            "{helm_app:?}"
+        );
+        ensure!(list.applications[1].source == AppSource::Name, "{list:?}");
+        let shop = &list.applications[2];
+        ensure!(
+            shop.source == AppSource::Instance
+                && shop.components == ["api", "web"]
+                && shop.versions == ["1.0"]
+                && shop.workloads[0].name == "shop-api"
+                && shop.reason.starts_with("Deployment shop-api:"),
+            "{shop:?}"
+        );
+
+        // Live: without the broken workload, the application is healthy.
+        deployments
+            .delete("shop-api", &DeleteParams::background())
+            .await?;
+        applications_until(&mut updates, "shop healthy", |l| {
+            l.applications
+                .iter()
+                .find(|a| a.name == "shop")
+                .is_some_and(|a| a.workloads.len() == 1 && a.health == AppHealth::Healthy)
+        })
+        .await?;
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore]
+async fn limited_user_applications_are_narrowed_with_notes() -> Result<()> {
+    let Ok(path) = std::env::var("KUBELOUPE_LIMITED_KUBECONFIG") else {
+        eprintln!("KUBELOUPE_LIMITED_KUBECONFIG not set; skipping");
+        return Ok(());
+    };
+    let kubeconfig = kube::config::Kubeconfig::read_from(&path)?;
+    let mut config = kube::Config::from_custom_kubeconfig(kubeconfig, &Default::default()).await?;
+    config.proxy_url = None;
+    let client = Client::try_from(config)?;
+    let prober = Prober::new(client.clone());
+
+    // All namespaces: narrowed to team-a, every application in it.
+    let mut all = watch_applications(&client, &prober, &[]);
+    let list = applications_until(&mut all, "narrowed list", |_| true).await?;
+    ensure!(
+        list.notes.len() == 5 && list.notes[0].contains("showing namespace team-a only"),
+        "{:?}",
+        list.notes
+    );
+    ensure!(
+        list.applications.iter().all(|a| a.namespace == "team-a"),
+        "{list:?}"
+    );
+    // A namespace it may not see: left out, with a note.
+    let mut some = watch_applications(
+        &client,
+        &prober,
+        &["team-a".to_string(), "kube-system".to_string()],
+    );
+    let list = applications_until(&mut some, "picked list", |_| true).await?;
+    ensure!(
+        list.notes.len() == 5
+            && list
+                .notes
+                .iter()
+                .all(|n| n.ends_with("namespace kube-system")),
+        "{:?}",
+        list.notes
     );
     Ok(())
 }

@@ -7,6 +7,7 @@
 //! new entry at its sorted place, never at the end.
 
 pub(crate) mod actions;
+pub(crate) mod applications;
 pub(crate) mod catalog;
 pub(crate) mod cluster;
 pub(crate) mod debug;
@@ -41,6 +42,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             actions::cmd_check_actions,
             actions::cmd_drain_node,
             actions::cmd_run_action,
+            applications::cmd_applications_start,
+            applications::cmd_applications_stop,
             catalog::cmd_add_kubeconfig_source,
             catalog::cmd_answer_exec_command,
             catalog::cmd_check_context,
@@ -132,6 +135,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
         .events(collect_events![
             actions::DrainFinished,
             actions::DrainProgress,
+            applications::ApplicationsChanged,
+            applications::ApplicationsStateChanged,
             crate::catalog::KubeconfigsChanged,
             exec::ExecClosed,
             exec::ExecOutput,

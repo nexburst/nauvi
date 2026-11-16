@@ -3,6 +3,7 @@
 // mounts) instead of adding special cases to the fake.
 
 import type {
+  Application,
   ColumnKind,
   DataField,
   FieldTakeover,
@@ -24,6 +25,7 @@ import { defaultSettings } from "../../lib/settings";
 import type { Settings } from "../../lib/settings";
 import { DISCOVERED } from "./discover";
 import { relatedFixtures } from "./related";
+import { defaultApplications } from "./applications";
 import { defaultHelm } from "./helm";
 import type { FakeHelm } from "./helm";
 import { NO_PROMETHEUS, sparkFixtures, usageFixtures } from "./usage";
@@ -96,6 +98,8 @@ export interface FakeCluster {
   nodeShellLeftovers: NodeShellPod[];
   overview: Overview_Serialize;
   metrics: MetricsSnapshot;
+  /** What the Applications feed groups (`cmd_applications_start`). */
+  applications: Application[];
   /** Helm releases (`cmd_helm_*`). */
   helm: FakeHelm;
   /**
@@ -507,6 +511,7 @@ export function defaultCluster(): FakeCluster {
         },
       ],
     },
+    applications: defaultApplications(),
     helm: defaultHelm(),
     settings: defaultSettings(),
     update: upToDate(),
