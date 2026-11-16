@@ -67,7 +67,10 @@ test("Copy link says why when the backend refuses", async ({ page }) => {
   await captureClipboard(page);
   const fake = await openApp(page);
   await openKind(page, "Nodes");
-  await fake.failNext("cmdObjectLink", "This object can't be linked to: its context is not a name kubeloupe can link to.");
+  // The menu asks ahead, the click asks again.
+  const refusal = "This object can't be linked to: its context is not a name kubeloupe can link to.";
+  await fake.failNext("cmdObjectLink", refusal);
+  await fake.failNext("cmdObjectLink", refusal);
   await row(page, "node-1").click({ button: "right" });
   await menu(page).getByRole("menuitem", { name: "Copy link" }).click();
   await expect(page.getByRole("alert")).toContainText("its context is not a name kubeloupe can link to");

@@ -14,10 +14,10 @@ async function contextMenu(page: Page, name: string) {
 test("the context menu offers the actions of each kind", async ({ page }) => {
   await openApp(page);
   const cases: [string, string, string, string[]][] = [
-    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Port forward…", "Attach", "Debug…", "Delete", "Force delete…"]],
-    ["Deployments", "web", "demo/web", ["Logs", "Scale…", "Rollout restart", "Port forward…", "Delete"]],
-    ["Nodes", "node-1", "node-1", ["Shell", "Cordon", "Uncordon", "Drain…", "Delete"]],
-    ["Secrets", "db-creds", "demo/db-creds", ["Delete"]],
+    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Copy link", "Port forward…", "Attach", "Debug…", "Delete", "Force delete…"]],
+    ["Deployments", "web", "demo/web", ["Logs", "Copy link", "Scale…", "Rollout restart", "Port forward…", "Delete"]],
+    ["Nodes", "node-1", "node-1", ["Copy link", "Shell", "Cordon", "Uncordon", "Drain…", "Delete"]],
+    ["Secrets", "db-creds", "demo/db-creds", ["Copy link", "Delete"]],
   ];
   for (const [kind, name, title, items] of cases) {
     await openKind(page, kind);
@@ -33,13 +33,14 @@ test("the detail panel offers the same actions", async ({ page }) => {
   await openApp(page);
   await openKind(page, "Deployments");
   await row(page, "web").click();
-  // The row menu's items, plus Edit (the panel's YAML editor).
+  // The row menu's items, plus Edit (the panel's YAML editor); Copy link after Edit.
   await expect(page.getByRole("toolbar", { name: "Actions" }).getByRole("button")).toHaveText([
     "Logs",
     "Scale…",
     "Rollout restart",
     "Port forward…",
     "Edit",
+    "Copy link",
     "Delete",
   ]);
 });

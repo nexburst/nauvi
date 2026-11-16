@@ -18,14 +18,41 @@ class Links {
 }
 export const links = new Links();
 
+/** Links asked for ahead of a click, by context and object (a few at most). */
+const known = new Map<string, string>();
+const KNOWN_MAX = 20;
+
+const linkKey = (resource: ResourceRef, namespace: string, name: string) =>
+  [currentContextName(), resource.group, resource.version, resource.kind, namespace, name].join("\n");
+
+/**
+ * Ask for an object's link before "Copy link" is clicked (the panel or the
+ * row menu opened). WebKitGTK only lets a page write the clipboard during
+ * the click itself, not after waiting for the backend. A failure is left
+ * for the click to report.
+ */
+export function prefetchLink(resource: ResourceRef, namespace: string, name: string) {
+  const key = linkKey(resource, namespace, name);
+  if (known.has(key)) return;
+  commands
+    .cmdObjectLink(resource, namespace, name)
+    .then((url) => {
+      if (known.size >= KNOWN_MAX) known.delete(known.keys().next().value!);
+      known.set(key, url);
+    })
+    .catch(() => {});
+}
+
 /** Copy the link to an object of this window's context. */
 export async function copyLink(resource: ResourceRef, namespace: string, name: string) {
-  let url: string;
-  try {
-    url = await commands.cmdObjectLink(resource, namespace, name);
-  } catch (e) {
-    setNotice(false, String(e));
-    return;
+  let url = known.get(linkKey(resource, namespace, name));
+  if (url === undefined) {
+    try {
+      url = await commands.cmdObjectLink(resource, namespace, name);
+    } catch (e) {
+      setNotice(false, String(e));
+      return;
+    }
   }
   try {
     await navigator.clipboard.writeText(url);

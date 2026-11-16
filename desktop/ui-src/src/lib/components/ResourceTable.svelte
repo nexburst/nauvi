@@ -11,7 +11,7 @@
   import { requestAction } from "../stores/actions.svelte";
   import { dockMenuFor } from "../dock";
   import { openDockTab } from "../stores/dock.svelte";
-  import { copyLink } from "../stores/links.svelte";
+  import { copyLink, prefetchLink } from "../stores/links.svelte";
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove } from "../stores/keyboard.svelte";
   import type { ResourceKind } from "../bindings";
@@ -149,6 +149,7 @@
     } else {
       title = row.namespace ? `${row.namespace}/${row.name}` : row.name;
       const keys = kind.columns.map((c) => c.key);
+      prefetchLink(kind.resource, row.namespace, row.name);
       // Logs and Shell open dock tabs; the rest come from the action registry.
       items = [
         ...dockMenuFor(kind.resource, row.namespace, row.name).map((d) => ({

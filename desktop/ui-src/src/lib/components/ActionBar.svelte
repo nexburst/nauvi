@@ -9,7 +9,7 @@
   import type { DockTabSpec } from "../dock";
   import { kindOfResource, requestAction } from "../stores/actions.svelte";
   import { openDockTab } from "../stores/dock.svelte";
-  import { copyLink } from "../stores/links.svelte";
+  import { copyLink, prefetchLink } from "../stores/links.svelte";
   import type { Target } from "../stores/detail.svelte";
 
   /** The detail panel's header of action icons (#218): the row menu's Logs
@@ -35,6 +35,7 @@
   /** Answers of the access check, by id. Until it answers, everything is offered. */
   let access = $state.raw(new Map<string, ActionAccess>());
   onMount(() => {
+    prefetchLink(target.resource, target.namespace, target.name);
     let live = true;
     const ids = items.map((a) => a.id).filter((id) => id !== "link");
     commands
