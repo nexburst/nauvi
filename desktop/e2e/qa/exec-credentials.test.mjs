@@ -292,7 +292,9 @@ describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () 
 
   it("a failing plugin shows its stderr, not its env or stdout", T, async () => {
     const { app } = s;
-    await waitLive(app);
+    // Not Live: after the restart the window reopens qa-exec-201, whose
+    // swapped command was refused (#242).
+    await app.find(By.css('button[aria-label="Cluster catalog"]'));
     await resizeWindow(app, 1280, 800);
     await click(app, 'button[aria-label="Cluster catalog"]');
     await app.find(By.css('[data-testid="catalog"]'));
