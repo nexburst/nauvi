@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { openApp, openKind, toggleNamespaces } from "./helpers";
+import { column, openApp, openKind, row, toggleNamespaces } from "./helpers";
 
 /** The number on the overview card labelled `label`. */
 function card(page: Page, label: string) {
@@ -21,6 +21,52 @@ test("the overview counts a crash-looping pod as an error, not as running", asyn
   await expect(problems).toContainText("CrashLoopBackOff");
   await expect(problems).toContainText("12 restarts");
   await expect(problems).toContainText("Pending for 60m");
+});
+
+test("a running pod whose container failed reads Error in the overview, as in the Pods table (#263)", async ({ page }) => {
+  const fake = await openApp(page);
+  const created = Math.floor(Date.now() / 1000) - 600;
+  // What the backend sends for it: STATUS "Error" as the problem, not "Not ready".
+  await fake.emitOverview({
+    pods: {
+      namespace: null,
+      total: 6,
+      running: 4,
+      pending: 1,
+      succeeded: 0,
+      failed: 0,
+      waiting_errors: 1,
+      by_namespace: [
+        ["demo", 5],
+        ["kube-system", 1],
+      ],
+      problems: [
+        {
+          namespace: "demo",
+          name: "crashed",
+          status: "CrashLoopBackOff",
+          reason: "CrashLoopBackOff",
+          restarts: 12,
+          created,
+        },
+        { namespace: "demo", name: "db-0", status: "Pending", reason: "Pending for 60m", restarts: 0, created },
+        { namespace: "demo", name: "half-failed", status: "Error", reason: "Error", restarts: 0, created },
+      ],
+      problems_total: 3,
+    },
+  });
+  const problems = page.getByRole("region", { name: "Problem pods" });
+  const entry = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/half-failed" }) });
+  await expect(entry.locator(".reason")).toHaveText("Error");
+  await expect(entry.locator(".reason")).toHaveClass(/error/);
+  await expect(problems).not.toContainText("Not ready");
+
+  await entry.getByRole("button", { name: "demo/half-failed" }).click();
+  await expect(row(page, "crashed")).toBeVisible();
+  await fake.emitWatchBatch({ applied: [fake.podRow("demo", "half-failed", "Error", "0", "Error")] });
+  await expect(row(page, "half-failed")).toHaveAttribute("data-problem", "Error");
+  const names = await column(page, "Name");
+  expect((await column(page, "Status"))[names.indexOf("half-failed")]).toBe("Error");
 });
 
 test("the overview is pushed by the backend, not polled", async ({ page }) => {

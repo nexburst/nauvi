@@ -8,6 +8,7 @@
 //! pods ([`crate::overview::pod_problem`]); a test keeps the two in step.
 
 use super::jsonpath::array_at;
+use super::pod_printer::printed_pod_status;
 use super::ResourceRef;
 use crate::overview::PENDING_TOO_LONG_SECS;
 use serde_json::Value;
@@ -71,11 +72,22 @@ fn pod_problem(v: &Value, created: i64, now: i64) -> String {
     }
     let ready = condition(v, "Ready").is_some_and(|(s, _)| s == "True");
     match phase {
-        "Running" if !ready => "Not ready".to_string(),
+        "Running" if !ready => not_ready_reason(&printed_pod_status(v)),
         "Pending" if created > 0 && now - created > PENDING_TOO_LONG_SECS => {
             format!("Pending for {}m", (now - created) / 60)
         }
         _ => String::new(),
+    }
+}
+
+/// Why a running pod that is not ready is a problem: its STATUS as the Pods
+/// table prints it when that says more than "Running" (Error,
+/// CrashLoopBackOff, NotReady, ...), else "Not ready". The overview uses the
+/// same text, so a pod reads the same in both.
+pub fn not_ready_reason(status: &str) -> String {
+    match status {
+        "" | "Running" => "Not ready".to_string(),
+        s => s.to_string(),
     }
 }
 
@@ -165,6 +177,17 @@ mod tests {
         }] } })
     }
 
+    /// Running, not ready, its container exited with `reason`.
+    fn exited(reason: &str) -> Value {
+        json!({ "status": {
+            "conditions": [{ "type": "Ready", "status": "False" }],
+            "containerStatuses": [{
+                "name": "app", "image": "x", "imageID": "", "ready": false, "restartCount": 0,
+                "state": { "terminated": { "exitCode": 1, "reason": reason } }
+            }]
+        } })
+    }
+
     fn pod_row(v: &Value, created: i64) -> String {
         row_problem(&rref("", "Pod", "pods", true), v, created, NOW)
     }
@@ -174,6 +197,8 @@ mod tests {
         let old = NOW - 600;
         assert_eq!(pod_row(&pod("Running", ready("True")), old), "");
         assert_eq!(pod_row(&pod("Running", ready("False")), old), "Not ready");
+        // Not ready with a STATUS that says why: that STATUS (#263).
+        assert_eq!(pod_row(&pod("Running", exited("Error")), old), "Error");
         assert_eq!(
             pod_row(&pod("Running", waiting("CrashLoopBackOff")), old),
             "CrashLoopBackOff"
@@ -214,6 +239,7 @@ mod tests {
             pod("Running", ready("True")),
             pod("Running", ready("False")),
             pod("Running", waiting("CrashLoopBackOff")),
+            pod("Running", exited("Error")),
             pod("Pending", waiting("ImagePullBackOff")),
             pod("Pending", waiting("ContainerCreating")),
             pod("Pending", json!({})),

@@ -5,7 +5,7 @@
 
 use super::{Capacity, EventInfo, NodeCounts, PodCounts, ProblemPod};
 use crate::created_secs;
-use crate::resources::{pod_status_of, printed_pod_status, WorkloadStatus};
+use crate::resources::{not_ready_reason, pod_status_of, printed_pod_status, WorkloadStatus};
 use crate::{parse_cpu_quantity, parse_memory_quantity};
 use k8s_openapi::api::core::v1::{Container, Event, Node, Pod};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
@@ -211,14 +211,15 @@ pub fn event_info(e: &Event) -> EventInfo {
 }
 
 /// Why `pod` is a problem, if it is one: a waiting error, failed, running
-/// but not ready, or pending for too long.
+/// but not ready (with its STATUS, e.g. "Error", when that says why), or
+/// pending for too long.
 fn problem(pod: &PodSummary, now: i64) -> Option<String> {
     if pod.terminating {
         return None;
     }
     match pod.state {
         PodState::WaitingError | PodState::Failed => Some(pod.status.clone()),
-        PodState::Running if !pod.ready => Some("Not ready".into()),
+        PodState::Running if !pod.ready => Some(not_ready_reason(&pod.status)),
         PodState::Pending if pod.created > 0 && now - pod.created > PENDING_TOO_LONG_SECS => {
             Some(format!("Pending for {}m", (now - pod.created) / 60))
         }
@@ -459,6 +460,19 @@ mod tests {
                 "Running",
                 json!({ "status": { "conditions": [{ "type": "Ready", "status": "False" }] } }),
             ),
+            // Running, one container exited with an error (#263): the
+            // problem says "Error", as STATUS in the Pods table does.
+            pod(
+                "half-failed",
+                "Running",
+                json!({ "status": {
+                    "conditions": [{ "type": "Ready", "status": "False" }],
+                    "containerStatuses": [{
+                        "name": "c", "image": "x", "imageID": "", "ready": false, "restartCount": 0,
+                        "state": { "terminated": { "exitCode": 1, "reason": "Error" } }
+                    }]
+                } }),
+            ),
             pod(
                 "going",
                 "Running",
@@ -471,13 +485,13 @@ mod tests {
         .collect();
 
         let c = pod_counts(None, &pods, NOW);
-        assert_eq!(c.total, 8);
-        assert_eq!(c.running, 3); // web-1, unready, going
+        assert_eq!(c.total, 9);
+        assert_eq!(c.running, 4); // web-1, unready, half-failed, going
         assert_eq!(c.waiting_errors, 1);
         assert_eq!(c.pending, 2);
         assert_eq!(c.succeeded, 1);
         assert_eq!(c.failed, 1);
-        assert_eq!(c.by_namespace, vec![("demo".to_string(), 8)]);
+        assert_eq!(c.by_namespace, vec![("demo".to_string(), 9)]);
 
         let problems: Vec<(&str, &str)> = c
             .problems
@@ -489,11 +503,12 @@ mod tests {
             vec![
                 ("crashed", "CrashLoopBackOff"),
                 ("evicted", "Evicted"),
+                ("half-failed", "Error"),
                 ("stuck", "Pending for 60m"),
                 ("unready", "Not ready"),
             ]
         );
-        assert_eq!(c.problems_total, 4);
+        assert_eq!(c.problems_total, 5);
         assert_eq!(c.problems[0].status, "CrashLoopBackOff");
     }
 
