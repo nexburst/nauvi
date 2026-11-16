@@ -213,9 +213,10 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     const saved = app.profile.settings()?.searches;
     console.log(`settings.searches: ${JSON.stringify(saved)}`);
     assert.deepEqual(saved?.starred, [{ text: "^web-\\d+$", regex: true, match_case: false }]);
+    // Picking the starred one made it the newest recent search again.
     assert.deepEqual(
       saved?.recent.map((r) => r.text),
-      ["db", "^web-\\d+$"],
+      ["^web-\\d+$", "db"],
     );
     for (const e of [...saved.recent, ...saved.starred]) assert.deepEqual(Object.keys(e).sort(), ["match_case", "regex", "text"]);
 
