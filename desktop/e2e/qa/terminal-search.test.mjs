@@ -30,7 +30,7 @@ function bar(app) {
     return {
       count: bar.querySelector('[data-testid="terminal-search-count"]').textContent.trim(),
       focused: document.activeElement === bar.querySelector('input'),
-      decorations: bar.closest('[data-testid="terminal"]').querySelectorAll('.xterm-decoration').length,
+      decorations: bar.closest('[data-testid="terminal"]').querySelectorAll('.xterm-find-result-decoration').length,
     };`);
 }
 
@@ -85,12 +85,13 @@ describe("terminal search", { timeout: 10 * 60_000 }, () => {
     const [i1, total] = parse(first.count);
     // 5 lines, NEEDLE-UPPER, and the command line itself (twice).
     assert.ok(total >= 6, `at least 6 matches, got ${first.count}`);
-    assert.ok(first.decorations > 0, "the matches are highlighted");
+    // xterm draws the highlights on its next frame.
+    await app.waitFor(async () => (await bar(app))?.decorations > 0, { message: "the matches to be highlighted" });
     await app.shot("dark-matches");
 
     await typeInBar(app, Key.ENTER);
     const next = await waitCount(app, new RegExp(`^(?!${i1} of)\\d+ of ${total}$`), "Enter to move to another match");
-    await typeInBar(app, Key.chord(Key.SHIFT, Key.ENTER));
+    await app.driver.actions().keyDown(Key.SHIFT).sendKeys(Key.ENTER).keyUp(Key.SHIFT).perform();
     await waitCount(app, new RegExp(`^${i1} of ${total}$`), `Shift+Enter back from ${next.count}`);
 
     // Match case: NEEDLE-UPPER no longer counts.
@@ -104,7 +105,11 @@ describe("terminal search", { timeout: 10 * 60_000 }, () => {
 
   it("says when nothing matches", T, async () => {
     const { app } = s;
-    await typeInBar(app, Key.chord(Key.CONTROL, "a"), "zz-not-in-output");
+    // Emptied by script: a Ctrl chord through WebKitWebDriver leaves Ctrl held
+    // for the keys typed after it.
+    const input = await app.js(`return ${BAR}.querySelector('input')`);
+    await app.setValue(input, "");
+    await typeInBar(app, "zz-not-in-output");
     await waitCount(app, /^No matches$/, "No matches");
     const disabled = await app.js(`return ${BAR}.querySelector('button[aria-label="Next match"]').disabled`);
     assert.equal(disabled, true, "Next is disabled without matches");
