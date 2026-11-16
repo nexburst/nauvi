@@ -140,7 +140,7 @@ pub(crate) async fn cmd_node_shell_leftovers(
     match leftovers(cluster.app(), &client).await {
         Ok(p) => Ok(p),
         Err(e) if kubeloupe::is_forbidden(&e) => Ok(Vec::new()),
-        Err(e) => Err(e.to_string()),
+        Err(e) => Err(kubeloupe::errors::error_text(&e)),
     }
 }
 

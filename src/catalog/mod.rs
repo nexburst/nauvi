@@ -404,7 +404,7 @@ fn shell_word(word: &str) -> String {
 
 /// Control (Cc), format (Cf) and line/paragraph separator characters:
 /// those that show as nothing, move text or reorder it.
-fn is_invisible(c: char) -> bool {
+pub(crate) fn is_invisible(c: char) -> bool {
     c.is_control()
         || matches!(c as u32,
             0x00AD
