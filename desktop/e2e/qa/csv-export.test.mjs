@@ -183,8 +183,10 @@ message: '${FORMULA}'
     await assertOneRowToolbar(app);
     assert.ok(toolbar.noteRight <= toolbar.width, "the note fits the window");
     await setTheme(app, "dark");
+    await sleep(500); // let WebKitGTK repaint before the shot
     await app.shot("large-table-saved-dark");
     await setTheme(app, "light");
+    await sleep(500); // let WebKitGTK repaint before the shot
     await app.shot("large-table-saved-light");
     await setTheme(app, null);
   });
@@ -233,6 +235,7 @@ message: '${FORMULA}'
     await app.waitFor(async () => (await noteText(app)).startsWith("Saved 0 rows to Downloads/"), { message: "Saved 0 rows" });
     await assertOneRowToolbar(app);
     await setTheme(app, "dark");
+    await sleep(500); // let WebKitGTK repaint before the shot
     await app.shot("empty-table-saved-dark");
     await setTheme(app, null);
   });
@@ -249,8 +252,10 @@ message: '${FORMULA}'
     assert.match(text, /\/proc\/qa\.csv/);
     await assertOneRowToolbar(app);
     await setTheme(app, "dark");
+    await sleep(500); // let WebKitGTK repaint before the shot
     await app.shot("write-error-dark");
     await setTheme(app, "light");
+    await sleep(500); // let WebKitGTK repaint before the shot
     await app.shot("write-error-light");
     await setTheme(app, null);
     await app.filter("");
