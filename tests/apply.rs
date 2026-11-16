@@ -29,7 +29,7 @@ async fn connect() -> Result<Client> {
 fn suffix() -> String {
     format!(
         "{:x}",
-        std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros()
+        std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32
     )
 }
 

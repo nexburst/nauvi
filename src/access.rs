@@ -57,15 +57,15 @@ pub async fn default_namespace(client: &Client) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kube::core::ErrorResponse;
 
     fn api_error(code: u16) -> anyhow::Error {
-        kube::Error::Api(ErrorResponse {
-            status: "Failure".into(),
+        kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: "nope".into(),
             reason: "Forbidden".into(),
             code,
-        })
+            ..Default::default()
+        }))
         .into()
     }
 

@@ -1,11 +1,12 @@
 //! Creation times and the short ages ("5m", "3d") shown next to objects.
 
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::Time;
 
 /// Age text for a creation time in unix seconds (empty if unknown).
 pub(crate) fn age_of_secs(secs: i64) -> String {
-    DateTime::from_timestamp(secs, 0)
+    Timestamp::from_second(secs)
+        .ok()
         .filter(|_| secs > 0)
         .map(format_age)
         .unwrap_or_default()
@@ -15,8 +16,8 @@ pub(crate) fn age_of(ts: Option<Time>) -> String {
     ts.map(|t| format_age(t.0)).unwrap_or_default()
 }
 
-pub(crate) fn format_age(t: DateTime<Utc>) -> String {
-    let secs = (Utc::now() - t).num_seconds().max(0);
+pub(crate) fn format_age(t: Timestamp) -> String {
+    let secs = Timestamp::now().duration_since(t).as_secs().max(0);
     if secs < 60 {
         format!("{}s", secs)
     } else if secs < 3600 {
@@ -29,7 +30,7 @@ pub(crate) fn format_age(t: DateTime<Utc>) -> String {
 }
 
 pub(crate) fn created_secs(ts: &Option<Time>) -> i64 {
-    ts.as_ref().map(|t| t.0.timestamp()).unwrap_or_default()
+    ts.as_ref().map(|t| t.0.as_second()).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -38,7 +39,7 @@ mod tests {
 
     #[test]
     fn age_formatting() {
-        let ago = |s: i64| format_age(Utc::now() - chrono::Duration::seconds(s));
+        let ago = |s: i64| format_age(Timestamp::now() - jiff::SignedDuration::from_secs(s));
         assert_eq!(ago(5), "5s");
         assert_eq!(ago(120), "2m");
         assert_eq!(ago(7_300), "2h");

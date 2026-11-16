@@ -195,12 +195,13 @@ mod tests {
     }
 
     fn api_error(code: u16, message: &str) -> kube::Error {
-        kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
+        kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: message.into(),
             reason: "x".into(),
             code,
-        })
+            ..Default::default()
+        }))
     }
 
     fn polling() -> Update<PodInfo> {

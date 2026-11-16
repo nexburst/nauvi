@@ -220,6 +220,14 @@ fn pasted_kubeconfigs_are_private_files_of_the_app() {
             .starts_with("The pasted text is not a kubeconfig"),
         "{err}"
     );
+    // The message names the line, never quotes it (#252).
+    let secret = "users:\n- name: u\n  user:\n    token: s3cret-tok\n\tbad: x\n";
+    let err = save_pasted_kubeconfig(&pasted_dir, secret, "").unwrap_err();
+    assert!(!err.to_string().contains("s3cret"), "{err}");
+    assert!(err.to_string().contains("line 4"), "{err}");
+    let file = dir.write("secret.yaml", secret);
+    let err = check_source(&file).unwrap_err();
+    assert!(!err.to_string().contains("s3cret"), "{err}");
     let err =
         save_pasted_kubeconfig(&pasted_dir, "apiVersion: v1\nkind: Config\n", "").unwrap_err();
     assert_eq!(err.to_string(), "The pasted kubeconfig has no contexts.");

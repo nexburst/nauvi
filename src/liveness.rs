@@ -2,7 +2,7 @@
 //!
 //! A watch only fails when its connection does. An API server that is
 //! paused, overloaded or behind a VPN that dropped often leaves the TCP
-//! connection open and just sends nothing, so kube's watcher waits for its
+//! connection open and just sends nothing, so a watcher waits for the client's
 //! read timeout (about 5 minutes) while the table still says Live. Watch
 //! bookmarks don't help: kube consumes them, and the server sends them only
 //! about once a minute.

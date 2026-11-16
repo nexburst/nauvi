@@ -186,7 +186,7 @@ pub fn event_info(e: &Event) -> EventInfo {
         .or_else(|| e.event_time.as_ref().map(|t| t.0))
         .or_else(|| e.first_timestamp.as_ref().map(|t| t.0))
         .or_else(|| e.metadata.creation_timestamp.as_ref().map(|t| t.0))
-        .map(|t| t.timestamp())
+        .map(|t| t.as_second())
         .unwrap_or_default();
     let o = &e.involved_object;
     let kind = o.kind.clone().unwrap_or_default();
@@ -373,9 +373,7 @@ mod tests {
     const NOW: i64 = 1_800_000_000;
 
     fn ts(secs: i64) -> String {
-        chrono::DateTime::from_timestamp(secs, 0)
-            .unwrap()
-            .to_rfc3339()
+        jiff::Timestamp::from_second(secs).unwrap().to_string()
     }
 
     fn pod(name: &str, phase: &str, extra: serde_json::Value) -> Pod {

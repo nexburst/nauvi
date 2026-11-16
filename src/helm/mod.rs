@@ -485,7 +485,7 @@ mod tests {
                     .map(|(k, v)| (k.to_string(), v.to_string()))
                     .collect(),
             ),
-            creation_timestamp: Some(Time(chrono::DateTime::from_timestamp(100, 0).unwrap())),
+            creation_timestamp: Some(Time(jiff::Timestamp::from_second(100).unwrap())),
             ..Default::default()
         }
     }

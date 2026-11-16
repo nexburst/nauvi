@@ -859,7 +859,7 @@ fn selector_str(sel: Option<&Value>) -> String {
 
 /// Format an RFC 3339 timestamp as an age ("5m"), or return it unchanged.
 pub(super) fn age_text(ts: &str) -> String {
-    ts.parse::<chrono::DateTime<chrono::Utc>>()
+    ts.parse::<jiff::Timestamp>()
         .map(crate::format_age)
         .unwrap_or_else(|_| ts.to_string())
 }
@@ -870,7 +870,7 @@ fn looks_like_timestamp(s: &str) -> bool {
     s.len() >= 20
         && s.as_bytes()[4] == b'-'
         && s.as_bytes()[10] == b'T'
-        && s.parse::<chrono::DateTime<chrono::Utc>>().is_ok()
+        && s.parse::<jiff::Timestamp>().is_ok()
 }
 
 /// Build the table row of `obj`, of kind `r`, for `columns`.
@@ -894,7 +894,7 @@ pub fn make_row(r: &ResourceRef, columns: &[ColumnDef], obj: &DynamicObject) -> 
         })
         .collect();
     let created = created_secs(&obj.metadata.creation_timestamp);
-    let now = chrono::Utc::now().timestamp();
+    let now = jiff::Timestamp::now().as_second();
     ResourceRow {
         problem: super::problems::row_problem(r, &value, created, now),
         key: if namespace.is_empty() {

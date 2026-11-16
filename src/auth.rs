@@ -113,8 +113,8 @@ fn describe_auth_error(err: &AuthError, target: &AuthTarget) -> String {
             };
             not_found_message(cmd, ctx, &path)
         }
-        AuthError::AuthExecRun { status, out, .. } => {
-            exec_failed_message(cmd, ctx, *status, &out.stderr)
+        AuthError::AuthExecRun { out, .. } => {
+            exec_failed_message(cmd, ctx, out.status, &out.stderr)
         }
         AuthError::AuthExecStart(io) => {
             format!("{LOGIN_FAILED}{ctx}` failed: could not run `{cmd}`: {io}")
@@ -157,9 +157,9 @@ pub fn exec_failed_message(cmd: &str, ctx: &str, status: ExitStatus, stderr: &[u
 /// and stderr, never its environment or stdout.
 pub fn exec_run_text(err: &AuthError) -> Option<String> {
     match err {
-        AuthError::AuthExecRun { status, out, .. } => Some(exec_exit_text(
+        AuthError::AuthExecRun { out, .. } => Some(exec_exit_text(
             "the credential plugin",
-            *status,
+            out.status,
             &out.stderr,
         )),
         _ => None,
