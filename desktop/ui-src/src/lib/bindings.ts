@@ -142,6 +142,18 @@ export const commands = {
 	 */
 	cmdExecStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { namespace, name, container, cols, rows }, options),
 	/**
+	 *  The version, commit, OS and webview, and the text "Copy diagnostics"
+	 *  copies.
+	 */
+	cmdDiagnostics: (options?: InvokeOptions) => __TAURI_INVOKE<Diagnostics>("cmd_diagnostics", undefined, options),
+	/**  Open the documentation, a prefilled bug report or the log folder. */
+	cmdHelpOpen: (item: HelpItem, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_help_open", { item }, options),
+	/**
+	 *  Write an error the UI caught to the app log. `source`: where it was
+	 *  caught (`boundary`, `error`, `rejection`).
+	 */
+	cmdLogUiError: (source: string, message: string, stack: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_log_ui_error", { source, message, stack }, options),
+	/**
 	 *  The chart of each given revision (a few payloads downloaded at a time),
 	 *  for the list's chart columns. Errors are per release.
 	 */
@@ -765,6 +777,21 @@ export type DetailWatchEvent = {
 	id: string,
 } & DetailState;
 
+/**  The facts in About and in the copied diagnostics. */
+export type Diagnostics = {
+	version: string,
+	commit: string,
+	/**  The OS and its version, e.g. "Ubuntu 24.04.1 LTS (Linux 6.8.0)". */
+	os: string,
+	arch: string,
+	/**  The webview engine and its version. */
+	webview: string,
+	/**  Whether this is a debug build (`cargo tauri dev`). */
+	debug_build: boolean,
+	/**  All of the above as text, for the clipboard and a bug report. */
+	text: string,
+};
+
 /**  Progress of a drain. */
 export type DrainEvent = { type: "cordoned"; node: string } | 
 /**  What the drain is going to do. */
@@ -1104,6 +1131,15 @@ export type HelmRevisionKey = {
  *  where kubeloupe does not look.)
  */
 export type HelmStorage = "secret" | "configmap";
+
+/**  An item of the Help menu. */
+export type HelpItem = 
+/**  The README, in the browser. */
+"documentation" | 
+/**  A new GitHub issue with the diagnostics filled in. */
+"report_bug" | 
+/**  The folder with the app log, in the file manager. */
+"log_folder";
 
 /**  The counts of one workload kind. */
 export type KindCounts = {

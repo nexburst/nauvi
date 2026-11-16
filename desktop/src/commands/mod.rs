@@ -11,6 +11,7 @@ pub(crate) mod catalog;
 pub(crate) mod cluster;
 pub(crate) mod debug;
 pub(crate) mod exec;
+pub(crate) mod help;
 pub(crate) mod helm;
 pub(crate) mod helm_charts;
 pub(crate) mod local_shell;
@@ -61,6 +62,9 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             exec::cmd_exec_input,
             exec::cmd_exec_resize,
             exec::cmd_exec_start,
+            help::cmd_diagnostics,
+            help::cmd_help_open,
+            help::cmd_log_ui_error,
             helm::cmd_helm_charts,
             helm::cmd_helm_get,
             helm::cmd_helm_list,

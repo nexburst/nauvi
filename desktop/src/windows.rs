@@ -174,7 +174,7 @@ pub(crate) fn restore_windows(app: &AppHandle) {
         // Where it was (#182), or cascaded from the main window.
         let rect = window_state::restored(Some(n)).or_else(|| cascade_from(app, MAIN_WINDOW));
         if let Err(e) = open_window(app, &ctx, rect) {
-            eprintln!("kubeloupe: {e}");
+            tracing::warn!("{e}");
         }
     }
     // Forget what was skipped.
@@ -268,7 +268,7 @@ pub(crate) fn reopen(app: &AppHandle) {
         window_state::placed(MAIN_WINDOW, r);
     }
     if let Err(e) = built {
-        eprintln!("kubeloupe: could not open a window: {e}");
+        tracing::warn!("could not open a window: {e}");
     }
 }
 

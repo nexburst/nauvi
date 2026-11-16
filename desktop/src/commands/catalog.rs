@@ -78,7 +78,7 @@ pub(crate) fn cmd_remove_kubeconfig_source(
         .sources
         .forget_exec_answers(&file.display().to_string())
     {
-        eprintln!("kubeloupe: {e}");
+        tracing::warn!("{e}");
     }
     if is_pasted(&state.sources, &file) {
         if let Err(e) = std::fs::remove_file(&file) {

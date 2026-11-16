@@ -164,7 +164,7 @@ pub(crate) fn save<R: Runtime>(app: &AppHandle<R>) {
     });
     let Some(path) = path else { return };
     if let Err(e) = write(&path, &saved) {
-        eprintln!("kubeloupe: could not save {}: {e}", path.display());
+        tracing::warn!("could not save {}: {e}", path.display());
     }
 }
 

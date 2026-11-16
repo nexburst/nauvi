@@ -258,7 +258,7 @@ pub(crate) fn load(path: &Path) -> Settings {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Settings::default(),
         Err(e) => {
-            eprintln!("kubeloupe: could not read {}: {e}", path.display());
+            tracing::warn!("could not read {}: {e}", path.display());
             return Settings::default();
         }
     };
@@ -266,8 +266,8 @@ pub(crate) fn load(path: &Path) -> Settings {
         return s;
     }
     let aside = corrupt_path(path);
-    eprintln!(
-        "kubeloupe: {} is not valid settings JSON; moved it to {} and started with the defaults",
+    tracing::warn!(
+        "{} is not valid settings JSON; moved it to {} and started with the defaults",
         path.display(),
         aside.display()
     );
@@ -359,7 +359,7 @@ impl SettingsStore {
         let Some(path) = &self.path else { return };
         let settings = self.get();
         if let Err(e) = save(path, &settings) {
-            eprintln!("kubeloupe: could not save {}: {e}", path.display());
+            tracing::warn!("could not save {}: {e}", path.display());
         }
     }
 }

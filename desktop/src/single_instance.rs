@@ -30,7 +30,7 @@ pub(crate) fn plugin(identifier: &str) -> TauriPlugin<Wry> {
 /// Bring the running app to the front: the main window, else the first
 /// cluster window; on macOS with no window left, open the main window again.
 fn focus(app: &AppHandle) {
-    eprintln!("kubeloupe: another launch; bringing the running app to the front");
+    tracing::info!("another launch; bringing the running app to the front");
     let windows = app.webview_windows();
     let window = windows
         .get(MAIN_WINDOW)

@@ -32,7 +32,49 @@ fn write_if_changed(path: &std::path::Path, bytes: &[u8]) {
     }
 }
 
+/// The commit the app is built from, for About and the diagnostics (#208):
+/// `KUBELOUPE_COMMIT` if set, else git's, else CI's `GITHUB_SHA`, else
+/// "unknown" (a source tarball).
+fn set_commit() {
+    println!("cargo:rerun-if-env-changed=KUBELOUPE_COMMIT");
+    println!("cargo:rerun-if-env-changed=GITHUB_SHA");
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+    // A commit or checkout rewrites HEAD or appends to its reflog.
+    if let Some(dir) = git(&["rev-parse", "--absolute-git-dir"]) {
+        for file in ["HEAD", "logs/HEAD"] {
+            let path = PathBuf::from(&dir).join(file);
+            if path.exists() {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
+    }
+    let commit = std::env::var("KUBELOUPE_COMMIT")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| git(&["rev-parse", "--short=12", "HEAD"]))
+        .or_else(|| std::env::var("GITHUB_SHA").ok().map(|s| s.chars().take(12).collect()))
+        .unwrap_or_else(|| "unknown".into());
+    // Only a commit id: nothing else reaches the binary.
+    let commit: String = commit
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .take(40)
+        .collect();
+    let commit = if commit.is_empty() { "unknown".into() } else { commit };
+    println!("cargo:rustc-env=KUBELOUPE_COMMIT={commit}");
+}
+
 fn main() {
     ensure_icon();
+    set_commit();
     tauri_build::build()
 }

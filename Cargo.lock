@@ -2524,6 +2524,7 @@ dependencies = [
  "kubeloupe",
  "objc2",
  "portable-pty",
+ "regex",
  "semver",
  "serde",
  "serde_json",
@@ -2536,6 +2537,8 @@ dependencies = [
  "tauri-plugin-updater",
  "tauri-specta",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
  "url",
 ]
 

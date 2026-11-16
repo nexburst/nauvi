@@ -18,7 +18,7 @@ pub(crate) fn on_page_load<R: Runtime>(webview: &Webview<R>, payload: &PageLoadP
     let Some(sessions) = webview.app_handle().state::<AppState>().page_load(label) else {
         return;
     };
-    eprintln!("kubeloupe: window {label} reloaded; its session starts over");
+    tracing::info!("window {label} reloaded; its session starts over");
     // The unsaved edits were in the old page.
     crate::close_guard::forget(label);
     crate::state::spawn_closes(sessions);
