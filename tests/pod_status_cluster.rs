@@ -3,6 +3,8 @@
 //! (`Init:Error`, `Error`, `Completed`, `NotReady`). `#[ignore]`d like
 //! `tests/cluster.rs`; run with `cargo test --test pod_status_cluster -- --ignored`.
 
+mod common;
+
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
@@ -49,7 +51,7 @@ fn pod(name: &str, restart: &str, init: &[&str], containers: &[&str]) -> Result<
 #[ignore]
 async fn pods_table_status_matches_kubectl_for_terminated_and_init_states() -> Result<()> {
     let client = connect().await?;
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("kl-it-podstatus-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({

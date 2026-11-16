@@ -3,6 +3,8 @@
 //! `cargo test --test cli -- --ignored`; the context comes from
 //! `KUBELOUPE_TEST_CONTEXT` (default `kind-kubeloupe-test`).
 
+mod common;
+
 use std::process::{Command, Output};
 
 use anyhow::Result;
@@ -199,7 +201,7 @@ fn cli_not_found_is_a_plain_error() {
 #[ignore]
 async fn cli_selectors_formats_and_secret_reveal() -> Result<()> {
     let client = kubeloupe::client_for_context(Some(&context())).await?;
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("kl-it-cli-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     namespaces

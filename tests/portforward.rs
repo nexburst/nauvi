@@ -4,6 +4,8 @@
 //! temporary namespace and binds only random local ports, so tests (and
 //! other worktrees) never fight over a port.
 
+mod common;
+
 use std::future::Future;
 use std::time::Duration;
 
@@ -48,7 +50,7 @@ where
     // A counter too: tests run in parallel in one process.
     static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("{prefix}-{suffix:x}-{seq}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({

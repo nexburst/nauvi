@@ -11,6 +11,8 @@
 //! process's `PATH`, which the tests running in parallel share.
 #![cfg(unix)]
 
+mod common;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -166,7 +168,7 @@ async fn plugin_token_lists_pods_on_kind() -> Result<()> {
         .context("test cluster not in kubeconfig")?;
     let cluster = serde_json::to_value(cluster)?;
 
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("kl-auth-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(admin.clone());
     namespaces
@@ -263,7 +265,7 @@ async fn check_and_connect_share_one_plugin_run_on_kind() -> Result<()> {
         .context("test cluster not in kubeconfig")?;
     let cluster = serde_json::to_value(cluster)?;
 
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("kl-exec-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(admin.clone());
     namespaces

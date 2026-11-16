@@ -6,6 +6,8 @@
 //! (`KUBELOUPE_TEST_CONTEXT`, default `kind-kubeloupe-test`) in a temporary
 //! namespace.
 
+mod common;
+
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{channel, Receiver};
@@ -251,7 +253,7 @@ async fn connect() -> Result<Client> {
 }
 
 async fn temp_ns(client: &Client, prefix: &str) -> Result<String> {
-    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
+    let suffix = common::unique_suffix();
     let ns = format!("{prefix}-{suffix:x}");
     let obj: Namespace = serde_json::from_value(json!({ "metadata": { "name": ns } }))?;
     Api::<Namespace>::all(client.clone())
