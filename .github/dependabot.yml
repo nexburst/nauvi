@@ -1,13 +1,19 @@
 # Version updates (#214): weekly, one grouped PR per ecosystem, so the PR
 # count stays low. Major versions come one PR each, since they may need
-# code changes. Security updates are enabled in the repository settings
-# and still come as separate PRs, as soon as an advisory is published.
+# code changes; actions majors come together in one more PR. Security
+# updates are enabled in the repository settings and still come as
+# separate PRs, as soon as an advisory is published.
 #
 # The 7-day cooldown skips releases younger than a week (a compromised
 # release is usually caught by then); it doesn't delay security updates.
 #
 # Actions are pinned to commit SHAs with the version in a comment; Dependabot
 # updates both.
+#
+# Majors we migrate by hand are ignored: kube and k8s-openapi (#252, they
+# move together; k8s-openapi is 0.x, where a minor bump breaks too),
+# typescript (#253) and @types/node (we target Node 22). An update goes to
+# the first group that matches it, so the narrower groups come first.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -18,7 +24,16 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "kube"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "kube-*"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "k8s-openapi"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
+      kube:
+        patterns: ["kube", "kube-*", "k8s-openapi"]
       cargo:
         patterns: ["*"]
         update-types: [minor, patch]
@@ -33,6 +48,11 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         patterns: ["*"]
@@ -50,3 +70,6 @@ updates:
       github-actions:
         patterns: ["*"]
         update-types: [minor, patch]
+      github-actions-major:
+        patterns: ["*"]
+        update-types: [major]
