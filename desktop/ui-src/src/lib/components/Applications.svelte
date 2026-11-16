@@ -155,7 +155,11 @@
         >
           {#if h.sort}
             {@const key = h.sort}
-            <button type="button" class="sort" onclick={() => (sort = nextSort(sort, key))}
+            <button
+              type="button"
+              class="sort"
+              aria-label={`Sort by ${h.label}`}
+              onclick={() => (sort = nextSort(sort, key))}
               >{h.label}{#if sort.key === key}<span aria-hidden="true">{sort.dir === "asc" ? " ▲" : " ▼"}</span
                 >{/if}</button
             >

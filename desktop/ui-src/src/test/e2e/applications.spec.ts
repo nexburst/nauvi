@@ -31,8 +31,9 @@ test("applications are listed with their rolled-up status, filtered and sorted",
   await expect(page.locator("footer")).toContainText("4 of 4 applications");
 
   // Status sort: worst first.
-  await view(page).getByRole("button", { name: "Status" }).click();
-  await expect(appRows(page).locator(".name")).toHaveText(["migrate", "shop", "coredns", "web"]);
+  await view(page).getByRole("button", { name: "Sort by Status" }).click();
+  // Ties by namespace/name.
+  await expect(appRows(page).locator(".name")).toHaveText(["migrate", "shop", "web", "coredns"]);
 
   // The filter searches workload names too.
   await page.getByLabel("Filter").fill("nightly");
@@ -115,8 +116,13 @@ test("a namespace-scoped user sees the applications of its namespace, with notes
     c.deniedClusterWide = ["apps/v1/deployments", "apps/v1/statefulsets", "apps/v1/daemonsets", "batch/v1/cronjobs", "batch/v1/jobs"];
   });
   await openApplications(page);
+  // It starts in its namespace: no notes.
   await expect(appRows(page)).toHaveCount(3);
+  await expect(view(page).getByTestId("applications-notes")).toHaveCount(0);
+  // All namespaces: narrowed to its own, with a note per kind.
+  await toggleNamespaces(page, "demo");
   await expect(view(page).getByTestId("applications-notes")).toContainText(
     "Deployments: showing namespace demo only (not allowed across all namespaces)",
   );
+  await expect(appRows(page)).toHaveCount(3);
 });
