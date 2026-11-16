@@ -201,7 +201,8 @@ describe("zoom, terminal font size and focus", { timeout: 15 * 60_000 }, () => {
     console.log(`window after the restart: ${JSON.stringify(await app.driver.manage().window().getRect())}`);
     await waitZoom(app, 125);
     assert.equal(app.profile.settings()?.terminal_font_size, 18, "the font size is remembered");
-    await showShellPod(app);
+    // The view and namespace are remembered too (no clicks needed while zoomed).
+    await app.waitFor(async () => (await app.rows()).some(([n]) => n === "shell"), { message: "the shell pod listed again" });
     await app.js(
       `Array.from(document.querySelectorAll('[data-testid="resource-row"]')).find((r) => r.textContent.includes("shell"))?.click()`,
     );
