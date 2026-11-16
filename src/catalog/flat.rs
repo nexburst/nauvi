@@ -201,7 +201,12 @@ contexts:
             .unwrap()
             .contains("client-key-data: S0VZ"));
         let exec = user.exec.as_ref().unwrap();
-        let command = dir.0.join("./bin/get-token").display().to_string();
+        // kubectl resolves it only with the platform's separator in it.
+        let command = if cfg!(windows) {
+            "./bin/get-token".to_string()
+        } else {
+            dir.0.join("./bin/get-token").display().to_string()
+        };
         assert_eq!(exec.command.as_deref(), Some(command.as_str()));
         assert_eq!(
             exec.args.as_deref(),

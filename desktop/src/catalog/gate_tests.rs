@@ -150,7 +150,7 @@ users:
     exec:
       apiVersion: client.authentication.k8s.io/v1
       command: /bin/sh
-      args: [-c, "echo {tag} >> {marker}"]
+      args: [-c, 'echo {tag} >> {marker}']
       interactiveMode: Never
 contexts:
 - name: {id}
