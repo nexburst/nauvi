@@ -33,7 +33,8 @@
       // null: the user cancelled the save dialog.
       if (path) show(savedNote(rows, path), path, false);
     } catch (e) {
-      show(`Could not export: ${e}`, "", true);
+      const text = `Could not export: ${e}`;
+      show(text, text, true);
     } finally {
       busy = false;
     }
@@ -43,7 +44,7 @@
 </script>
 
 {#if note}
-  <span class="note" class:error={note.error} role="status" data-testid="csv-saved" title={note.title || undefined}
+  <span class="note" class:error={note.error} role="status" data-testid="csv-saved" title={note.title}
     >{note.text}</span
   >
 {/if}
@@ -63,7 +64,9 @@
   .note {
     min-width: 0;
     flex: 0 1 auto;
-    max-width: 420px;
+    /* Narrow enough that the toolbar keeps one row at 1280 px; the full
+       text is in the tooltip. */
+    max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

@@ -9,10 +9,6 @@ use std::path::PathBuf;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
-/// Set by the QA harness (`desktop/e2e`): save into this directory without
-/// showing the dialog, which WebDriver cannot drive.
-const QA_SAVE_DIR: &str = "KUBELOUPE_QA_SAVE_DIR";
-
 /// Ask where to save a CSV file (starting in Downloads, with `filename`
 /// suggested) and write `content` there. Returns the path written, or `None`
 /// when the user cancelled the dialog.
@@ -24,11 +20,7 @@ pub(crate) async fn cmd_save_csv(
     content: String,
 ) -> Result<Option<String>, String> {
     let name = safe_filename(&filename, "csv");
-    let path = match std::env::var_os(QA_SAVE_DIR).filter(|v| !v.is_empty()) {
-        Some(dir) => Some(PathBuf::from(dir).join(&name)),
-        None => ask_save_path(&window, &name).await?,
-    };
-    let Some(path) = path else {
+    let Some(path) = ask_save_path(&window, &name).await? else {
         return Ok(None);
     };
     let path = with_extension(path, "csv");
@@ -49,10 +41,8 @@ async fn ask_save_path(
         .set_title("Export to CSV")
         .set_file_name(name)
         .add_filter("CSV", &["csv"]);
-    if let Ok(dir) = window.path().download_dir() {
-        if dir.is_dir() {
-            dialog = dialog.set_directory(dir);
-        }
+    if let Some(dir) = downloads_dir(window) {
+        dialog = dialog.set_directory(dir);
     }
     dialog.save_file(move |picked| {
         let _ = tx.send(picked);
@@ -67,6 +57,19 @@ async fn ask_save_path(
             .map(Some)
             .map_err(|e| format!("Cannot save there: {e}")),
     }
+}
+
+/// Where the dialog starts: the Downloads folder. On Linux `download_dir`
+/// only knows it from `user-dirs.dirs` (XDG); without one, GTK would start
+/// in the app's working directory, so fall back to `~/Downloads`.
+fn downloads_dir(window: &tauri::WebviewWindow) -> Option<PathBuf> {
+    let paths = window.path();
+    paths
+        .download_dir()
+        .ok()
+        .into_iter()
+        .chain(paths.home_dir().ok().map(|h| h.join("Downloads")))
+        .find(|d| d.is_dir())
 }
 
 /// A file name that is safe on every platform: ASCII letters, digits, `-`,
