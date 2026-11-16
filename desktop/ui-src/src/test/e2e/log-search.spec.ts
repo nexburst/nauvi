@@ -222,3 +222,76 @@ test("a regex matches the container prefix of merged lines", async ({ page }) =>
   await expect(logLines(page).locator("mark")).toHaveText(["[side"]);
   expect(fake.errors).toEqual([]);
 });
+
+// #272: stepping to a match turns Follow off, so new lines do not scroll
+// it away; the match stays in view.
+test("stepping to a match turns Follow off and keeps the match in view", async ({ page }) => {
+  const fake = await openPodLogs(page);
+  await fake.emitLogLines(Array.from({ length: 2000 }, (_, i) => `line ${i}${i % 100 === 0 ? " hit" : ""}`));
+  await toggle(page, "Highlight the matches and keep the other lines, instead of filtering").click();
+  await search(page).fill("hit");
+  await expect(count(page)).toHaveText("20 matches");
+  const followBox = logs(page).getByLabel("Follow");
+  await expect(followBox).toBeChecked();
+  await search(page).press("Shift+Enter");
+  await expect(count(page)).toHaveText("20 of 20");
+  await expect(followBox).not.toBeChecked();
+  const current = logs(page).locator('[data-testid="log-line"].current');
+  await expect(current).toHaveText("line 1900 hit");
+  // More lines come in: the view stays at the match.
+  await fake.emitLogLines(Array.from({ length: 500 }, (_, i) => `more ${i}`));
+  await expect(logs(page).locator(".logs-options")).toContainText("2,500 lines");
+  await expect(current).toBeInViewport();
+  // Follow on again: back to the newest line.
+  await followBox.check();
+  await expect(logLines(page).filter({ hasText: "more 499" })).toBeInViewport();
+  expect(fake.errors).toEqual([]);
+});
+
+test("at a match with Follow off, trimming the oldest lines does not move the view", async ({ page }) => {
+  const fake = await openPodLogs(page);
+  const batch = (from: number) => Array.from({ length: 10_000 }, (_, i) => `line ${from + i}${(from + i) % 1000 === 0 ? " hit" : ""}`);
+  for (let k = 0; k < 5; k++) await fake.emitLogLines(batch(k * 10_000));
+  // 54,000 shown: just under the trim (55,000).
+  await fake.emitLogLines(batch(50_000).slice(0, 4000));
+  await toggle(page, "Highlight the matches and keep the other lines, instead of filtering").click();
+  await search(page).fill("hit");
+  await expect(count(page)).toHaveText("54 matches");
+  // The newest match, near the end of the list.
+  await search(page).press("Shift+Enter");
+  const current = logs(page).locator('[data-testid="log-line"].current');
+  await expect(current).toHaveText("line 53000 hit");
+  // 2,000 more: 6,000 of the oldest are trimmed above the view and the list
+  // gets shorter (the browser clamps the scroll position first).
+  await fake.emitLogLines(batch(54_000).slice(0, 2000));
+  await expect(count(page)).toHaveText(/^\d+ of 50$/);
+  await expect(current).toHaveText("line 53000 hit");
+  await expect(current).toBeInViewport();
+  expect(fake.errors).toEqual([]);
+});
+
+// #272: the worker keeps its own copy of the lines; new lines and a full
+// buffer (trimmed at the start) are searched right.
+test("a regex search stays right as lines come in and the buffer is trimmed", async ({ page }) => {
+  const fake = await openPodLogs(page);
+  const batch = (from: number) =>
+    Array.from({ length: 10_000 }, (_, i) => `req ${from + i} status ${(from + i) % 100 === 0 ? 500 : 200}`);
+  for (let k = 0; k < 5; k++) await fake.emitLogLines(batch(k * 10_000));
+  await toggle(page, "Regular expression").click();
+  await search(page).fill("status 5\\d\\d$");
+  await expect(count(page)).toHaveText("500 matches");
+  // New lines are matched as they come (only they go to the worker).
+  await fake.emitLogLines(batch(50_000));
+  await expect(count(page)).toHaveText("600 matches");
+  // 60,000 is over the cap (+10%): the oldest 10,000 were trimmed, here and
+  // in the worker. A new search runs over lines 10,000 to 59,999.
+  await expect(logs(page).locator(".logs-options")).toContainText("50,000+ lines");
+  await search(page).fill("req [15]\\d{4} status 500$");
+  await expect(count(page)).toHaveText("200 matches");
+  // Following: the newest match is at the bottom, highlighted whole.
+  await expect(logLines(page).last()).toHaveText("req 59900 status 500");
+  await expect(logLines(page).last().locator("mark")).toHaveText("req 59900 status 500");
+  await logs(page).locator('[data-testid="log-output"] .scroller').evaluate((el) => (el.scrollTop = 0));
+  await expect(logLines(page).first()).toHaveText("req 10000 status 500");
+  expect(fake.errors).toEqual([]);
+});

@@ -101,15 +101,27 @@ async function shots(app, label) {
   await setTheme(app, null);
 }
 
-/** Frames per second over `ms`, and the longest frame. */
+/**
+ * Frames per second over `ms`, the longest frame, and the dip: the fewest
+ * frames in any 500 ms window, as frames per second (#272).
+ */
 function measureFps(app, ms = 2000) {
   return app.driver.executeAsyncScript(`
     const done = arguments[arguments.length - 1];
-    let n = 0; let worst = 0; let last = performance.now(); const t0 = last;
-    function f(now) { n++; worst = Math.max(worst, now - last); last = now;
-      if (now - t0 < ${ms}) requestAnimationFrame(f); else done({ fps: n / ((now - t0) / 1000), worst }); }
+    const times = []; const t0 = performance.now();
+    function f(now) { times.push(now);
+      if (now - t0 < ${ms}) { requestAnimationFrame(f); return; }
+      let worst = 0; for (let i = 1; i < times.length; i++) worst = Math.max(worst, times[i] - times[i - 1]);
+      let dip = Infinity; let j = 0;
+      for (let i = 0; i < times.length; i++) {
+        while (times[j] < times[i] - 500) j++;
+        if (times[i] - t0 >= 500) dip = Math.min(dip, i - j + 1);
+      }
+      done({ fps: times.length / ((now - t0) / 1000), worst, dip: (dip === Infinity ? times.length : dip) * 2 }); }
     requestAnimationFrame(f);`);
 }
+
+const fpsLabel = (f) => `${f.fps.toFixed(1)} fps meanwhile (lowest 500 ms: ${f.dip} fps), worst frame ${f.worst.toFixed(0)} ms`;
 
 describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
   before(() => {
@@ -182,6 +194,14 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
     await (await button(app, id, HIGHLIGHT)).click();
     await app.setValue(input, "ERROR");
     await app.waitFor(async () => (await logLines(app, id)).some((x) => !x.includes("ERROR")), { message: "other lines shown too" });
+    // Wait for this search, not the one before it (the count says "N matches" for both).
+    await app.waitFor(
+      async () => {
+        const marks = await app.js(`return Array.from(document.querySelectorAll(arguments[0] + ' [data-testid="log-line"] mark'), (m) => m.textContent);`, pane(id));
+        return marks.length > 0 && marks.every((m) => /^error$/i.test(m)) ? marks : null;
+      },
+      { message: "the ERROR search applied" },
+    );
     const total = await app.waitFor(
       async () => {
         const m = (await text(app, id, "log-match-count")).match(/^([\d,]+) match/);
@@ -304,6 +324,8 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       await (await button(app, sid, "Regular expression")).click();
       await (await button(app, sid, HIGHLIGHT)).click();
       const input = await searchBox(app, sid);
+      // #272: the frame rate of the busy stream alone, to compare with.
+      console.log(`busy stream, no search: ${fpsLabel(await measureFps(app, 2000))}`);
       const t0 = Date.now();
       await app.setValue(input, "status 50\\d a+!$");
       const fpsP = measureFps(app, 2000);
@@ -316,9 +338,24 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       );
       const searchMs = Date.now() - t0;
       const fps = await fpsP;
-      console.log(`regex over the busy buffer: "${label}" in ${searchMs} ms; ${fps.fps.toFixed(1)} fps meanwhile, worst frame ${fps.worst.toFixed(0)} ms`);
+      console.log(`regex over the busy buffer: "${label}" in ${searchMs} ms; ${fpsLabel(fps)}`);
       assert.ok(searchMs < 15_000, `the search answered in ${searchMs} ms`);
       assert.ok(fps.fps >= 5, `the page kept drawing (${fps.fps.toFixed(1)} fps)`);
+      // #272: a second search reads the worker's copy; nothing is sent again.
+      // About one line in ten (the first matched one in a hundred).
+      const t1b = Date.now();
+      const fpsB = measureFps(app, 2000);
+      await app.setValue(input, "req \\d+7 status");
+      const label2 = await app.waitFor(
+        async () => {
+          const t = await text(app, sid, "log-match-count");
+          const m = t.match(/^([\d,.   ]+) match/);
+          return m && Number(m[1].replace(/[^\d]/g, "")) > 2000 ? t : null;
+        },
+        { timeout: 30_000, interval: 100, message: "the second search's count" },
+      );
+      const searchMs2 = Date.now() - t1b;
+      console.log(`second regex over the busy buffer: "${label2}" in ${searchMs2} ms; ${fpsLabel(await fpsB)}`);
       // n / N start from the lines in view (the newest, following).
       await input.sendKeys(Key.SHIFT, Key.ENTER);
       const at = await app.waitFor(
@@ -329,7 +366,22 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
         { message: '"N of N"' },
       );
       console.log(`Shift+Enter went to match ${at}`);
+      // #272: stepping turned Follow off, so the busy stream does not
+      // scroll the match away (nor do trims of the oldest lines).
+      const followBox = await app.find(By.xpath(`//*[@data-tab='${sid}']//label[normalize-space()='Follow']/input`));
+      assert.equal(await followBox.isSelected(), false, "Follow is off after stepping");
+      await app.driver.sleep(3000);
+      const kept = await app.js(
+        `const l = document.querySelector(arguments[0] + ' [data-testid="log-line"].current');
+         if (!l) return null;
+         const r = l.getBoundingClientRect(); const o = document.querySelector(arguments[0] + ' [data-testid="log-output"]').getBoundingClientRect();
+         return { text: l.textContent, inView: r.top >= o.top - 1 && r.bottom <= o.bottom + 1 };`,
+        pane(sid),
+      );
+      console.log(`3 s later the current match: ${JSON.stringify(kept)}`);
+      assert.ok(kept?.inView, `the current match stays in view: ${JSON.stringify(kept)}`);
       await shots(app, "busy-highlight");
+      await followBox.click();
 
       // `(a+)+$` on "aaa…a!" backtracks for ever: stopped after the limit.
       const t1 = Date.now();
@@ -338,7 +390,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       const err = await app.waitFor(async () => text(app, sid, "log-search-error"), { timeout: 30_000, interval: 100, message: '"Regex too slow"' });
       const stopMs = Date.now() - t1;
       const fps2 = await fps2P;
-      console.log(`catastrophic regex: "${err}" after ${stopMs} ms; ${fps2.fps.toFixed(1)} fps meanwhile, worst frame ${fps2.worst.toFixed(0)} ms`);
+      console.log(`catastrophic regex: "${err}" after ${stopMs} ms; ${fpsLabel(fps2)}`);
       assert.match(err, /^Regex too slow/);
       assert.ok(fps2.fps >= 5, `the page kept drawing while the regex ran (${fps2.fps.toFixed(1)} fps)`);
       // Still usable: Pause answers, and a new search works.

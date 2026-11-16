@@ -30,7 +30,7 @@
     stepMatch,
   } from "../logFilter";
   import type { CompiledQuery } from "../logFilter";
-  import { LogSearcher } from "../logSearch";
+  import { LogSearcher, SEARCH_CHUNK } from "../logSearch";
   import type { Hits } from "../logSearch";
   import type { PodRef } from "../stores/detail.svelte";
   import { settings } from "../stores/settings.svelte";
@@ -108,15 +108,23 @@
   const containersByPod = new Map<string, Set<string>>();
   let tagInfoCache = new Map<number, { prefix: string; color: string }>();
 
-  // The ring buffer and the lines waiting for the next frame live outside
-  // reactive state; only the displayed lines are signalled, by `rev`.
+  // The ring buffer lives outside reactive state; only the displayed lines
+  // are signalled, by `rev`. Lines are numbered as they arrive (`buf.first()`
+  // ..`buf.end()`); those from `shownEnd` on wait for the next frame.
   const buf = new LogBuffer();
-  let pending: string[] = [];
-  let pendingTags: number[] = [];
+  let shownEnd = 0;
+  let flushQueued = false;
   // `matches`: ids of the shown lines that match, in order (ids only grow).
   const d = { lines: [] as Line[], matches: [] as number[] };
   let rev = $state(0);
+  // The worker keeps its own copy of the buffer (#272): sent once, then
+  // only the new lines.
   const searcher = new LogSearcher();
+  searcher.attach(buf);
+  /** Search hits of the pod prefixes, by tag id, for the query in use. */
+  let prefixHits = new Map<number, Hits>();
+  /** Time on the main thread before a long rebuild lets a frame through. */
+  const FRAME_BUDGET_MS = 8;
   // Display updates run one at a time, in order: matching a regex is async
   // (a worker). `gen` changes on a rebuild or a clear; an update that
   // started before drops its result (the rebuild covers its lines).
@@ -178,7 +186,7 @@
       cancelAnimationFrame(raf);
       raf = 0;
     }
-    if (pending.length > 0) enqueue(flushNow);
+    if (shownEnd < buf.end()) enqueue(flushNow);
     enqueue(() => {
       const atBottom = isAtBottom();
       d.lines.push({ id: nextLineId++, text, cls });
@@ -210,124 +218,166 @@
     return { id: nextLineId++, text, prefix: info.prefix, color: info.color };
   }
 
-  interface LineHits {
-    text: Hits[];
-    /** By tag id: the filter also matches the pod (and container) prefix. */
-    prefix: Map<number, Hits>;
+  type Built = { lines: Line[]; matches: number[] };
+
+  /** Let a frame through when this update has used its share of one. */
+  async function yieldFrame(since: { t: number }) {
+    if (performance.now() - since.t < FRAME_BUDGET_MS) return;
+    await new Promise((r) => setTimeout(r, 0));
+    since.t = performance.now();
+  }
+
+  /** The search hits of the prefixes of `tags` not known yet (workload mode). */
+  async function notePrefixHits(q: CompiledQuery, tags: number[], g: number): Promise<boolean> {
+    const missing = [...new Set(tags)].filter((t) => t !== 0 && !prefixHits.has(t));
+    if (missing.length === 0) return true;
+    const res = await searcher.run(
+      q,
+      missing.map((t) => tagInfo(t).prefix),
+      () => g !== gen,
+    );
+    if (!res || g !== gen) return false;
+    missing.forEach((t, k) => prefixHits.set(t, res[k]));
+    return true;
+  }
+
+  /** Append line `seq` of the buffer to `out`, with its hits (none: not searching). */
+  function addLine(out: Built, seq: number, hits: Hits | undefined) {
+    const i = seq - buf.dropped;
+    if (i < 0) return; // trimmed meanwhile
+    const tagId = buf.tagIds[i];
+    if (podFilter && tagId && buf.tags[tagId].pod !== podFilter) return;
+    if (hits === undefined) {
+      out.lines.push(makeLine(buf.lines[i], tagId));
+      return;
+    }
+    const ph = tagId ? (prefixHits.get(tagId) ?? null) : null;
+    const hit = hits !== null || ph !== null;
+    if (!hit && !highlightMode) return;
+    const line = makeLine(buf.lines[i], tagId);
+    if (hit) {
+      line.hits = hits;
+      line.prefixHits = ph;
+      out.matches.push(line.id);
+    }
+    out.lines.push(line);
   }
 
   /**
-   * The search hits of `texts` (tagged `tags`): null without a query,
-   * undefined when a newer update made this one stale, or the regex failed
-   * (it is then dropped and the display rebuilt without it).
+   * Display lines for the buffer's lines `from` up to `to`, built a chunk at
+   * a time (#272): a regex runs on the worker's copy of the lines, and the
+   * main thread lets frames through between chunks. False when a newer
+   * update made this one stale, or the regex failed (it is then dropped and
+   * the display rebuilt without it).
    */
-  async function matchLines(texts: string[], tags: number[], g: number): Promise<LineHits | null | undefined> {
+  async function build(from: number, to: number, g: number): Promise<Built | null> {
     const q = query;
-    if (q.kind !== "text" && q.kind !== "regex") return null;
-    const uniq = [...new Set(tags)].filter((t) => t !== 0);
-    const items = uniq.length > 0 ? texts.concat(uniq.map((t) => tagInfo(t).prefix)) : texts;
-    let res: Hits[] | null;
+    const out: Built = { lines: [], matches: [] };
+    const since = { t: performance.now() };
+    const search = q.kind === "text" || q.kind === "regex";
     try {
-      res = await searcher.run(q, items, () => g !== gen);
+      for (let i = from; i < to; i += SEARCH_CHUNK) {
+        const end = Math.min(to, i + SEARCH_CHUNK);
+        if (!search) {
+          for (let s = i; s < end; s++) addLine(out, s, undefined);
+        } else {
+          if (!(await notePrefixHits(q, buf.sliceTags(i, end), g))) return null;
+          const ok = await searcher.runRange(
+            q,
+            i,
+            end,
+            (start, hits) => hits.forEach((h, k) => addLine(out, start + k, h)),
+            () => g !== gen,
+          );
+          if (!ok) return null;
+        }
+        if (g !== gen) return null;
+        await yieldFrame(since);
+        if (g !== gen) return null;
+      }
     } catch (e) {
       if (g === gen) {
         searchError = e instanceof Error ? e.message : String(e);
         query = { kind: "none" };
         renderLogs();
       }
-      return undefined;
+      return null;
     }
-    if (!res || g !== gen) return undefined;
-    const prefix = new Map<number, Hits>();
-    uniq.forEach((t, k) => prefix.set(t, res[texts.length + k]));
-    return { text: res, prefix };
+    return out;
   }
 
-  /** The lines the pod filter keeps (workload mode). */
-  function byPod(texts: string[], tags: number[]): [string[], number[]] {
-    if (!podFilter) return [texts, tags];
-    const t: string[] = [];
-    const g: number[] = [];
-    for (let i = 0; i < texts.length; i++) {
-      if (tags[i] && buf.tags[tags[i]].pod !== podFilter) continue;
-      t.push(texts[i]);
-      g.push(tags[i]);
-    }
-    return [t, g];
+  /** Keep the newest LOG_BUFFER_MAX shown lines; how many went. */
+  function trimDisplay(): number {
+    if (d.lines.length <= LOG_BUFFER_MAX + LOG_BUFFER_MAX / 10) return 0;
+    const drop = d.lines.length - LOG_BUFFER_MAX;
+    d.lines.splice(0, drop);
+    const first = d.lines[0].id;
+    let k = 0;
+    while (k < d.matches.length && d.matches[k] < first) k++;
+    if (k > 0) d.matches.splice(0, k);
+    return drop;
   }
 
-  /** Append lines to the display: all of them, or only the matches when filtering. */
-  function addLines(texts: string[], tags: number[], m: LineHits | null) {
-    for (let i = 0; i < texts.length; i++) {
-      const tagId = tags[i];
-      if (!m) {
-        d.lines.push(makeLine(texts[i], tagId));
-        continue;
-      }
-      const th = m.text[i];
-      const ph = tagId ? (m.prefix.get(tagId) ?? null) : null;
-      const hit = th !== null || ph !== null;
-      if (!hit && !highlightMode) continue;
-      const line = makeLine(texts[i], tagId);
-      if (hit) {
-        line.hits = th;
-        line.prefixHits = ph;
-        d.matches.push(line.id);
-      }
-      d.lines.push(line);
+  /**
+   * After an update: follow the newest line, or with Follow off (e.g. at a
+   * match) keep the same lines in view when older ones were trimmed above.
+   * With Follow on but scrolled up, the view is left as it was: pinning it
+   * would hold it on lines that are about to be trimmed.
+   */
+  async function settleScroll(wasAtBottom: boolean, trimmed: number) {
+    if (follow) {
+      await followIfNeeded(wasAtBottom);
+      return;
     }
-    if (d.lines.length > LOG_BUFFER_MAX + LOG_BUFFER_MAX / 10) {
-      d.lines.splice(0, d.lines.length - LOG_BUFFER_MAX);
-      const first = d.lines[0].id;
-      let k = 0;
-      while (k < d.matches.length && d.matches[k] < first) k++;
-      if (k > 0) d.matches.splice(0, k);
+    if (trimmed > 0 && scrollEl) {
+      // Read before the list shrinks: near its end the browser clamps
+      // scrollTop to the new height first.
+      const el = scrollEl;
+      const top = el.scrollTop;
+      await tick();
+      el.scrollTop = Math.max(0, top - trimmed * LINE_HEIGHT);
     }
   }
 
   function flush() {
     raf = 0;
-    if (paused || pending.length === 0) return;
+    if (paused || flushQueued || shownEnd >= buf.end()) return;
+    flushQueued = true;
     enqueue(flushNow);
   }
 
   async function flushNow() {
-    if (paused || pending.length === 0) return;
-    const [lines, tags] = byPod(pending, pendingTags);
-    pending = [];
-    pendingTags = [];
+    flushQueued = false;
+    if (paused) return;
+    const from = Math.max(shownEnd, buf.first());
+    const to = buf.end();
+    if (from >= to) return;
+    shownEnd = to;
     const g = gen;
-    const m = await matchLines(lines, tags, g);
-    if (m === undefined || g !== gen) return;
+    const out = await build(from, to, g);
+    if (!out || g !== gen) return;
     const atBottom = isAtBottom();
-    addLines(lines, tags, m);
+    for (const l of out.lines) d.lines.push(l);
+    for (const m of out.matches) d.matches.push(m);
+    const trimmed = trimDisplay();
     rev++;
     updateStatus();
-    followIfNeeded(atBottom);
+    settleScroll(atBottom, trimmed);
   }
 
-  /** Queue lines for the next frame; a hidden tab only renders when shown. */
+  /** Show new lines with the next frame; a hidden tab only renders when shown. */
   function schedule() {
-    if (hidden) {
-      // Only the newest LOG_BUFFER_MAX can end up on screen anyway.
-      if (pending.length > LOG_BUFFER_MAX + LOG_BUFFER_MAX / 10) {
-        pending.splice(0, pending.length - LOG_BUFFER_MAX);
-        pendingTags.splice(0, pendingTags.length - LOG_BUFFER_MAX);
-      }
-      return;
-    }
+    // A hidden tab keeps them in the buffer (bounded) until it is shown.
+    if (hidden) return;
     if (!raf) raf = requestAnimationFrame(flush);
   }
 
   function onBatch(lines: string[]) {
     buf.push(lines);
+    searcher.appended(lines);
     if (paused) {
       updateStatus();
       return;
-    }
-    for (const l of lines) {
-      pending.push(l);
-      pendingTags.push(0);
     }
     schedule();
   }
@@ -339,7 +389,11 @@
     if (!set) containersByPod.set(podName, (set = new Set()));
     if (!set.has(containerName)) {
       set.add(containerName);
-      if (set.size === 2) tagInfoCache = new Map(); // prefixes now include the container
+      if (set.size === 2) {
+        // Prefixes now include the container.
+        tagInfoCache = new Map();
+        prefixHits = new Map();
+      }
     }
     if (containerName && !knownContainers.includes(containerName)) {
       knownContainers = [...knownContainers, containerName].sort();
@@ -353,15 +407,10 @@
       }
     }
     buf.pushTagged(lines);
+    searcher.appended(lines.map((l) => l.line));
     if (paused) {
       updateStatus();
       return;
-    }
-    const n = lines.length;
-    const total = buf.lines.length;
-    for (let i = total - n; i < total; i++) {
-      pending.push(buf.lines[i]);
-      pendingTags.push(buf.tagIds[i]);
     }
     schedule();
   }
@@ -390,24 +439,24 @@
   /** Rebuild the display from the buffer (filter change, resume). */
   function renderLogs() {
     const want = ++gen;
-    // Whatever the worker still runs is for an older query or display.
-    searcher.cancel();
+    // The query (or the prefixes it matches) may have changed.
+    prefixHits = new Map();
     enqueue(() => renderNow(want));
   }
 
   async function renderNow(want: number) {
     if (want !== gen) return; // a newer rebuild is queued
-    pending = [];
-    pendingTags = [];
-    // A copy: the buffer keeps growing (and trimming) while a regex runs.
-    const [texts, tags] = byPod(buf.lines.slice(), buf.tagIds.slice());
-    const m = await matchLines(texts, tags, want);
-    if (m === undefined || want !== gen) return;
-    d.lines = [];
-    d.matches = [];
+    const from = buf.first();
+    const to = buf.end();
+    // Lines that come in meanwhile are shown by the next frame's update.
+    shownEnd = to;
+    const out = await build(from, to, want);
+    if (!out || want !== gen) return;
+    d.lines = out.lines;
+    d.matches = out.matches;
+    trimDisplay();
     currentId = -1;
     jumpedId = -1;
-    addLines(texts, tags, m);
     rev++;
     updateStatus();
     followIfNeeded(true);
@@ -415,10 +464,8 @@
 
   function resetLogs() {
     gen++;
-    searcher.cancel();
     buf.clear();
-    pending = [];
-    pendingTags = [];
+    shownEnd = buf.end();
     d.lines = [];
     d.matches = [];
     currentId = -1;
@@ -445,6 +492,7 @@
     podStates = {};
     containersByPod.clear();
     tagInfoCache = new Map();
+    prefixHits = new Map();
     truncatedNote = "";
     try {
       if (workload) {
@@ -583,6 +631,8 @@
       const pos = stepMatch(d.matches, cur, forward, cur < 0 ? viewEdgeId(forward) : -1);
       if (pos < 0) return;
       currentId = d.matches[pos];
+      // Following would scroll the match out of view with the next lines (#272).
+      follow = false;
       const index = lineIndex(currentId);
       await tick();
       list?.scrollToIndex(index, "center");
@@ -658,6 +708,12 @@
     renderLogs();
   }
 
+  /** Following again: back to the newest line. */
+  async function toggleFollow() {
+    await tick();
+    if (follow) list?.scrollToBottom();
+  }
+
   async function toggleWrap() {
     await tick();
     followIfNeeded(true);
@@ -693,13 +749,15 @@
 
   // A tab that is shown again renders what arrived while it was hidden.
   $effect(() => {
-    if (!hidden && pending.length > 0 && !raf) raf = requestAnimationFrame(flush);
+    if (!hidden && shownEnd < buf.end() && !raf) raf = requestAnimationFrame(flush);
   });
 </script>
 
 <div class="logs-header section-header">
   <h3>Logs<span class="muted"> · {title}</span></h3>
-  <label class="check"><input type="checkbox" bind:checked={follow} /> Follow</label>
+  <label class="check" title="Keep the newest line in view; going to a match turns it off"
+    ><input type="checkbox" bind:checked={follow} onchange={toggleFollow} /> Follow</label
+  >
   <button type="button" class="btn" class:active={paused} onclick={() => setPaused(!paused)}>
     {paused ? "Resume" : "Pause"}
   </button>

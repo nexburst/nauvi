@@ -1,6 +1,10 @@
 // Matches log lines against a query (#220). Plain text is matched here;
 // a regex runs in a worker with a time limit per chunk of lines, so a
 // pattern that backtracks without end stops the search, not the app.
+//
+// The log viewer's lines are sent to the worker once and kept up to date
+// there (a corpus, by sequence number, #272): a search then only names the
+// range to search, instead of copying 50,000 lines each time.
 
 import { regexRanges, testHit, textRanges } from "./logFilter";
 import type { CompiledQuery } from "./logFilter";
@@ -17,10 +21,35 @@ export interface SearchRequest {
   test?: boolean;
 }
 
+/** Search the corpus lines with sequence numbers `from` up to `to`. */
+export interface RangeRequest {
+  id: number;
+  source: string;
+  flags: string;
+  from: number;
+  to: number;
+}
+
+/**
+ * Changes to the worker's copy of the lines: `load` empties it, `append`
+ * adds `lines`, numbered from `at`. Both drop the lines before `first`
+ * (trimmed).
+ */
+export interface CorpusMessage {
+  op: "load" | "append";
+  at: number;
+  first: number;
+  lines: string[];
+}
+
+export type WorkerRequest = SearchRequest | RangeRequest | CorpusMessage;
+
 export type SearchReply = { id: number; hits: Hits[] } | { id: number; error: string };
 
 /** Lines per message to the worker, each with its own time limit. */
 export const SEARCH_CHUNK = 2000;
+/** Lines per message when a worker gets its copy of the lines. */
+export const LOAD_PIECE = 5000;
 /** How long one chunk may take before the regex counts as too slow. */
 export const SEARCH_TIMEOUT_MS = 1500;
 
@@ -30,6 +59,16 @@ export class SlowRegexError extends Error {
     super(`Regex too slow: stopped after ${ms / 1000} s on one chunk of lines; try a simpler one`);
     this.name = "SlowRegexError";
   }
+}
+
+/** The lines a corpus search reads, by sequence number (numbers only grow). */
+export interface CorpusSource {
+  /** Sequence number of the oldest line kept. */
+  first(): number;
+  /** Sequence number after the newest line. */
+  end(): number;
+  /** The lines `from` up to `to` (clamped to first..end). */
+  slice(from: number, to: number): string[];
 }
 
 /** Makes the worker; replaced in tests. */
@@ -44,6 +83,13 @@ export class LogSearcher {
   private worker: Worker | null = null;
   private nextId = 0;
   private waiting = new Map<number, Waiter>();
+  /** Settles when the chunk the worker runs now is done: one at a time. */
+  private idle: Promise<void> = Promise.resolve();
+  /** Bumped by `cancel`: chunks queued before it are not sent. */
+  private epoch = 0;
+  private corpus: CorpusSource | null = null;
+  /** Whether the worker holds `corpus` (loaded by the first range search). */
+  private synced = false;
 
   constructor(
     private timeoutMs = SEARCH_TIMEOUT_MS,
@@ -72,18 +118,124 @@ export class LogSearcher {
     return out;
   }
 
-  private chunk(source: string, flags: string, items: string[], test: boolean): Promise<Hits[]> {
+  /** Search the lines of `source` by sequence number (`runRange`). */
+  attach(source: CorpusSource) {
+    this.corpus = source;
+    this.synced = false;
+  }
+
+  /**
+   * Lines were added at the end of the corpus (and maybe trimmed at its
+   * start). Once the worker holds the corpus, only these are sent.
+   */
+  appended(lines: string[]) {
+    if (!this.synced || !this.worker || !this.corpus || lines.length === 0) return;
+    const at = this.corpus.end() - lines.length;
+    this.worker.postMessage({ op: "append", at, first: this.corpus.first(), lines } satisfies CorpusMessage);
+  }
+
+  /**
+   * The hits of the corpus lines `from` up to `to`, a chunk at a time:
+   * `onChunk(start, hits)` gets each chunk as it comes (`start`: the
+   * sequence number of its first line), so the caller builds its result
+   * incrementally. A line trimmed meanwhile has null hits. Resolves to
+   * false when `stale()` said to stop; rejects like `run`.
+   */
+  async runRange(
+    q: CompiledQuery,
+    from: number,
+    to: number,
+    onChunk: (start: number, hits: Hits[]) => void,
+    stale: () => boolean = () => false,
+  ): Promise<boolean> {
+    const src = this.corpus;
+    if (!src) throw new Error("No lines to search");
+    for (let i = from; i < to; i += SEARCH_CHUNK) {
+      const end = Math.min(to, i + SEARCH_CHUNK);
+      let hits: Hits[];
+      if (q.kind === "regex") hits = await this.rangeChunk(src, q.source, q.flags, i, end);
+      else if (q.kind === "text") hits = src.slice(i, end).map((t) => textRanges(t, q.needle, q.matchCase));
+      else hits = new Array<Hits>(end - i).fill(null);
+      if (stale()) return false;
+      onChunk(i, hits);
+    }
+    return true;
+  }
+
+  private rangeChunk(src: CorpusSource, source: string, flags: string, from: number, to: number): Promise<Hits[]> {
+    return this.serial(() => this.sendRange(src, source, flags, from, to));
+  }
+
+  private async sendRange(src: CorpusSource, source: string, flags: string, from: number, to: number): Promise<Hits[]> {
     const worker = this.ensureWorker();
     if (!worker) {
       // No workers (unit tests): run it here, without a time limit.
       const re = new RegExp(source, flags);
-      return Promise.resolve(items.map((t) => (test ? testHit(re, t) : regexRanges(re, t))));
+      const lines = src.slice(from, to);
+      const pad = to - from - lines.length;
+      return new Array<Hits>(pad).fill(null).concat(lines.map((t) => regexRanges(re, t)));
     }
-    const id = ++this.nextId;
-    return new Promise((resolve, reject) => {
+    if (!this.synced && !(await this.load(worker, src))) throw new Error("Search stopped");
+    return this.post(worker, { id: ++this.nextId, source, flags, from, to });
+  }
+
+  /**
+   * The one copy of the lines to a new worker; after it, only new ones go
+   * (`appended`). A piece at a time with a task between them: copying
+   * 50,000 lines in one message would hold up the page for a few frames.
+   * False when the worker was stopped meanwhile.
+   */
+  private async load(worker: Worker, src: CorpusSource): Promise<boolean> {
+    let at = src.first();
+    worker.postMessage({ op: "load", at, first: at, lines: [] } satisfies CorpusMessage);
+    for (;;) {
+      at = Math.max(at, src.first());
+      const end = Math.min(src.end(), at + LOAD_PIECE);
+      if (at < end) {
+        worker.postMessage({ op: "append", at, first: src.first(), lines: src.slice(at, end) } satisfies CorpusMessage);
+        at = end;
+      }
+      // Lines that came meanwhile are part of the next piece.
+      if (at >= src.end()) break;
+      await new Promise((r) => setTimeout(r, 0));
+      if (this.worker !== worker) return false;
+    }
+    this.synced = true;
+    return true;
+  }
+
+  private chunk(source: string, flags: string, items: string[], test: boolean): Promise<Hits[]> {
+    return this.serial(() => {
+      const worker = this.ensureWorker();
+      if (!worker) {
+        const re = new RegExp(source, flags);
+        return Promise.resolve(items.map((t) => (test ? testHit(re, t) : regexRanges(re, t))));
+      }
+      return this.post(worker, { id: ++this.nextId, source, flags, items, test });
+    });
+  }
+
+  /**
+   * Run `send` once the chunk before it has settled: one chunk at a time,
+   * so each time limit only counts its own chunk. A `cancel` meanwhile
+   * stops the ones still waiting.
+   */
+  private serial(send: () => Promise<Hits[]>): Promise<Hits[]> {
+    const epoch = this.epoch;
+    const run = this.idle.then(() => (epoch === this.epoch ? send() : Promise.reject(new Error("Search stopped"))));
+    this.idle = run.then(
+      () => {},
+      () => {},
+    );
+    return run;
+  }
+
+  /** Send one chunk with its time limit. */
+  private post(worker: Worker, req: SearchRequest | RangeRequest): Promise<Hits[]> {
+    return new Promise<Hits[]>((resolve, reject) => {
       const timer = setTimeout(() => this.stop(new SlowRegexError(this.timeoutMs)), this.timeoutMs);
-      this.waiting.set(id, { resolve, reject, timer });
-      worker.postMessage({ id, source, flags, items, test } satisfies SearchRequest);
+      this.waiting.set(req.id, { resolve, reject, timer });
+      worker.postMessage(req satisfies WorkerRequest);
     });
   }
 
@@ -110,11 +262,13 @@ export class LogSearcher {
       this.stop(new Error(e.message || "The search worker failed"));
     };
     this.worker = worker;
+    this.synced = false;
     return worker;
   }
 
   /** Abandon a search in progress (its `run` rejects); a no-op when idle. */
   cancel() {
+    this.epoch++;
     if (this.waiting.size > 0) this.stop();
   }
 
@@ -122,6 +276,7 @@ export class LogSearcher {
   stop(reason: Error = new Error("Search stopped")) {
     this.worker?.terminate();
     this.worker = null;
+    this.synced = false;
     for (const w of this.waiting.values()) {
       clearTimeout(w.timer);
       w.reject(reason);

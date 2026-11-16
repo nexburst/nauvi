@@ -35,6 +35,31 @@ export class LogBuffer {
   tagIds: number[] = [];
   tags: LineTag[] = [{ pod: "", container: "" }];
   private tagIndex = new Map<string, number>();
+  /**
+   * Sequence number of `lines[0]`: lines are numbered as they arrive, and
+   * the numbers go on growing across trims and clears (#272).
+   */
+  dropped = 0;
+
+  /** Sequence number of the oldest line kept. */
+  first(): number {
+    return this.dropped;
+  }
+
+  /** Sequence number after the newest line. */
+  end(): number {
+    return this.dropped + this.lines.length;
+  }
+
+  /** The lines `from` up to `to` (sequence numbers), clamped to what is kept. */
+  slice(from: number, to: number): string[] {
+    return this.lines.slice(Math.max(0, from - this.dropped), Math.max(0, to - this.dropped));
+  }
+
+  /** The tag ids of the same lines as `slice`. */
+  sliceTags(from: number, to: number): number[] {
+    return this.tagIds.slice(Math.max(0, from - this.dropped), Math.max(0, to - this.dropped));
+  }
 
   /** Append untagged lines (single-pod logs). */
   push(batch: string[]) {
@@ -66,10 +91,12 @@ export class LogBuffer {
       const drop = this.lines.length - LOG_BUFFER_MAX;
       this.lines.splice(0, drop);
       this.tagIds.splice(0, drop);
+      this.dropped += drop;
     }
   }
 
   clear() {
+    this.dropped += this.lines.length;
     this.lines = [];
     this.tagIds = [];
   }
