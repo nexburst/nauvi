@@ -64,6 +64,22 @@ export function registerTable(handle: TableHandle): () => void {
   };
 }
 
+/** Opens a terminal's search bar if `target` is in that (shown) terminal. */
+export type TerminalSearchHandle = (target: Element | null) => boolean;
+
+const terminalSearches = new Set<TerminalSearchHandle>();
+
+/** Register a mounted terminal's search (#222); returns the unregister function. */
+export function registerTerminalSearch(handle: TerminalSearchHandle): () => void {
+  terminalSearches.add(handle);
+  return () => terminalSearches.delete(handle);
+}
+
+function openTerminalSearch(target: Element | null): boolean {
+  for (const open of terminalSearches) if (open(target)) return true;
+  return false;
+}
+
 export function activeTable(): TableHandle | null {
   return table;
 }
@@ -202,6 +218,10 @@ export function handleKey(e: KeyboardEvent) {
       return done(e, toggleDock);
     case "newLocalShell":
       return done(e, openLocalShell);
+    case "terminalSearch":
+      // Only from a terminal (or its search bar): elsewhere ⌘F is left alone.
+      if (openTerminalSearch(target)) done(e, () => {});
+      return;
     case "detailTab":
       if (tabs && hit.index < tabs.count()) done(e, () => tabs?.select(hit.index));
       return;

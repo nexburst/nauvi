@@ -23,6 +23,7 @@ export type Command =
   | "zoomIn"
   | "zoomOut"
   | "zoomReset"
+  | "terminalSearch"
   | "escape";
 
 export interface Key {
@@ -39,6 +40,9 @@ export interface Key {
    * `KeyboardEvent.code`, the physical key, also accepted for `ctrl` keys:
    * where the backtick is a dead key (Spanish, Latin American, German...),
    * Ctrl+that key has another `key` ("Dead", "<", "^") but still this code.
+   * For a `mod` letter it is accepted only when the event's `key` is not a
+   * Latin letter (Cyrillic, Greek, Hebrew... layouts), so Dvorak or AZERTY
+   * keep the letter printed on the key.
    */
   code?: string;
   /** How the help overlay names the key, when `key` is not what is printed on it. */
@@ -57,7 +61,7 @@ export interface Binding {
   keys: Key[];
   /** What the help overlay says it does. */
   label: string;
-  group: "General" | "Table" | "Detail panel";
+  group: "General" | "Table" | "Detail panel" | "Terminal";
   /** How the help overlay writes the keys, when listing them would be long. */
   display?: string[];
   /** Also fires from text inputs (never from the YAML editor or the terminal). */
@@ -195,6 +199,20 @@ export const KEYMAP: Binding[] = [
     inInputs: true,
     inTerminal: true,
   },
+  {
+    command: "terminalSearch",
+    // Ctrl+F stays the shell's (forward-char in bash and emacs, page down
+    // in vim and less); ⌘F never reaches it. Ctrl+Shift+F as in GNOME
+    // Terminal, Konsole and Windows Terminal.
+    keys: [
+      { key: "f", mod: true, shift: true, mac: false, code: "KeyF" },
+      { key: "f", mod: true, mac: true, code: "KeyF" },
+    ],
+    label: "Search the terminal's output (from the terminal)",
+    group: "Terminal",
+    inInputs: true,
+    inTerminal: true,
+  },
 ];
 
 export function isMacPlatform(): boolean {
@@ -226,7 +244,11 @@ function matchesKey(e: KeyEventLike, k: Key, mac: boolean): boolean {
   // (Shift+F10) or when a plain letter must stay lower case (j, k).
   if (k.shift && !e.shiftKey) return false;
   if (!k.shift && e.shiftKey && (k.key.length > 1 || /[a-z ]/.test(k.key))) return false;
-  if (k.mod && k.key.length === 1) return e.key.toLowerCase() === k.key;
+  if (k.mod && k.key.length === 1) {
+    if (e.key.toLowerCase() === k.key) return true;
+    // A layout without Latin letters: by the physical key (see `code`).
+    return !!k.code && e.code === k.code && !/^[a-z]$/i.test(e.key);
+  }
   return e.key === k.key;
 }
 

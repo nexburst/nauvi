@@ -84,7 +84,11 @@
   import { onDestroy, onMount } from "svelte";
   import { Terminal } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
+  import { SearchAddon } from "@xterm/addon-search";
   import "@xterm/xterm/css/xterm.css";
+  import TerminalSearch from "./TerminalSearch.svelte";
+  import { HIGHLIGHT_LIMIT } from "../terminalSearch";
+  import { registerTerminalSearch } from "../stores/keyboard.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { webLink } from "../terminalLinks";
   import { events } from "../bindings";
@@ -105,6 +109,10 @@
   let host: HTMLDivElement;
   let term: Terminal | null = null;
   let fit: FitAddon | null = null;
+  /** Ctrl+Shift+F / ⌘F (#222). */
+  let search = $state.raw<SearchAddon | null>(null);
+  let searchBar = $state<ReturnType<typeof TerminalSearch> | null>(null);
+  let box: HTMLDivElement;
   let session: string | null = null;
   let resizeObserver: ResizeObserver | null = null;
   let unlisteners: (() => void)[] = [];
@@ -131,6 +139,13 @@
     if (active && session) term?.focus();
   });
 
+  // The shortcut opens the search of the terminal it was pressed in.
+  const unregisterSearch = registerTerminalSearch((target) => {
+    if (!active || !searchBar || !target || !box?.contains(target)) return false;
+    searchBar.open(term?.getSelection() ?? "");
+    return true;
+  });
+
   // The font size from Settings (#207), changed live: refit to the new cell size.
   const fontSize = $derived(settings.current.terminal_font_size);
   $effect(() => {
@@ -147,6 +162,8 @@
       cursorBlink: true,
       fontSize,
       theme: { background: "#0d1013" },
+      // The search addon highlights matches with decorations (#222).
+      allowProposedApi: true,
       // OSC 8 links from the output (#245): only http(s), in the browser.
       // xterm already drops other schemes (`allowNonHttpProtocols` is off);
       // `webLink` checks again. The tooltip shows where a link goes, since
@@ -166,10 +183,13 @@
     });
     const f = new FitAddon();
     t.loadAddon(f);
+    const s = new SearchAddon({ highlightLimit: HIGHLIGHT_LIMIT });
+    t.loadAddon(s);
     t.open(host);
     f.fit();
     term = t;
     fit = f;
+    search = s;
 
     resizeObserver = new ResizeObserver(() => sendResize());
     resizeObserver.observe(host);
@@ -222,6 +242,7 @@
 
   onDestroy(() => {
     destroyed = true;
+    unregisterSearch();
     resizeObserver?.disconnect();
     unlisteners.forEach((f) => f());
     if (session) backend?.close(session).catch(() => {});
@@ -229,6 +250,7 @@
     term?.dispose();
     term = null;
     fit = null;
+    search = null;
   });
 </script>
 
@@ -236,7 +258,10 @@
      and width, which with `box-sizing: border-box` include the parent's
      padding and border: the padding stays on the outer box, so the last row
      is not cut in half (#181). -->
-<div class="terminal" data-testid="terminal">
+<div class="terminal" data-testid="terminal" bind:this={box}>
+  {#if search}
+    <TerminalSearch bind:this={searchBar} {search} onclose={() => term?.focus()} />
+  {/if}
   <div class="screen" bind:this={host}></div>
 </div>
 
@@ -250,6 +275,8 @@
     background: #0d1013;
     border-top: 1px solid var(--border);
     overflow: hidden;
+    /* The search bar floats over the top right: opening it never resizes the shell. */
+    position: relative;
   }
   .screen {
     flex: 1;
