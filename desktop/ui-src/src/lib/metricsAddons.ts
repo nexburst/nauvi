@@ -28,9 +28,9 @@ export function sameAddonRequest(a: MetricsAddonRequest | null, b: MetricsAddonR
   );
 }
 
-/** A node's Disk cell: "12.5Gi / 58.4Gi (21%)". */
+/** A node's Disk cell, the percentage first (it survives a narrow column): "21% · 12.5Gi / 58.4Gi". */
 export function diskText(d: NodeDisk): string {
-  return `${formatMemory(d.used_bytes)} / ${formatMemory(d.size_bytes)} (${diskPercent(d)}%)`;
+  return `${diskPercent(d)}% · ${formatMemory(d.used_bytes)} / ${formatMemory(d.size_bytes)}`;
 }
 
 /** How full a node's root filesystem is, 0-100. */

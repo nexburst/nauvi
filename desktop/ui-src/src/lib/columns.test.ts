@@ -154,7 +154,7 @@ describe("columnsFor", () => {
     const c2: Ctx = { metrics: withDisks, now: 0 };
     expect(shownColumns(cols, [], withDisks).map((c) => c.key)).toEqual(["name", "disk"]);
     expect(shownColumns(cols, ["disk"], withDisks).map((c) => c.key)).toEqual(["name"]);
-    expect(disk.text(node, c2)).toBe("10Gi / 40Gi (25%)");
+    expect(disk.text(node, c2)).toBe("25% · 10Gi / 40Gi");
     expect(disk.sort(node, c2)).toBe(25);
     const other = row(["x", ""], { key: "node-2", name: "node-2", namespace: "" });
     expect(disk.text(other, c2)).toBe("—");

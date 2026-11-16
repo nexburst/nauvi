@@ -260,7 +260,7 @@ describe("one-click metrics", { timeout: 30 * 60_000, skip }, () => {
       data = await app.waitFor(
         async () => {
           const d = await tableData(app);
-          return d?.headers.includes("Disk") && d.rows.some((r) => /%\)$/.test(r.Disk ?? "")) ? d : null;
+          return d?.headers.includes("Disk") && d.rows.some((r) => /^\d+% · /.test(r.Disk ?? "")) ? d : null;
         },
         { timeout: 290_000, interval: 3000, message: "the Disk column" },
       );
