@@ -88,6 +88,8 @@ export interface FakeCluster {
   applyErrors: Record<string, string>;
   /** Running port-forwards (`cmd_portforward_*`); change a status to simulate errors. */
   forwards: ForwardInfo[];
+  /** Saved ids of forwards another window runs (`cmd_portforward_elsewhere`). */
+  forwardsElsewhere: string[];
   /** `cmd_service_ports`, by `namespace/name`. */
   servicePorts: Record<string, ServicePortInfo[]>;
   /** `cmd_debug_start` fails with this after its first progress line. */
@@ -411,6 +413,7 @@ export function defaultCluster(): FakeCluster {
     related: relatedFixtures(),
     applyErrors: {},
     forwards: [],
+    forwardsElsewhere: [],
     debugError: "",
     attachError: "",
     nodeShellError: "",

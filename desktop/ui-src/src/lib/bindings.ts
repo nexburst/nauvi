@@ -298,6 +298,12 @@ export const commands = {
 	 *  not an error.
 	 */
 	cmdPortforwardDelete: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_portforward_delete", { id }, options),
+	/**
+	 *  The saved forwards that run in another window (#292): saved forwards
+	 *  are per context, so a window shows them as running elsewhere instead
+	 *  of stopped.
+	 */
+	cmdPortforwardElsewhere: (options?: InvokeOptions) => __TAURI_INVOKE<string[]>("cmd_portforward_elsewhere", undefined, options),
 	/**  Every running forward, oldest first. */
 	cmdPortforwardList: (options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo[]>("cmd_portforward_list", undefined, options),
 	/**

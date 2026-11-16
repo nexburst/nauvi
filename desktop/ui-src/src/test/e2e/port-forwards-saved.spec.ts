@@ -132,3 +132,41 @@ test("the empty manager explains how to start one", async ({ page }) => {
   await expect(page.getByTestId("forwards-empty")).toContainText("No port-forwards.");
   await expect(page.getByRole("contentinfo")).toContainText("0 forwards, 0 running");
 });
+
+test("a saved forward another window runs is not started twice (#292)", async ({ page }) => {
+  // On every load (a reload is a restart), another window runs the
+  // auto-start forwards already, as when two restored windows connect.
+  const fake = await openApp(page, (c) => {
+    c.forwardsElsewhere = Object.values(c.settings.forwards)
+      .flat()
+      .filter((f) => f.auto_start)
+      .map((f) => f.id);
+  });
+  await forwardApi(page, "18080", { auto: true });
+
+  await page.reload();
+  await openForwardsView(page);
+  const r = forwardRows(page).first();
+  await expect(r).toContainText("Running in another window");
+  await expect(r).not.toContainText("already in use");
+  await expect(page.getByText("did not start")).toHaveCount(0);
+  await expect(page.getByRole("contentinfo")).toContainText("1 forward, 0 running");
+  expect(await fake.calls("cmdPortforwardAutostart")).toHaveLength(1);
+  expect(fake.errors).toEqual([]);
+});
+
+test("a long status keeps the row's buttons in view at 1280x800", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const fake = await openApp(page);
+  await forwardApi(page, "18081");
+  await openForwardsView(page);
+  await fake.setCluster((c) => {
+    c.forwards[0].status.last_error =
+      "pod nginx-59b667b7bf-jzllk port 80: Se ha forzado la interrupción de una conexión existente por el host remoto. (os error 10054)";
+  }, null);
+  const r = forwardRows(page).first();
+  await expect(r).toContainText("Se ha forzado");
+  await expect(r.getByRole("button", { name: "Stop http://127.0.0.1:18081" })).toBeInViewport({ ratio: 1 });
+  const overflow = await page.getByTestId("port-forwards").evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(overflow).toBeLessThanOrEqual(0);
+});

@@ -84,11 +84,13 @@
             <td class="mono">{f?.status.pod || "—"}</td>
             {#if f}
               {@const st = forwardState(f)}
-              <td class:error-text={st.tone === "error"} class:ok={st.tone === "ok"}>{st.text}</td>
+              <td class="status" class:error-text={st.tone === "error"} class:ok={st.tone === "ok"}>{st.text}</td>
+            {:else if s && forwards.elsewhere.includes(s.id)}
+              <td class="status muted" data-testid="forward-elsewhere">Running in another window</td>
             {:else if error}
-              <td class="error-text">{error}</td>
+              <td class="status error-text">{error}</td>
             {:else}
-              <td class="muted">{s && starting.includes(s.id) ? "Starting…" : "Stopped"}</td>
+              <td class="status muted">{s && starting.includes(s.id) ? "Starting…" : "Stopped"}</td>
             {/if}
             <td class="actions">
               {#if f}
@@ -158,6 +160,13 @@
     padding: 6px 8px;
     border-bottom: 1px solid var(--border);
     word-break: break-all;
+    /* The global nowrap would let a long status push the buttons out of view (#292, #293). */
+    white-space: normal;
+  }
+  .status {
+    word-break: normal;
+    overflow-wrap: anywhere;
+    min-width: 160px;
   }
   .mono {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;

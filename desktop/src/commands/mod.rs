@@ -103,6 +103,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             overview::cmd_overview_stop,
             portforward::cmd_portforward_autostart,
             portforward::cmd_portforward_delete,
+            portforward::cmd_portforward_elsewhere,
             portforward::cmd_portforward_list,
             portforward::cmd_portforward_save,
             portforward::cmd_portforward_saved,

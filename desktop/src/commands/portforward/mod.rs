@@ -289,9 +289,12 @@ pub(crate) async fn cmd_portforward_autostart(
     }
     let mut failed = Vec::new();
     for f in wanted {
-        if state.runs_forward(&f.id) {
+        // Held until the forward runs (or failed), so a second window
+        // connecting at the same moment skips it instead of racing for
+        // its port (#292).
+        let Some(_claim) = state.claim_autostart(&f.id) else {
             continue;
-        }
+        };
         if cluster.selected_context() != selected {
             break;
         }
@@ -303,6 +306,18 @@ pub(crate) async fn cmd_portforward_autostart(
         }
     }
     Ok(failed)
+}
+
+/// The saved forwards that run in another window (#292): saved forwards
+/// are per context, so a window shows them as running elsewhere instead
+/// of stopped.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_portforward_elsewhere(
+    cluster: Cluster,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    Ok(state.forwards_elsewhere(cluster.label()))
 }
 
 /// The ports of a Service, for its per-port Forward buttons.
