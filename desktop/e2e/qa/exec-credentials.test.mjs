@@ -14,6 +14,9 @@
 // #243: a second plugin that fails, with a secret in its kubeconfig `env`
 // and a token on stdout: the row shows its exit code and stderr, and
 // neither secret appears in the page or the app log.
+// #311: a third plugin that sleeps (waits for a login) is killed at the
+// timeout (KUBELOUPE_EXEC_TIMEOUT_SECS, short for the test) and its row says
+// it did not finish and was stopped (light, dark).
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -121,6 +124,42 @@ writeFileSync(
   { mode: 0o600 },
 );
 
+// #311: a plugin that waits for a login (sleeps) is stopped at the timeout,
+// shortened for the test, and the row says so plainly.
+const TIMEOUT_SECS = 6;
+const SLOW_ID = "qa-exec-311";
+const slow = join(dir, "slow-login.sh");
+const slowPid = join(dir, "slow-pid");
+const slowFile = join(dir, "slow.yaml");
+writeFileSync(
+  slow,
+  `#!/bin/sh\necho $$ > '${slowPid}'\necho 'Open the browser to log in' >&2\n` +
+    `sleep 300 &\necho $! > '${slowPid}-child'\nwait\n`,
+);
+chmodSync(slow, 0o755);
+writeFileSync(
+  slowFile,
+  JSON.stringify({
+    ...kubeconfig,
+    users: [
+      {
+        name: "slow",
+        user: { exec: { apiVersion: "client.authentication.k8s.io/v1", command: slow, interactiveMode: "Never" } },
+      },
+    ],
+    contexts: [{ name: SLOW_ID, context: { cluster: "c", user: "slow" } }],
+  }),
+  { mode: 0o600 },
+);
+const alive = (pid) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const row = (id) => `[data-testid="catalog-row"][data-context=${JSON.stringify(id)}]`;
 const statusOf = (app, id) =>
   app.js(
@@ -144,7 +183,7 @@ const PROMPT = '[data-testid="exec-prompt"]';
 const promptText = (app) => app.js(`return document.querySelector(arguments[0])?.innerText ?? ""`, PROMPT);
 
 describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () => {
-  const s = appSession("exec-credentials");
+  const s = appSession("exec-credentials", { env: { KUBELOUPE_EXEC_TIMEOUT_SECS: String(TIMEOUT_SECS) } });
   after(() => {
     try {
       kubectl(["delete", "clusterrolebinding", BINDING, "--ignore-not-found"]);
@@ -323,5 +362,45 @@ describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () 
     const log = readFileSync(join(ARTIFACTS, "exec-credentials-app.log"), "utf8");
     assert.ok(!log.includes(SECRET), "no env value in the app log");
     assert.ok(!log.includes(STDOUT_SECRET), "no plugin stdout in the app log");
+  });
+
+  it("a plugin that waits for a login is stopped at the timeout (#311)", T, async () => {
+    const { app } = s;
+    await app.waitFor(() => clickText(app, '[data-testid="catalog"]', "Add kubeconfig…"), {
+      message: "the Add kubeconfig… button",
+    });
+    const input = await app.find(By.css('input[aria-label="Kubeconfig file or folder"]'));
+    await app.setValue(input, slowFile);
+    await click(app, 'form[aria-label="Add kubeconfig"] button[type="submit"]');
+    await app.find(By.css(PROMPT));
+    const started = Date.now();
+    assert.ok(await clickText(app, PROMPT, "Allow and check"));
+    await app.waitFor(async () => (await statusOf(app, SLOW_ID)).includes("did not finish"), {
+      timeout: 60_000,
+      message: `${SLOW_ID} reports the timeout`,
+    });
+    const took = (Date.now() - started) / 1000;
+    const status = await statusOf(app, SLOW_ID);
+    console.log(`timed out after ${took.toFixed(1)} s: ${JSON.stringify(status)}`);
+    assert.ok(status.includes(`did not finish within ${TIMEOUT_SECS} s, so kubeloupe stopped it`), status);
+    // The row's two lines start with the reason, not the context or a path.
+    const shown = await app.js(
+      `return document.querySelector(arguments[0])?.querySelector('[data-testid="catalog-status-message"]')?.textContent.trim() ?? ""`,
+      row(SLOW_ID),
+    );
+    assert.ok(shown.startsWith("`slow-login.sh` did not finish"), shown);
+    assert.ok(took >= TIMEOUT_SECS - 1 && took < TIMEOUT_SECS + 20, `took ${took} s`);
+    for (const file of [slowPid, `${slowPid}-child`]) {
+      const pid = Number(readFileSync(file, "utf8").trim());
+      // The grandchild is reaped by init after its parent is killed.
+      await app.waitFor(async () => pid > 0 && !alive(pid), {
+        timeout: 5_000,
+        message: `the plugin's process ${pid} was killed`,
+      });
+    }
+    await app.shot("exec-timeout-light");
+    await setTheme(app, "dark");
+    await app.shot("exec-timeout-dark");
+    await setTheme(app, null);
   });
 });

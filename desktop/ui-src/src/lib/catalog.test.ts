@@ -8,6 +8,7 @@ import {
   namespaceError,
   orderContexts,
   parseNamespaceList,
+  rowMessage,
   runLimited,
   toggleFavourite,
 } from "./catalog";
@@ -111,5 +112,16 @@ describe("catalog helpers", () => {
     });
     expect(peak).toBe(2);
     expect(done.sort()).toEqual([1, 2, 3, 4, 5]);
+  });
+});
+
+describe("rowMessage", () => {
+  it("drops the login start the row already shows", () => {
+    expect(rowMessage("Login to `prod` failed: `aws` did not finish within 5 min", "prod")).toBe(
+      "`aws` did not finish within 5 min",
+    );
+    // Another context's name, or another kind of message: unchanged.
+    expect(rowMessage("Login to `dev` failed: x", "prod")).toBe("Login to `dev` failed: x");
+    expect(rowMessage("Cannot reach the cluster for `prod`", "prod")).toBe("Cannot reach the cluster for `prod`");
   });
 });
