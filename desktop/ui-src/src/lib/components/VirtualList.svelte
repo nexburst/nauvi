@@ -67,6 +67,15 @@
   export function scrollToIndex(index: number, align: "auto" | "start" | "center" = "auto") {
     if (index >= 0 && index < count) get(virtualizer).scrollToIndex(index, { align });
   }
+
+  /**
+   * Drop a `scrollToIndex` that is still settling: the virtualizer re-checks
+   * its target index for a few frames, and once rows are removed above, that
+   * index points at another row (#317).
+   */
+  export function cancelScroll() {
+    get(virtualizer).cancelScroll();
+  }
 </script>
 
 <div class="scroller" class:scroll-x={scrollX} bind:this={scrollEl} {onscroll}>

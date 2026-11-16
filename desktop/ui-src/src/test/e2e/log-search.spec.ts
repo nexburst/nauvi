@@ -270,6 +270,39 @@ test("at a match with Follow off, trimming the oldest lines does not move the vi
   expect(fake.errors).toEqual([]);
 });
 
+// #317: on a busy stream the trim comes while the list is still settling its
+// scroll to the match; that scroll must not chase the match's old index
+// (clamped to the new end of the list) and leave the match behind.
+test("a trim right after stepping to a match keeps the match in view", async ({ page }) => {
+  const fake = await openPodLogs(page);
+  const batch = (from: number) => Array.from({ length: 10_000 }, (_, i) => `line ${from + i}${(from + i) % 1000 === 0 ? " hit" : ""}`);
+  for (let k = 0; k < 5; k++) await fake.emitLogLines(batch(k * 10_000));
+  await fake.emitLogLines(batch(50_000).slice(0, 4000));
+  await toggle(page, "Highlight the matches and keep the other lines, instead of filtering").click();
+  await search(page).fill("hit");
+  await expect(count(page)).toHaveText("54 matches");
+  // Shift+Enter, and in the same task the lines that trim the oldest 6,000.
+  await search(page).evaluate(
+    (box, lines) => {
+      box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", shiftKey: true, bubbles: true }));
+      void window.__fake.emitLogLines(lines);
+    },
+    batch(54_000).slice(0, 2000),
+  );
+  const current = logs(page).locator('[data-testid="log-line"].current');
+  await expect(count(page)).toHaveText(/^\d+ of 50$/);
+  await expect(current).toHaveText("line 53000 hit");
+  // A few frames later (the list re-checks its scroll target every frame).
+  const frames = (n: number) =>
+    page.evaluate(
+      (k) => new Promise<void>((r) => { const f = () => (k-- > 0 ? requestAnimationFrame(f) : r()); f(); }),
+      n,
+    );
+  await frames(10);
+  await expect(current).toBeInViewport();
+  expect(fake.errors).toEqual([]);
+});
+
 // #272: the worker keeps its own copy of the lines; new lines and a full
 // buffer (trimmed at the start) are searched right.
 test("a regex search stays right as lines come in and the buffer is trimmed", async ({ page }) => {
