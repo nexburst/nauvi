@@ -5,7 +5,7 @@ import type { SearchReply, SearchRequest } from "./logSearch";
 
 const q = (text: string, regex = true, matchCase = false) => compileQuery({ text, regex, matchCase });
 
-/** A stand-in Worker: answers like logSearch.worker.ts, or never (a regex that backtracks forever). */
+/** A stand-in Worker: answers like logSearch.worker.ts, or never (a regex that backtracks for ever). */
 class FakeWorker {
   onmessage: ((e: MessageEvent<SearchReply>) => void) | null = null;
   onerror: ((e: ErrorEvent) => void) | null = null;
@@ -53,8 +53,9 @@ describe("LogSearcher", () => {
   });
 
   it("stops a regex that takes too long and starts a fresh worker next time", async () => {
-    const { s, workers } = searcher((req) => req.source === "(a+)+$");
-    await expect(s.run(q("(a+)+$"), ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa!"])).rejects.toBeInstanceOf(SlowRegexError);
+    // The fake worker never answers for "slow", like one stuck backtracking.
+    const { s, workers } = searcher((req) => req.source === "slow");
+    await expect(s.run(q("slow"), ["a line"])).rejects.toBeInstanceOf(SlowRegexError);
     expect(workers[0].terminated).toBe(true);
     expect(await s.run(q("a"), ["a"])).toEqual([[0, 1]]);
     expect(workers).toHaveLength(2);
