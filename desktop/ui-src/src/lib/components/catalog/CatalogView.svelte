@@ -234,7 +234,7 @@
                 <span class="muted">Not checked</span>
               {/if}
               {#if c.local_files.length}
-                <div class="why muted" data-testid="catalog-local-files" title={`Logging in sends ${c.local_files.join(", ")}`}>
+                <div class="why muted files" data-testid="catalog-local-files" title={`Logging in sends ${c.local_files.join(", ")}`}>
                   Sends local files: {c.local_files.join(", ")}
                 </div>
               {:else if check && check !== "checking" && check.state === "local_files"}
@@ -437,6 +437,11 @@
     -webkit-line-clamp: 2;
     line-clamp: 2;
     overflow: hidden;
+  }
+  /* The files are the point of this line: shown whole (#244). */
+  .why.files {
+    display: block;
+    overflow-wrap: anywhere;
   }
   .badge {
     font-size: 10px;

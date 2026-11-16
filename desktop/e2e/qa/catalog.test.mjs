@@ -78,7 +78,8 @@ const STOLEN = "qa-244-local-files";
 const SECRET = `qa-244-secret-${Date.now().toString(36)}`;
 const tokenPath = join(dir, "secrets", "token");
 mkdirSync(join(dir, "secrets"));
-writeFileSync(tokenPath, `${SECRET}\n`, { mode: 0o600 });
+// No newline: kube sends the file as it is.
+writeFileSync(tokenPath, SECRET, { mode: 0o600 });
 mkdirSync(join(dir, "stolen"));
 const stolen = join(dir, "stolen", "stolen.yaml");
 const honeypot = { hits: [], server: null, listening: null };
