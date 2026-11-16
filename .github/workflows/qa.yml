@@ -81,6 +81,22 @@ jobs:
           path: ${{ runner.temp }}/qa-app/
           retention-days: 1
           if-no-files-found: error
+      # The Docker Hub images the demo workload, Prometheus and the scenarios
+      # run, pulled once (through mirror.gcr.io) instead of by every shard's
+      # nodes: four shards pulling them hit ErrImagePull (#269).
+      - name: Pull the test images
+        run: |
+          mkdir -p "$RUNNER_TEMP/qa-images"
+          bash scripts/test-cluster/images.sh save "$RUNNER_TEMP/qa-images/images.tar" --prometheus
+      - name: Upload the test images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qa-images
+          path: ${{ runner.temp }}/qa-images/
+          retention-days: 1
+          if-no-files-found: error
+          # Image layers are compressed already.
+          compression-level: 0
 
   # The full suite takes about an hour on one runner, so it is split into
   # shards of about the same run time (qa.sh --shard, weights in
@@ -118,12 +134,20 @@ jobs:
           sudo sysctl -w fs.inotify.max_user_instances=1024
           sudo sysctl -w fs.inotify.max_user_watches=524288
 
+      - name: Download the test images
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: qa-images
+          path: ${{ runner.temp }}/qa-images
+
       # Both clusters (kubeloupe-test with metrics-server and the demo
       # workload, and the empty kubeloupe-staging for the multi-window
       # scenario), then Prometheus so it has scraped a while before the
-      # scenarios look at its charts. Runs while the rest is set up.
+      # scenarios look at its charts. Runs while the rest is set up. The
+      # nodes get the test images from the build job's archive.
       - name: Create kind clusters and Prometheus (background)
         run: |
+          export KUBELOUPE_IMAGES="$RUNNER_TEMP/qa-images/images.tar"
           mkdir -p "$RUNNER_TEMP/cluster"
           ( ( set -e
               bash scripts/test-cluster/setup.sh --staging

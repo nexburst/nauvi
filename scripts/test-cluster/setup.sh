@@ -13,6 +13,10 @@
 #
 # Requires: Docker (your user able to run `docker` without sudo).
 # Usage:     bash scripts/test-cluster/setup.sh [--staging]
+#   KUBELOUPE_IMAGES=pull  pull the test images once (images.sh) and load them
+#                          into the nodes, so the nodes never pull from
+#                          Docker Hub (CI sets this)
+#   KUBELOUPE_IMAGES=<file.tar>  load them from an `images.sh save` archive
 # Tear down: kind delete cluster --name kubeloupe-test
 #            kind delete cluster --name kubeloupe-staging
 set -euo pipefail
@@ -90,6 +94,17 @@ nodes:
 EOF
 )"
 fi
+
+# Docker Hub images, loaded into the nodes instead of pulled by them.
+load_images() {
+  case "${KUBELOUPE_IMAGES:-}" in
+    "") ;;
+    pull) bash "$SCRIPT_DIR/images.sh" load "$1" ;;
+    *) bash "$SCRIPT_DIR/images.sh" load "$1" "$KUBELOUPE_IMAGES" ;;
+  esac
+}
+load_images kubeloupe-test
+if [ "$WITH_STAGING" = 1 ]; then load_images kubeloupe-staging; fi
 
 KCTX=(--context kind-kubeloupe-test)
 

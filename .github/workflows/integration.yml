@@ -34,8 +34,11 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Same script as local development: kind cluster + metrics-server +
-      # demo workload.
+      # demo workload. KUBELOUPE_IMAGES=pull: the test images are pulled once
+      # through mirror.gcr.io and loaded into the nodes (#269).
       - name: Create kind cluster
+        env:
+          KUBELOUPE_IMAGES: pull
         run: bash scripts/test-cluster/setup.sh
 
       # A namespace-scoped user (edit in team-a only) for the RBAC tests.
@@ -86,8 +89,11 @@ jobs:
         with:
           persist-credentials: false
 
-      # Runs while the app builds; "Wait for the cluster" picks it up.
+      # Runs while the app builds; "Wait for the cluster" picks it up. The
+      # test images are pulled once and loaded into the nodes (#269).
       - name: Create kind cluster (background)
+        env:
+          KUBELOUPE_IMAGES: pull
         run: |
           mkdir -p "$RUNNER_TEMP/cluster"
           ( bash scripts/test-cluster/setup.sh > "$RUNNER_TEMP/cluster/setup.log" 2>&1
