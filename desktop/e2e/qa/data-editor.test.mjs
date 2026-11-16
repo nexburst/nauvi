@@ -51,6 +51,10 @@ data:
     a=1
     b=2
   old: remove-me
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: qa-empty }
 `;
 
 const EDITOR = '[data-testid="data-editor"]';
@@ -89,7 +93,11 @@ async function waitEditorText(app, needle, message = needle) {
 async function openObject(app, label, namespace, name) {
   await openKind(app, label, namespace, name);
   await (await app.find(app.row(name, namespace))).click();
-  await app.find(By.css(`${EDITOR} li`), { timeout: 30_000 });
+  await app.find(By.css(EDITOR), { timeout: 30_000 });
+  await app.waitFor(async () => /\d+ keys?/.test(await editorText(app)) && !(await editorText(app)).includes("Loading"), {
+    message: `the data of ${name}`,
+    timeout: 30_000,
+  });
 }
 
 async function valueBox(app, key) {
@@ -286,6 +294,24 @@ describe("data editor (#224)", { timeout: 20 * 60_000 }, () => {
     await closePanel(app);
   });
 
+  it("says why a key cannot be read, and shows an empty ConfigMap (dark)", T, async () => {
+    const { app } = s;
+    kubectl(["-n", ns, "patch", "secret", "qa-creds", "--type=merge", "-p", `{"data":{"gone":"${b64("x")}"}}`]);
+    await openObject(app, "Secrets", ns, "qa-creds");
+    await click(app, "Reload");
+    await waitEditorText(app, "gone");
+    // Removed by someone else after the list was loaded.
+    kubectl(["-n", ns, "patch", "secret", "qa-creds", "--type=json", "-p", '[{"op":"remove","path":"/data/gone"}]']);
+    await click(app, "Reveal", "gone");
+    await waitEditorText(app, 'Could not read "gone": the Secret has no key "gone" any more');
+    await app.shot("reveal-error-dark");
+    await closePanel(app);
+    await openObject(app, "Config Maps", ns, "qa-empty");
+    await waitEditorText(app, "No keys.");
+    await app.shot("configmap-empty-dark");
+    await closePanel(app);
+  });
+
   it("writes no Secret value to the logs", T, async () => {
     const { app } = s;
     const logFile = join(app.profile.home, ".local", "share", "com.kubeloupe.app", "logs", "kubeloupe.log");
@@ -309,6 +335,7 @@ describe("data editor: read but not patch (#224)", { timeout: 10 * 60_000 }, () 
 
   it("greys out Edit, Remove and Add key, and still reveals", T, async () => {
     const { app } = s;
+    await setTheme(app, "dark");
     await openObject(app, "Secrets", ns, "qa-creds");
     await waitEditorText(app, "Read-only:");
     const t = await editorText(app);
@@ -343,6 +370,7 @@ describe("data editor: limited user in team-a (#224)", { timeout: 10 * 60_000, s
 
   it("edits a Secret in team-a", T, async () => {
     const { app } = s;
+    await setTheme(app, "dark");
     await app.nav("Secrets");
     await app.filter(LIMITED_SECRET);
     await (await app.find(app.row(LIMITED_SECRET, LIMITED_NS), { timeout: 30_000 })).click();

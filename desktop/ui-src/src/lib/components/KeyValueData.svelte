@@ -349,7 +349,7 @@
         <li class:removed={pending?.delete} data-key={e.key}>
           <div class="row">
             <span class="key mono">{e.key}</span>
-            <span class="muted meta">{sizeText(e.bytes)}{#if e.binary} · binary{/if}</span>
+            <span class="muted meta">{sizeText(e.bytes) + (e.binary ? " · binary" : "")}</span>
             {#if pending}<span class="dirty" title="Changed">●</span>{/if}
             <span class="actions">
               {#if pending}
