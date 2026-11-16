@@ -8,6 +8,8 @@
 #   --out DIR     where screenshots, page text, app logs and the report go
 #                 (default: desktop/e2e/artifacts/qa-<date>-<time>)
 #   --no-build    use the app that is already built
+#   --shard I/N   run only shard I of N: the files split into N parts of about
+#                 the same run time (lib/shard.mjs, weights in qa-weights.json)
 #   --tools-only  fetch the tools, print their paths and exit
 #
 # Tools come from the system when it has them, otherwise they are fetched
@@ -33,14 +35,17 @@ HELM_VERSION="${HELM_VERSION:-v3.16.4}"
 OUT=""
 BUILD=1
 TOOLS_ONLY=0
+SHARD=""
 SCENARIOS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="$2"; shift ;;
     --out=*) OUT="${1#--out=}" ;;
     --no-build) BUILD=0 ;;
+    --shard) SHARD="$2"; shift ;;
+    --shard=*) SHARD="${1#--shard=}" ;;
     --tools-only) TOOLS_ONLY=1 ;;
-    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     -*) echo "qa.sh: unknown option $1" >&2; exit 2 ;;
     *) SCENARIOS+=("$1") ;;
   esac
@@ -184,6 +189,13 @@ else
     done
     die "no scenario $s (looked in $E2E/qa)"
   done
+fi
+if [ -n "$SHARD" ]; then
+  picked="$(node "$E2E/lib/shard.mjs" "$SHARD" "${FILES[@]}")" || die "bad --shard $SHARD (want I/N)"
+  FILES=()
+  if [ -n "$picked" ]; then mapfile -t FILES <<< "$picked"; fi
+  log "shard $SHARD: ${#FILES[@]} file(s): $(for f in "${FILES[@]}"; do basename "$f" .test.mjs; done | tr '\n' ' ')"
+  [ ${#FILES[@]} -gt 0 ] || { log "shard $SHARD is empty"; exit 0; }
 fi
 
 OUT="${OUT:-$E2E/artifacts/qa-$(date +%Y%m%d-%H%M%S)}"

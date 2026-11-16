@@ -25,14 +25,81 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  qa:
-    name: QA scenarios (WebKitGTK, kind)
+  # Built once; every shard downloads it. The frontend is embedded
+  # (custom-protocol), so the shards need neither Rust nor ui-src.
+  build:
+    name: Build the app (Linux)
     permissions:
       contents: read
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     env:
       TAURI_DRIVER_VERSION: 2.1.0
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - name: Install the Tauri build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
+        with:
+          # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          # Same build as the e2e job in integration.yml.
+          shared-key: qa
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        id: tauri-driver-cache
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: tauri-driver-${{ runner.os }}-${{ env.TAURI_DRIVER_VERSION }}
+      - name: Install tauri-driver
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: desktop/ui-src/.nvmrc
+          cache: npm
+          cache-dependency-path: desktop/ui-src/package-lock.json
+      - name: Build the app and the CLI
+        run: |
+          npm --prefix desktop/ui-src ci
+          npm --prefix desktop/ui-src run build
+          cargo build -p kubeloupe-desktop --locked --features tauri/custom-protocol
+          # area-4-attach-debug drives the CLI's exec and debug too.
+          cargo build -p kubeloupe --locked
+          mkdir -p "$RUNNER_TEMP/qa-app"
+          cp target/debug/kubeloupe-desktop target/debug/kubeloupe ~/.cargo/bin/tauri-driver "$RUNNER_TEMP/qa-app/"
+      - name: Upload the build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qa-app
+          path: ${{ runner.temp }}/qa-app/
+          retention-days: 1
+          if-no-files-found: error
+
+  # The full suite takes about an hour on one runner, so it is split into
+  # shards of about the same run time (qa.sh --shard, weights in
+  # desktop/e2e/qa-weights.json), each with its own clusters. A `scenario`
+  # input runs as a single shard.
+  qa:
+    name: QA scenarios (WebKitGTK, kind, shard ${{ matrix.shard }})
+    needs: build
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(inputs.scenario && '[1]' || '[1, 2, 3, 4]') }}
+    env:
+      SHARDS: ${{ inputs.scenario && 1 || 4 }}
+      SHARD: ${{ matrix.shard }}
       KUBELOUPE_LIMITED_KUBECONFIG: /home/runner/.kube/kubeloupe-limited.yaml
       QA_PROMETHEUS: "1"
       # Its own cluster: the reconnect scenario may pause it long enough for
@@ -54,7 +121,7 @@ jobs:
       # Both clusters (kubeloupe-test with metrics-server and the demo
       # workload, and the empty kubeloupe-staging for the multi-window
       # scenario), then Prometheus so it has scraped a while before the
-      # scenarios look at its charts. Runs while the app builds.
+      # scenarios look at its charts. Runs while the rest is set up.
       - name: Create kind clusters and Prometheus (background)
         run: |
           mkdir -p "$RUNNER_TEMP/cluster"
@@ -64,51 +131,39 @@ jobs:
             ) > "$RUNNER_TEMP/cluster/setup.log" 2>&1
             echo $? > "$RUNNER_TEMP/cluster/rc" ) &
 
-      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
-        with:
-          toolchain: stable
-      - name: Install Tauri, WebKitWebDriver, Xvfb and xclip
+      - name: Install WebKitGTK, WebKitWebDriver, Xvfb and xclip
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev xvfb xclip x11-utils
+          sudo apt-get install -y libwebkit2gtk-4.1-0 libgtk-3-0 libayatana-appindicator3-1 librsvg2-2 xvfb xclip x11-utils
           # The package was renamed in newer Ubuntu releases.
           sudo apt-get install -y webkitgtk-webdriver || sudo apt-get install -y webkit2gtk-driver
           driver="$(command -v WebKitWebDriver || find /usr -name WebKitWebDriver -type f -perm -u+x 2>/dev/null | head -n 1)"
           echo "WEBKIT_DRIVER=$driver" >> "$GITHUB_ENV"
-      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2.7.8
-        with:
-          # Only main saves the cache (GitHub keeps 10 GB per repo); PRs and tags reuse it.
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-          # Same build as the e2e job in integration.yml.
-          shared-key: qa
-      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
-        id: tauri-driver-cache
-        with:
-          path: ~/.cargo/bin/tauri-driver
-          key: tauri-driver-${{ runner.os }}-${{ env.TAURI_DRIVER_VERSION }}
-      - name: Install tauri-driver
-        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
-        run: cargo install tauri-driver --locked --version "$TAURI_DRIVER_VERSION"
       - uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
         with:
           version: v3.16.4
-
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: desktop/ui-src/.nvmrc
           cache: npm
-          cache-dependency-path: |
-            desktop/ui-src/package-lock.json
-            desktop/e2e/package-lock.json
+          cache-dependency-path: desktop/e2e/package-lock.json
       - name: Install npm dependencies
-        run: |
-          npm --prefix desktop/ui-src ci
-          npm --prefix desktop/e2e ci
+        run: npm --prefix desktop/e2e ci
 
-      - name: Build the app
+      - name: Download the build
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: qa-app
+          path: ${{ runner.temp }}/qa-app
+      # Where qa.sh --no-build and the scenarios look for them.
+      - name: Put the build in place
         run: |
-          npm --prefix desktop/ui-src run build
-          cargo build -p kubeloupe-desktop --locked --features tauri/custom-protocol
+          mkdir -p target/debug
+          install -m 0755 "$RUNNER_TEMP/qa-app/kubeloupe-desktop" "$RUNNER_TEMP/qa-app/kubeloupe" target/debug/
+          install -m 0755 "$RUNNER_TEMP/qa-app/tauri-driver" "$RUNNER_TEMP/tauri-driver"
+          echo "TAURI_DRIVER=$RUNNER_TEMP/tauri-driver" >> "$GITHUB_ENV"
+          missing="$(ldd target/debug/kubeloupe-desktop | grep 'not found' || true)"
+          [ -z "$missing" ] || { echo "missing libraries: $missing"; exit 1; }
 
       - name: Wait for the clusters
         run: |
@@ -128,29 +183,19 @@ jobs:
         run: |
           if [ -n "$SCENARIOS" ]; then
             # Per-PR QA: `gh workflow run qa.yml --ref <branch> -f scenario='<names>'`
+            # shellcheck disable=SC2086 # a space-separated list of names
             ./qa.sh --no-build --out artifacts/qa $SCENARIOS
           else
-            ./qa.sh --no-build --out artifacts/qa smoke.test.mjs qa/*.test.mjs
-          fi
-
-      - name: Summary
-        if: always()
-        run: |
-          if [ -f desktop/e2e/artifacts/qa/report.md ]; then
-            cat desktop/e2e/artifacts/qa/report.md >> "$GITHUB_STEP_SUMMARY"
-            echo >> "$GITHUB_STEP_SUMMARY"
-            echo "Screenshots, page text and app logs: the \`qa-artifacts\` artifact (\`gh run download $GITHUB_RUN_ID -n qa-artifacts\`)." >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No QA report: the run stopped before the scenarios." >> "$GITHUB_STEP_SUMMARY"
+            ./qa.sh --no-build --out artifacts/qa --shard "$SHARD/$SHARDS" smoke.test.mjs qa/*.test.mjs
           fi
 
       - name: Upload screenshots, page text, logs and the report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: qa-artifacts
+          name: qa-shard-${{ matrix.shard }}
           path: desktop/e2e/artifacts/qa/
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: warn
 
       - name: Debug info
@@ -159,6 +204,56 @@ jobs:
           kubectl --context kind-kubeloupe-test get pods -A -o wide || true
           kubectl --context kind-kubeloupe-test get events -A --sort-by=.lastTimestamp | tail -50 || true
           kubectl --context kind-kubeloupe-test -n monitoring logs deploy/prometheus-server --tail=50 || true
+
+  # One report and one `qa-artifacts` artifact from all the shards, laid out
+  # like a single qa.sh run (with run.log and xvfb.log per shard).
+  report:
+    name: QA report
+    needs: qa
+    if: always() && needs.qa.result != 'skipped'
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          sparse-checkout: desktop/e2e/lib
+      - name: Download the shards' output
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: qa-shard-*
+          path: ${{ runner.temp }}/shards
+      - name: Merge them and write the report
+        run: |
+          out="$RUNNER_TEMP/qa"
+          mkdir -p "$out"
+          for dir in "$RUNNER_TEMP"/shards/qa-shard-*; do
+            [ -d "$dir" ] || continue
+            n="${dir##*-}"
+            if [ -f "$dir/results.jsonl" ]; then cat "$dir/results.jsonl" >> "$out/results.jsonl"; fi
+            for log in run xvfb; do
+              if [ -f "$dir/$log.log" ]; then mv "$dir/$log.log" "$out/$log-shard-$n.log"; fi
+            done
+            rm -f "$dir/results.jsonl" "$dir/report.md"
+            cp -r "$dir"/. "$out"/
+          done
+          if [ -f "$out/results.jsonl" ]; then
+            node desktop/e2e/lib/qa-report.mjs "$out" > "$out/report.md"
+            cat "$out/report.md" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "Screenshots, page text and app logs: the \`qa-artifacts\` artifact (\`gh run download $GITHUB_RUN_ID -n qa-artifacts\`)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No QA report: the shards stopped before the scenarios." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload screenshots, page text, logs and the report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: qa-artifacts
+          path: ${{ runner.temp }}/qa/
+          retention-days: 14
+          if-no-files-found: warn
 
   # Some real coverage for Windows (WebView2 through tauri-driver and
   # msedgedriver): start-up with an unreachable cluster, Settings and the

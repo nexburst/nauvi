@@ -35,6 +35,7 @@ desktop/e2e/qa.sh terminal                  # one scenario: qa/terminal.test.mjs
 desktop/e2e/qa.sh --no-build port-forward helm
 desktop/e2e/qa.sh                           # every qa/*.test.mjs
 desktop/e2e/qa.sh smoke.test.mjs            # the smoke suite
+desktop/e2e/qa.sh --shard 2/4               # the second of four equal parts (as in CI)
 KUBELOUPE_LIMITED_KUBECONFIG=~/.kube/kubeloupe-limited.yaml desktop/e2e/qa.sh limited-user
 ```
 
@@ -131,9 +132,24 @@ gh run download <run-id> -n qa-artifacts
 It sets up kind with metrics-server and the demo workload, the second
 cluster (`setup.sh --staging`), the limited user, helm and a small real
 Prometheus (`scripts/test-cluster/prometheus.yaml`, CI only), then runs the
-smoke suite and every `qa/*.test.mjs` through `qa.sh`. The report goes to the
-job summary; the screenshots, page text and logs are the `qa-artifacts`
-artifact.
+smoke suite and every `qa/*.test.mjs` through `qa.sh`.
+
+The app (and the CLI, and tauri-driver) is built once in a `build` job; the
+scenarios run in four shards, each on its own runner with its own clusters
+(`qa.sh --shard I/4`). `lib/shard.mjs` deals the files out by their run time
+in `qa-weights.json` (seconds per file from a CI run; a file not listed
+counts as 60 s), heaviest first, so the shards take about the same time.
+Refresh the weights after a full run:
+
+```sh
+gh run download <run-id> -n qa-artifacts -D /tmp/qa
+node desktop/e2e/lib/shard.mjs --weights /tmp/qa/results.jsonl > desktop/e2e/qa-weights.json
+```
+
+With `-f scenario='<names>'` the named scenarios run in one shard. A `report`
+job merges the shards: the report goes to the job summary, and the
+screenshots, page text and logs (`run-shard-N.log`) are the `qa-artifacts`
+artifact, as before.
 
 ## Running locally
 
