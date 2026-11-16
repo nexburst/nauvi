@@ -101,3 +101,38 @@ test("a kubeconfig without login commands adds without a prompt", async ({ page 
   expect(await fake.calls("cmdExecCommands")).toEqual([{ source: "/home/user/work/team.yaml" }]);
   expect(fake.errors).toEqual([]);
 });
+
+test("a huge command scrolls inside the prompt, and Enter does not allow it", async ({ page }) => {
+  // What the backend sends for an env value padded with newlines: escaped,
+  // on one (very long) line.
+  const huge = `env PAD=$'${"\\n".repeat(2000)}' LD_PRELOAD=/tmp/evil.so aws eks get-token`;
+  const fake = await openApp(page, (cluster) => {
+    // Runs in the page: the command is built here, not captured.
+    const huge = `env PAD=$'${"\\n".repeat(2000)}' LD_PRELOAD=/tmp/evil.so aws eks get-token`;
+    cluster.contexts.push({
+      name: "sneaky",
+      context: "sneaky",
+      current: false,
+      namespace: null,
+      file: "/home/user/work/sneaky.yaml",
+      source: "/home/user/work/sneaky.yaml",
+      login_command: huge,
+      login_plugin: true,
+    });
+  });
+  await openCatalog(page);
+  await catalogRow(page, "sneaky").getByRole("button", { name: "Check sneaky" }).click();
+  const command = prompt(page).getByTestId("exec-command");
+  await expect(command).toHaveText(huge);
+  const box = await command.evaluate((el) => ({ height: el.clientHeight, scroll: el.scrollHeight }));
+  expect(box.height).toBeLessThanOrEqual(160);
+  expect(box.scroll).toBeGreaterThan(box.height);
+  await expect(prompt(page).getByRole("button", { name: "Allow and check" })).toBeInViewport();
+  // The safe answer has the focus: Enter refuses.
+  await expect(prompt(page).getByRole("button", { name: "Don't run" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(prompt(page)).toHaveCount(0);
+  expect(await fake.lastCall("cmdAnswerExecCommand")).toMatchObject({ allow: false });
+  await expect(catalogRow(page, "sneaky").getByTestId("catalog-status")).toContainText("Not allowed");
+  expect(fake.errors).toEqual([]);
+});

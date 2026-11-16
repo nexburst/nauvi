@@ -368,16 +368,66 @@ pub fn login_command(auth: &kube::config::AuthInfo) -> String {
 }
 
 /// `word` quoted for a shell if it needs it, so the command shown is exact.
+///
+/// Control and format characters (newlines, bidi overrides, zero-width
+/// characters, …) are written as visible escapes in bash's `$'…'` form, so
+/// they cannot hide or reorder the rest of the command in the prompt (#201).
 fn shell_word(word: &str) -> String {
     let plain = !word.is_empty()
         && word
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "-_./:=,@%+".contains(c));
     if plain {
-        word.to_string()
-    } else {
-        format!("'{}'", word.replace('\'', r"'\''"))
+        return word.to_string();
     }
+    if !word.chars().any(is_invisible) {
+        return format!("'{}'", word.replace('\'', r"'\''"));
+    }
+    let mut out = String::from("$'");
+    for c in word.chars() {
+        match c {
+            '\\' => out.push_str(r"\\"),
+            '\'' => out.push_str(r"\'"),
+            '\n' => out.push_str(r"\n"),
+            '\t' => out.push_str(r"\t"),
+            '\r' => out.push_str(r"\r"),
+            c if is_invisible(c) && (c as u32) <= 0xffff => {
+                out.push_str(&format!(r"\u{:04x}", c as u32))
+            }
+            c if is_invisible(c) => out.push_str(&format!(r"\U{:08x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('\'');
+    out
+}
+
+/// Control (Cc), format (Cf) and line/paragraph separator characters:
+/// those that show as nothing, move text or reorder it.
+fn is_invisible(c: char) -> bool {
+    c.is_control()
+        || matches!(c as u32,
+            0x00AD
+            | 0x0600..=0x0605
+            | 0x061C
+            | 0x06DD
+            | 0x070F
+            | 0x0890..=0x0891
+            | 0x08E2
+            | 0x180E
+            | 0x200B..=0x200F
+            | 0x2028..=0x202E
+            | 0x2060..=0x2064
+            | 0x2066..=0x206F
+            | 0xFEFF
+            | 0xFFF9..=0xFFFB
+            | 0x110BD
+            | 0x110CD
+            | 0x13430..=0x1343F
+            | 0x1BCA0..=0x1BCA3
+            | 0x1D173..=0x1D17A
+            | 0xE0001
+            | 0xE0020..=0xE007F)
 }
 
 /// A unique id for context `name` from `file`: the name if it is free,

@@ -30,8 +30,9 @@
     this source.
   </p>
   <div class="buttons">
-    <button type="button" class="btn primary" onclick={() => void answerPrompt(true)} use:focus>Allow and check</button>
-    <button type="button" class="btn" onclick={() => void answerPrompt(false)}>Don't run</button>
+    <button type="button" class="btn primary" onclick={() => void answerPrompt(true)}>Allow and check</button>
+    <!-- The safe answer has the focus, so Enter never allows by accident. -->
+    <button type="button" class="btn" onclick={() => void answerPrompt(false)} use:focus>Don't run</button>
   </div>
 </div>
 
@@ -73,6 +74,9 @@
     background: var(--bg-hover);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+    /* A very long command scrolls instead of pushing the buttons away. */
+    max-height: 160px;
+    overflow-y: auto;
   }
   .used,
   .note {

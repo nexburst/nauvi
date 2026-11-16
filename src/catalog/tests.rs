@@ -294,6 +294,59 @@ fn the_users_files_are_never_written() {
 }
 
 #[test]
+fn invisible_characters_are_shown_as_escapes() {
+    // Plain words and ordinary quoting are unchanged.
+    assert_eq!(shell_word("aws"), "aws");
+    assert_eq!(shell_word("my cluster"), "'my cluster'");
+    assert_eq!(shell_word("it's"), r"'it'\''s'");
+    // Newlines can't push the rest out of view.
+    let padded = format!("x{}LD_PRELOAD=/evil.so", "\n".repeat(300));
+    let shown = shell_word(&padded);
+    assert!(!shown.contains('\n'), "{shown}");
+    assert!(shown.starts_with(r"$'x\n\n"), "{shown}");
+    assert!(shown.ends_with(r"LD_PRELOAD=/evil.so'"), "{shown}");
+    // Bidi controls, zero-width and other format characters are escaped.
+    assert_eq!(
+        shell_word("a\u{202e}b\u{2066}c\u{2069}d\u{200b}e"),
+        r"$'a\u202eb\u2066c\u2069d\u200be'"
+    );
+    assert_eq!(
+        shell_word("tab\there\r\u{7}\u{e0041}"),
+        r"$'tab\there\r\u0007\U000e0041'"
+    );
+    assert_eq!(shell_word("q'\\\n"), r"$'q\'\\\n'");
+    for s in [padded.as_str(), "a\u{202e}b", "x\u{feff}\u{2028}y"] {
+        let shown = shell_word(s);
+        assert!(
+            !shown
+                .chars()
+                .any(|c| c.is_control() || matches!(c as u32, 0x200B..=0x206F | 0xFEFF)),
+            "{shown:?}"
+        );
+    }
+}
+
+#[test]
+fn an_args_or_env_trick_shows_in_the_login_command() {
+    let auth: kube::config::AuthInfo = serde_json::from_value(serde_json::json!({
+        "exec": {
+            "command": "aws",
+            "args": ["eks", "get-token\u{202e}"],
+            "env": [{"name": "X", "value": format!("ok{}", "\n".repeat(200))},
+                    {"name": "LD_PRELOAD", "value": "/tmp/evil.so"}],
+        }
+    }))
+    .unwrap();
+    let cmd = login_command(&auth);
+    assert!(!cmd.contains('\n') && !cmd.contains('\u{202e}'), "{cmd:?}");
+    assert!(
+        cmd.starts_with("env LD_PRELOAD=/tmp/evil.so X=$'ok\\n"),
+        "{cmd}"
+    );
+    assert!(cmd.ends_with(r"aws eks $'get-token\u202e'"), "{cmd}");
+}
+
+#[test]
 fn contexts_say_what_logging_in_runs() {
     let dir = TempDir::new();
     let file = dir.write(
