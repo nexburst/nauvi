@@ -78,8 +78,10 @@ Svelte) and a CLI, both built on the same Rust core.
   made when its login was checked, and the shell sees only it: `kubectl
   config use-context` can't switch to the file's other contexts, and changes
   to the added file apply after the next check. That copy can hold the
-  context's credentials (for example a token written in the file). The file
-  is readable only by you (mode 0600 on Linux and macOS) and is deleted when
+  context's credentials (for example a token written in the file). On Linux
+  and macOS the file is readable only by you (mode 0600); on Windows no mode
+  is set, so who can read it depends on the temp folder's permissions. It is
+  deleted when
   the tab closes or the app exits; after a crash, the next start deletes it
   (except on Windows, where leftover files can be deleted by hand). Helm
   actions on an added kubeconfig use the same kind of copy, deleted when the
@@ -158,8 +160,9 @@ Svelte) and a CLI, both built on the same Rust core.
   kubeloupe only reads your kubeconfig files; removing an added file or
   folder leaves it as it is.
 - **Login commands** (exec credential plugins: EKS, GKE, AKS, kubelogin, …)
-  run when kubeloupe logs in, once per context; the credential is reused
-  until it expires. The catalog checks these contexts only when you click
+  run when kubeloupe logs in. The credential is cached per plugin
+  configuration (command, arguments and environment) and reused until it
+  expires. The catalog checks these contexts only when you click
   **Check**. When an added kubeconfig file, folder or pasted kubeconfig logs
   in by running a command, kubeloupe shows the exact command and runs it
   only if you choose **Allow and check** (**Don't run** marks its contexts
