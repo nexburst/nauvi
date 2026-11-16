@@ -292,7 +292,9 @@ describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () 
 
   it("a failing plugin shows its stderr, not its env or stdout", T, async () => {
     const { app } = s;
-    await waitLive(app);
+    // Not Live: after the restart the current context is the one whose
+    // swapped command was refused (#242), so the header says "Login failed".
+    await app.find(By.css("nav"));
     await resizeWindow(app, 1280, 800);
     await click(app, 'button[aria-label="Cluster catalog"]');
     await app.find(By.css('[data-testid="catalog"]'));
