@@ -200,7 +200,7 @@ pub fn slice_backends(slices: &[EndpointSlice], port: &ServicePort) -> Vec<Backe
         let Some(number) = from_slice.or(fallback) else {
             continue;
         };
-        for ep in &slice.endpoints {
+        for ep in slice.endpoints.iter().flatten() {
             // `ready` unset means ready; terminating endpoints are not ready.
             let ready = ep.conditions.as_ref().and_then(|c| c.ready).unwrap_or(true);
             let pod = ep

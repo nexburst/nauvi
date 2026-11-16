@@ -10,10 +10,12 @@
 # Actions are pinned to commit SHAs with the version in a comment; Dependabot
 # updates both.
 #
-# Majors we migrate by hand are ignored: kube and k8s-openapi (#252, they
-# move together; k8s-openapi is 0.x, where a minor bump breaks too),
-# typescript (#253) and @types/node (we target Node 22). An update goes to
-# the first group that matches it, so the narrower groups come first.
+# kube and k8s-openapi move together (kube-core needs a matching
+# k8s-openapi, and k8s-openapi is 0.x, where a minor bump breaks too), so
+# the `kube` group puts all their updates, majors included, in one PR
+# (#252). Majors we migrate by hand are ignored: typescript (#253) and
+# @types/node (we target Node 22). An update goes to the first group that
+# matches it, so the narrower groups come first.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -24,13 +26,6 @@ updates:
     cooldown:
       default-days: 7
     open-pull-requests-limit: 5
-    ignore:
-      - dependency-name: "kube"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "kube-*"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "k8s-openapi"
-        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       kube:
         patterns: ["kube", "kube-*", "k8s-openapi"]

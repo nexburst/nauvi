@@ -199,7 +199,7 @@ fn cli_not_found_is_a_plain_error() {
 #[ignore]
 async fn cli_selectors_formats_and_secret_reveal() -> Result<()> {
     let client = kubeloupe::client_for_context(Some(&context())).await?;
-    let suffix = std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros();
+    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
     let ns = format!("kl-it-cli-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     namespaces

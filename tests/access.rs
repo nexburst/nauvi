@@ -38,7 +38,7 @@ async fn connect() -> Result<Client> {
 fn unique(prefix: &str) -> String {
     static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
     let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let suffix = std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros();
+    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
     format!("{prefix}-{suffix:x}-{seq}")
 }
 

@@ -296,7 +296,7 @@ fn container_detail(
 /// A container state as the panel shows it.
 pub fn state_info(s: &ContainerState) -> StateInfo {
     let ts = |t: Option<&k8s_openapi::apimachinery::pkg::apis::meta::v1::Time>| {
-        t.map(|t| age_text(&t.0.to_rfc3339())).unwrap_or_default()
+        t.map(|t| age_text(&t.0.to_string())).unwrap_or_default()
     };
     if let Some(r) = &s.running {
         StateInfo {

@@ -281,7 +281,9 @@ pub async fn rollout_restart(
     namespace: &str,
     name: &str,
 ) -> Result<()> {
-    let ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let ts = jiff::Timestamp::now()
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
     namespaced_api(client, r, namespace)?
         .patch(name, &patch_params(), &Patch::Merge(restart_patch(&ts)))
         .await?;
@@ -353,12 +355,7 @@ pub(crate) fn random_suffix() -> String {
 /// CronJob's `jobTemplate`, owned by the CronJob and annotated as manual.
 pub fn job_from_cronjob(cj: &CronJob, suffix: &str) -> Result<Job> {
     let name = cj.metadata.name.clone().context("CronJob has no name")?;
-    let template = cj
-        .spec
-        .as_ref()
-        .context("CronJob has no spec")?
-        .job_template
-        .clone();
+    let template = cj.spec.job_template.clone();
     let tmeta = template.metadata.unwrap_or_default();
     let mut annotations: BTreeMap<String, String> = tmeta.annotations.unwrap_or_default();
     annotations.insert(INSTANTIATE.to_string(), "manual".to_string());
@@ -975,7 +972,7 @@ mod tests {
         assert_eq!(drain_skip_reason(&mirror), Some(SkipReason::Mirror));
 
         let mut dying = plain.clone();
-        dying.metadata.deletion_timestamp = Some(Time(chrono::Utc::now()));
+        dying.metadata.deletion_timestamp = Some(Time(jiff::Timestamp::now()));
         assert_eq!(drain_skip_reason(&dying), Some(SkipReason::Terminating));
         assert!(!has_controller(&plain));
         assert!(has_controller(&rs_owned));
@@ -1069,12 +1066,13 @@ mod tests {
 
     #[test]
     fn describe_error_reads_kube_api_errors_through_context() {
-        let api = kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
+        let api = kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: "deployments.apps \"x\" is forbidden".into(),
             reason: "Forbidden".into(),
             code: 403,
-        });
+            ..Default::default()
+        }));
         let err = anyhow::Error::new(api).context("scaling");
         assert!(describe_error(&err).starts_with("Not allowed"));
         assert_eq!(describe_error(&anyhow::anyhow!("plain")), "plain");

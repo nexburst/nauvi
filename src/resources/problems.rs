@@ -232,9 +232,7 @@ mod tests {
     #[test]
     fn pods_agree_with_the_overview() {
         let created = NOW - 600;
-        let ts = chrono::DateTime::from_timestamp(created, 0)
-            .unwrap()
-            .to_rfc3339();
+        let ts = jiff::Timestamp::from_second(created).unwrap().to_string();
         let cases = [
             pod("Running", ready("True")),
             pod("Running", ready("False")),

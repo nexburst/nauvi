@@ -410,7 +410,7 @@ impl Live {
         let ready = self.ready();
         if ready && self.dirty {
             self.dirty = false;
-            let overview = self.summarize(chrono::Utc::now().timestamp());
+            let overview = self.summarize(jiff::Timestamp::now().as_second());
             if self.last.as_ref() != Some(&overview) {
                 self.last = Some(overview.clone());
                 self.out

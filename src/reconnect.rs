@@ -397,12 +397,13 @@ mod tests {
 
     #[test]
     fn an_answer_from_the_server_keeps_its_message() {
-        let e = watcher::Error::WatchStartFailed(kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
+        let e = watcher::Error::WatchStartFailed(kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: "etcdserver: request timed out".into(),
             reason: "InternalError".into(),
             code: 500,
-        }));
+            ..Default::default()
+        })));
         assert_eq!(
             failure_text(&e, "https://x"),
             "The API server answered with an error: etcdserver: request timed out; retrying."
@@ -416,12 +417,11 @@ mod tests {
         cmd.arg("eks").env("VAULT_TOKEN", "s3cret-env-value");
         kube::client::AuthError::AuthExecRun {
             cmd: format!("{cmd:?}"),
-            status: std::process::ExitStatus::from_raw(255 << 8),
-            out: std::process::Output {
+            out: Box::new(std::process::Output {
                 status: std::process::ExitStatus::from_raw(255 << 8),
                 stdout: b"{\"token\":\"s3cret-stdout\"}".to_vec(),
                 stderr: b"Error: SSO session expired. Run aws sso login\n".to_vec(),
-            },
+            }),
         }
     }
 

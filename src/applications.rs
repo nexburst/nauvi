@@ -221,8 +221,8 @@ pub fn app_object(group: &str, kind: &str, v: &Value) -> Option<AppObject> {
         problem = "Suspended".into();
     }
     let created = string_at(v, "/metadata/creationTimestamp")
-        .parse::<chrono::DateTime<chrono::Utc>>()
-        .map(|t| t.timestamp())
+        .parse::<jiff::Timestamp>()
+        .map(|t| t.as_second())
         .unwrap_or_default();
     let label = |k| meta(v, "labels", k).trim().to_string();
     Some(AppObject {

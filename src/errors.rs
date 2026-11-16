@@ -2,23 +2,20 @@
 //! banners and inline messages.
 //!
 //! kube-rs's errors print a lot that is meant for developers: an API error
-//! is `ApiError: <message>: <reason> (ErrorResponse { .. })`, and the
+//! is `ApiError: <message>: <reason> (Status { .. })`, and the
 //! watcher and the kubeconfig loader wrap it again and repeat it. These
 //! functions keep each part of an error chain once and use the API server's
 //! own message for an API error.
 
-use kube::core::ErrorResponse;
+use kube::core::Status;
 use std::error::Error as StdError;
 use std::path::Path;
 
 /// The API server's error response behind `err`, if any.
-pub fn api_response<'a>(err: &'a (dyn StdError + 'static)) -> Option<&'a ErrorResponse> {
+pub fn api_response<'a>(err: &'a (dyn StdError + 'static)) -> Option<&'a Status> {
     let mut cur: Option<&(dyn StdError + 'static)> = Some(err);
     while let Some(e) = cur {
-        if let Some(kube::Error::Api(r)) = e.downcast_ref::<kube::Error>() {
-            return Some(r);
-        }
-        if let Some(r) = e.downcast_ref::<ErrorResponse>() {
+        if let Some(r) = status_of(e) {
             return Some(r);
         }
         cur = e.source();
@@ -26,9 +23,19 @@ pub fn api_response<'a>(err: &'a (dyn StdError + 'static)) -> Option<&'a ErrorRe
     None
 }
 
+/// `e` itself as an API error response: a `kube::Error::Api`, or the
+/// `Status` (boxed or not) a watcher error holds as its source.
+fn status_of<'a>(e: &'a (dyn StdError + 'static)) -> Option<&'a Status> {
+    if let Some(kube::Error::Api(r)) = e.downcast_ref::<kube::Error>() {
+        return Some(r);
+    }
+    e.downcast_ref::<Status>()
+        .or_else(|| e.downcast_ref::<Box<Status>>().map(|b| &**b))
+}
+
 /// The text of an API error response: its message, or its reason and code
 /// when it has none.
-pub fn response_text(r: &ErrorResponse) -> String {
+pub fn response_text(r: &Status) -> String {
     if r.message.is_empty() {
         format!("{} ({})", r.reason, r.code)
     } else {
@@ -56,10 +63,7 @@ pub fn chain_text(err: &(dyn StdError + 'static)) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut cur: Option<&(dyn StdError + 'static)> = Some(err);
     while let Some(e) = cur {
-        let api = match e.downcast_ref::<kube::Error>() {
-            Some(kube::Error::Api(r)) => Some(r),
-            _ => e.downcast_ref::<ErrorResponse>(),
-        };
+        let api = status_of(e);
         let exec_run = e
             .downcast_ref::<kube::client::AuthError>()
             .and_then(crate::auth::exec_run_text);
@@ -179,6 +183,13 @@ fn dump_len(s: &str) -> usize {
 /// The part of an error's text that is its own: without its source's text
 /// when it embeds it (`"failed to list: {source}"` -> `"failed to list"`).
 fn own_text(e: &(dyn StdError + 'static)) -> String {
+    // kube 5 parses kubeconfigs with serde-saphyr, whose errors quote the
+    // lines around the problem: they may hold a token or a key (#252).
+    if let Some(kube::config::KubeconfigError::Parse(p)) =
+        e.downcast_ref::<kube::config::KubeconfigError>()
+    {
+        return format!("failed to parse kubeconfig YAML: {}", p.without_snippet());
+    }
     let text = e.to_string();
     let Some(source) = e.source() else {
         return text;
@@ -196,13 +207,14 @@ fn own_text(e: &(dyn StdError + 'static)) -> String {
 mod tests {
     use super::*;
 
-    fn forbidden() -> ErrorResponse {
-        ErrorResponse {
-            status: "Failure".into(),
+    fn forbidden() -> Box<Status> {
+        Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: "pods is forbidden: User \"limited\" cannot list resource \"pods\"".into(),
             reason: "Forbidden".into(),
             code: 403,
-        }
+            ..Default::default()
+        })
     }
 
     #[test]
@@ -222,7 +234,7 @@ mod tests {
             text,
             "failed to perform initial object list: pods is forbidden: User \"limited\" cannot list resource \"pods\""
         );
-        assert!(!text.contains("ErrorResponse"));
+        assert!(!text.contains("Status {"));
         assert_eq!(
             api_message(&err),
             "pods is forbidden: User \"limited\" cannot list resource \"pods\""
@@ -233,12 +245,13 @@ mod tests {
 
     #[test]
     fn context_is_kept_and_repeats_are_dropped() {
-        let api: anyhow::Error = kube::Error::Api(ErrorResponse {
-            status: "Failure".into(),
+        let api: anyhow::Error = kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: "pods \"x\" not found".into(),
             reason: "NotFound".into(),
             code: 404,
-        })
+            ..Default::default()
+        }))
         .into();
         assert_eq!(
             error_text(&api.context("describe pod/x")),
@@ -255,12 +268,13 @@ mod tests {
 
     #[test]
     fn an_empty_api_message_shows_reason_and_code() {
-        let err: anyhow::Error = kube::Error::Api(ErrorResponse {
-            status: "Failure".into(),
+        let err: anyhow::Error = kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: String::new(),
             reason: "Forbidden".into(),
             code: 403,
-        })
+            ..Default::default()
+        }))
         .into();
         assert_eq!(error_text(&err), "Forbidden (403)");
     }
@@ -319,5 +333,20 @@ mod tests {
     fn a_plain_error_is_its_text() {
         let err = std::io::Error::other("connection refused");
         assert_eq!(chain_text(&err), "connection refused");
+    }
+
+    #[test]
+    fn a_kubeconfig_parse_error_shows_no_content() {
+        let cases = [
+            // A tab, a bad indent and a type error, each next to a secret.
+            "apiVersion: v1\nusers:\n- name: u\n  user:\n    token: s3cret-tok\n\tbad: x\n",
+            "apiVersion: v1\nusers:\n- name: u\n  user:\n    token: s3cret-tok\n   bad: [\n",
+            "apiVersion: v1\nusers:\n- name: u\n  user:\n    token: s3cret-tok\n    exec: s3cret-exec\n",
+        ];
+        for yaml in cases {
+            let e = kube::config::Kubeconfig::from_yaml(yaml).unwrap_err();
+            let text = kubeconfig_error_text(&e, None);
+            assert!(!text.contains("s3cret"), "{text}");
+        }
     }
 }
