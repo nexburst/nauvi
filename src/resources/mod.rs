@@ -43,6 +43,7 @@ mod related_summary;
 mod status;
 mod table;
 
+#[cfg(feature = "mcp")]
 pub(crate) use apply::result_line;
 pub use apply::{apply_manifests, cli_apply, ApplyResult, ApplyStatus, ManifestOptions};
 pub use columns::make_row;
