@@ -103,7 +103,11 @@ for (const [i, note] of READ_ONLY_NOTES.entries()) {
     page,
   }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
-    await openApp(page, (_c, f) => f.offerUpdate("0.2.0", false, note));
+    // `init` is serialized, so the note reaches it through the page.
+    await page.addInitScript((n) => ((window as unknown as { note206: string }).note206 = n), note);
+    await openApp(page, (_c, f) =>
+      f.offerUpdate("0.2.0", false, (window as unknown as { note206: string }).note206),
+    );
     await expect(banner(page)).toContainText("kubeloupe 0.2.0 is available — Release notes · Download from the release page");
     await expect(banner(page).getByRole("button", { name: "Install and restart" })).toHaveCount(0);
     const text = banner(page).locator(".text");
