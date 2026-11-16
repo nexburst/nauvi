@@ -114,7 +114,7 @@ describe("terminal links", { timeout: 10 * 60_000 }, () => {
        return term.querySelector('.screen').title;`,
     );
     assert.equal(title, GOOD);
-    await app.waitFor(() => app.profile.opened().includes(GOOD), {
+    await app.waitFor(() => app.profile.opened().some((url) => url === GOOD), {
       timeout: 10_000,
       message: `${GOOD} to be opened (opened: ${app.profile.opened().join(", ")})`,
     });
