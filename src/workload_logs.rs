@@ -123,19 +123,19 @@ pub async fn workload_selector(
         WorkloadKind::Deployment => Api::<Deployment>::namespaced(c, namespace)
             .get(name)
             .await
-            .map(|w| w.spec.map(|s| s.selector)),
+            .map(|w| Some(w.spec.selector)),
         WorkloadKind::StatefulSet => Api::<StatefulSet>::namespaced(c, namespace)
             .get(name)
             .await
-            .map(|w| w.spec.map(|s| s.selector)),
+            .map(|w| Some(w.spec.selector)),
         WorkloadKind::DaemonSet => Api::<DaemonSet>::namespaced(c, namespace)
             .get(name)
             .await
-            .map(|w| w.spec.map(|s| s.selector)),
+            .map(|w| Some(w.spec.selector)),
         WorkloadKind::ReplicaSet => Api::<ReplicaSet>::namespaced(c, namespace)
             .get(name)
             .await
-            .map(|w| w.spec.map(|s| s.selector)),
+            .map(|w| Some(w.spec.selector)),
         WorkloadKind::Job => Api::<Job>::namespaced(c, namespace)
             .get(name)
             .await

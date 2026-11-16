@@ -50,6 +50,7 @@ const VERB: Record<ActionId, string> = {
   debug: "Debug",
   nodeShell: "Shell",
   attach: "Attach",
+  evict: "Evict",
 };
 
 export interface Copy {
@@ -81,6 +82,14 @@ export function confirmCopy(action: ActionDef, kind: string, count: number, repl
         warning:
           "Its containers may keep running on the node, and a StatefulSet pod may be replaced while the old one is still alive. Use this only for pods stuck terminating.",
         button: "Force delete",
+      };
+    case "evict":
+      return {
+        title: `Evict ${noun}`,
+        lead: "This asks the API server to evict the pod, as a node drain does:",
+        warning:
+          "A PodDisruptionBudget that would be violated blocks the eviction. A pod without a controller is not recreated.",
+        button: "Evict",
       };
     case "drain":
       return {

@@ -98,7 +98,7 @@ where
     )
     .await
     .context("timed out building client")??;
-    let suffix = std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros();
+    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
     let ns = format!("{prefix}-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({

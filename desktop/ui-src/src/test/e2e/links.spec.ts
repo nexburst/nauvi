@@ -48,6 +48,7 @@ test("Copy link in the detail panel and the row menu", async ({ page }) => {
     "Debug…",
     "Edit",
     "Copy link",
+    "Evict",
     "Delete",
     "Force delete…",
   ]);

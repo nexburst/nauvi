@@ -2,23 +2,20 @@
 //! banners and inline messages.
 //!
 //! kube-rs's errors print a lot that is meant for developers: an API error
-//! is `ApiError: <message>: <reason> (ErrorResponse { .. })`, and the
+//! is `ApiError: <message>: <reason> (Status { .. })`, and the
 //! watcher and the kubeconfig loader wrap it again and repeat it. These
 //! functions keep each part of an error chain once and use the API server's
 //! own message for an API error.
 
-use kube::core::ErrorResponse;
+use kube::core::Status;
 use std::error::Error as StdError;
 use std::path::Path;
 
 /// The API server's error response behind `err`, if any.
-pub fn api_response<'a>(err: &'a (dyn StdError + 'static)) -> Option<&'a ErrorResponse> {
+pub fn api_response<'a>(err: &'a (dyn StdError + 'static)) -> Option<&'a Status> {
     let mut cur: Option<&(dyn StdError + 'static)> = Some(err);
     while let Some(e) = cur {
-        if let Some(kube::Error::Api(r)) = e.downcast_ref::<kube::Error>() {
-            return Some(r);
-        }
-        if let Some(r) = e.downcast_ref::<ErrorResponse>() {
+        if let Some(r) = status_of(e) {
             return Some(r);
         }
         cur = e.source();
@@ -26,9 +23,19 @@ pub fn api_response<'a>(err: &'a (dyn StdError + 'static)) -> Option<&'a ErrorRe
     None
 }
 
+/// `e` itself as an API error response: a `kube::Error::Api`, or the
+/// `Status` (boxed or not) a watcher error holds as its source.
+fn status_of<'a>(e: &'a (dyn StdError + 'static)) -> Option<&'a Status> {
+    if let Some(kube::Error::Api(r)) = e.downcast_ref::<kube::Error>() {
+        return Some(r);
+    }
+    e.downcast_ref::<Status>()
+        .or_else(|| e.downcast_ref::<Box<Status>>().map(|b| &**b))
+}
+
 /// The text of an API error response: its message, or its reason and code
 /// when it has none.
-pub fn response_text(r: &ErrorResponse) -> String {
+pub fn response_text(r: &Status) -> String {
     if r.message.is_empty() {
         format!("{} ({})", r.reason, r.code)
     } else {
@@ -56,10 +63,7 @@ pub fn chain_text(err: &(dyn StdError + 'static)) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut cur: Option<&(dyn StdError + 'static)> = Some(err);
     while let Some(e) = cur {
-        let api = match e.downcast_ref::<kube::Error>() {
-            Some(kube::Error::Api(r)) => Some(r),
-            _ => e.downcast_ref::<ErrorResponse>(),
-        };
+        let api = status_of(e);
         let exec_run = e
             .downcast_ref::<kube::client::AuthError>()
             .and_then(crate::auth::exec_run_text);
@@ -179,6 +183,16 @@ fn dump_len(s: &str) -> usize {
 /// The part of an error's text that is its own: without its source's text
 /// when it embeds it (`"failed to list: {source}"` -> `"failed to list"`).
 fn own_text(e: &(dyn StdError + 'static)) -> String {
+    // kube 5 parses kubeconfigs with serde-saphyr, whose errors quote the
+    // lines around the problem: they may hold a token or a key (#252).
+    if let Some(kube::config::KubeconfigError::Parse(p)) =
+        e.downcast_ref::<kube::config::KubeconfigError>()
+    {
+        return format!(
+            "failed to parse kubeconfig YAML: {}",
+            hide_values(&p.without_snippet().to_string())
+        );
+    }
     let text = e.to_string();
     let Some(source) = e.source() else {
         return text;
@@ -192,17 +206,78 @@ fn own_text(e: &(dyn StdError + 'static)) -> String {
     }
 }
 
+/// Serde's type errors quote the value they got: `invalid type: string
+/// "s3cret", expected ..`, `unknown variant `s3cret`, expected one of ..`.
+/// In a kubeconfig that value may be a token or a password typed in the
+/// wrong place (#304), so keep only its kind.
+fn hide_values(msg: &str) -> String {
+    const HIDDEN: &str = "(value hidden)";
+    let mut out = String::with_capacity(msg.len());
+    let mut rest = msg;
+    loop {
+        let found = ["invalid type: ", "invalid value: ", "unknown variant "]
+            .iter()
+            .filter_map(|p| rest.find(p).map(|i| (i, *p)))
+            .min();
+        let Some((i, prefix)) = found else { break };
+        out.push_str(&rest[..i + prefix.len()]);
+        let after = &rest[i + prefix.len()..];
+        // The kind is what comes before the quoted value: `string`,
+        // `floating point`, nothing for a variant.
+        let Some(open) = after.find(['"', '`']).filter(|&o| {
+            after[..o]
+                .chars()
+                .all(|c| c.is_ascii_alphabetic() || c == ' ')
+        }) else {
+            rest = after;
+            continue;
+        };
+        let quote = after.as_bytes()[open] as char;
+        let Some(len) = quoted_len(&after[open + 1..], quote) else {
+            // No closing quote: hide everything after it.
+            out.push_str(&after[..open]);
+            out.push_str(HIDDEN);
+            return out;
+        };
+        out.push_str(&after[..open]);
+        out.push_str(HIDDEN);
+        rest = &after[open + 1 + len + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The length of a quoted value up to its closing `quote`. A `"` string is
+/// Rust-escaped; a `` ` `` one is not escaped, so it ends at the `` ` ``
+/// that comes before ", expected" (or the last one).
+fn quoted_len(s: &str, quote: char) -> Option<usize> {
+    if quote == '`' {
+        return s.find("`, expected").or_else(|| s.rfind('`'));
+    }
+    let mut escaped = false;
+    for (i, c) in s.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '"' => return Some(i),
+            _ => {}
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn forbidden() -> ErrorResponse {
-        ErrorResponse {
-            status: "Failure".into(),
+    fn forbidden() -> Box<Status> {
+        Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: "pods is forbidden: User \"limited\" cannot list resource \"pods\"".into(),
             reason: "Forbidden".into(),
             code: 403,
-        }
+            ..Default::default()
+        })
     }
 
     #[test]
@@ -222,7 +297,7 @@ mod tests {
             text,
             "failed to perform initial object list: pods is forbidden: User \"limited\" cannot list resource \"pods\""
         );
-        assert!(!text.contains("ErrorResponse"));
+        assert!(!text.contains("Status {"));
         assert_eq!(
             api_message(&err),
             "pods is forbidden: User \"limited\" cannot list resource \"pods\""
@@ -233,12 +308,13 @@ mod tests {
 
     #[test]
     fn context_is_kept_and_repeats_are_dropped() {
-        let api: anyhow::Error = kube::Error::Api(ErrorResponse {
-            status: "Failure".into(),
+        let api: anyhow::Error = kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: "pods \"x\" not found".into(),
             reason: "NotFound".into(),
             code: 404,
-        })
+            ..Default::default()
+        }))
         .into();
         assert_eq!(
             error_text(&api.context("describe pod/x")),
@@ -255,12 +331,13 @@ mod tests {
 
     #[test]
     fn an_empty_api_message_shows_reason_and_code() {
-        let err: anyhow::Error = kube::Error::Api(ErrorResponse {
-            status: "Failure".into(),
+        let err: anyhow::Error = kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: String::new(),
             reason: "Forbidden".into(),
             code: 403,
-        })
+            ..Default::default()
+        }))
         .into();
         assert_eq!(error_text(&err), "Forbidden (403)");
     }
@@ -319,5 +396,73 @@ mod tests {
     fn a_plain_error_is_its_text() {
         let err = std::io::Error::other("connection refused");
         assert_eq!(chain_text(&err), "connection refused");
+    }
+
+    #[test]
+    fn a_kubeconfig_parse_error_shows_no_content() {
+        let cases = [
+            // A tab, a bad indent and a type error, each next to a secret.
+            "apiVersion: v1\nusers:\n- name: u\n  user:\n    token: s3cret-tok\n\tbad: x\n",
+            "apiVersion: v1\nusers:\n- name: u\n  user:\n    token: s3cret-tok\n   bad: [\n",
+            "apiVersion: v1\nusers:\n- name: u\n  user:\n    token: s3cret-tok\n    exec: s3cret-exec\n",
+        ];
+        for yaml in cases {
+            let e = kube::config::Kubeconfig::from_yaml(yaml).unwrap_err();
+            let text = kubeconfig_error_text(&e, None);
+            assert!(!text.contains("s3cret"), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_mistyped_value_in_a_kubeconfig_is_not_quoted() {
+        // interactiveMode is an enum: serde quotes the unknown variant.
+        let yaml = "apiVersion: v1\nusers:\n- name: u\n  user:\n    exec:\n      interactiveMode: s3cret-k\n";
+        let e = kube::config::Kubeconfig::from_yaml(yaml).unwrap_err();
+        let text = kubeconfig_error_text(&e, None);
+        assert_eq!(
+            text,
+            "Cannot use the kubeconfig: failed to parse kubeconfig YAML: unknown variant (value hidden), expected one of Never, IfAvailable, Always at line 6, column 24"
+        );
+    }
+
+    #[test]
+    fn serde_value_quotes_are_hidden() {
+        let cases = [
+            (
+                r#"invalid type: string "s3cret", expected a boolean at line 3, column 4"#,
+                "invalid type: string (value hidden), expected a boolean at line 3, column 4",
+            ),
+            (
+                r#"invalid value: string "a \"s3cret\" b", expected base64"#,
+                "invalid value: string (value hidden), expected base64",
+            ),
+            (
+                "unknown variant `s3c`ret`, expected one of `A`, `B`",
+                "unknown variant (value hidden), expected one of `A`, `B`",
+            ),
+            (
+                "invalid type: floating point `1.5`, expected a string",
+                "invalid type: floating point (value hidden), expected a string",
+            ),
+            // Nothing quoted: unchanged.
+            (
+                "invalid type: map, expected one of `Never`",
+                "invalid type: map, expected one of `Never`",
+            ),
+            ("expected mapping start at line 4", "expected mapping start at line 4"),
+            // A cut-off quote hides the rest.
+            (
+                r#"invalid type: string "s3cret"#,
+                "invalid type: string (value hidden)",
+            ),
+            // Two in one message.
+            (
+                r#"invalid type: string "s3cret-1", then unknown variant `s3cret-2`, expected x"#,
+                "invalid type: string (value hidden), then unknown variant (value hidden), expected x",
+            ),
+        ];
+        for (msg, want) in cases {
+            assert_eq!(hide_values(msg), want, "{msg}");
+        }
     }
 }

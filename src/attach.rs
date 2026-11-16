@@ -253,12 +253,13 @@ mod tests {
 
     #[test]
     fn errors_name_the_missing_permission() {
-        let err = anyhow::Error::new(kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
+        let err = anyhow::Error::new(kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: "pods \"p\" is forbidden".into(),
             reason: "Forbidden".into(),
             code: 403,
-        }));
+            ..Default::default()
+        })));
         assert!(describe_attach_error(&err)
             .starts_with("Not allowed: attaching needs permission to create pods/attach."));
     }

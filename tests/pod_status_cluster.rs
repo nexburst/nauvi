@@ -49,7 +49,7 @@ fn pod(name: &str, restart: &str, init: &[&str], containers: &[&str]) -> Result<
 #[ignore]
 async fn pods_table_status_matches_kubectl_for_terminated_and_init_states() -> Result<()> {
     let client = connect().await?;
-    let suffix = std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros();
+    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
     let ns = format!("kl-it-podstatus-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({

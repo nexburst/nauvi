@@ -641,7 +641,6 @@ pub(crate) async fn query_usage(
 mod tests {
     use super::*;
     use k8s_openapi::api::core::v1::{ServicePort, ServiceSpec};
-    use kube::core::ErrorResponse;
 
     fn svc(ns: &str, name: &str, labels: &[(&str, &str)], ports: &[(&str, i32)]) -> Service {
         let mut s = Service::default();
@@ -877,12 +876,13 @@ mod tests {
     }
 
     fn api_error(code: u16, message: &str) -> kube::Error {
-        kube::Error::Api(ErrorResponse {
-            status: "Failure".into(),
+        kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: message.into(),
             reason: "".into(),
             code,
-        })
+            ..Default::default()
+        }))
     }
 
     #[test]

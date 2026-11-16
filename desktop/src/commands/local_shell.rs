@@ -100,8 +100,12 @@ pub(crate) fn shell_kubeconfig_for(
     let generated = match approved.flat()? {
         Some(flat) => flat_shell_kubeconfig(&flat, namespace),
         None => {
-            let kubeconfig = kube::config::Kubeconfig::read()
-                .map_err(|e| format!("cannot read the kubeconfig: {e}"))?;
+            let kubeconfig = kube::config::Kubeconfig::read().map_err(|e| {
+                format!(
+                    "cannot read the kubeconfig: {}",
+                    kubeloupe::errors::chain_text(&e)
+                )
+            })?;
             shell_kubeconfig(&kubeconfig, Some(&approved.target.context), namespace)
         }
     }

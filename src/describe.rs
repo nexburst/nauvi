@@ -312,8 +312,8 @@ fn dash(s: &str) -> String {
 }
 
 fn created_text(secs: i64, age: &str) -> String {
-    match chrono::DateTime::from_timestamp(secs, 0) {
-        Some(t) if secs > 0 => format!("{} ({age} ago)", t.format("%Y-%m-%dT%H:%M:%SZ")),
+    match jiff::Timestamp::from_second(secs) {
+        Ok(t) if secs > 0 => format!("{} ({age} ago)", t.strftime("%Y-%m-%dT%H:%M:%SZ")),
         _ => "<unknown>".into(),
     }
 }

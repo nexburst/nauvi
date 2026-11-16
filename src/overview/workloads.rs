@@ -128,8 +128,8 @@ pub fn workload_summary(kind: usize, v: &Value) -> WorkloadSummary {
     let created = v
         .pointer("/metadata/creationTimestamp")
         .and_then(Value::as_str)
-        .and_then(|t| t.parse::<chrono::DateTime<chrono::Utc>>().ok())
-        .map(|t| t.timestamp())
+        .and_then(|t| t.parse::<jiff::Timestamp>().ok())
+        .map(|t| t.as_second())
         .unwrap_or_default();
     WorkloadSummary {
         namespace: meta("namespace"),

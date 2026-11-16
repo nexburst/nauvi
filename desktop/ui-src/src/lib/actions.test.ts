@@ -65,6 +65,12 @@ describe("confirmCopy", () => {
     expect(confirmCopy(action("drain"), "Node", 1, 1).warning).toMatch(/PodDisruptionBudget/);
   });
 
+  it("says an eviction respects PodDisruptionBudgets", () => {
+    const evict = confirmCopy(action("evict", { destructive: true }), "Pod", 1, 1);
+    expect(evict).toMatchObject({ title: "Evict Pod", button: "Evict" });
+    expect(evict.warning).toMatch(/PodDisruptionBudget/);
+  });
+
   it("warns when scaling to 0", () => {
     const scale = action("scale", { input: "replicas" });
     expect(confirmCopy(scale, "Deployment", 1, 3)).toMatchObject({ button: "Scale to 3", warning: "" });

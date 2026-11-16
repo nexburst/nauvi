@@ -3,7 +3,7 @@ mod args;
 use anyhow::Result;
 use args::{Cli, Commands, HelmCommand};
 use clap::{CommandFactory, Parser};
-use kubeloupe::actions::{cli_action, cli_delete, cli_drain, ActionId, DrainOptions};
+use kubeloupe::actions::{cli_action, cli_delete, cli_drain, cli_evict, ActionId, DrainOptions};
 use kubeloupe::{
     client_with, error_text, exec_in_pod, list_namespaces, list_nodes, list_pods, parse_log_target,
     print_describe, print_get, print_pod_logs, print_top_nodes, print_top_pods,
@@ -260,6 +260,9 @@ async fn run(cli: Cli) -> Result<()> {
                 None,
             )
             .await?
+        }
+        Commands::Evict { pod, namespace } => {
+            cli_evict(&client, &pod, namespace.as_deref()).await?
         }
         Commands::Delete {
             target,

@@ -95,7 +95,7 @@ pub(super) fn job_state(v: &Value) -> &'static str {
     }
 }
 
-fn parse_time(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+fn parse_time(s: &str) -> Option<jiff::Timestamp> {
     s.parse().ok()
 }
 
@@ -115,8 +115,8 @@ pub(super) fn job_duration(v: &Value) -> String {
     let Some(start) = parse_time(&str_at(v, "/status/startTime")) else {
         return String::new();
     };
-    let end = parse_time(&str_at(v, "/status/completionTime")).unwrap_or_else(chrono::Utc::now);
-    duration_text((end - start).num_seconds())
+    let end = parse_time(&str_at(v, "/status/completionTime")).unwrap_or_else(jiff::Timestamp::now);
+    duration_text(end.duration_since(start).as_secs())
 }
 
 pub(super) fn job_cells(v: &Value) -> Vec<String> {

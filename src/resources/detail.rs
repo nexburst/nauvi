@@ -147,13 +147,13 @@ pub fn summarize_events(items: impl IntoIterator<Item = Event>) -> Vec<RelatedEv
             let ts = e
                 .last_timestamp
                 .as_ref()
-                .map(|t| t.0.timestamp())
-                .or_else(|| e.event_time.as_ref().map(|t| t.0.timestamp()))
+                .map(|t| t.0.as_second())
+                .or_else(|| e.event_time.as_ref().map(|t| t.0.as_second()))
                 .or_else(|| {
                     e.metadata
                         .creation_timestamp
                         .as_ref()
-                        .map(|t| t.0.timestamp())
+                        .map(|t| t.0.as_second())
                 })
                 .unwrap_or(0);
             (

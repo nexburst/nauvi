@@ -23,12 +23,13 @@ test("the pod header has Logs, Shell, Attach, Edit and Delete, and no Logs and s
     "Debug…",
     "Edit",
     "Copy link",
+    "Evict",
     "Delete",
     "Force delete…",
   ]);
   await expect(panel(page).getByText("Logs and shell")).toHaveCount(0);
   // Every item has an icon.
-  await expect(bar(page).locator("button svg")).toHaveCount(9);
+  await expect(bar(page).locator("button svg")).toHaveCount(10);
   // One access check for all of them.
   await expect.poll(() => fake.calls("cmdCheckActions")).toHaveLength(1);
   expect((await fake.lastCall("cmdCheckActions")).ids).toEqual([
@@ -38,6 +39,7 @@ test("the pod header has Logs, Shell, Attach, Edit and Delete, and no Logs and s
     "attach",
     "debug",
     "edit",
+    "evict",
     "delete",
     "forceDelete",
   ]);
@@ -156,6 +158,6 @@ test("a failed access check offers every action", async ({ page }) => {
   await openApp(page, (_cluster, fake) => fake.failNext("cmdCheckActions", "the API server is down"));
   await openKind(page, "Pods");
   await row(page, "web-1").click();
-  await expect(bar(page).getByRole("button")).toHaveCount(9);
+  await expect(bar(page).getByRole("button")).toHaveCount(10);
   for (const b of await bar(page).getByRole("button").all()) await expect(b).not.toHaveAttribute("aria-disabled");
 });

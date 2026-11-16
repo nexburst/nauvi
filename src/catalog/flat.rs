@@ -82,6 +82,7 @@ pub fn flatten_context(kubeconfig: &Kubeconfig, context: &str, file: &Path) -> R
         contexts: vec![NamedContext {
             name: named.name.clone(),
             context: Some(entry.clone()),
+            other: named.other.clone(),
         }],
         current_context: Some(named.name.clone()),
         ..Default::default()

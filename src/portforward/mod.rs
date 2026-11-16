@@ -10,15 +10,17 @@
 
 mod resolve;
 mod spec;
+mod tunnel;
 
 pub use resolve::{
     container_port, describe_service_port, find_service_port, pod_is_ready, slice_backends, Backend,
 };
 pub use spec::{ForwardKind, ForwardTarget, LocalPort, PortSpec, RemotePort};
+pub use tunnel::PING_EVERY;
 
 use crate::actions::describe_error;
 use anyhow::{bail, Context, Result};
-use k8s_openapi::api::core::v1::{Pod, Service};
+use k8s_openapi::api::core::v1::Service;
 use kube::api::Api;
 use kube::Client;
 use resolve::Resolver;
@@ -27,6 +29,7 @@ use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
+use tunnel::Tunnel;
 
 /// How many ready backends one connection tries before giving up.
 const TRIES_PER_CONNECTION: usize = 3;
@@ -112,9 +115,7 @@ impl PortForward {
         let local_port = listener.local_addr()?.port();
 
         // Probe: fail now instead of on the first connection.
-        let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
-        let mut probe = pods
-            .portforward(&first.pod, &[first.port])
+        let probe = Tunnel::open(client, &ns, &first.pod, first.port)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(
@@ -123,7 +124,6 @@ impl PortForward {
                     describe_error(&anyhow::Error::from(e))
                 )
             })?;
-        let _ = probe.take_stream(first.port);
         probe.abort();
 
         let shared = Arc::new(Shared::default());
@@ -281,25 +281,19 @@ async fn connect(
     if let Some(i) = backends.iter().position(|b| b.pod == current) {
         backends.swap(0, i);
     }
-    let pods: Api<Pod> = Api::namespaced(client, &namespace);
     for b in backends.into_iter().take(TRIES_PER_CONNECTION) {
-        let mut pf = match pods.portforward(&b.pod, &[b.port]).await {
-            Ok(pf) => pf,
-            Err(e) => {
-                shared.set_error(format!(
-                    "pod {}: {}",
-                    b.pod,
-                    describe_error(&anyhow::Error::from(e))
-                ));
-                continue;
-            }
-        };
-        let (Some(mut stream), Some(remote_error)) =
-            (pf.take_stream(b.port), pf.take_error(b.port))
-        else {
-            pf.abort();
-            continue;
-        };
+        let (mut stream, remote_error, closer) =
+            match Tunnel::open(&client, &namespace, &b.pod, b.port).await {
+                Ok(t) => t.into_parts(),
+                Err(e) => {
+                    shared.set_error(format!(
+                        "pod {}: {}",
+                        b.pod,
+                        describe_error(&anyhow::Error::from(e))
+                    ));
+                    continue;
+                }
+            };
         shared.set_pod(&b.pod);
         shared.connections.fetch_add(1, Ordering::Relaxed);
         shared.total.fetch_add(1, Ordering::Relaxed);
@@ -309,8 +303,8 @@ async fn connect(
         let message = tokio::time::timeout(ERROR_GRACE, remote_error)
             .await
             .ok()
-            .flatten();
-        pf.abort();
+            .and_then(Result::ok);
+        drop(closer);
         match outcome(message, copied) {
             Outcome::Error(msg) => {
                 shared.set_error(format!("pod {} port {}: {msg}", b.pod, b.port))

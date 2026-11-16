@@ -15,7 +15,7 @@
 //! one run.
 
 use base64::Engine as _;
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use kube::client::{AuthError, Body, ClientBuilder};
 use kube::config::{ExecConfig, ExecInteractiveMode};
 use kube::{Client, Config};
@@ -39,9 +39,9 @@ pub struct ExecCredential {
     /// A client certificate and key (PEM), if the plugin returned them.
     pub certificate: Option<(String, String)>,
     /// When the plugin said it expires (`None`: it did not say).
-    pub expires: Option<DateTime<Utc>>,
+    pub expires: Option<Timestamp>,
     /// When the cache stops using it.
-    reuse_until: DateTime<Utc>,
+    reuse_until: Timestamp,
 }
 
 type Slot = Arc<tokio::sync::Mutex<Option<ExecCredential>>>;
@@ -99,7 +99,7 @@ pub async fn credential(exec: &ExecConfig) -> Result<ExecCredential, AuthError> 
     let slot = slot(exec);
     let mut cached = slot.lock().await;
     if let Some(c) = cached.as_ref() {
-        if Utc::now() < c.reuse_until {
+        if Timestamp::now() < c.reuse_until {
             return Ok(c.clone());
         }
     }
@@ -192,18 +192,21 @@ fn run_plugin(exec: &ExecConfig) -> Result<ExecCredential, AuthError> {
                 .map(|a| a.to_string_lossy())
                 .collect::<Vec<_>>()
                 .join(" "),
-            status: out.status,
-            out,
+            out: Box::new(out),
         });
     }
-    let parsed: Output = serde_json::from_slice(&out.stdout).map_err(AuthError::AuthExecParse)?;
+    // JSON, as before kube 5 (which parses YAML too). The error keeps
+    // serde_json's text only, never a snippet of the output: it may hold
+    // the credential.
+    let parsed: Output = serde_json::from_slice(&out.stdout)
+        .map_err(|e| AuthError::AuthExecParse(Box::new(serde::de::Error::custom(e))))?;
     let status = parsed.status.ok_or(AuthError::ExecPluginFailed)?;
     let expires = status
         .expiration_timestamp
-        .map(|ts| ts.parse::<DateTime<Utc>>())
+        .map(|ts| ts.parse::<Timestamp>())
         .transpose()
         .map_err(AuthError::MalformedTokenExpirationDate)?;
-    let now = Utc::now();
+    let now = Timestamp::now();
     let reuse_until = match expires {
         Some(at) => at - EXPIRY_MARGIN,
         None => now + NO_EXPIRY_TTL,
@@ -329,7 +332,7 @@ mod tests {
     #[tokio::test]
     async fn a_credential_is_reused_until_it_expires() {
         let dir = temp_dir("reuse");
-        let later = (Utc::now() + chrono::Duration::minutes(15)).to_rfc3339();
+        let later = (Timestamp::now() + jiff::SignedDuration::from_mins(15)).to_string();
         let (script, count) = plugin(&dir, &later);
         let exec = exec_for(&script, "a");
         let first = credential(&exec).await.unwrap();
@@ -357,7 +360,7 @@ mod tests {
     async fn an_expiring_credential_is_refreshed() {
         let dir = temp_dir("expiring");
         // Within the 60 s margin: never reused.
-        let soon = (Utc::now() + chrono::Duration::seconds(30)).to_rfc3339();
+        let soon = (Timestamp::now() + jiff::SignedDuration::from_secs(30)).to_string();
         let (script, count) = plugin(&dir, &soon);
         let exec = exec_for(&script, "soon");
         credential(&exec).await.unwrap();
@@ -373,7 +376,9 @@ mod tests {
         let exec = exec_for(&script, "ttl");
         let c = credential(&exec).await.unwrap();
         assert!(c.expires.is_none());
-        assert!(c.reuse_until > Utc::now() + NO_EXPIRY_TTL - chrono::Duration::seconds(5));
+        assert!(
+            c.reuse_until > Timestamp::now() + NO_EXPIRY_TTL - jiff::SignedDuration::from_secs(5)
+        );
         credential(&exec).await.unwrap();
         assert_eq!(runs(&count), 1);
         std::fs::remove_dir_all(&dir).unwrap();

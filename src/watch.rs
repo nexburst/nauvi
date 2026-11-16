@@ -6,7 +6,7 @@
 //! display-ready summaries. Each watcher runs under a
 //! [`crate::liveness`] guard, so an API server that stops answering without
 //! closing the connection shows as Reconnecting within about 25 s instead of
-//! after kube's 5-minute read timeout. [`run_batched`] coalesces those
+//! after the client's 5-minute read timeout. [`run_batched`] coalesces those
 //! into at most one [`Batch`] per interval, which is what a UI wants instead
 //! of one event per object.
 
@@ -784,12 +784,13 @@ mod tests {
         let mut t = Tracker::<String>::new("https://127.0.0.1:6443");
         let conv = |s: &String| s.clone();
         let forbidden =
-            watcher::Error::InitialListFailed(kube::Error::Api(kube::core::ErrorResponse {
-                status: "Failure".into(),
+            watcher::Error::InitialListFailed(kube::Error::Api(Box::new(kube::core::Status {
+                status: Some(kube::core::response::StatusSummary::Failure),
                 message: "pods is forbidden".into(),
                 reason: "Forbidden".into(),
                 code: 403,
-            }));
+                ..Default::default()
+            })));
         let out = t.step(Err(forbidden), &conv);
         assert!(
             matches!(out.as_slice(), [Update::State(WatchState::Forbidden { error })] if error == "pods is forbidden"),

@@ -1,5 +1,5 @@
 //! Resource actions: scale, rollout restart, cordon/uncordon, drain, trigger a
-//! CronJob, suspend/resume, delete (graceful, forced, bulk).
+//! CronJob, suspend/resume, evict a pod, delete (graceful, forced, bulk).
 //!
 //! One registry ([`actions_for`]) says which actions apply to which kind. The
 //! CLI and the desktop UI (which receives the list with each discovered
@@ -60,6 +60,9 @@ pub enum ActionId {
     /// Attach to a container's main process (`kubectl attach -it`).
     /// Interactive ([`crate::attach`]).
     Attach,
+    /// Evict one pod through the Eviction API, so PodDisruptionBudgets
+    /// are respected ([`evict_pod`]).
+    Evict,
 }
 
 /// An extra value the action needs before it can run.
@@ -154,6 +157,10 @@ pub fn actions_for(r: &ResourceRef, verbs: &[String]) -> Vec<ActionDef> {
             input: ActionInput::Debug,
             ..def(Debug, "Debug…")
         });
+        out.push(ActionDef {
+            destructive: true,
+            ..def(Evict, "Evict")
+        });
     }
     if verbs.iter().any(|v| v == "delete") {
         out.push(ActionDef {
@@ -184,9 +191,26 @@ pub fn scale_is_destructive(replicas: i32) -> bool {
 pub(crate) fn api_error(err: &anyhow::Error) -> Option<(u16, String)> {
     err.chain()
         .find_map(|e| match e.downcast_ref::<kube::Error>() {
-            Some(kube::Error::Api(r)) => Some((r.code, r.message.clone())),
+            Some(kube::Error::Api(r)) => Some((r.code, status_message(r))),
             _ => None,
         })
+}
+
+/// The message of an API error. A refused eviction (429) names the budget
+/// only in its causes ("The disruption budget web needs 1 healthy pods and
+/// has 1 currently"), so those are added.
+fn status_message(s: &kube::core::Status) -> String {
+    let mut msg = s.message.clone();
+    if s.code == 429 {
+        for cause in s.details.iter().flat_map(|d| &d.causes) {
+            if !cause.message.is_empty() && !msg.contains(&cause.message) {
+                msg = format!("{} {}", msg.trim_end(), cause.message)
+                    .trim()
+                    .to_string();
+            }
+        }
+    }
+    msg
 }
 
 /// Plain-words text for an API error code. Pure, so it is unit tested.
@@ -281,7 +305,9 @@ pub async fn rollout_restart(
     namespace: &str,
     name: &str,
 ) -> Result<()> {
-    let ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+    let ts = jiff::Timestamp::now()
+        .strftime("%Y-%m-%dT%H:%M:%SZ")
+        .to_string();
     namespaced_api(client, r, namespace)?
         .patch(name, &patch_params(), &Patch::Merge(restart_patch(&ts)))
         .await?;
@@ -353,12 +379,7 @@ pub(crate) fn random_suffix() -> String {
 /// CronJob's `jobTemplate`, owned by the CronJob and annotated as manual.
 pub fn job_from_cronjob(cj: &CronJob, suffix: &str) -> Result<Job> {
     let name = cj.metadata.name.clone().context("CronJob has no name")?;
-    let template = cj
-        .spec
-        .as_ref()
-        .context("CronJob has no spec")?
-        .job_template
-        .clone();
+    let template = cj.spec.job_template.clone();
     let tmeta = template.metadata.unwrap_or_default();
     let mut annotations: BTreeMap<String, String> = tmeta.annotations.unwrap_or_default();
     annotations.insert(INSTANTIATE.to_string(), "manual".to_string());
@@ -387,6 +408,19 @@ pub async fn trigger_cronjob(client: &Client, namespace: &str, name: &str) -> Re
     let jobs: Api<Job> = Api::namespaced(client.clone(), namespace);
     let created = jobs.create(&PostParams::default(), &job).await?;
     Ok(created.metadata.name.unwrap_or_default())
+}
+
+// ---------------------------------------------------------------------------
+// Evict.
+// ---------------------------------------------------------------------------
+
+/// Evict one pod through the Eviction API (what a drain does per pod). A PodDisruptionBudget that would be violated makes the
+/// API server answer 429; that is returned as is (see [`describe_status`]),
+/// not retried.
+pub async fn evict_pod(client: &Client, namespace: &str, name: &str) -> Result<()> {
+    let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    pods.evict(name, &EvictParams::default()).await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -498,6 +532,10 @@ pub async fn run_action(
         ActionId::ForceDelete => {
             force_delete_pod(client, namespace, name).await?;
             format!("Force deleted {what}")
+        }
+        ActionId::Evict => {
+            evict_pod(client, namespace, name).await?;
+            format!("Evicted {what}")
         }
         ActionId::Drain => bail!("drain reports progress: use drain_node"),
         ActionId::PortForward => bail!("a port-forward keeps running: use PortForward::start"),
@@ -836,6 +874,29 @@ pub fn render_event(ev: &DrainEvent) -> String {
     }
 }
 
+/// `kubeloupe evict <pod>`: a pod name, or `pod/<name>`.
+pub fn evict_target(pod: &str) -> Result<String> {
+    let name = match pod.split_once('/') {
+        Some((kind, name)) => {
+            if !matches!(kind.to_ascii_lowercase().as_str(), "pod" | "pods" | "po") {
+                bail!("only pods can be evicted, got '{pod}'");
+            }
+            name
+        }
+        None => pod,
+    };
+    if name.is_empty() {
+        bail!("expected a pod name, got '{pod}'");
+    }
+    Ok(format!("pod/{name}"))
+}
+
+/// `kubeloupe evict <pod>`.
+pub async fn cli_evict(client: &Client, pod: &str, namespace: Option<&str>) -> Result<()> {
+    let target = evict_target(pod)?;
+    cli_action(client, &target, namespace, ActionId::Evict, None).await
+}
+
 /// `kubeloupe delete <kind>/<name> [--force]`.
 pub async fn cli_delete(
     client: &Client,
@@ -903,7 +964,7 @@ mod tests {
         );
         assert_eq!(
             ids("", "Pod", &d),
-            [PortForward, Attach, Debug, Delete, ForceDelete]
+            [PortForward, Attach, Debug, Evict, Delete, ForceDelete]
         );
         assert_eq!(ids("", "ConfigMap", &d), [Delete]);
         // Same kind name in another group gets nothing special.
@@ -929,6 +990,8 @@ mod tests {
         assert!(!find("", "Pod", ActionId::Delete).type_to_confirm);
         assert!(find("", "Pod", ActionId::ForceDelete).type_to_confirm);
         assert!(find("", "Node", ActionId::Drain).destructive);
+        assert!(find("", "Pod", ActionId::Evict).destructive);
+        assert!(!find("", "Pod", ActionId::Evict).type_to_confirm);
         assert!(!find("apps", "Deployment", ActionId::Restart).destructive);
         assert_eq!(
             find("apps", "Deployment", ActionId::Scale).input,
@@ -975,7 +1038,7 @@ mod tests {
         assert_eq!(drain_skip_reason(&mirror), Some(SkipReason::Mirror));
 
         let mut dying = plain.clone();
-        dying.metadata.deletion_timestamp = Some(Time(chrono::Utc::now()));
+        dying.metadata.deletion_timestamp = Some(Time(jiff::Timestamp::now()));
         assert_eq!(drain_skip_reason(&dying), Some(SkipReason::Terminating));
         assert!(!has_controller(&plain));
         assert!(has_controller(&rs_owned));
@@ -1041,6 +1104,38 @@ mod tests {
     }
 
     #[test]
+    fn evict_takes_a_pod_name_or_pod_slash_name() {
+        assert_eq!(evict_target("web-1").unwrap(), "pod/web-1");
+        assert_eq!(evict_target("po/web-1").unwrap(), "pod/web-1");
+        assert_eq!(evict_target("Pods/web-1").unwrap(), "pod/web-1");
+        assert!(evict_target("deploy/web").is_err());
+        assert!(evict_target("pod/").is_err());
+        assert!(evict_target("").is_err());
+    }
+
+    #[test]
+    fn a_refused_eviction_names_the_budget() {
+        let status: kube::core::Status = serde_json::from_value(json!({
+            "status": "Failure",
+            "code": 429,
+            "reason": "TooManyRequests",
+            "message": "Cannot evict pod as it would violate the pod's disruption budget.",
+            "details": {"causes": [{
+                "reason": "DisruptionBudget",
+                "message": "The disruption budget web needs 1 healthy pods and has 1 currently"
+            }]}
+        }))
+        .unwrap();
+        let err = anyhow::Error::from(kube::Error::Api(Box::new(status)));
+        assert_eq!(
+            describe_error(&err),
+            "Blocked by a PodDisruptionBudget: evicting would leave too few pods running. \
+             Cannot evict pod as it would violate the pod's disruption budget. \
+             The disruption budget web needs 1 healthy pods and has 1 currently"
+        );
+    }
+
+    #[test]
     fn error_messages_are_plain_words() {
         assert!(describe_status(403, "forbidden: x").starts_with("Not allowed"));
         assert!(describe_status(404, "pods \"a\" not found").starts_with("Already gone"));
@@ -1069,12 +1164,13 @@ mod tests {
 
     #[test]
     fn describe_error_reads_kube_api_errors_through_context() {
-        let api = kube::Error::Api(kube::core::ErrorResponse {
-            status: "Failure".into(),
+        let api = kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
             message: "deployments.apps \"x\" is forbidden".into(),
             reason: "Forbidden".into(),
             code: 403,
-        });
+            ..Default::default()
+        }));
         let err = anyhow::Error::new(api).context("scaling");
         assert!(describe_error(&err).starts_with("Not allowed"));
         assert_eq!(describe_error(&anyhow::anyhow!("plain")), "plain");

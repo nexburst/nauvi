@@ -99,6 +99,7 @@ pub fn permissions_for(r: &ResourceRef, namespace: &str, id: &str) -> Vec<Permis
         "attach" => vec![pods("create", "attach")],
         "debug" => vec![pods("patch", "ephemeralcontainers")],
         "portForward" => vec![pods("create", "portforward")],
+        "evict" => vec![pods("create", "eviction")],
         "edit" | "restart" | "cordon" | "uncordon" | "suspend" | "resume" => vec![own("patch", "")],
         "scale" => vec![own("patch", "scale")],
         "delete" | "forceDelete" => vec![own("delete", "")],
@@ -215,6 +216,10 @@ mod tests {
         assert_eq!(
             described(&pod, "demo", "edit"),
             ["patch pods in namespace demo"]
+        );
+        assert_eq!(
+            described(&pod, "demo", "evict"),
+            ["create pods/eviction in namespace demo"]
         );
         assert_eq!(
             described(&pod, "demo", "forceDelete"),

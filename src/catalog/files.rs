@@ -2,6 +2,7 @@
 //! kubeconfig files in a folder, pasted kubeconfigs and a fingerprint to
 //! notice changes.
 
+use crate::errors::chain_text;
 use anyhow::{anyhow, bail, Context as _, Result};
 use kube::config::Kubeconfig;
 use std::collections::hash_map::DefaultHasher;
@@ -72,8 +73,13 @@ pub fn check_source(path: &Path) -> Result<()> {
             .map_err(|e| anyhow!("cannot read the folder {}: {e}", path.display()))?;
         return Ok(());
     }
-    let kc = Kubeconfig::read_from(path)
-        .map_err(|e| anyhow!("{} is not a kubeconfig file: {e}", path.display()))?;
+    let kc = Kubeconfig::read_from(path).map_err(|e| {
+        anyhow!(
+            "{} is not a kubeconfig file: {}",
+            path.display(),
+            chain_text(&e)
+        )
+    })?;
     if kc.contexts.is_empty() {
         bail!("{} has no contexts", path.display());
     }
@@ -86,7 +92,7 @@ pub fn check_source(path: &Path) -> Result<()> {
 /// is a kubeconfig with at least one context.
 pub fn save_pasted_kubeconfig(dir: &Path, yaml: &str, name: &str) -> Result<PathBuf> {
     let kc = Kubeconfig::from_yaml(yaml)
-        .map_err(|e| anyhow!("The pasted text is not a kubeconfig: {e}"))?;
+        .map_err(|e| anyhow!("The pasted text is not a kubeconfig: {}", chain_text(&e)))?;
     let Some(first) = kc.contexts.first() else {
         bail!("The pasted kubeconfig has no contexts.");
     };

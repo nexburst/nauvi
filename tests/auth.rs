@@ -166,7 +166,7 @@ async fn plugin_token_lists_pods_on_kind() -> Result<()> {
         .context("test cluster not in kubeconfig")?;
     let cluster = serde_json::to_value(cluster)?;
 
-    let suffix = std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros();
+    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
     let ns = format!("kl-auth-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(admin.clone());
     namespaces
@@ -206,7 +206,8 @@ async fn plugin_token_lists_pods_on_kind() -> Result<()> {
             .await?
             .status
             .context("token request has no status")?
-            .token;
+            .token
+            .context("token request has no token")?;
 
         let dir = plugin_dir(&credential_script(&token))?;
         let client = client_from_kubeconfig(
@@ -262,7 +263,7 @@ async fn check_and_connect_share_one_plugin_run_on_kind() -> Result<()> {
         .context("test cluster not in kubeconfig")?;
     let cluster = serde_json::to_value(cluster)?;
 
-    let suffix = std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros();
+    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
     let ns = format!("kl-exec-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(admin.clone());
     namespaces
@@ -291,9 +292,10 @@ async fn check_and_connect_share_one_plugin_run_on_kind() -> Result<()> {
             .await?
             .status
             .context("token request has no status")?
-            .token;
+            .token
+            .context("token request has no token")?;
 
-        let expires = (chrono::Utc::now() + chrono::Duration::minutes(10)).to_rfc3339();
+        let expires = (jiff::Timestamp::now() + jiff::SignedDuration::from_mins(10)).to_string();
         let dir = plugin_dir("")?;
         let runs = dir.join("runs");
         std::fs::write(

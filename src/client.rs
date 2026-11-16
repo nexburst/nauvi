@@ -9,6 +9,10 @@ use kube::Client;
 use std::ffi::OsStr;
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// How long a response may stay silent: kube 2's default (#252).
+pub const READ_TIMEOUT: Duration = Duration::from_secs(295);
 
 /// Build a client for the given context (`None` = the kubeconfig's
 /// current-context), or from in-cluster config.
@@ -123,8 +127,25 @@ pub async fn client_from_kubeconfig(
     connect(config, context_name, interactive).await
 }
 
+/// The client settings kube 5 changed that we keep as kube 2 had them (#252).
+fn keep_kube2_defaults(config: &mut kube::Config) {
+    // kube 5 dropped its default read timeout. Keep kube 2's, so a one-off
+    // request (a get, an apply, a log fetch) to a server that stopped
+    // answering still fails instead of waiting forever. Watches and polls
+    // don't rely on it: `crate::liveness` notices a quiet server first.
+    if config.read_timeout.is_none() {
+        config.read_timeout = Some(READ_TIMEOUT);
+    }
+    // kube 5 also retries 429, 503 and 504 answers by default, up to 15
+    // times. We handle those ourselves: a drain reads an eviction's 429 as
+    // "blocked by a PodDisruptionBudget", and a liveness probe counts a 503
+    // from /readyz as an answer.
+    config.default_retry = false;
+}
+
 /// Build the client, run its exec plugin and make the first request.
 async fn connect(mut config: kube::Config, context: String, interactive: bool) -> Result<Client> {
+    keep_kube2_defaults(&mut config);
     let exec = config.auth_info.exec.as_ref();
     let target = AuthTarget {
         context,
@@ -230,6 +251,18 @@ fn kubeconfig_has_proxy(kubeconfig: &kube::config::Kubeconfig, context: Option<&
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clients_keep_kube2s_timeout_and_no_retries() {
+        let mut config = kube::Config::new("https://127.0.0.1:6443".parse().unwrap());
+        keep_kube2_defaults(&mut config);
+        assert_eq!(config.read_timeout, Some(READ_TIMEOUT));
+        assert!(!config.default_retry);
+        // A timeout the caller set stays.
+        config.read_timeout = Some(Duration::from_secs(7));
+        keep_kube2_defaults(&mut config);
+        assert_eq!(config.read_timeout, Some(Duration::from_secs(7)));
+    }
 
     fn sample_kubeconfig() -> kube::config::Kubeconfig {
         kube::config::Kubeconfig::from_yaml(

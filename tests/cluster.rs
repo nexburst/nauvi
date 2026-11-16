@@ -97,7 +97,7 @@ where
     Fut: Future<Output = Result<()>>,
 {
     let client = connect().await?;
-    let suffix = std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros();
+    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
     let ns = format!("{prefix}-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({
@@ -790,7 +790,7 @@ where
     F: FnOnce(String) -> Fut,
     Fut: Future<Output = Result<()>>,
 {
-    let suffix = std::process::id() ^ chrono::Utc::now().timestamp_subsec_micros();
+    let suffix = std::process::id() ^ jiff::Timestamp::now().subsec_microsecond() as u32;
     let ns = format!("{prefix}-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({
@@ -1451,7 +1451,7 @@ async fn action_scale_changes_replicas() -> Result<()> {
         scale(&client, &kind.resource, &ns, "web", 2).await?;
         eventually("spec.replicas == 2", TIMEOUT, || async {
             let d = deployments.get("web").await?;
-            Ok((d.spec.and_then(|s| s.replicas) == Some(2)).then_some(()))
+            Ok((d.spec.replicas == Some(2)).then_some(()))
         })
         .await?;
         // Scale to zero removes the pods.
@@ -1500,14 +1500,15 @@ async fn action_rollout_restart_adds_annotation_and_replicaset() -> Result<()> {
         let d = deployments.get("web").await?;
         let ann = d
             .spec
-            .and_then(|s| s.template.metadata)
+            .template
+            .metadata
             .and_then(|m| m.annotations)
             .unwrap_or_default();
         let stamp = ann
             .get(actions::RESTARTED_AT)
             .context("restartedAt annotation missing")?;
         ensure!(
-            chrono::DateTime::parse_from_rfc3339(stamp).is_ok(),
+            stamp.parse::<jiff::Timestamp>().is_ok(),
             "not RFC 3339: {stamp}"
         );
         eventually("a second ReplicaSet", TIMEOUT, || async {
@@ -1564,14 +1565,7 @@ async fn action_suspend_and_resume_cronjob() -> Result<()> {
             .create(&PostParams::default(), &cronjob_named("nightly"))
             .await?;
         let suspended = || async {
-            Ok::<_, anyhow::Error>(
-                cronjobs
-                    .get("nightly")
-                    .await?
-                    .spec
-                    .and_then(|s| s.suspend)
-                    .unwrap_or(false),
-            )
+            Ok::<_, anyhow::Error>(cronjobs.get("nightly").await?.spec.suspend.unwrap_or(false))
         };
         set_suspended(&client, &ns, "nightly", true).await?;
         ensure!(suspended().await?);
@@ -1696,14 +1690,8 @@ async fn unschedulable(client: &Client, node: &str) -> Result<bool> {
 
 fn pinned_deployment(name: &str, node: &str, replicas: i32, drain_label: &str) -> Deployment {
     let mut d = sleeper_deployment(name, replicas, serde_json::json!({ "kl-it": drain_label }));
-    d.spec
-        .as_mut()
-        .unwrap()
-        .template
-        .spec
-        .as_mut()
-        .unwrap()
-        .node_selector = Some([("kubernetes.io/hostname".to_string(), node.to_string())].into());
+    d.spec.template.spec.as_mut().unwrap().node_selector =
+        Some([("kubernetes.io/hostname".to_string(), node.to_string())].into());
     d
 }
 
@@ -1980,13 +1968,13 @@ async fn overview_events_are_warnings_linked_to_their_object() -> Result<()> {
             "metadata": { "name": "it-warning", "namespace": ns },
             "involvedObject": { "apiVersion": "v1", "kind": "ConfigMap", "name": "cm", "namespace": ns },
             "reason": "ItWarning", "message": "from the integration test", "type": "Warning",
-            "lastTimestamp": chrono::Utc::now().to_rfc3339(), "count": 1
+            "lastTimestamp": jiff::Timestamp::now().strftime("%Y-%m-%dT%H:%M:%SZ").to_string(), "count": 1
         }))?;
         let normal = serde_json::json!({
             "metadata": { "name": "it-normal", "namespace": ns },
             "involvedObject": { "apiVersion": "v1", "kind": "ConfigMap", "name": "cm", "namespace": ns },
             "reason": "ItNormal", "message": "fine", "type": "Normal",
-            "lastTimestamp": chrono::Utc::now().to_rfc3339(), "count": 1
+            "lastTimestamp": jiff::Timestamp::now().strftime("%Y-%m-%dT%H:%M:%SZ").to_string(), "count": 1
         });
         let events: Api<k8s_openapi::api::core::v1::Event> = Api::namespaced(client.clone(), &ns);
         events
