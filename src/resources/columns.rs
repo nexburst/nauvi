@@ -519,6 +519,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             AGE,
             ui("cpu", "CPU", ColumnKind::NodeCpu),
             ui("memory", "Memory", ColumnKind::NodeMemory),
+            ui("disk", "Disk", ColumnKind::NodeDisk),
         ],
     },
     KindSpec {

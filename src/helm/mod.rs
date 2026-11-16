@@ -8,6 +8,7 @@
 //! `name`, `status`, `version` and `modifiedAt`. Listing reads only that
 //! metadata; one revision's payload is downloaded only when it is shown.
 
+mod addons;
 mod command;
 mod decode;
 mod deploy;
@@ -15,6 +16,11 @@ mod manifest;
 mod print;
 mod repo;
 
+pub use addons::{
+    addon_deploy_request, addon_permissions, install_metrics_addon, metrics_addon,
+    metrics_addon_access, metrics_addons, values_with_options, MetricsAddon, MetricsAddonId,
+    MetricsAddonOption, MetricsAddonRequest, KUBELET_INSECURE_TLS,
+};
 pub use command::{helm_rollback, helm_uninstall, helm_version, HelmTarget};
 pub use deploy::{helm_install, helm_upgrade, HelmDeployRequest, HelmDeployResult};
 pub use manifest::{manifest_resources, redact_manifest, HelmResource};

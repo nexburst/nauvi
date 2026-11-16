@@ -17,6 +17,7 @@ pub(crate) mod helm_charts;
 pub(crate) mod help;
 pub(crate) mod local_shell;
 pub(crate) mod logs;
+pub(crate) mod metrics_addons;
 pub(crate) mod overview;
 pub(crate) mod portforward;
 pub(crate) mod prometheus;
@@ -92,6 +93,9 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             logs::cmd_stream_pod_all_logs,
             logs::cmd_stream_pod_logs,
             logs::cmd_stream_workload_logs,
+            metrics_addons::cmd_metrics_addon_access,
+            metrics_addons::cmd_metrics_addon_install,
+            metrics_addons::cmd_metrics_addons,
             overview::cmd_overview_start,
             overview::cmd_overview_stop,
             portforward::cmd_portforward_autostart,
@@ -103,6 +107,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             portforward::cmd_portforward_start_saved,
             portforward::cmd_portforward_stop,
             portforward::cmd_service_ports,
+            prometheus::cmd_node_disk_usage,
             prometheus::cmd_prometheus_status,
             resources::cmd_apply_manifests,
             resources::cmd_apply_resource_yaml,

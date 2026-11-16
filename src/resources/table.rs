@@ -25,6 +25,7 @@ fn shown_columns(kind: &ResourceKind) -> impl Iterator<Item = usize> + '_ {
                     | ColumnKind::PodMemory
                     | ColumnKind::NodeCpu
                     | ColumnKind::NodeMemory
+                    | ColumnKind::NodeDisk
             )
         })
         .map(|(i, _)| i)

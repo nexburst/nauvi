@@ -5,7 +5,9 @@
 use crate::settings::SettingsStore;
 use crate::state::{Cluster, ClusterSession};
 use kube::Client;
-use kubeloupe::{resolve_prometheus, PrometheusDetection, PrometheusStatus};
+use kubeloupe::{
+    prometheus_node_disks, resolve_prometheus, NodeDisk, PrometheusDetection, PrometheusStatus,
+};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::State;
@@ -96,4 +98,52 @@ pub(crate) async fn cmd_prometheus_status(
     Ok(prometheus_for(&cluster, &settings, &client, redetect)
         .await
         .status())
+}
+
+/// The disk use of the nodes' root filesystems from Prometheus
+/// (node-exporter), for the Nodes table's Disk column.
+#[derive(Debug, Clone, serde::Serialize, specta::Type)]
+pub(crate) struct NodeDiskView {
+    /// Empty without a Prometheus or without node-exporter.
+    pub nodes: Vec<NodeDisk>,
+    /// The Prometheus asked (`namespace/service:port`), or "".
+    pub source: String,
+    /// Why there are no numbers ("" when there are).
+    pub note: String,
+}
+
+/// Disk use per node from the context's Prometheus. Without one (or
+/// without node-exporter) the list is empty and `note` says why.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_node_disk_usage(
+    cluster: Cluster,
+    settings: State<'_, Arc<SettingsStore>>,
+) -> Result<NodeDiskView, String> {
+    let client = cluster.client().await?;
+    let detection = prometheus_for(&cluster, &settings, &client, false).await;
+    let Some(target) = detection.target else {
+        return Ok(NodeDiskView {
+            nodes: Vec::new(),
+            source: String::new(),
+            note: detection.note,
+        });
+    };
+    let now = super::usage::now_ms() / 1000;
+    let nodes = prometheus_node_disks(&client, &target, now)
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    let note = if nodes.is_empty() {
+        format!(
+            "Prometheus at {} has no node-exporter disk metrics.",
+            target.label()
+        )
+    } else {
+        String::new()
+    };
+    Ok(NodeDiskView {
+        nodes,
+        source: target.label(),
+        note,
+    })
 }
