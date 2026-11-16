@@ -4,8 +4,9 @@
 //! messages it writes are built from `chain_text`/`error_text`, which leave
 //! out env values and plugin output (#243). This is the second line of
 //! defence for text the app does not control (a panic message, a UI error,
-//! a library's warning): bearer and basic credentials, JWTs, PEM blocks and
-//! the values of token, password, secret and kubeconfig key fields.
+//! a library's warning): bearer and basic credentials, JWTs, PEM blocks, a
+//! URL's user and password, and the values of token, password, secret and
+//! kubeconfig key fields. It masks too much rather than too little.
 
 use regex::{Regex, RegexBuilder};
 use std::sync::LazyLock;
@@ -22,11 +23,15 @@ static PEM: LazyLock<Regex> = LazyLock::new(|| {
 
 /// `Authorization: Bearer x`, `Basic x`.
 static SCHEME: LazyLock<Regex> = LazyLock::new(|| {
-    RegexBuilder::new(r"\b(bearer|basic)(\s+)[A-Za-z0-9._~+/=-]{4,}")
+    RegexBuilder::new(r"\b(bearer|basic)(\s+)[A-Za-z0-9._~+/=-]{8,}")
         .case_insensitive(true)
         .build()
         .unwrap()
 });
+
+/// The user and password in a URL (`https://user:pass@host`).
+static USERINFO: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"([A-Za-z][A-Za-z0-9+.-]*://)[^/\s@]+@").unwrap());
 
 /// A JSON Web Token (ServiceAccount and OIDC tokens are ones).
 static JWT: LazyLock<Regex> = LazyLock::new(|| {
@@ -57,6 +62,7 @@ fn kept_value(value: &str) -> bool {
 pub(crate) fn redact(text: &str) -> String {
     let text = PEM.replace_all(text, MASK);
     let text = JWT.replace_all(&text, MASK);
+    let text = USERINFO.replace_all(&text, format!("${{1}}{MASK}@"));
     let text = SCHEME.replace_all(&text, format!("${{1}}${{2}}{MASK}"));
     let source: &str = &text;
     let text = FIELD.replace_all(source, |c: &regex::Captures| {
@@ -96,6 +102,10 @@ mod tests {
                 r#"{"client-key-data":"[redacted]"}"#,
             ),
             ("--token abcdef", "--token [redacted]"),
+            (
+                "proxy https://me:pw@proxy.example:3128/x",
+                "proxy https://[redacted]@proxy.example:3128/x",
+            ),
             (
                 "AWS_SECRET_ACCESS_KEY=xyz",
                 "AWS_SECRET_ACCESS_KEY=[redacted]",
