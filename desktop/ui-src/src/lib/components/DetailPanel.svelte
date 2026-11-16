@@ -77,7 +77,9 @@
   <DetailNotices {live} kind="Pod" />
 
   <div class="body">
-    {#if live.loadError && !info}
+    {#if live.deleted && !info}
+      <!-- DetailNotices says it was deleted. -->
+    {:else if live.loadError && !info}
       <p class="error-text">Could not load pod details: {live.loadError}</p>
     {:else if !info || !extras}
       <p class="muted">Loading…</p>

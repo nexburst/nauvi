@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clusterError, NO_KUBECONFIG_HINT } from "./clusterError";
+import { clusterError, isNotFound, NO_KUBECONFIG_HINT } from "./clusterError";
 
 describe("clusterError", () => {
   it("says there is no kubeconfig, not that the cluster is unreachable", () => {
@@ -18,5 +18,14 @@ describe("clusterError", () => {
 
   it("prefixes anything else", () => {
     expect(clusterError("connection refused").message).toBe("Could not reach the cluster: connection refused");
+  });
+});
+
+describe("isNotFound", () => {
+  it("recognises the API server's not found for that object only", () => {
+    expect(isNotFound('pods "web-1" not found', "web-1")).toBe(true);
+    expect(isNotFound('describe pod/web-1: pods "web-1" not found', "web-1")).toBe(true);
+    expect(isNotFound('pods "web-2" not found', "web-1")).toBe(false);
+    expect(isNotFound("pods is forbidden: User cannot get pods", "web-1")).toBe(false);
   });
 });

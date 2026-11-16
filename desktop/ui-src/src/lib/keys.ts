@@ -24,6 +24,8 @@ export type Command =
   | "zoomOut"
   | "zoomReset"
   | "terminalSearch"
+  | "back"
+  | "forward"
   | "escape";
 
 export interface Key {
@@ -34,6 +36,8 @@ export interface Key {
   /** The Ctrl key on every platform (Cmd+` switches windows on macOS). */
   ctrl?: boolean;
   shift?: boolean;
+  /** Alt (Option on macOS). */
+  alt?: boolean;
   /** Only on macOS (true) or only elsewhere (false). */
   mac?: boolean;
   /**
@@ -213,6 +217,26 @@ export const KEYMAP: Binding[] = [
     inInputs: true,
     inTerminal: true,
   },
+  // Back/forward (#223), as in a browser. Not from text fields, the editor
+  // or the terminal, where Alt+arrows move by word.
+  {
+    command: "back",
+    keys: [
+      { key: "ArrowLeft", alt: true, mac: false },
+      { key: "[", mod: true, mac: true },
+    ],
+    label: "Back to the previous view, namespaces or object (also mouse button 4)",
+    group: "General",
+  },
+  {
+    command: "forward",
+    keys: [
+      { key: "ArrowRight", alt: true, mac: false },
+      { key: "]", mod: true, mac: true },
+    ],
+    label: "Forward again (also mouse button 5)",
+    group: "General",
+  },
 ];
 
 export function isMacPlatform(): boolean {
@@ -239,7 +263,7 @@ function matchesKey(e: KeyEventLike, k: Key, mac: boolean): boolean {
   }
   const modDown = mac ? e.metaKey : e.ctrlKey;
   const otherDown = mac ? e.ctrlKey : e.metaKey;
-  if (!!k.mod !== modDown || otherDown || e.altKey) return false;
+  if (!!k.mod !== modDown || otherDown || !!k.alt !== e.altKey) return false;
   // Shift is part of punctuation like `?`, so only checked when asked for
   // (Shift+F10) or when a plain letter must stay lower case (j, k).
   if (k.shift && !e.shiftKey) return false;
@@ -265,6 +289,8 @@ const KEY_NAMES: Record<string, string> = {
   " ": "Space",
   ArrowDown: "↓",
   ArrowUp: "↑",
+  ArrowLeft: "←",
+  ArrowRight: "→",
   Escape: "Esc",
   ContextMenu: "Menu",
 };
@@ -274,8 +300,8 @@ export function formatKey(k: Key, mac: boolean): string {
   const name = k.name ?? KEY_NAMES[k.key] ?? (k.key.length === 1 ? k.key.toUpperCase() : k.key);
   // macOS writes ⌃⇧⌘K; elsewhere it is Ctrl+Shift+K.
   const parts = mac
-    ? [k.ctrl ? "⌃" : "", k.shift ? "⇧" : "", k.mod ? "⌘" : "", name]
-    : [k.mod || k.ctrl ? "Ctrl" : "", k.shift ? "Shift" : "", name];
+    ? [k.ctrl ? "⌃" : "", k.alt ? "⌥" : "", k.shift ? "⇧" : "", k.mod ? "⌘" : "", name]
+    : [k.mod || k.ctrl ? "Ctrl" : "", k.alt ? "Alt" : "", k.shift ? "Shift" : "", name];
   return parts.filter(Boolean).join(mac ? "" : "+");
 }
 

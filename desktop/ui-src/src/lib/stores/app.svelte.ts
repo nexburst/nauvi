@@ -16,6 +16,7 @@ import { closeAllDockTabs, dock } from "./dock.svelte";
 import { autoStartForwards } from "./forwards.svelte";
 import { clearProblems } from "./problems.svelte";
 import { whenDiscarded } from "./unsaved.svelte";
+import { history } from "./history.svelte";
 
 /** `"overview"`, or the id of a discovered kind (`apps/v1/deployments`). */
 export type View = string;
@@ -96,6 +97,7 @@ export async function loadKinds() {
     kinds.all = [];
     kinds.loaded = true;
     showError("Could not discover the cluster's resource types: " + e);
+    settleHistory();
     return;
   }
   kinds.all = found;
@@ -103,6 +105,12 @@ export async function loadKinds() {
   kinds.loaded = true;
   await checkAccess();
   restorePendingView();
+  settleHistory();
+}
+
+/** Back/forward (#223) starts at what was restored, not at the overview. */
+function settleHistory() {
+  history.settle({ view: app.view, namespaces: app.selectedNamespaces, target: detail.target });
 }
 
 /** Open the remembered view if its kind is still served and allowed. */
@@ -365,6 +373,8 @@ export async function switchContext(name: string) {
   // in the old context; other windows keep theirs.
   closeAllDockTabs();
   clearProblems();
+  // Places in the old context mean nothing in the new one.
+  history.reset();
   closeDetail();
   app.selectedNamespaces = [];
   app.view = "overview";

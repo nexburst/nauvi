@@ -7,8 +7,12 @@
   import { confirmDiscard } from "../stores/unsaved.svelte";
   import { isMacPlatform, shortcutHint } from "../keys";
   import HelpMenu from "./HelpMenu.svelte";
+  import { history } from "../stores/history.svelte";
+  import { goBack, goForward } from "../stores/navigation.svelte";
 
   const REFRESH_SHORTCUT = shortcutHint("refresh", isMacPlatform());
+  const BACK_SHORTCUT = shortcutHint("back", isMacPlatform());
+  const FORWARD_SHORTCUT = shortcutHint("forward", isMacPlatform());
 
   async function onContextChange(select: HTMLSelectElement) {
     const name = select.value;
@@ -30,6 +34,32 @@
 
 <header>
   <div class="brand">kubeloupe</div>
+  <div class="history" role="group" aria-label="History">
+    <button
+      class="arrow"
+      type="button"
+      aria-label="Go back"
+      title={`Back (${BACK_SHORTCUT})`}
+      disabled={!history.canBack}
+      onclick={goBack}
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
+      </svg>
+    </button>
+    <button
+      class="arrow"
+      type="button"
+      aria-label="Go forward"
+      title={`Forward (${FORWARD_SHORTCUT})`}
+      disabled={!history.canForward}
+      onclick={goForward}
+    >
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <path fill="currentColor" d="M4 13h12.17l-5.59 5.59L12 20l8-8-8-8-1.41 1.41L16.17 11H4v2z" />
+      </svg>
+    </button>
+  </div>
   <div class="cluster">
     <span
       class="dot"
@@ -122,6 +152,29 @@
     font-weight: 700;
     font-size: 16px;
     letter-spacing: 0.02em;
+  }
+  .history {
+    display: flex;
+    gap: 2px;
+    margin-left: -6px;
+  }
+  .arrow {
+    display: flex;
+    align-items: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 4px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .arrow:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--bg-hover);
+  }
+  .arrow:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
   .cluster {
     display: flex;

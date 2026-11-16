@@ -5,7 +5,9 @@
   let { live, kind }: { live: LiveDetail; kind: string } = $props();
 </script>
 
-{#if live.deleted}
+{#if live.deleted && !live.info}
+  <p class="notice deleted" role="status">This {kind} was deleted. There is nothing left to show.</p>
+{:else if live.deleted}
   <p class="notice deleted" role="status">This {kind} was deleted. Showing its last known state.</p>
 {:else if live.watchError && live.info}
   <p class="notice" role="status">{live.watchError}</p>

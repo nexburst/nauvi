@@ -2,6 +2,7 @@ import { commands, events } from "../bindings";
 import { thisWindow } from "../window";
 import type { DetailWatchEvent, ResourceDetail } from "../bindings";
 import type { Target } from "./detail.svelte";
+import { isNotFound } from "../clusterError";
 
 /**
  * The detail of one object, kept up to date: a first `cmd_get_resource_detail`
@@ -56,6 +57,8 @@ export class LiveDetail {
       if (!this.#fromWatch) this.info = detail.value;
     } else if (!this.#fromWatch) {
       this.loadError = String(detail.reason);
+      // Gone before the panel opened: back/forward to an object deleted since (#223).
+      if (isNotFound(this.loadError, t.name)) this.deleted = true;
     }
     this.loaded = true;
     const buffered = this.#buffer.splice(0);
