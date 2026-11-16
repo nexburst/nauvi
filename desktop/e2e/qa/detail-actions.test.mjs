@@ -113,7 +113,7 @@ async function bothThemes(app, label) {
   await setTheme(app, null);
 }
 
-const POD_LABELS = ["Logs", "Shell", "Port forward…", "Attach", "Debug…", "Edit", "Delete", "Force delete…"];
+const POD_LABELS = ["Logs", "Shell", "Port forward…", "Attach", "Debug…", "Edit", "Evict", "Delete", "Force delete…"];
 
 let ns = "";
 let pod = "";
@@ -271,7 +271,7 @@ describe("detail panel action header (view-only user)", { timeout: 10 * 60_000 }
     console.log(`viewer header: ${JSON.stringify(b)}`);
     const by = Object.fromEntries(b.map((x) => [x.label, x]));
     assert.equal(by.Logs.denied, false, "view may read logs");
-    for (const l of ["Shell", "Attach", "Debug…", "Port forward…", "Edit", "Delete", "Force delete…"]) {
+    for (const l of ["Shell", "Attach", "Debug…", "Port forward…", "Edit", "Evict", "Delete", "Force delete…"]) {
       assert.equal(by[l].denied, true, `${l} greyed`);
       assert.match(by[l].reason, /^Not allowed: you can't /, `${l} says why`);
     }

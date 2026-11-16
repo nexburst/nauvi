@@ -15,6 +15,12 @@ export function actionsHandlers(s: FakeState) {
         case "forceDelete":
           removeRow(s, kind, row.key);
           return `Deleted ${label}`;
+        case "evict": {
+          const error = cluster.evictErrors[row.key];
+          if (error) throw error;
+          removeRow(s, kind, row.key);
+          return `Evicted Pod/${row.key}`;
+        }
         case "scale":
           return `Scaled ${label} to ${replicas}`;
         case "cordon":

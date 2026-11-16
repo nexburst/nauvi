@@ -80,6 +80,8 @@ export interface FakeCluster {
   data: Record<string, FakeData>;
   /** `cmd_bulk_delete` fails these row keys with the given reason. */
   bulkErrors: Record<string, string>;
+  /** `cmd_run_action` refuses to evict these pod row keys, with the given reason (a PDB block, #300). */
+  evictErrors: Record<string, string>;
   /** `cmd_check_actions` refuses these action ids ("logs", "shell", "edit" or an ActionId), with the given reason. */
   deniedActions: Record<string, string>;
   /** What `cmd_get_related` returns, by `kindId|rowKey` (default: nothing related). */
@@ -409,6 +411,7 @@ export function defaultCluster(): FakeCluster {
       },
     },
     bulkErrors: {},
+    evictErrors: {},
     deniedActions: {},
     related: relatedFixtures(),
     applyErrors: {},
