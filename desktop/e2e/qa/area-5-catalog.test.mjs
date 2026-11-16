@@ -19,6 +19,7 @@ import { CONTEXT, byTestId } from "../lib/app.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { namespaceLabel } from "../lib/table.mjs";
 import { terminal } from "../lib/terminal.mjs";
+import { waitTheme } from "../lib/theme.mjs";
 import { resizeWindow, selectContext } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
@@ -76,6 +77,7 @@ async function setTheme(app, theme) {
   await app.driver.actions().keyDown(Key.CONTROL).sendKeys(",").keyUp(Key.CONTROL).perform();
   await app.find(byTestId("settings"));
   await app.js(`document.querySelector('[data-testid="settings"] input[name="theme"][value="${theme}"]').click()`);
+  await waitTheme(app, theme === "system" ? null : theme);
   await (await app.find(By.xpath("//*[@data-testid='settings']//button[normalize-space()='Close']"))).click();
 }
 

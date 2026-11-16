@@ -87,6 +87,7 @@ changed, and no browser opens. The login shell environment import is off
 | pause the control plane | `withControlPlanePaused(fn, { maxMs })`, `cannotPause()` (`lib/control-plane.mjs`) | `reconnect` |
 | command palette | `app.palette(query, option)` | `local-shell` |
 | the table's rows by column, the error banner, the namespace picker | `tableData`, `bannerText`, `pickNamespaces`, `openNamespacePicker`, `namespaceOptions`, `namespaceChips`, `namespaceLabel` (`lib/table.mjs`) | `area-1-tables`, `area-1-namespaces` |
+| the light or dark theme before a screenshot (sets `data-theme`, then waits for the attribute, the body's background colour and two painted frames; after clicking Settings > Theme yourself, call `waitTheme`) | `setTheme(app, "dark" \| "light" \| null)`, `waitTheme(app, theme)`, `backgroundLuminance(app)` (`lib/theme.mjs`; `setTheme` is also exported by `lib/panels.mjs`) | `history`, `detail-actions`, `errors`, most |
 | temp objects | `tempNamespace(prefix, yaml)`, `deleteNamespace`, `httpPodYaml`, `loggerPodYaml`, `waitPodReady`, `contexts()` (`lib/cluster.mjs`) | most |
 
 The pause is guarded four ways, because the cluster is shared: `finally`, a
