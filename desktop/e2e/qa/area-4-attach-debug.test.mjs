@@ -24,6 +24,22 @@ import { terminal } from "../lib/terminal.mjs";
 
 const T = { timeout: 180_000 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// An attached shell prints nothing until it reads a line, and on a loaded CI
+// runner the first Enter sometimes reaches it before the attach stream is
+// wired up (as with kubectl attach: "If you don't see a prompt, press
+// Enter"). Press Enter again every 5 s until the prompt shows.
+async function enterUntilPrompt(term, timeout = 30_000) {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    await term.type("");
+    try {
+      return await term.waitForPrompt(5_000);
+    } catch (e) {
+      if (Date.now() > deadline) throw e;
+    }
+  }
+}
 const target = process.env.CARGO_TARGET_DIR || join(REPO, "target");
 const CLI = process.env.KUBELOUPE_CLI || join(target, "debug", "kubeloupe");
 const noCli = existsSync(CLI) ? false : `no CLI at ${CLI} (cargo build -p kubeloupe)`;
@@ -107,8 +123,7 @@ describe("area 4: attach and debug containers", { timeout: 20 * 60_000 }, () => 
     const term = terminal(app, paneTerminal(id));
     await sleep(1500);
     console.log(`attach screen:\n${await term.screen()}`);
-    await term.type("");
-    await term.waitForPrompt();
+    await enterUntilPrompt(term);
     assert.equal(await term.run("echo attached-$((40+2))"), "attached-42");
     // Same process as PID 1 of the container.
     assert.equal(await term.run("echo pid-$$"), "pid-1");
@@ -131,8 +146,7 @@ describe("area 4: attach and debug containers", { timeout: 20 * 60_000 }, () => 
     // Attach again: the same shell, with the variable set before.
     await panelButton(app, "Attach");
     const again = terminal(app, paneTerminal(id));
-    await again.type("");
-    await again.waitForPrompt();
+    await enterUntilPrompt(again);
     assert.equal(await again.run("echo $QA_MARK"), "still-here");
     await closeTab(app, "Attach: tty");
   });
@@ -169,8 +183,7 @@ describe("area 4: attach and debug containers", { timeout: 20 * 60_000 }, () => 
     const id = `debug:${ns}/web/web`;
     const term = terminal(app, paneTerminal(id));
     await term.waitFor(/Attached to/, { timeout: 90_000 });
-    await term.type("");
-    await term.waitForPrompt();
+    await enterUntilPrompt(term);
     const ps = await term.run("ps -o pid,args");
     assert.match(ps, /httpd/, "the debug shell sees the target's httpd");
     const [r0] = await term.size();

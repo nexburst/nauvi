@@ -70,13 +70,19 @@ describe("area 1: live Pods, Nodes and Namespaces tables", { timeout: 15 * 60_00
     );
     await app.filter("crashed");
     // It runs for a moment between back-offs: wait for the back-off.
-    const row = await app.waitFor(
-      async () => {
-        const r = (await tableData(app)).rows.find((r) => r.Name === "crashed" && r.Namespace === "demo");
-        return r && /CrashLoopBackOff|Error/.test(r.Status) ? r : null;
-      },
-      { timeout: 90_000, message: "the demo/crashed row in CrashLoopBackOff or Error" },
-    );
+    const row = await app
+      .waitFor(
+        async () => {
+          const r = (await tableData(app)).rows.find((r) => r.Name === "crashed" && r.Namespace === "demo");
+          return r && /CrashLoopBackOff|Error/.test(r.Status) ? r : null;
+        },
+        { timeout: 90_000, message: "the demo/crashed row in CrashLoopBackOff or Error" },
+      )
+      .catch((e) => {
+        // What the cluster says, to tell a stale row from a slow kubelet.
+        const status = kubectl(["-n", "demo", "get", "pod", "crashed", "-o", "jsonpath={.status.containerStatuses[0]}"]);
+        throw new Error(`${e.message}; kubectl: ${status}`);
+      });
     console.log(`crashed: ${JSON.stringify(row)}`);
     const want = JSON.parse(kubectl(["-n", "demo", "get", "pod", "crashed", "-o", "json"]));
     const cs = want.status.containerStatuses[0];
