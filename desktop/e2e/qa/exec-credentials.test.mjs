@@ -69,6 +69,8 @@ const kubeconfig = {
           apiVersion: "client.authentication.k8s.io/v1",
           command: plugin,
           args: ["--cluster-name", "qa"],
+          // Shown and part of what is allowed: it can change what runs.
+          env: [{ name: "QA_PROFILE", value: "team a" }],
           interactiveMode: "Never",
         },
       },
@@ -77,7 +79,7 @@ const kubeconfig = {
   contexts: [{ name: ID, context: { cluster: "c", user: "plugin" } }],
 };
 writeFileSync(file, JSON.stringify(kubeconfig, null, 2), { mode: 0o600 });
-const COMMAND = `${plugin} --cluster-name qa`;
+const COMMAND = `env QA_PROFILE='team a' ${plugin} --cluster-name qa`;
 
 const row = (id) => `[data-testid="catalog-row"][data-context=${JSON.stringify(id)}]`;
 const statusOf = (app, id) =>

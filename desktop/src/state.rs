@@ -175,8 +175,16 @@ impl ClusterSession {
     /// The kubeconfig file and context name the selected context connects
     /// with. Everything that runs outside the client (helm, local shells)
     /// takes these, so it reaches the same cluster as the app.
+    ///
+    /// Helm and kubectl in a local shell run the exec plugin themselves, so
+    /// an added kubeconfig's login command must be allowed first (#201),
+    /// as for the client.
     pub(crate) fn target(&self) -> Result<ContextTarget, String> {
-        self.sources.resolve(self.selected_context().as_deref())
+        let selected = self.selected_context();
+        if let Some(id) = selected.as_deref() {
+            self.sources.may_log_in(id)?;
+        }
+        self.sources.resolve(selected.as_deref())
     }
 
     /// Switch to `context`: stop everything of the old one and forget its

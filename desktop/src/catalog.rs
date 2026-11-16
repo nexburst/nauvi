@@ -4,6 +4,8 @@
 //! them and tells the windows when a file changes.
 
 mod approvals;
+#[cfg(test)]
+mod gate_tests;
 
 pub(crate) use approvals::ExecAnswer;
 

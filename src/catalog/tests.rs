@@ -310,6 +310,14 @@ users:
       apiVersion: client.authentication.k8s.io/v1beta1
       command: aws
       args: [eks, get-token, --cluster-name, "my cluster"]
+- name: aws-env
+  user:
+    exec:
+      command: aws
+      args: [eks, get-token]
+      env:
+      - {name: PATH, value: "/attacker dir"}
+      - {name: AWS_PROFILE, value: prod}
 - name: gke
   user:
     auth-provider:
@@ -323,6 +331,8 @@ users:
 contexts:
 - name: eks
   context: {cluster: c, user: aws}
+- name: eks-env
+  context: {cluster: c, user: aws-env}
 - name: gke
   context: {cluster: c, user: gke}
 - name: oidc
@@ -341,6 +351,11 @@ contexts:
         "aws eks get-token --cluster-name 'my cluster'"
     );
     assert!(eks.login_plugin);
+    // The env is shown (names sorted, values quoted): it changes what runs.
+    assert_eq!(
+        c.find("eks-env").unwrap().login_command,
+        "env AWS_PROFILE=prod PATH='/attacker dir' aws eks get-token"
+    );
     let gke = c.find("gke").unwrap();
     assert_eq!(
         gke.login_command,

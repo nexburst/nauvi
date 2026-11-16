@@ -321,8 +321,28 @@ fn context_info(
 
 /// The command line logging in as `auth` runs (`""`: none), as it is
 /// shown before it may run: the exec plugin's, or the gcp auth provider's.
+///
+/// An exec plugin's `env` is part of it (`env A=1 B=2 aws …`, names
+/// sorted, values quoted): it can change what runs (`PATH`, `LD_PRELOAD`),
+/// so the user sees it, and a changed env is a new command to allow (#201).
 pub fn login_command(auth: &kube::config::AuthInfo) -> String {
+    let mut prefix: Vec<String> = Vec::new();
     let (command, args) = if let Some(exec) = &auth.exec {
+        let mut env: Vec<(&String, &String)> = exec
+            .env
+            .iter()
+            .flatten()
+            .filter_map(|e| Some((e.get("name")?, e.get("value")?)))
+            .collect();
+        // Stable: of two entries with one name, the last one still wins.
+        env.sort_by(|a, b| a.0.cmp(b.0));
+        if !env.is_empty() {
+            prefix.push("env".to_string());
+            prefix.extend(
+                env.into_iter()
+                    .map(|(name, value)| format!("{}={}", shell_word(name), shell_word(value))),
+            );
+        }
         (
             exec.command.clone().unwrap_or_default(),
             exec.args.clone().unwrap_or_default(),
@@ -340,9 +360,9 @@ pub fn login_command(auth: &kube::config::AuthInfo) -> String {
     } else {
         return String::new();
     };
-    std::iter::once(command)
-        .chain(args)
-        .map(|a| shell_word(&a))
+    prefix
+        .into_iter()
+        .chain(std::iter::once(command).chain(args).map(|a| shell_word(&a)))
         .collect::<Vec<_>>()
         .join(" ")
 }
