@@ -63,10 +63,10 @@ describe("port-forward: open in browser and copy URL", { timeout: 10 * 60_000 },
     assert.ok(!text.includes("Could not copy to the clipboard"), "the copy failed in the page");
   });
 
-  it("Stop ends the forward", T, async () => {
+  it("Stop ends the forward (it stays saved, #217)", T, async () => {
     const { app } = s;
     await (await app.find(By.css(`button[aria-label=${JSON.stringify(`Stop ${url}`)}]`))).click();
-    await app.find(By.xpath(`//*[@data-testid='port-forwards']//*[contains(normalize-space(), ${xq("No port-forwards.")})]`));
+    await app.find(By.xpath(`//*[@data-testid='forward-row']//*[normalize-space()=${xq("Stopped")}]`));
     await assert.rejects(fetch(url));
   });
 });
