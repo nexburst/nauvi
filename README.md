@@ -22,7 +22,15 @@ Svelte) and a CLI, both built on the same Rust core.
   rules, the role they grant and their subjects, as links.
 - **Live tables**: lists are kept up to date by Kubernetes watches, not by
   polling, and stay smooth with thousands of rows. Show one namespace, several
-  at once (up to 10, one watch each) or all of them, and filter by text.
+  at once (up to 10, one watch each) or all of them.
+  The filter box above every list matches any column. **Aa** matches case,
+  **.\*** takes a regular expression (`^` and `$` match at the start and end
+  of each column; a regex that runs too long is stopped). Enter remembers a
+  search and ☆ stars it; ArrowDown in the box offers your starred and recent
+  searches in any list. **Export CSV** in the toolbar saves the rows and
+  columns you see (filter, sort and column choice) to a file you pick. Cells
+  a spreadsheet would run as formulas are written as text, and Secrets export
+  only their names, types and key counts, as the table shows them.
   Pods and Nodes show CPU/memory usage when the metrics API is available,
   with a small trend line of the last 30 minutes. The pod and node detail
   panels chart CPU and memory (pods per container too) against requests and
@@ -32,11 +40,19 @@ Svelte) and a CLI, both built on the same Rust core.
   set per context in Settings), the charts show the last 1h, 6h or 24h from
   it, queried through the API server's service proxy (needs `get` on
   `services/proxy` in its namespace). Otherwise they say why and show the
-  metrics-server history.
+  metrics-server history. Without a Prometheus, Settings → Prometheus offers
+  to install a small one (Prometheus, kube-state-metrics, node-exporter, in
+  `monitoring`, no persistent volume by default). With Prometheus and
+  node-exporter, Nodes get a Disk column.
 - **Overview**: pod counts (crash-looping pods count as errors, not as
   running), problem pods, CPU/memory/pod capacity against requests and usage,
   and the newest warning events, each linking to its object. Kept live by
-  watches, not by re-listing the cluster.
+  watches, not by re-listing the cluster. Without metrics-server it offers to
+  install it (in `kube-system`). On kind and other clusters whose kubelets
+  have self-signed certificates, tick "Skip kubelet TLS verification".
+  Both installs run the `helm` CLI with a chart pinned to an exact version
+  from the project's own repository (never added to your helm repositories),
+  with editable values, a dry run first and nothing changed until you confirm.
 - **Workloads → Overview**: Pods, Deployments, DaemonSets, StatefulSets,
   ReplicaSets, Jobs and CronJobs counted by status (running, pending, failed,
   succeeded, suspended, ...) in the selected namespaces, live. A click on a
@@ -46,14 +62,34 @@ Svelte) and a CLI, both built on the same Rust core.
   StatefulSets, DaemonSets, ReplicaSets and Jobs chart the summed CPU and
   memory of their pods against their summed requests and limits, from the
   metrics-server history or Prometheus.
+- **Applications** (Workloads → Applications): workloads grouped by Helm
+  release and by the `app.kubernetes.io/instance` (or `name`) label, per
+  namespace, with their components, version and a rolled-up status. Click one
+  to see its workloads and open them, or its Helm release.
 - **Details** for any object. For pods: live logs (pick the container, or the
   previous instance of a crashed one) and an interactive terminal (pod exec).
+  The panel's header has icon buttons for the object's actions (Logs, Shell,
+  Edit, Delete, and for example Scale and Restart on workloads or Cordon and
+  Drain on nodes). Actions your RBAC does not allow are greyed out, and the
+  tooltip says which permission is missing.
+- **Log search**: match case (Aa) and regex (.\*); Highlight keeps every line
+  and steps through the matches with Enter / Shift+Enter, or n / N in the
+  log. Jump to time goes to a time of day or date (needs Timestamps).
+- **Secret and ConfigMap data**: the detail panel lists the keys. Secret
+  values stay hidden until you reveal one key. Copy, edit, add or remove
+  keys, then Save: only the changed keys are sent (a merge patch). If
+  someone else changed the object meanwhile, you choose to reload or to save
+  your keys over it. Binary values show as base64. Without permission to
+  patch, or for an immutable object, the data is read-only.
 - **Port forwards** to pods, Services and workloads, on a chosen or automatic
   local port. A Service forward picks a ready pod for each connection, so it
-  keeps working when pods restart. Network → Port Forwards lists them with
-  their current pod and status, and opens them in the browser. They keep
-  running when you close panels; switching that window's context or closing
-  the window stops them.
+  keeps working when pods restart. Forwards are saved per cluster: they keep
+  running when you close panels, stop when you switch that window's context
+  or close it, and come back stopped, or running if you checked *Start
+  automatically*. Network → Port Forwards lists them with their current pod
+  and status, and starts, stops, edits and deletes them. Check *https* for
+  targets that speak TLS (the URL becomes https://), and *Open in browser* to
+  open the URL whenever it starts.
 - **Workload logs**: follow every pod of a Deployment, StatefulSet, DaemonSet
   or Job in one stream, including pods that a rollout replaces.
 - **Dock**: logs and terminals open in tabs at the bottom of the window, so
@@ -65,7 +101,9 @@ Svelte) and a CLI, both built on the same Rust core.
   a dead key. On Linux and Windows, Ctrl+J inside a terminal goes to the
   shell; use Ctrl+` there. At most 10 log streams run at once. Links a
   terminal prints (OSC 8) open in your browser when they are http or https;
-  other links are ignored.
+  other links are ignored. Ctrl+Shift+F (⌘F on macOS) searches a terminal's
+  output: Enter / Shift+Enter for next / previous, Aa for match case, Esc to
+  close. Plain Ctrl+F still goes to the shell.
 - **Local terminal** (Ctrl+Shift+` or Ctrl+Shift+J (⇧⌘J on macOS), the
   dock's `+` or "New local terminal" in the palette): your own shell
   (`$SHELL -l`; on Windows `pwsh`, `powershell` or `cmd`) in your home
@@ -115,7 +153,10 @@ Svelte) and a CLI, both built on the same Rust core.
   `?` lists every shortcut. F5 or Ctrl+R (⌘R on macOS) refreshes the current
   view; it never reloads the window. Inside a terminal, F5 and Ctrl+R go to
   the shell. Ctrl+= / Ctrl+- / Ctrl+0 (⌘ on macOS) zoom in, zoom out and
-  reset the zoom.
+  reset the zoom. Alt+← / Alt+→ (⌘[ / ⌘] on macOS), the mouse's back and
+  forward buttons or the header arrows move back and forward through the
+  views, namespaces and objects you visited in this window; switching
+  context clears that history.
 - **Helm releases**: a Helm section lists releases with their chart, app
   version, revision and status, read straight from the cluster (no `helm`
   binary needed; the list reads only labels). The detail shows notes,
@@ -175,7 +216,8 @@ Svelte) and a CLI, both built on the same Rust core.
   when you click **Check**; the row lists them under "Sends local files".
 - **Remembers where you were**: the last context, and per context the view
   and namespaces; per kind the table sort and hidden columns (Columns
-  button); the detail panel width (drag its left edge). The Settings page
+  button); the detail panel width (drag its left edge); saved port forwards
+  and the filter's recent and starred searches. The Settings page
   (gear in the header, Ctrl+, / Cmd+,) has the theme (System, Dark, Light),
   the log viewer defaults, and **Zoom and text**: the window zoom (50–200%)
   and the terminal font size (8–32 px), both remembered; a new font size
@@ -183,6 +225,17 @@ Svelte) and a CLI, both built on the same Rust core.
   directory (`~/.config/com.kubeloupe.app/` on Linux,
   `~/Library/Application Support/com.kubeloupe.app/` on macOS,
   `%APPDATA%\com.kubeloupe.app\` on Windows).
+- **Help and diagnostics**: the Help menu (the `?` in the header; on macOS
+  also in the menu bar) has Documentation, Report a bug (opens a GitHub issue
+  with the version, commit, OS and webview filled in), Open log folder and
+  About. Settings → About shows the version and commit and has Copy
+  diagnostics (nothing about your clusters). The app log is
+  `kubeloupe.log` in `~/.local/share/com.kubeloupe.app/logs/` on Linux,
+  `~/Library/Logs/com.kubeloupe.app/` on macOS and
+  `%LOCALAPPDATA%\com.kubeloupe.app\logs\` on Windows. It is rotated at
+  2 MiB (3 files kept); on Linux and macOS only you can read it (mode 0600).
+  Secret-looking text is masked, but check the log before you share it.
+  `KUBELOUPE_LOG=debug` logs more.
 
 ## CLI
 
