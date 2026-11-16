@@ -79,7 +79,8 @@ Svelte) and a CLI, both built on the same Rust core.
   tooltip says which permission is missing.
 - **Log search**: match case (Aa) and regex (.\*); Highlight keeps every line
   and steps through the matches with Enter / Shift+Enter, or n / N in the
-  log. Jump to time goes to a time of day or date (needs Timestamps).
+  log. Going to a match turns Follow off; check Follow to go back to the
+  newest line. Jump to time goes to a time of day or date (needs Timestamps).
 - **Secret and ConfigMap data**: the detail panel lists the keys. Secret
   values stay hidden until you reveal one key. Copy, edit, add or remove
   keys, then Save: only the changed keys are sent (a merge patch). If
@@ -94,7 +95,10 @@ Svelte) and a CLI, both built on the same Rust core.
   automatically*. Network → Port Forwards lists them with their current pod
   and status, and starts, stops, edits and deletes them. Check *https* for
   targets that speak TLS (the URL becomes https://), and *Open in browser* to
-  open the URL whenever it starts.
+  open the URL whenever it starts. A saved forward runs in one window at a
+  time: other windows on that context show "Running in another window" and
+  can't start it until it is stopped there. Idle connections (a database
+  client between queries) stay open.
 - **Workload logs**: follow every pod of a Deployment, StatefulSet, DaemonSet
   or Job in one stream, including pods that a rollout replaces.
 - **Dock**: logs and terminals open in tabs at the bottom of the window, so
@@ -143,6 +147,19 @@ Svelte) and a CLI, both built on the same Rust core.
   scale, rollout restart, cordon/uncordon, drain (with progress, respecting
   PodDisruptionBudgets), trigger/suspend/resume a CronJob, delete and force
   delete. Destructive ones ask for confirmation and list the exact objects.
+  **Evict** on a pod goes through the Eviction API, as a drain does: if a
+  PodDisruptionBudget would be violated, the eviction is refused and the
+  dialog says why. It needs `create pods/eviction`.
+- **Links to objects**: **Copy link** (in the detail panel's header and the
+  right-click menu) copies a `kubeloupe://` link such as
+  `kubeloupe://my-context/apps/v1/Deployment/shop/web` (`core` for the core
+  group, `_` for no namespace). Opening one (from a browser, a chat, or
+  `xdg-open`, `open`, `start`) brings kubeloupe to the front and shows that
+  object in a window on that context, opening one if needed. A link only
+  shows an object, it never changes or runs anything; a link to a context
+  that is not in your kubeconfigs only shows a notice. The installers
+  register the scheme (Linux .deb and AppImage, macOS, Windows); a build
+  from source does not.
 - **Debugging**: "Debug…" on a pod adds an ephemeral debug container
   (`busybox:1.37` by default, or e.g. `nicolaka/netshoot`) that sees a chosen
   container's processes, and attaches to it in a dock tab. It works on images
@@ -288,11 +305,62 @@ PodDisruptionBudget). Namespaced actions default to the `default` namespace.
 | `kubeloupe scale <deploy\|sts\|rs>/<name> --replicas N [-n NS]` | Set the replica count |
 | `kubeloupe restart <deploy\|sts\|ds>/<name> [-n NS]` | Rollout restart |
 | `kubeloupe cordon <node>` / `kubeloupe uncordon <node>` | Mark a node unschedulable / schedulable |
+| `kubeloupe evict <pod> [-n NS]` | Evict one pod through the Eviction API. A PodDisruptionBudget that would be violated refuses it (not retried) |
 | `kubeloupe drain <node> [--timeout SECS] [--pod-selector SEL]` | Cordon, then evict the node's pods through the Eviction API with progress output. Skips DaemonSet and mirror pods and retries evictions a PodDisruptionBudget refuses |
 | `kubeloupe trigger cronjob/<name> [-n NS]` | Create a Job from a CronJob now |
 | `kubeloupe suspend cronjob/<name> [-n NS]` / `resume cronjob/<name>` | Suspend or resume a CronJob |
 | `kubeloupe delete <kind>/<name> [-n NS] [--force]` | Delete an object of any kind. `--force` (pods only) uses grace period 0 |
 | `kubeloupe apply -f <file\|-> [-n NS] [--dry-run]` | Create or update the objects of a (multi-document) YAML file, like `kubectl apply`. Validated with a dry run first; nothing is applied if any object fails |
+
+### Use kubeloupe from an AI assistant (MCP)
+
+`kubeloupe mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+server over stdio. It offers the tools `list`, `get`, `describe`, `logs`
+(of a pod or of `deploy/`, `sts/`, `ds/`, `job/`, `rs/`), `events` and
+`top`. It uses the CLI's kubeconfig and current context (or `--context`,
+`--kubeconfig`, never the app's added kubeconfigs) and acts as that user,
+so RBAC applies. It connects on the first tool call.
+
+- **Read-only by default.** `--allow-writes` adds `scale`, `restart`,
+  `delete` (one named object) and `apply` (server-side apply, with a
+  `dry_run` option). Without the flag these tools are not offered, and a
+  call to one is refused. Turn it on only for a context you would let the
+  assistant change: `apply` can create a workload that reads Secrets, and
+  `delete` of a Namespace or a CRD deletes everything in it.
+- **Secret values are never returned**, only their keys; the
+  `last-applied-configuration` annotation is hidden on every object.
+  ConfigMaps, pod specs (including `env` values) and logs are shown as
+  `kubectl` shows them.
+- **Output is capped** at 1000 lines and 64 KiB per call: at most 500
+  objects per list (100 by default), 1000 log lines per pod (100 by
+  default) from at most 10 pods of a workload, and 200 events (50 by
+  default). A manifest for `apply` can be at most 512 KiB.
+
+Claude Code:
+
+```sh
+claude mcp add kubeloupe -- kubeloupe mcp
+# a fixed context, with the write tools:
+claude mcp add kubeloupe-staging -- kubeloupe --context staging mcp --allow-writes
+```
+
+Claude Desktop (`claude_desktop_config.json`), Cursor (`.cursor/mcp.json`)
+and other clients take the same command (VS Code's `.vscode/mcp.json` puts
+it under `"servers"`):
+
+```json
+{
+  "mcpServers": {
+    "kubeloupe": { "command": "kubeloupe", "args": ["mcp"] }
+  }
+}
+```
+
+Use the full path to `kubeloupe` if the client does not see your shell's
+`PATH`. Desktop clients often start without your shell's environment: add
+`"env": { "KUBECONFIG": "..." }` if your kubeconfig is not
+`~/.kube/config`. Exec credential plugins (EKS, GKE, AKS) must log in
+without a prompt, so sign in once in a terminal first.
 
 ## Install
 
