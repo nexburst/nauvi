@@ -101,15 +101,27 @@ async function shots(app, label) {
   await setTheme(app, null);
 }
 
-/** Frames per second over `ms`, and the longest frame. */
+/**
+ * Frames per second over `ms`, the longest frame, and the dip: the fewest
+ * frames in any 500 ms window, as frames per second (#272).
+ */
 function measureFps(app, ms = 2000) {
   return app.driver.executeAsyncScript(`
     const done = arguments[arguments.length - 1];
-    let n = 0; let worst = 0; let last = performance.now(); const t0 = last;
-    function f(now) { n++; worst = Math.max(worst, now - last); last = now;
-      if (now - t0 < ${ms}) requestAnimationFrame(f); else done({ fps: n / ((now - t0) / 1000), worst }); }
+    const times = []; const t0 = performance.now();
+    function f(now) { times.push(now);
+      if (now - t0 < ${ms}) { requestAnimationFrame(f); return; }
+      let worst = 0; for (let i = 1; i < times.length; i++) worst = Math.max(worst, times[i] - times[i - 1]);
+      let dip = Infinity; let j = 0;
+      for (let i = 0; i < times.length; i++) {
+        while (times[j] < times[i] - 500) j++;
+        if (times[i] - t0 >= 500) dip = Math.min(dip, i - j + 1);
+      }
+      done({ fps: times.length / ((now - t0) / 1000), worst, dip: (dip === Infinity ? times.length : dip) * 2 }); }
     requestAnimationFrame(f);`);
 }
+
+const fpsLabel = (f) => `${f.fps.toFixed(1)} fps meanwhile (lowest 500 ms: ${f.dip} fps), worst frame ${f.worst.toFixed(0)} ms`;
 
 describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
   before(() => {
@@ -316,7 +328,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       );
       const searchMs = Date.now() - t0;
       const fps = await fpsP;
-      console.log(`regex over the busy buffer: "${label}" in ${searchMs} ms; ${fps.fps.toFixed(1)} fps meanwhile, worst frame ${fps.worst.toFixed(0)} ms`);
+      console.log(`regex over the busy buffer: "${label}" in ${searchMs} ms; ${fpsLabel(fps)}`);
       assert.ok(searchMs < 15_000, `the search answered in ${searchMs} ms`);
       assert.ok(fps.fps >= 5, `the page kept drawing (${fps.fps.toFixed(1)} fps)`);
       // n / N start from the lines in view (the newest, following).
@@ -338,7 +350,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       const err = await app.waitFor(async () => text(app, sid, "log-search-error"), { timeout: 30_000, interval: 100, message: '"Regex too slow"' });
       const stopMs = Date.now() - t1;
       const fps2 = await fps2P;
-      console.log(`catastrophic regex: "${err}" after ${stopMs} ms; ${fps2.fps.toFixed(1)} fps meanwhile, worst frame ${fps2.worst.toFixed(0)} ms`);
+      console.log(`catastrophic regex: "${err}" after ${stopMs} ms; ${fpsLabel(fps2)}`);
       assert.match(err, /^Regex too slow/);
       assert.ok(fps2.fps >= 5, `the page kept drawing while the regex ran (${fps2.fps.toFixed(1)} fps)`);
       // Still usable: Pause answers, and a new search works.
