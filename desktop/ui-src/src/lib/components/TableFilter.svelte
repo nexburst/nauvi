@@ -201,16 +201,24 @@
 </div>
 
 <style>
+  /* The toolbar places it at its minimum (box and toggles) and lets it grow
+     into the room left, so it never wraps the toolbar on its own. */
   .filter {
     display: flex;
     align-items: center;
     gap: 4px;
-    flex: 0 1 auto;
-    min-width: 0;
+    flex: 1 1 0;
+    min-width: 230px;
+    max-width: 340px;
+  }
+  /* An invalid regex: room for the message (the toolbar may wrap). */
+  .filter:has(.error) {
+    min-width: 320px;
+    max-width: 560px;
   }
   .field {
     position: relative;
-    flex: 0 1 220px;
+    flex: 1 1 220px;
     min-width: 120px;
   }
   .search {
@@ -232,9 +240,11 @@
   .mono {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
-  /* Its own width (up to a limit): the toolbar wraps before it is cut. */
+  /* Up to a limit, in the room the filter has; the full text is in the
+     tooltip. */
   .error {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 80px;
     color: var(--red);
     font-size: 12px;
     max-width: 320px;

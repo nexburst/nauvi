@@ -6,6 +6,8 @@
 // - the sort and the column choice are what the file has;
 // - Escape in the dialog saves nothing; an empty table saves the header;
 // - a path that cannot be written shows the error in the toolbar;
+// - with the detail panel open the toolbar keeps one row (Columns and
+//   Export CSV are icons) and the note shows under it (#289);
 // - an Event whose message is a spreadsheet formula is written as text;
 // - a Secret's export has its name, type and key count, never its value.
 // Screenshots at 1280x800 in light and dark theme. Everything lives in a
@@ -261,6 +263,53 @@ message: '${FORMULA}'
     // (A name typed without .csv whose .csv file exists is refused by
     // `files.rs`, unit-tested there: GTK completes the typed name to the
     // existing file and asks itself, so it cannot be driven here.)
+    await app.filter("");
+  });
+
+  it("with the detail panel open the toolbar keeps one row; the note shows under it (#289)", T, async () => {
+    const { app } = s;
+    // The last note goes after 10 s.
+    await app.waitFor(async () => (await noteText(app)) === "", { timeout: 15_000, message: "the last note to go" });
+    await app.openDetail("Config Maps", ns, "cm-0001");
+    const layout = () =>
+      app.js(`
+        const bar = document.querySelector('.toolbar').getBoundingClientRect();
+        const box = (sel) => {
+          const r = [...document.querySelectorAll('.toolbar button')].find((b) => (b.getAttribute('aria-label') ?? b.textContent.trim()).startsWith(sel))?.getBoundingClientRect();
+          return r ? { top: Math.round(r.top), right: Math.round(r.right), width: Math.round(r.width) } : null;
+        };
+        const n = document.querySelector('[data-testid="csv-saved"]');
+        const nr = n?.getBoundingClientRect();
+        return {
+          height: Math.round(bar.height), top: Math.round(bar.top), bottom: Math.round(bar.bottom), right: Math.round(bar.right),
+          panelLeft: Math.round(document.querySelector('[data-testid="detail-panel"]').getBoundingClientRect().left),
+          exportCsv: box('Export CSV'), create: box('+ Create'), columns: box('Columns'),
+          note: nr ? { top: Math.round(nr.top), right: Math.round(nr.right), cut: n.scrollWidth > n.clientWidth } : null,
+        };`);
+    let l = await layout();
+    console.log(`toolbar with the panel: ${JSON.stringify(l)}`);
+    assert.ok(l.height <= 60, `one row with the panel open (${l.height}px)`);
+    for (const k of ["exportCsv", "create", "columns"]) {
+      assert.ok(l[k] && l[k].top < l.top + 40 && l[k].right <= l.right, `${k} on the first row`);
+    }
+    assert.ok(l.exportCsv.width < 60, `Export CSV is an icon (${l.exportCsv.width}px)`);
+
+    await exportWith(app, ...keysOf("/proc/qa"), "Return");
+    await app.waitFor(async () => (await noteText(app)).startsWith("Could not export:"), { message: "the export error" });
+    l = await layout();
+    console.log(`with the note: ${JSON.stringify(l)}`);
+    assert.ok(l.height <= 60, `one row with the note (${l.height}px)`);
+    assert.ok(l.note.top >= l.bottom, "the note is under the toolbar");
+    assert.ok(l.note.right <= l.panelLeft, "the note is left of the panel");
+    assert.ok(!l.note.cut, "the note is not cut");
+    await setTheme(app, "dark");
+    await sleep(500); // let WebKitGTK repaint before the shot
+    await app.shot("panel-toolbar-dark");
+    await setTheme(app, "light");
+    await sleep(500);
+    await app.shot("panel-toolbar-light");
+    await setTheme(app, null);
+    await (await app.find(By.css('[data-testid="detail-panel"] button[aria-label="Close details"]'))).click();
     await app.filter("");
   });
 

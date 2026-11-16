@@ -274,18 +274,24 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
     await app.openDetail("Secrets", ns, "qa-secret");
     const text = await app.waitFor(
       async () => {
-        const t = await panelText(app);
-        return /password \(\d+ bytes\)/.test(t) ? t : null;
+        // The data editor (#278): one row per key, its size, the value hidden.
+        const key = await app.js(
+          `return document.querySelector('[data-testid="detail-panel"] [data-testid="data-editor"] li[data-key="password"]')?.innerText ?? ""`,
+        );
+        return /password\s+\d+ bytes/.test(key) ? panelText(app) : null;
       },
-      { message: "the Secret's key list" },
+      { message: "the Secret's key in the data editor" },
     );
+    assert.match(text, /Values are hidden until you reveal them/);
     const b64 = Buffer.from(SECRET_VALUE).toString("base64");
     assert.ok(!text.includes(SECRET_VALUE) && !text.includes(b64), "the overview leaks the value");
+    const html = await app.js(`return document.querySelector('[data-testid="detail-panel"]').innerHTML`);
+    assert.ok(!html.includes(SECRET_VALUE) && !html.includes(b64), "the overview has the value in its HTML");
     await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[@role='tab'][normalize-space()='YAML']"))).click();
     await app.find(By.css('[data-testid="detail-panel"] .cm-content'), { timeout: 20_000 });
     await app.waitFor(async () => (await panelText(app)).includes("password"), { message: "the YAML" });
-    const html = await app.js(`return document.querySelector('[data-testid="detail-panel"]').innerHTML`);
-    assert.ok(!html.includes(SECRET_VALUE) && !html.includes(b64), "the YAML tab leaks the value before Reveal");
+    const yamlHtml = await app.js(`return document.querySelector('[data-testid="detail-panel"]').innerHTML`);
+    assert.ok(!yamlHtml.includes(SECRET_VALUE) && !yamlHtml.includes(b64), "the YAML tab leaks the value before Reveal");
   });
 
   it("Logs and Shell still open in the dock", T, async () => {
