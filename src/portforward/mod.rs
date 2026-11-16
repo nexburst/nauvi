@@ -311,14 +311,54 @@ async fn connect(
             .ok()
             .flatten();
         pf.abort();
-        match (message, copied) {
-            (Some(msg), _) => shared.set_error(format!("pod {} port {}: {msg}", b.pod, b.port)),
-            (None, Ok((_, received))) if received > 0 => shared.clear_error(),
-            (None, Ok(_)) => {}
-            (None, Err(e)) => shared.set_error(format!("pod {} port {}: {e}", b.pod, b.port)),
+        match outcome(message, copied) {
+            Outcome::Error(msg) => {
+                shared.set_error(format!("pod {} port {}: {msg}", b.pod, b.port))
+            }
+            Outcome::Answered => shared.clear_error(),
+            Outcome::Nothing => {}
+            Outcome::Closed(e) => {
+                tracing::debug!(
+                    "port-forward: pod {} port {}: connection closed: {e}",
+                    b.pod,
+                    b.port
+                )
+            }
         }
         return;
     }
+}
+
+/// How one forwarded connection ended.
+#[derive(Debug)]
+enum Outcome {
+    /// Something went wrong that the forward's status should show.
+    Error(String),
+    /// The pod answered: an earlier error is over.
+    Answered,
+    /// Closed before anything came back.
+    Nothing,
+    /// A side closed the connection abruptly (#293): normal for a client.
+    Closed(std::io::Error),
+}
+
+fn outcome(message: Option<String>, copied: std::io::Result<(u64, u64)>) -> Outcome {
+    match (message, copied) {
+        (Some(msg), _) => Outcome::Error(msg),
+        (None, Ok((_, received))) if received > 0 => Outcome::Answered,
+        (None, Ok(_)) => Outcome::Nothing,
+        (None, Err(e)) if is_connection_closed(&e) => Outcome::Closed(e),
+        (None, Err(e)) => Outcome::Error(e.to_string()),
+    }
+}
+
+/// A connection reset, aborted or written to after it closed: how
+/// browsers and HTTP clients often end keep-alive connections, notably on
+/// Windows (WSAECONNRESET, os error 10054). It ends that one connection,
+/// not the forward (#293).
+fn is_connection_closed(e: &std::io::Error) -> bool {
+    use std::io::ErrorKind::*;
+    matches!(e.kind(), ConnectionReset | ConnectionAborted | BrokenPipe)
 }
 
 /// One port of a Service, for the UI's per-port Forward buttons.
@@ -384,6 +424,70 @@ mod tests {
         // The automatic choice falls back to a free port instead.
         let l = bind_local(LocalPort::Auto, port).await.unwrap();
         assert_ne!(l.local_addr().unwrap().port(), port);
+    }
+
+    #[test]
+    fn a_client_closing_its_connection_is_not_an_error() {
+        use std::io::{Error, ErrorKind};
+        for kind in [
+            ErrorKind::ConnectionReset,
+            ErrorKind::ConnectionAborted,
+            ErrorKind::BrokenPipe,
+        ] {
+            assert!(
+                matches!(outcome(None, Err(Error::from(kind))), Outcome::Closed(_)),
+                "{kind:?}"
+            );
+        }
+        // Windows: WSAECONNRESET and WSAECONNABORTED map to the same kinds.
+        #[cfg(windows)]
+        for code in [10054, 10053] {
+            assert!(is_connection_closed(&Error::from_raw_os_error(code)));
+        }
+        assert!(matches!(
+            outcome(None, Err(Error::from(ErrorKind::PermissionDenied))),
+            Outcome::Error(_)
+        ));
+        assert!(matches!(outcome(None, Ok((10, 20))), Outcome::Answered));
+        assert!(matches!(outcome(None, Ok((10, 0))), Outcome::Nothing));
+        // The pod's own error message always counts.
+        assert!(matches!(
+            outcome(Some("refused".into()), Err(Error::from(ErrorKind::ConnectionReset))),
+            Outcome::Error(m) if m == "refused"
+        ));
+    }
+
+    /// A client that resets its connection mid-response, as browsers do
+    /// on Windows: the relay ends with an error that counts as closed.
+    #[tokio::test]
+    async fn a_real_reset_mid_response_counts_as_closed() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = tokio::spawn(async move {
+            let mut c = tokio::net::TcpStream::connect(addr).await.unwrap();
+            c.write_all(b"GET / HTTP/1.1\r\n\r\n").await.unwrap();
+            let mut first = [0u8; 16];
+            c.read_exact(&mut first).await.unwrap();
+            // SO_LINGER 0: close with a reset, unread data still pending.
+            c.set_linger(Some(Duration::ZERO)).unwrap();
+            drop(c);
+        });
+        let (mut socket, _) = listener.accept().await.unwrap();
+        // The "pod": answers with an endless body.
+        let (mut pod, mut remote) = tokio::io::duplex(64 * 1024);
+        let server = tokio::spawn(async move {
+            let mut buf = [0u8; 64];
+            let _ = remote.read(&mut buf).await;
+            let chunk = vec![b'x'; 16 * 1024];
+            while remote.write_all(&chunk).await.is_ok() {}
+        });
+        let copied = tokio::io::copy_bidirectional(&mut socket, &mut pod).await;
+        client.await.unwrap();
+        server.abort();
+        let e = copied.expect_err("the reset ends the copy with an error");
+        assert!(is_connection_closed(&e), "{e:?}");
+        assert!(matches!(outcome(None, Err(e)), Outcome::Closed(_)));
     }
 
     #[tokio::test]

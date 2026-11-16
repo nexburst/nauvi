@@ -4,6 +4,8 @@
 // "Open in browser" options change the URL and open it through the opener.
 // Screenshots: the empty manager, the edit dialog, the manager in light and
 // dark, and the manager after a restart.
+// #292: two windows on one context run a saved forward once; the other one
+// says it runs in another window, also when both are restored at a start.
 
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
@@ -12,7 +14,9 @@ import { By } from "selenium-webdriver";
 import { byTestId, xq } from "../lib/app.mjs";
 import { deleteNamespace, httpPodYaml, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
 import { setTheme } from "../lib/panels.mjs";
+import { appPid } from "../lib/dock.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { cannotCloseLikeUser, closeLikeUser, openNewWindow, switchTo, windowHandles } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
 const HELLO = "hello from saved forwards";
@@ -158,9 +162,96 @@ describe("saved port-forwards (#217)", { timeout: 15 * 60_000 }, () => {
     await app.find(By.xpath(`//*[@data-testid='port-forwards']//*[contains(normalize-space(), ${xq("Forwards are saved for this cluster.")})]`));
   });
 
+  /** Port Forwards in every window: `{ handle, row, red, body }` each. */
+  async function everyWindow(app, handles) {
+    const out = [];
+    for (const h of handles) {
+      await switchTo(app, h);
+      await app.nav("Port Forwards");
+      await app.waitFor(async () => (await rowTexts(app)).length === 1, { timeout: 30_000, message: "one saved forward" });
+      const row = (await rowTexts(app))[0];
+      const red = await app.js(`return !!document.querySelector('[data-testid="forward-row"] .error-text')`);
+      out.push({ handle: h, row, red, body: await app.js("return document.body.innerText") });
+    }
+    return out;
+  }
+
+  /** Wait until exactly one window runs it and the other says it runs elsewhere. */
+  async function runsOnce(app, handles) {
+    return app.waitFor(
+      async () => {
+        const w = await everyWindow(app, handles);
+        const running = w.filter((x) => x.row.includes("Listening") || x.row.includes("Active"));
+        const elsewhere = w.filter((x) => x.row.includes("Running in another window"));
+        return running.length === 1 && elsewhere.length === 1 ? { running: running[0], elsewhere: elsewhere[0], all: w } : null;
+      },
+      { timeout: 40_000, message: "one window runs the forward, the other says it runs elsewhere" },
+    );
+  }
+
+  function checkNoErrors(windows) {
+    for (const w of windows) {
+      assert.equal(w.red, false, `no error in the row: ${w.row}`);
+      assert.doesNotMatch(w.body, /did not start|already in use/, "no auto-start error");
+    }
+  }
+
+  it("a second window on the same context says the forward runs in another window (#292)", T, async () => {
+    const { app } = s;
+    const main = await app.driver.getWindowHandle();
+    const second = await openNewWindow(app);
+    await switchTo(app, second);
+    await waitLive(app);
+    const w = await runsOnce(app, [main, second]);
+    console.log(`two windows: ${JSON.stringify(w.all.map((x) => x.row))}`);
+    checkNoErrors(w.all);
+    assert.equal(w.running.handle, main, "the window that started it keeps it");
+    await switchTo(app, second);
+    await app.shot("second-window-elsewhere");
+    await setTheme(app, "dark");
+    await app.shot("second-window-elsewhere-dark");
+    await setTheme(app, "light");
+    await switchTo(app, main);
+  });
+
+  it(
+    "two restored windows on one context start the auto-start forward once (#292)",
+    { ...T, skip: cannotCloseLikeUser() },
+    async () => {
+      const { app } = s;
+      const pid = appPid(app.profile.home);
+      console.log(`closing X11 windows ${closeLikeUser(pid).join(", ")} of pid ${pid}`);
+      await app.waitFor(() => appPid(app.profile.home) === null, { timeout: 20_000, message: "the app to exit" });
+      console.log(`settings.windows after exit: ${JSON.stringify(app.profile.settings()?.windows ?? [])}`);
+      await app.restart({ wait: 0 });
+      await app.find(By.css("nav"));
+      const handles = await app.waitFor(
+        async () => {
+          const h = await windowHandles(app);
+          return h.length === 2 ? h : null;
+        },
+        { timeout: 30_000, message: "two windows after the restart" },
+      );
+      const w = await runsOnce(app, handles);
+      console.log(`restored windows: ${JSON.stringify(w.all.map((x) => x.row))}`);
+      checkNoErrors(w.all);
+      assert.ok(await answers(`https://127.0.0.1:${port}`), "the auto-started forward answers");
+      await switchTo(app, w.running.handle);
+      await app.shot("restored-running");
+      await switchTo(app, w.elsewhere.handle);
+      await app.shot("restored-elsewhere");
+    },
+  );
+
   it("the deleted one stays deleted after another restart", T, async () => {
     const { app } = s;
-    await app.restart();
+    // One window again: forget the extra one.
+    await app.restart({
+      beforeStart: () => {
+        const settings = app.profile.settings();
+        if (settings?.windows?.length) app.profile.writeSettings({ ...settings, windows: [] });
+      },
+    });
     await waitLive(app);
     await app.nav("Port Forwards");
     await app.waitFor(async () => (await rowTexts(app)).length === 1, { timeout: 30_000, message: "one saved forward" });

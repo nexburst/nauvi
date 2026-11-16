@@ -359,6 +359,23 @@ pub(crate) struct AppState {
     /// Labels of windows that were closed. Labels are never reused, so a
     /// late command from one gets a closed session, not a new live one.
     gone: Mutex<HashSet<String>>,
+    /// Saved forwards a window is auto-starting right now (#292): saved
+    /// forwards are per context, so two windows on one context must not
+    /// both start one.
+    autostarting: Arc<Mutex<HashSet<String>>>,
+}
+
+/// A window's right to auto-start one saved forward, released on drop
+/// (once the forward runs, [`AppState::runs_forward`] sees it).
+pub(crate) struct AutostartClaim {
+    claimed: Arc<Mutex<HashSet<String>>>,
+    saved_id: String,
+}
+
+impl Drop for AutostartClaim {
+    fn drop(&mut self) {
+        self.claimed.lock().unwrap().remove(&self.saved_id);
+    }
 }
 
 impl AppState {
@@ -448,6 +465,47 @@ impl AppState {
                 .values()
                 .any(|f| f.saved_id == saved_id)
         })
+    }
+
+    /// Claim the auto-start of the saved forward `saved_id` (#292): none
+    /// if a window runs it already or is starting it right now.
+    pub(crate) fn claim_autostart(&self, saved_id: &str) -> Option<AutostartClaim> {
+        let mut claimed = self.autostarting.lock().unwrap();
+        if claimed.contains(saved_id) || self.runs_forward(saved_id) {
+            return None;
+        }
+        claimed.insert(saved_id.to_string());
+        Some(AutostartClaim {
+            claimed: self.autostarting.clone(),
+            saved_id: saved_id.to_string(),
+        })
+    }
+
+    /// The saved ids of the forwards running in windows other than
+    /// `except` (#292).
+    pub(crate) fn forwards_elsewhere(&self, except: &str) -> Vec<String> {
+        let sessions: Vec<Arc<ClusterSession>> = self
+            .sessions
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(label, _)| label.as_str() != except)
+            .map(|(_, s)| s.clone())
+            .collect();
+        let mut out: Vec<String> = sessions
+            .iter()
+            .flat_map(|s| {
+                s.forwards
+                    .lock()
+                    .unwrap()
+                    .values()
+                    .map(|f| f.saved_id.clone())
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        out.sort();
+        out.dedup();
+        out
     }
 
     /// The context of every open window other than `except`, by label.
@@ -558,6 +616,19 @@ mod tests {
 
     fn forever() -> JoinHandle<()> {
         tauri::async_runtime::spawn(std::future::pending())
+    }
+
+    #[test]
+    fn only_one_window_claims_an_autostart_at_a_time() {
+        let state = AppState::default();
+        let a = state.claim_autostart("fwd-1").expect("first claim");
+        assert!(state.claim_autostart("fwd-1").is_none());
+        // Another saved forward is independent.
+        let b = state.claim_autostart("fwd-2").expect("other forward");
+        drop(a);
+        assert!(state.claim_autostart("fwd-1").is_some());
+        drop(b);
+        assert!(state.forwards_elsewhere("main").is_empty());
     }
 
     #[test]

@@ -85,6 +85,8 @@
             {#if f}
               {@const st = forwardState(f)}
               <td class:error-text={st.tone === "error"} class:ok={st.tone === "ok"}>{st.text}</td>
+            {:else if s && forwards.elsewhere.includes(s.id)}
+              <td class="muted" data-testid="forward-elsewhere">Running in another window</td>
             {:else if error}
               <td class="error-text">{error}</td>
             {:else}

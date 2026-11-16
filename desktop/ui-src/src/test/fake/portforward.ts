@@ -106,10 +106,12 @@ export function portforwardHandlers(s: FakeState) {
       store(saved().filter((f) => f.id !== id));
       return null;
     },
+    cmdPortforwardElsewhere: () => copy(cluster.forwardsElsewhere),
     cmdPortforwardAutostart: () => {
       const failed: { saved_id: string; error: string }[] = [];
       for (const f of saved()) {
-        if (!f.auto_start || cluster.forwards.some((r) => r.saved_id === f.id)) continue;
+        const runs = (id: string) => cluster.forwards.some((r) => r.saved_id === id) || cluster.forwardsElsewhere.includes(id);
+        if (!f.auto_start || runs(f.id)) continue;
         try {
           run(f);
         } catch (e) {

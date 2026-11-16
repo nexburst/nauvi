@@ -14,6 +14,8 @@ class Forwards {
   list = $state.raw<ForwardInfo[]>([]);
   /** The saved forwards of the context (#217), refreshed on changes. */
   saved = $state.raw<SavedForward[]>([]);
+  /** Saved ids of the forwards another window runs (#292). */
+  elsewhere = $state.raw<string[]>([]);
   /** Why a saved forward did not start, by saved id (cleared once it does). */
   errors = $state.raw<Record<string, string>>({});
 }
@@ -21,7 +23,9 @@ export const forwards = new Forwards();
 
 export async function refreshForwards() {
   try {
-    forwards.list = await commands.cmdPortforwardList();
+    const [list, elsewhere] = await Promise.all([commands.cmdPortforwardList(), commands.cmdPortforwardElsewhere()]);
+    forwards.list = list;
+    forwards.elsewhere = elsewhere;
   } catch {
     // The list is local to the backend; keep the last one.
   }
