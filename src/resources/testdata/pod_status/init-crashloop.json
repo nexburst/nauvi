@@ -1,0 +1,114 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "init-crashloop",
+    "namespace": "i258-fixtures",
+    "creationTimestamp": "2026-11-16T10:47:28Z"
+  },
+  "spec": {
+    "restartPolicy": "Always",
+    "initContainers": [
+      {
+        "name": "setup",
+        "image": "busybox:1.36"
+      }
+    ],
+    "containers": [
+      {
+        "name": "app",
+        "image": "busybox:1.36"
+      }
+    ]
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:30Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodReadyToStartContainers"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "message": "containers with incomplete status: [setup]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotInitialized",
+        "status": "False",
+        "type": "Initialized"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "message": "containers with unready status: [app]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotReady",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "message": "containers with unready status: [app]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotReady",
+        "status": "False",
+        "type": "ContainersReady"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodScheduled"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "image": "busybox:1.36",
+        "lastState": {},
+        "name": "app",
+        "ready": false,
+        "restartCount": 0,
+        "started": false,
+        "state": {
+          "waiting": {
+            "reason": "PodInitializing"
+          }
+        }
+      }
+    ],
+    "hostIP": "172.18.0.2",
+    "initContainerStatuses": [
+      {
+        "image": "docker.io/library/busybox:1.36",
+        "lastState": {
+          "terminated": {
+            "containerID": "containerd://b0b3a67f9aecb176cd423d06643af5d9e14ea1bddfff37cd86e8ddae33083436",
+            "exitCode": 3,
+            "finishedAt": "2026-11-16T10:48:54Z",
+            "reason": "Error",
+            "startedAt": "2026-11-16T10:48:54Z"
+          }
+        },
+        "name": "setup",
+        "ready": false,
+        "restartCount": 4,
+        "started": false,
+        "state": {
+          "waiting": {
+            "message": "back-off 1m20s restarting failed container=setup pod=init-crashloop_i258-fixtures(755f2ef2-79d0-4a52-aef0-f0d77ca0b9af)",
+            "reason": "CrashLoopBackOff"
+          }
+        }
+      }
+    ],
+    "observedGeneration": 1,
+    "phase": "Pending",
+    "podIP": "10.244.1.14",
+    "resources": {},
+    "startTime": "2026-11-16T10:47:28Z"
+  }
+}

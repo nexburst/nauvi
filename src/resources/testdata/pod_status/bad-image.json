@@ -1,0 +1,84 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "bad-image",
+    "namespace": "i258-fixtures",
+    "creationTimestamp": "2026-11-16T10:47:28Z"
+  },
+  "spec": {
+    "restartPolicy": "Always",
+    "containers": [
+      {
+        "name": "app",
+        "image": "registry.invalid/nope:1"
+      }
+    ]
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:29Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodReadyToStartContainers"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "Initialized"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "message": "containers with unready status: [app]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotReady",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "message": "containers with unready status: [app]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotReady",
+        "status": "False",
+        "type": "ContainersReady"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodScheduled"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "image": "registry.invalid/nope:1",
+        "lastState": {},
+        "name": "app",
+        "ready": false,
+        "restartCount": 0,
+        "started": false,
+        "state": {
+          "waiting": {
+            "message": "Back-off pulling image \"registry.invalid/nope:1\": ErrImagePull: failed to pull and unpack image \"registry.invalid/nope:1\": failed to resolve reference \"registry.invalid/nope:1\": failed to do request: Head \"https://registry.invalid/v2/nope/manifests/1\": dial tcp: lookup registry.invalid on 172.18.0.1:53: no such host",
+            "reason": "ImagePullBackOff"
+          }
+        }
+      }
+    ],
+    "hostIP": "172.18.0.2",
+    "observedGeneration": 1,
+    "phase": "Pending",
+    "podIP": "10.244.1.18",
+    "resources": {},
+    "startTime": "2026-11-16T10:47:28Z",
+    "initContainerStatuses": null
+  }
+}

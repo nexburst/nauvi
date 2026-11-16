@@ -32,6 +32,7 @@ mod jsonpath;
 mod manifests;
 mod ops;
 mod pod_detail;
+mod pod_printer;
 mod problems;
 mod rbac;
 mod related;
@@ -55,6 +56,7 @@ pub use pod_detail::{
     env_refs, pod_extras, probe_summary, state_info, ContainerDetail, ContainerKind, EnvInfo,
     MountInfo, PodExtras, PortInfo, ProbeInfo, StateInfo,
 };
+pub use pod_printer::printed_pod_status;
 pub use problems::row_problem;
 pub use related::{get_related, related_objects, Fact, Related, RelatedGroup, RelatedItem};
 pub use status::{classify, pod_status_of, statuses_of, WorkloadStatus, STARTING, WORKLOAD_KINDS};

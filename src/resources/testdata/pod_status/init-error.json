@@ -1,0 +1,109 @@
+{
+  "apiVersion": "v1",
+  "kind": "Pod",
+  "metadata": {
+    "name": "init-error",
+    "namespace": "i258-fixtures",
+    "creationTimestamp": "2026-11-16T10:47:28Z"
+  },
+  "spec": {
+    "restartPolicy": "Never",
+    "initContainers": [
+      {
+        "name": "setup",
+        "image": "busybox:1.36"
+      }
+    ],
+    "containers": [
+      {
+        "name": "app",
+        "image": "busybox:1.36"
+      }
+    ]
+  },
+  "status": {
+    "conditions": [
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:33Z",
+        "message": "pod sandbox is not ready",
+        "observedGeneration": 1,
+        "reason": "PodSandboxNotReady",
+        "status": "False",
+        "type": "PodReadyToStartContainers"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "message": "containers with incomplete status: [setup]",
+        "observedGeneration": 1,
+        "reason": "ContainersNotInitialized",
+        "status": "False",
+        "type": "Initialized"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "observedGeneration": 1,
+        "reason": "PodFailed",
+        "status": "False",
+        "type": "Ready"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "observedGeneration": 1,
+        "reason": "PodFailed",
+        "status": "False",
+        "type": "ContainersReady"
+      },
+      {
+        "lastProbeTime": null,
+        "lastTransitionTime": "2026-11-16T10:47:28Z",
+        "observedGeneration": 1,
+        "status": "True",
+        "type": "PodScheduled"
+      }
+    ],
+    "containerStatuses": [
+      {
+        "image": "busybox:1.36",
+        "lastState": {},
+        "name": "app",
+        "ready": false,
+        "restartCount": 0,
+        "started": false,
+        "state": {
+          "waiting": {
+            "reason": "PodInitializing"
+          }
+        }
+      }
+    ],
+    "hostIP": "172.18.0.2",
+    "initContainerStatuses": [
+      {
+        "image": "docker.io/library/busybox:1.36",
+        "lastState": {},
+        "name": "setup",
+        "ready": false,
+        "restartCount": 0,
+        "started": false,
+        "state": {
+          "terminated": {
+            "containerID": "containerd://e979e9db757048a9b9bd4cdd01c969e6b68d578d36e35446c05628d666126528",
+            "exitCode": 3,
+            "finishedAt": "2026-11-16T10:47:30Z",
+            "reason": "Error",
+            "startedAt": "2026-11-16T10:47:30Z"
+          }
+        }
+      }
+    ],
+    "observedGeneration": 1,
+    "phase": "Failed",
+    "podIP": "10.244.1.13",
+    "resources": {},
+    "startTime": "2026-11-16T10:47:28Z"
+  }
+}

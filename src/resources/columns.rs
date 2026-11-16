@@ -733,17 +733,7 @@ pub(super) fn pod_restarts(v: &Value) -> String {
 /// a container that is waiting (CrashLoopBackOff, ImagePullBackOff, ...)
 /// says more than "Running" / "Pending".
 pub(super) fn pod_status(v: &Value) -> String {
-    if v.pointer("/metadata/deletionTimestamp").is_some() {
-        return "Terminating".into();
-    }
-    let waiting = array_at(v, "/status/initContainerStatuses")
-        .chain(array_at(v, "/status/containerStatuses"))
-        .filter_map(|c| c.pointer("/state/waiting/reason").and_then(Value::as_str))
-        .find(|r| *r != "PodInitializing");
-    if let Some(reason) = waiting {
-        return reason.to_string();
-    }
-    first_of(&[path_str(v, ".status.reason"), path_str(v, ".status.phase")])
+    super::printed_pod_status(v)
 }
 
 fn service_external_ip(v: &Value) -> String {

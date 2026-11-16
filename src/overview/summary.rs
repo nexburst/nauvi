@@ -5,7 +5,7 @@
 
 use super::{Capacity, EventInfo, NodeCounts, PodCounts, ProblemPod};
 use crate::created_secs;
-use crate::resources::{pod_status_of, WorkloadStatus};
+use crate::resources::{pod_status_of, printed_pod_status, WorkloadStatus};
 use crate::{parse_cpu_quantity, parse_memory_quantity};
 use k8s_openapi::api::core::v1::{Container, Event, Node, Pod};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
@@ -35,7 +35,7 @@ pub enum PodState {
 pub struct PodSummary {
     pub namespace: String,
     pub name: String,
-    /// As in the Pods table: the waiting reason, `Terminating`, or the phase.
+    /// As in the Pods table and `kubectl get pods`.
     pub status: String,
     pub state: PodState,
     pub ready: bool,
@@ -59,19 +59,10 @@ pub struct NodeSummary {
 }
 
 /// The pod's status the way `kubectl get pods` (and the Pods table) shows
-/// it: `Terminating`, else the first waiting reason other than
-/// `PodInitializing`, else `status.reason` or the phase.
+/// it, see [`printed_pod_status`].
 pub fn pod_status(pod: &Pod) -> String {
-    if pod.metadata.deletion_timestamp.is_some() {
-        return "Terminating".into();
-    }
-    if let Some(reason) = waiting_reasons(pod).find(|r| *r != "PodInitializing") {
-        return reason.to_string();
-    }
-    let status = pod.status.as_ref();
-    status
-        .and_then(|s| s.reason.clone())
-        .or_else(|| status.and_then(|s| s.phase.clone()))
+    serde_json::to_value(pod)
+        .map(|v| printed_pod_status(&v))
         .unwrap_or_default()
 }
 
