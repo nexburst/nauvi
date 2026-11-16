@@ -6,6 +6,7 @@
 // dark, and the manager after a restart.
 // #292: two windows on one context run a saved forward once; the other one
 // says it runs in another window, also when both are restored at a start.
+// #297: there, Start is disabled and its tooltip says why.
 
 import assert from "node:assert/strict";
 import { createServer } from "node:net";
@@ -207,6 +208,12 @@ describe("saved port-forwards (#217)", { timeout: 15 * 60_000 }, () => {
     checkNoErrors(w.all);
     assert.equal(w.running.handle, main, "the window that started it keeps it");
     await switchTo(app, second);
+    // #297: no Start in the window that does not run it.
+    const start = await button(app, `Start ${target()}`);
+    assert.equal(await start.isEnabled(), false, "Start is disabled in the other window");
+    const tip = await start.getAttribute("title");
+    console.log(`Start in the other window: disabled, title "${tip}"`);
+    assert.match(tip, /another window: stop it there/);
     await app.shot("second-window-elsewhere");
     await setTheme(app, "dark");
     await app.shot("second-window-elsewhere-dark");
