@@ -6,10 +6,11 @@
 //! restart it comes back stopped, or started if the user checked "Start
 //! automatically".
 
-mod saved;
+pub(crate) mod saved;
 
 use crate::settings::{SavedForward, SettingsStore};
-use crate::state::{next_session, AppState, Cluster, ForwardSession};
+use crate::state::{next_session, AppState, Cluster, ForwardSession, SWITCHED};
+use kube::Client;
 use kubeloupe::{
     service_ports, ForwardStatus, ForwardTarget, LocalPort, PortForward, RemotePort,
     ServicePortInfo,
@@ -55,9 +56,16 @@ fn info(id: &str, s: &ForwardSession) -> ForwardInfo {
     }
 }
 
-/// Start `saved` in this window, stopping the run of it that is already
-/// going first (so an edited forward can take its old local port again).
-async fn run_saved(cluster: &Cluster, saved: &SavedForward) -> Result<ForwardInfo, String> {
+/// Start `saved` in this window with `client`, the client of context
+/// `ctx`, stopping the run of it that is already going first (so an edited
+/// forward can take its old local port again). If the window switched away
+/// from `ctx` meanwhile, the new forward is dropped.
+async fn run_saved(
+    cluster: &Cluster,
+    ctx: &Option<String>,
+    client: &Client,
+    saved: &SavedForward,
+) -> Result<ForwardInfo, String> {
     let old: Vec<ForwardSession> = {
         let mut forwards = cluster.forwards.lock().unwrap();
         let ids: Vec<String> = forwards
@@ -74,9 +82,11 @@ async fn run_saved(cluster: &Cluster, saved: &SavedForward) -> Result<ForwardInf
     }
     let remote = RemotePort::parse(&saved.remote).map_err(|e| e.to_string())?;
     let local = parse_local(&saved.local_port)?;
-    let client = cluster.client().await?;
+    if cluster.selected_context() != *ctx {
+        return Err(SWITCHED.into());
+    }
     let forward = PortForward::start(
-        &client,
+        client,
         saved.target.clone(),
         remote,
         LocalPort::from_option(local),
@@ -91,7 +101,10 @@ async fn run_saved(cluster: &Cluster, saved: &SavedForward) -> Result<ForwardInf
         https: saved.https,
     };
     let out = info(&id, &session);
-    cluster.add_forward(id, session);
+    // Dropping a refused forward stops it.
+    if !cluster.add_forward_on(ctx, id, session) {
+        return Err(SWITCHED.into());
+    }
     Ok(out)
 }
 
@@ -136,11 +149,12 @@ pub(crate) async fn cmd_portforward_start(
             return Ok(info(id, s));
         }
     }
-    let ctx = cluster.context_id()?;
+    let (selected, client) = cluster.context_client().await?;
+    let ctx = cluster.context_id_of(selected.as_deref())?;
     let remote_text = remote_port.trim().to_string();
     let known = saved::list(&settings.get(), &ctx);
     if let Some(s) = saved::matching(&known, &target, &remote_text, local_port) {
-        return run_saved(&cluster, s).await;
+        return run_saved(&cluster, &selected, &client, s).await;
     }
     let new = saved::normalize(SavedForward {
         id: String::new(),
@@ -155,7 +169,7 @@ pub(crate) async fn cmd_portforward_start(
     let mut stored = Err(String::new());
     settings.modify(|s| stored = saved::upsert(s, &ctx, new.clone()));
     let stored = stored?;
-    match run_saved(&cluster, &stored).await {
+    match run_saved(&cluster, &selected, &client, &stored).await {
         Ok(info) => Ok(info),
         Err(e) => {
             settings.modify(|s| saved::remove(s, &ctx, &stored.id));
@@ -219,10 +233,11 @@ pub(crate) async fn cmd_portforward_start_saved(
     settings: State<'_, Arc<SettingsStore>>,
     id: String,
 ) -> Result<ForwardInfo, String> {
-    let ctx = cluster.context_id()?;
+    let (selected, client) = cluster.context_client().await?;
+    let ctx = cluster.context_id_of(selected.as_deref())?;
     let saved = saved::find(&settings.get(), &ctx, &id)
         .ok_or("this port-forward was deleted in the meantime")?;
-    run_saved(&cluster, &saved).await
+    run_saved(&cluster, &selected, &client, &saved).await
 }
 
 /// Stop the saved forward `id` and forget it. Deleting one that is gone is
@@ -257,13 +272,30 @@ pub(crate) async fn cmd_portforward_autostart(
     state: State<'_, AppState>,
     settings: State<'_, Arc<SettingsStore>>,
 ) -> Result<Vec<AutoStartError>, String> {
-    let ctx = cluster.context_id()?;
+    // One context and its client for the whole run: a window that
+    // switches meanwhile gets none of the old context's forwards.
+    let selected = cluster.selected_context();
+    let ctx = cluster.context_id_of(selected.as_deref())?;
+    let wanted: Vec<SavedForward> = saved::list(&settings.get(), &ctx)
+        .into_iter()
+        .filter(|f| f.auto_start)
+        .collect();
+    if wanted.is_empty() {
+        return Ok(Vec::new());
+    }
+    let (now, client) = cluster.context_client().await?;
+    if now != selected {
+        return Err(SWITCHED.into());
+    }
     let mut failed = Vec::new();
-    for f in saved::list(&settings.get(), &ctx) {
-        if !f.auto_start || state.runs_forward(&f.id) {
+    for f in wanted {
+        if state.runs_forward(&f.id) {
             continue;
         }
-        if let Err(error) = run_saved(&cluster, &f).await {
+        if cluster.selected_context() != selected {
+            break;
+        }
+        if let Err(error) = run_saved(&cluster, &selected, &client, &f).await {
             failed.push(AutoStartError {
                 saved_id: f.id.clone(),
                 error,

@@ -1854,7 +1854,8 @@ export type Settings_Deserialize = {
 	terminal_font_size?: number,
 	/**
 	 *  Saved port-forwards (#217), by context id. Changed only through the
-	 *  port-forward commands.
+	 *  port-forward commands. Entries that do not parse or whose ports are
+	 *  invalid are skipped on load, keeping the others.
 	 */
 	forwards?: { [key in string]: SavedForward[] },
 };
@@ -1895,7 +1896,8 @@ export type Settings_Serialize = {
 	terminal_font_size: number,
 	/**
 	 *  Saved port-forwards (#217), by context id. Changed only through the
-	 *  port-forward commands.
+	 *  port-forward commands. Entries that do not parse or whose ports are
+	 *  invalid are skipped on load, keeping the others.
 	 */
 	forwards: { [key in string]: SavedForward[] },
 };

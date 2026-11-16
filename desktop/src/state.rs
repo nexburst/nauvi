@@ -21,6 +21,9 @@ use tauri::async_runtime::JoinHandle;
 use tauri::ipc::{CommandArg, CommandItem, InvokeError};
 use tauri::{AppHandle, EventTarget, Manager};
 
+/// Why something started for a context is dropped: the window left it.
+pub(crate) const SWITCHED: &str = "the window switched to another context meanwhile";
+
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) fn next_session(prefix: &str) -> String {
@@ -151,11 +154,28 @@ impl ClusterSession {
     /// The catalog id of the selected context, which per-context settings
     /// are keyed by. Reads the kubeconfig files; no login.
     pub(crate) fn context_id(&self) -> Result<String, String> {
+        self.context_id_of(self.selected_context().as_deref())
+    }
+
+    /// [`Self::context_id`] of `selected` (`None`: the kubeconfig's
+    /// current-context).
+    pub(crate) fn context_id_of(&self, selected: Option<&str>) -> Result<String, String> {
         self.sources
             .catalog()
-            .resolve(self.selected_context().as_deref())
+            .resolve(selected)
             .map(|t| t.id)
             .map_err(|e| e.to_string())
+    }
+
+    /// The selected context and its client, read together: `Err` if the
+    /// context changed while the client was built (#217).
+    pub(crate) async fn context_client(&self) -> Result<(Option<String>, Client), String> {
+        let ctx = self.selected_context();
+        let client = self.client().await?;
+        if self.selected_context() != ctx {
+            return Err(SWITCHED.into());
+        }
+        Ok((ctx, client))
     }
 
     /// The cached client for the selected context, building it on first use.
@@ -202,11 +222,13 @@ impl ClusterSession {
     /// client, kinds, usage history and Prometheus. Returns the terminal
     /// sessions still to close.
     pub(crate) async fn set_context(&self, context: Option<String>) -> Vec<ExecSession> {
+        // The context first: what is added for the old one afterwards is
+        // refused (`add_forward_on`), what was added before is stopped here.
+        *self.context.lock().unwrap() = context;
         let sessions = self.stop_all();
         self.kinds.lock().unwrap().clear();
         self.usage.lock().unwrap().clear();
         *self.prometheus.lock().unwrap() = None;
-        *self.context.lock().unwrap() = context;
         *self.client.lock().await = None;
         sessions
     }
@@ -261,8 +283,34 @@ impl ClusterSession {
         }
     }
 
-    pub(crate) fn add_forward(&self, id: String, forward: ForwardSession) {
-        drop(self.insert(&self.forwards, id, forward));
+    /// Add a forward started for context `ctx`, unless the window switched
+    /// away from it (or closed) meanwhile: then it is dropped, which stops
+    /// it (#217). Returns whether it was added.
+    pub(crate) fn add_forward_on(
+        &self,
+        ctx: &Option<String>,
+        id: String,
+        forward: ForwardSession,
+    ) -> bool {
+        self.insert_on(&self.forwards, ctx, id, forward).is_ok()
+    }
+
+    /// Insert into `map` if the selected context is still `ctx`. Checked
+    /// under the map's lock: `set_context` changes the context before it
+    /// drains the maps, so nothing of the old context slips in after.
+    fn insert_on<T>(
+        &self,
+        map: &Mutex<HashMap<String, T>>,
+        ctx: &Option<String>,
+        id: String,
+        value: T,
+    ) -> Result<(), T> {
+        let mut map = map.lock().unwrap();
+        if self.is_closed() || self.selected_context() != *ctx {
+            return Err(value);
+        }
+        drop(map.insert(id, value));
+        Ok(())
     }
 
     pub(crate) fn add_local_shell(&self, id: String, shell: LocalShell) {
@@ -504,6 +552,23 @@ mod tests {
 
     fn forever() -> JoinHandle<()> {
         tauri::async_runtime::spawn(std::future::pending())
+    }
+
+    #[test]
+    fn what_was_started_for_an_old_context_is_refused() {
+        let s = ClusterSession::new(Some("a".into()), Arc::default());
+        let a = Some("a".to_string());
+        assert!(s.insert_on(&s.watches, &a, "w1".into(), forever()).is_ok());
+        tauri::async_runtime::block_on(s.set_context(Some("b".into())));
+        // Stopped by the switch.
+        assert!(s.watches.lock().unwrap().is_empty());
+        // Still in flight for "a" when the window switched: handed back.
+        let late = s.insert_on(&s.watches, &a, "w2".into(), forever());
+        late.unwrap_err().abort();
+        assert!(s.watches.lock().unwrap().is_empty());
+        let b = Some("b".to_string());
+        assert!(s.insert_on(&s.watches, &b, "w3".into(), forever()).is_ok());
+        assert_eq!(s.watches.lock().unwrap().len(), 1);
     }
 
     #[test]

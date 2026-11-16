@@ -121,7 +121,10 @@ pub(crate) struct Settings {
     /// The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`.
     pub(crate) terminal_font_size: u32,
     /// Saved port-forwards (#217), by context id. Changed only through the
-    /// port-forward commands.
+    /// port-forward commands. Entries that do not parse or whose ports are
+    /// invalid are skipped on load, keeping the others.
+    #[serde(deserialize_with = "lenient_forwards")]
+    #[specta(type = BTreeMap<String, Vec<SavedForward>>)]
     pub(crate) forwards: BTreeMap<String, Vec<SavedForward>>,
 }
 
@@ -171,6 +174,34 @@ impl Default for Settings {
             forwards: BTreeMap::new(),
         }
     }
+}
+
+/// `forwards` as read from the file: one bad entry (a missing field, a bad
+/// port) is skipped instead of losing every saved forward (#217).
+fn lenient_forwards<'de, D>(d: D) -> Result<BTreeMap<String, Vec<SavedForward>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use crate::commands::portforward::saved::normalize;
+    let Value::Object(by_context) = Value::deserialize(d)? else {
+        return Ok(BTreeMap::new());
+    };
+    let mut out = BTreeMap::new();
+    for (ctx, entries) in by_context {
+        let Value::Array(entries) = entries else {
+            continue;
+        };
+        let good: Vec<SavedForward> = entries
+            .into_iter()
+            .filter_map(|v| serde_json::from_value::<SavedForward>(v).ok())
+            .filter(|f| !f.id.is_empty())
+            .filter_map(|f| normalize(f).ok())
+            .collect();
+        if !good.is_empty() {
+            out.insert(ctx, good);
+        }
+    }
+    Ok(out)
 }
 
 /// A change to the settings. Fields left out stay as they are; `contexts`
@@ -542,6 +573,39 @@ mod tests {
             ..Default::default()
         });
         assert_eq!((s.zoom, s.terminal_font_size), (125, 16));
+    }
+
+    #[test]
+    fn a_bad_saved_forward_keeps_the_others() {
+        let s = parse(
+            r#"{"theme":"dark","forwards":{
+                "kind":[
+                  {"id":"a","target":{"kind":"pod","namespace":"demo","name":"web"},"remote":"8080","local_port":"","https":false,"open_in_browser":false,"auto_start":true},
+                  {"id":"b","target":{"kind":"pod","namespace":"demo","name":"web"},"remote":"99999","local_port":"","https":false,"open_in_browser":false,"auto_start":false},
+                  {"id":"c","target":{"kind":"pod","namespace":"demo","name":"web"},"remote":"80","local_port":"x","https":false,"open_in_browser":false,"auto_start":false},
+                  {"id":"d","target":{"kind":"teapot","namespace":"demo","name":"web"},"remote":"80","local_port":"","https":false,"open_in_browser":false,"auto_start":false},
+                  {"id":"e","remote":"80"},
+                  "nonsense",
+                  {"id":"f","target":{"kind":"service","namespace":"demo","name":"api"},"remote":"http","local_port":" 9000 ","https":true,"open_in_browser":true,"auto_start":false}
+                ],
+                "prod":"not a list",
+                "empty":[{"id":"x"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.theme, Theme::Dark);
+        let ids: Vec<&str> = s.forwards["kind"].iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(ids, ["a", "f"]);
+        // Ports are validated and normalized on load.
+        assert_eq!(s.forwards["kind"][1].local_port, "9000");
+        assert_eq!(
+            s.forwards.len(),
+            1,
+            "contexts with nothing valid are dropped"
+        );
+        // Not an object at all: no forwards, the rest kept.
+        let s = parse(r#"{"theme":"light","forwards":[1,2]}"#).unwrap();
+        assert_eq!(s.theme, Theme::Light);
+        assert!(s.forwards.is_empty());
     }
 
     #[test]
