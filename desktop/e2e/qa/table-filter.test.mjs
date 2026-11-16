@@ -38,6 +38,22 @@ const errorText = (app) =>
   app.js(`return document.querySelector('[data-testid="table-filter-error"]')?.textContent.trim() ?? ""`);
 const toggle = (app, label) => app.find(By.css(`button[aria-label="${label}"]`));
 const pressed = async (app, label) => (await (await toggle(app, label)).getAttribute("aria-pressed")) === "true";
+/** Turn a toggle on or off (whatever state an earlier test left it in). */
+async function setToggle(app, label, on) {
+  if ((await pressed(app, label)) !== on) await (await toggle(app, label)).click();
+  await app.waitFor(async () => (await pressed(app, label)) === on, { message: `${label} ${on ? "on" : "off"}` });
+}
+
+/** Frames per second over `ms`, and the longest frame. */
+function measureFps(app, ms = 2000) {
+  return app.driver.executeAsyncScript(`
+    const done = arguments[arguments.length - 1];
+    let n = 0; let worst = 0; let last = performance.now(); const t0 = last;
+    function f(now) { n++; worst = Math.max(worst, now - last); last = now;
+      if (now - t0 < ${ms}) requestAnimationFrame(f); else done({ fps: n / ((now - t0) / 1000), worst }); }
+    requestAnimationFrame(f);`);
+}
+
 const suggestionTexts = (app) =>
   app.js(`return Array.from(document.querySelectorAll('[aria-label="Saved searches"] [role="option"]'), (o) => o.getAttribute("aria-label"));`);
 const filterInput = (app) => app.find(By.css('input[aria-label="Filter"]'));
@@ -88,7 +104,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
 
   it("a regex filters per field, in the worker", T, async () => {
     const { app } = s;
-    await (await toggle(app, "Regular expression")).click();
+    await setToggle(app, "Regular expression", true);
     await app.filter("^web-\\d$");
     await waitNames(app, ["web-1"], "^web-\\d$");
     await app.filter("^(web|db)-1$");
@@ -109,26 +125,52 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     await shots(app, "invalid-regex");
   });
 
-  it("a catastrophic regex is stopped and the page stays usable", T, async () => {
+  it("a catastrophic regex never blocks the page", T, async () => {
     const { app } = s;
-    const t0 = Date.now();
-    await app.filter("^(a+)+$");
-    const err = await app.waitFor(() => errorText(app), { timeout: 30_000, interval: 100, message: '"Regex too slow"' });
-    console.log(`catastrophic regex: "${err}" after ${Date.now() - t0} ms`);
-    assert.match(err, /^Regex too slow/);
-    await shots(app, "too-slow");
-    // The UI thread was never blocked: a click answers at once.
-    const t1 = Date.now();
-    await (await toggle(app, "Regular expression")).click();
-    await app.waitFor(async () => !(await pressed(app, "Regular expression")), { message: "regex off" });
-    const ms = Date.now() - t1;
-    assert.ok(ms < 3000, `the toggle answered in ${ms} ms`);
-    await app.waitFor(async () => (await errorText(app)) === "", { message: "the error goes" });
+    await setToggle(app, "Regular expression", true);
+    // V8 backtracks on these for ever and the worker is stopped after the
+    // limit ("Regex too slow"); JavaScriptCore may give up on its own and
+    // report no match. Either way the page must keep drawing and answer.
+    for (const pattern of ["^(a+)+$", "(a+)+$"]) {
+      await app.filter("db-1");
+      await setToggle(app, "Regular expression", false);
+      await waitNames(app, ["db-1"], "a plain filter first");
+      await setToggle(app, "Regular expression", true);
+      const t0 = Date.now();
+      await app.filter(pattern);
+      const fpsP = measureFps(app, 2000);
+      const outcome = await app.waitFor(
+        async () => {
+          const err = await errorText(app);
+          if (/^Regex too slow/.test(err)) return `stopped: "${err}"`;
+          if (err) throw new Error(`unexpected error: ${err}`);
+          return (await names(app)).length === 0 ? "no match" : null;
+        },
+        { timeout: 30_000, interval: 100, message: "the slow regex to be stopped or to finish" },
+      );
+      // "No match" right away can also be the old matches being replaced: give the limit time.
+      await new Promise((r) => setTimeout(r, 2500));
+      const err = await errorText(app);
+      const fps = await fpsP;
+      console.log(
+        `catastrophic ${pattern}: ${err ? `stopped: "${err}"` : outcome} after ${Date.now() - t0} ms; ${fps.fps.toFixed(1)} fps, worst frame ${fps.worst.toFixed(0)} ms`,
+      );
+      assert.deepEqual(await names(app), [], "the slow name does not match");
+      assert.ok(fps.fps >= 5, `the page kept drawing (${fps.fps.toFixed(1)} fps)`);
+      await shots(app, `catastrophic-${pattern.startsWith("^") ? "anchored" : "plain"}`);
+      // The UI thread is free: a click answers at once.
+      const t1 = Date.now();
+      await setToggle(app, "Regular expression", false);
+      const ms = Date.now() - t1;
+      assert.ok(ms < 3000, `the toggle answered in ${ms} ms`);
+      await app.waitFor(async () => (await errorText(app)) === "", { message: "the error goes" });
+    }
   });
 
   it("searches are remembered, starred, offered in another list and kept across a restart", { timeout: 300_000 }, async () => {
     const { app } = s;
-    await (await toggle(app, "Regular expression")).click();
+    await setToggle(app, "Match case", false);
+    await setToggle(app, "Regular expression", true);
     const input = await filterInput(app);
     await app.filter("^web-\\d+$");
     await waitNames(app, ["web-1", "web-22"], "^web-\\d+$");
@@ -139,7 +181,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
       { message: "starred" },
     );
     // A plain one too.
-    await (await toggle(app, "Regular expression")).click();
+    await setToggle(app, "Regular expression", false);
     await app.filter("db");
     await (await filterInput(app)).sendKeys(Key.ENTER);
 
