@@ -27,7 +27,10 @@ recovering) a development machine: `docs/dev-setup.md`.
 - `scripts/test-cluster/`: `setup.sh` (kind cluster, metrics-server),
   `demo.yaml` (the demo workload), `wait-demo.sh` (waits until the demo pods
   are in the state the tests expect), `limited-user.sh` (a namespace-scoped
-  user, opt-in) and `prometheus.yaml` (CI only, see below).
+  user, opt-in), `images.sh` (pulls the Docker Hub test images once and
+  loads them into the kind nodes; CI sets `KUBELOUPE_IMAGES` for `setup.sh`;
+  a new test image goes in its list) and `prometheus.yaml` (CI only, see
+  below).
 - `scripts/dev/`: `capped.sh` (run a command under a memory ceiling) and
   `clean-worktrees.sh` (remove merged agent worktrees).
 
