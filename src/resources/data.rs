@@ -169,7 +169,10 @@ pub async fn get_data_entries(
     name: &str,
 ) -> Result<DataEntries> {
     let secret = check_kind(r)?;
-    Ok(entries_of(secret, &get_value(client, r, namespace, name).await?))
+    Ok(entries_of(
+        secret,
+        &get_value(client, r, namespace, name).await?,
+    ))
 }
 
 /// The value of one key of a Secret: text if it is UTF-8, else base64.

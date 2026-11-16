@@ -1,6 +1,6 @@
 // Details, related objects, YAML, delete and apply (`commands/resources.rs`).
 
-import type { ApplyResult, ResourceKind, ResourceRef, ResourceRow } from "../../lib/bindings";
+import type { ApplyResult, DataEntries, ResourceKind, ResourceRef, ResourceRow } from "../../lib/bindings";
 import { detail, makeRow, NO_POD } from "../fixtures/cluster";
 import { NO_RELATED } from "../fixtures/related";
 import { addRow, findRow, removeRow, rowKey, rowsOf } from "./state";
@@ -100,6 +100,28 @@ function withResourceVersion(yaml: string, rv: number): string {
   return yaml.replace(/^(metadata:\n {2}name: .*\n(?: {2}namespace: .*\n)?)/m, `$1${line}`);
 }
 
+/** `cmd_get_data_entries`: Secret values left out, like the backend. */
+function dataEntries(s: FakeState, resource: ResourceRef, namespace: string, name: string): DataEntries {
+  const { kind, row } = findRow(s, resource, namespace, name);
+  const key = `${kind.id}|${row.key}`;
+  const secret = resource.kind === "Secret";
+  const d = s.cluster.data[key] ?? { immutable: false, entries: {} };
+  return {
+    resource_version: String(s.cluster.resourceVersions[key] ?? 1),
+    immutable: d.immutable,
+    entries: Object.entries(d.entries)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, e]) => ({
+        key: k,
+        field: e.field,
+        bytes: e.binary ? Math.floor((e.value.replace(/=+$/, "").length * 3) / 4) : new TextEncoder().encode(e.value).length,
+        binary: e.binary,
+        value: secret ? "" : e.value,
+        hidden: secret,
+      })),
+  };
+}
+
 export function resourcesHandlers(s: FakeState) {
   const { cluster } = s;
   return {
@@ -131,6 +153,28 @@ export function resourcesHandlers(s: FakeState) {
       return { outcome: "applied", takeovers: took };
     },
     cmdApplyManifests: (yaml, namespace, dryRun, skipInvalid) => applyManifests(s, yaml, namespace, dryRun, skipInvalid),
+    cmdGetDataEntries: (resource, namespace, name) => dataEntries(s, resource, namespace, name),
+    cmdRevealDataValue: (resource, namespace, name, key) => {
+      const { kind, row } = findRow(s, resource, namespace, name);
+      const e = cluster.data[`${kind.id}|${row.key}`]?.entries[key];
+      if (!e) throw `the Secret has no key "${key}" any more`;
+      return { value: e.value, binary: e.binary };
+    },
+    cmdPatchData: (resource, namespace, name, changes, resourceVersion) => {
+      const { kind, row } = findRow(s, resource, namespace, name);
+      const key = `${kind.id}|${row.key}`;
+      const current = String(cluster.resourceVersions[key] ?? 1);
+      if (resourceVersion && resourceVersion !== current) {
+        return { outcome: "conflict", resource_version: current };
+      }
+      const d = (cluster.data[key] ??= { immutable: false, entries: {} });
+      for (const c of changes) {
+        if (c.delete) delete d.entries[c.key];
+        else d.entries[c.key] = { field: c.field, value: c.value, binary: c.encoding === "base64" };
+      }
+      cluster.resourceVersions[key] = Number(current) + 1;
+      return { outcome: "applied", takeovers: [] };
+    },
     cmdDeleteResource: (resource, namespace, name) => {
       const { kind, row } = findRow(s, resource, namespace, name);
       removeRow(s, kind, row.key);
