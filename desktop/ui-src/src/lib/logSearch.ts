@@ -46,6 +46,8 @@ export type SearchReply = { id: number; hits: Hits[] } | { id: number; error: st
 
 /** Lines per message to the worker, each with its own time limit. */
 export const SEARCH_CHUNK = 2000;
+/** Lines per message when a worker gets its copy of the lines. */
+export const LOAD_PIECE = 5000;
 /** How long one chunk may take before the regex counts as too slow. */
 export const SEARCH_TIMEOUT_MS = 1500;
 
@@ -161,22 +163,42 @@ export class LogSearcher {
     return this.serial(() => this.sendRange(src, source, flags, from, to));
   }
 
-  private sendRange(src: CorpusSource, source: string, flags: string, from: number, to: number): Promise<Hits[]> {
+  private async sendRange(src: CorpusSource, source: string, flags: string, from: number, to: number): Promise<Hits[]> {
     const worker = this.ensureWorker();
     if (!worker) {
       // No workers (unit tests): run it here, without a time limit.
       const re = new RegExp(source, flags);
       const lines = src.slice(from, to);
       const pad = to - from - lines.length;
-      return Promise.resolve(new Array<Hits>(pad).fill(null).concat(lines.map((t) => regexRanges(re, t))));
+      return new Array<Hits>(pad).fill(null).concat(lines.map((t) => regexRanges(re, t)));
     }
-    if (!this.synced) {
-      // The one copy of the lines; after it, only new ones (`appended`).
-      const first = src.first();
-      worker.postMessage({ op: "load", first, lines: src.slice(first, src.end()) } satisfies CorpusMessage);
-      this.synced = true;
-    }
+    if (!this.synced && !(await this.load(worker, src))) throw new Error("Search stopped");
     return this.post(worker, { id: ++this.nextId, source, flags, from, to });
+  }
+
+  /**
+   * The one copy of the lines to a new worker; after it, only new ones go
+   * (`appended`). A piece at a time with a task between them: copying
+   * 50,000 lines in one message would hold up the page for a few frames.
+   * False when the worker was stopped meanwhile.
+   */
+  private async load(worker: Worker, src: CorpusSource): Promise<boolean> {
+    let at = src.first();
+    worker.postMessage({ op: "load", first: at, lines: [] } satisfies CorpusMessage);
+    for (;;) {
+      at = Math.max(at, src.first());
+      const end = Math.min(src.end(), at + LOAD_PIECE);
+      if (at < end) {
+        worker.postMessage({ op: "append", first: src.first(), lines: src.slice(at, end) } satisfies CorpusMessage);
+        at = end;
+      }
+      // Lines that came meanwhile are part of the next piece.
+      if (at >= src.end()) break;
+      await new Promise((r) => setTimeout(r, 0));
+      if (this.worker !== worker) return false;
+    }
+    this.synced = true;
+    return true;
   }
 
   private chunk(source: string, flags: string, items: string[], test: boolean): Promise<Hits[]> {

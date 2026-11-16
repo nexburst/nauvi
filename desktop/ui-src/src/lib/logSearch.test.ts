@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compileQuery } from "./logFilter";
-import { LogSearcher, SEARCH_CHUNK, SlowRegexError } from "./logSearch";
+import { LOAD_PIECE, LogSearcher, SEARCH_CHUNK, SlowRegexError } from "./logSearch";
 import type { SearchReply, SearchRequest, WorkerRequest } from "./logSearch";
 import { LogBuffer } from "./logs";
 import { Corpus } from "./logSearchCorpus";
@@ -125,14 +125,36 @@ describe("LogSearcher over a corpus (#272)", () => {
     expect(workers).toHaveLength(0);
     let r = await collect(s, q("hit"), 0, Infinity, buf);
     expect(r.out).toEqual([[0, 1], null]);
-    expect(workers[0].all.filter((m) => "op" in m)).toEqual([{ op: "load", first: 0, lines: ["hit", "miss"] }]);
+    expect(workers[0].corpus.size).toBe(2);
     buf.push(["a hit"]);
     s.appended(["a hit"]);
     r = await collect(s, q("hit"), 2, Infinity, buf);
     expect(r.out).toEqual([[0, 1]]);
     // Only the new line went over, and the searches name ranges, not lines.
-    expect(workers[0].all.filter((m) => "op" in m).map((m) => (m as { lines: string[] }).lines)).toEqual([["hit", "miss"], ["a hit"]]);
+    expect(workers[0].all.filter((m) => "op" in m).map((m) => (m as { lines: string[] }).lines)).toEqual([[], ["hit", "miss"], ["a hit"]]);
     expect(workers[0].received).toHaveLength(0);
+  });
+
+  it("loads a big buffer a piece at a time, with the lines that come meanwhile", async () => {
+    const { s, workers } = searcher();
+    const buf = new LogBuffer();
+    s.attach(buf);
+    buf.push(Array.from({ length: LOAD_PIECE * 2 + 1 }, () => "miss"));
+    const run = s.runRange(q("hit"), 0, buf.end(), () => {});
+    // A task later the load is under way: these lines come with a later piece.
+    await new Promise((r) => setTimeout(r, 0));
+    buf.push(["hit", "hit"]);
+    s.appended(["hit", "hit"]);
+    await run;
+    const pieces = workers[0].all.filter((m) => "op" in m).map((m) => (m as { lines: string[] }).lines.length);
+    expect(pieces[0]).toBe(0);
+    expect(Math.max(...pieces)).toBe(LOAD_PIECE);
+    expect(pieces.reduce((a, b) => a + b, 0)).toBe(buf.lines.length);
+    expect(workers[0].corpus.size).toBe(buf.lines.length);
+    // Loaded: later lines go one batch at a time.
+    buf.push(["x"]);
+    s.appended(["x"]);
+    expect(workers[0].corpus.size).toBe(buf.lines.length);
   });
 
   it("hands the hits over a chunk at a time, in order", async () => {
@@ -169,7 +191,7 @@ describe("LogSearcher over a corpus (#272)", () => {
     const r = await collect(s, q("hit"), 0, Infinity, buf);
     expect(r.out).toEqual([[0, 1]]);
     expect(workers).toHaveLength(2);
-    expect(workers[1].all[0]).toEqual({ op: "load", first: 0, lines: ["hit"] });
+    expect(workers[1].corpus.size).toBe(1);
   });
 
   it("runs one chunk at a time: a search after a slow one does not fail with it", async () => {
