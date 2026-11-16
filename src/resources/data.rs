@@ -287,14 +287,64 @@ pub fn data_patch(secret: bool, changes: &[DataChange], resource_version: &str) 
     Ok(Value::Object(patch))
 }
 
-/// `text` without any of the new values in `changes` (as given, and as
-/// base64), so an error never carries a Secret value into the log.
+/// `text` without any of the new values in `changes`, so an error never
+/// carries a Secret value into the log. Each value is removed as given, as
+/// base64, and JSON-escaped (the form a server echoes back from the patch:
+/// quotes, newlines, and `\uXXXX` escapes, Go's `<>&` ones too); a base64
+/// value also decoded. Longer forms go first, so a shorter one never
+/// leaves part of a longer one behind.
 pub fn scrub(text: &str, changes: &[DataChange]) -> String {
-    let mut out = text.to_string();
+    let mut forms: Vec<String> = Vec::new();
     for c in changes.iter().filter(|c| !c.delete) {
-        for v in [c.value.clone(), B64.encode(c.value.as_bytes())] {
-            if v.trim().len() >= 3 {
-                out = out.replace(v.trim(), "[hidden]");
+        let mut plain = vec![c.value.clone()];
+        if c.encoding == DataEncoding::Base64 {
+            let compact: String = c.value.split_whitespace().collect();
+            if let Ok(bytes) = B64.decode(compact) {
+                plain.push(String::from_utf8_lossy(&bytes).into_owned());
+            }
+        }
+        for v in plain {
+            forms.push(B64.encode(v.as_bytes()));
+            forms.push(json_escaped(&v));
+            forms.push(ascii_json_escaped(&v));
+            forms.push(v);
+        }
+    }
+    let mut forms: Vec<&str> = forms
+        .iter()
+        .map(|v| v.trim())
+        .filter(|v| v.len() >= 3)
+        .collect();
+    forms.sort_by_key(|v| std::cmp::Reverse(v.len()));
+    forms.dedup();
+    let mut out = text.to_string();
+    for v in forms {
+        out = out.replace(v, "[hidden]");
+    }
+    out
+}
+
+/// `v` as in a JSON string, without the quotes.
+fn json_escaped(v: &str) -> String {
+    let quoted = serde_json::to_string(v).unwrap_or_default();
+    quoted
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// [`json_escaped`], with every non-ASCII character and `<`, `>`, `&` as
+/// `\uXXXX` (UTF-16, like Go's encoding/json and other ASCII-only encoders).
+fn ascii_json_escaped(v: &str) -> String {
+    let mut out = String::new();
+    for c in json_escaped(v).chars() {
+        if c.is_ascii() && !matches!(c, '<' | '>' | '&') {
+            out.push(c);
+        } else {
+            let mut units = [0u16; 2];
+            for u in c.encode_utf16(&mut units) {
+                out.push_str(&format!("\\u{u:04x}"));
             }
         }
     }
@@ -451,5 +501,40 @@ mod tests {
             &changes,
         );
         assert_eq!(got, "invalid value \"[hidden]\" ([hidden]) for password");
+    }
+
+    #[test]
+    fn scrub_removes_json_escaped_values() {
+        let value = "pa\"ss\nwörd<1>";
+        let changes = [change("password", value, DataEncoding::Text)];
+        // As serde_json writes it, and ASCII-only (Go's encoding/json).
+        let server = r#"Invalid value: "pa\"ss\nwörd<1>" / "pa\"ss\nwörd<1>""#;
+        let got = scrub(server, &changes);
+        assert_eq!(got, r#"Invalid value: "[hidden]" / "[hidden]""#);
+        // A newline or quote of the value never survives in any form.
+        let raw = format!("raw {value} b64 {}", B64.encode(value));
+        assert_eq!(scrub(&raw, &changes), "raw [hidden] b64 [hidden]");
+        // A character outside the BMP is a surrogate pair.
+        let changes = [change("k", "key🔑x", DataEncoding::Text)];
+        assert_eq!(scrub(r#"bad "key🔑x""#, &changes), r#"bad "[hidden]""#);
+    }
+
+    #[test]
+    fn scrub_removes_decoded_base64_values() {
+        let encoded = B64.encode("s3cr3t\tvalue");
+        let changes = [change("tls.key", &encoded, DataEncoding::Base64)];
+        let got = scrub(
+            &format!("bad {encoded}: s3cr3t\tvalue / s3cr3t\\tvalue"),
+            &changes,
+        );
+        assert_eq!(got, "bad [hidden]: [hidden] / [hidden]");
+    }
+
+    #[test]
+    fn scrub_ignores_removed_and_short_values() {
+        let mut gone = change("a", "hunter2", DataEncoding::Text);
+        gone.delete = true;
+        let changes = [gone, change("b", "ab", DataEncoding::Text)];
+        assert_eq!(scrub("hunter2 ab", &changes), "hunter2 ab");
     }
 }

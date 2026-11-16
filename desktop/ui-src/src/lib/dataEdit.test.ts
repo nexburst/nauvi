@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changesOf, isBase64, keyError, sizeText, summaryOf, withValue } from "./dataEdit";
+import { changesOf, draftId, isBase64, keyError, sizeText, summaryOf, withValue } from "./dataEdit";
 import type { Edit } from "./dataEdit";
 
 const entry = { key: "password", field: "data" as const };
@@ -61,5 +61,13 @@ describe("validation", () => {
     expect(sizeText(1)).toBe("1 byte");
     expect(sizeText(7)).toBe("7 bytes");
     expect(sizeText(2048)).toBe("2.0 KiB");
+  });
+});
+
+describe("draftId", () => {
+  it("differs per context for the same object", () => {
+    const t = { resource: { group: "", kind: "Secret" }, namespace: "demo", name: "db-creds" };
+    expect(draftId("kind-dev", t)).toBe("data|kind-dev|/Secret|demo/db-creds");
+    expect(draftId("prod", t)).not.toBe(draftId("kind-dev", t));
   });
 });

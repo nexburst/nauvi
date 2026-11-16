@@ -4,6 +4,16 @@
 
 import type { DataChange, DataEncoding, DataEntry, DataField } from "./bindings";
 
+/** The key of an object's draft and unsaved-edit entry. It includes the
+ *  context, so a same-named object in another cluster never picks up these
+ *  edits. */
+export function draftId(
+  context: string,
+  target: { resource: { group: string; kind: string }; namespace: string; name: string },
+): string {
+  return `data|${context}|${target.resource.group}/${target.resource.kind}|${target.namespace}/${target.name}`;
+}
+
 /** A pending edit of one key. */
 export interface Edit {
   field: DataField;

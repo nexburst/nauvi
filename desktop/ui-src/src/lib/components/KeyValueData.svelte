@@ -15,7 +15,8 @@
   import { onDestroy, onMount } from "svelte";
   import { commands } from "../bindings";
   import type { DataEncoding, DataEntry, RevealedValue } from "../bindings";
-  import { changesOf, isBase64, keyError, sizeText, summaryOf, withValue } from "../dataEdit";
+  import { changesOf, draftId, isBase64, keyError, sizeText, summaryOf, withValue } from "../dataEdit";
+  import { currentContextName } from "../stores/app.svelte";
   import type { Target } from "../stores/detail.svelte";
   import { confirmDiscard, markSaved, markUnsaved } from "../stores/unsaved.svelte";
 
@@ -29,7 +30,7 @@
   // svelte-ignore state_referenced_locally
   const isSecret = target.resource.group === "" && target.resource.kind === "Secret";
   // svelte-ignore state_referenced_locally
-  const id = `data|${target.resource.group}/${target.resource.kind}|${target.namespace}/${target.name}`;
+  const id = draftId(currentContextName(), target);
   const what = isSecret ? "Secret" : "ConfigMap";
 
   let entries = $state.raw<DataEntry[]>([]);
