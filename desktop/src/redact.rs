@@ -29,8 +29,9 @@ static SCHEME: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// A JSON Web Token (ServiceAccount and OIDC tokens are ones).
-static JWT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*").unwrap());
+static JWT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\beyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*").unwrap()
+});
 
 /// `token=x`, `password: x`, `"client-key-data": "x"`, `--token x`: a key
 /// that names a credential, the separator (with any quotes) and the value
@@ -47,7 +48,9 @@ static FIELD: LazyLock<Regex> = LazyLock::new(|| {
 /// Values that are not secrets: a mask already there, and the scheme of an
 /// `Authorization` value (its credentials are masked by `SCHEME`).
 fn kept_value(value: &str) -> bool {
-    value.starts_with("[redacted") || value.eq_ignore_ascii_case("bearer") || value.eq_ignore_ascii_case("basic")
+    value.starts_with("[redacted")
+        || value.eq_ignore_ascii_case("bearer")
+        || value.eq_ignore_ascii_case("basic")
 }
 
 /// `text` with secret-looking parts replaced by [`MASK`].
@@ -81,13 +84,22 @@ mod tests {
     #[test]
     fn masks_credentials() {
         let cases = [
-            ("Authorization: Bearer abc.def-123", "Authorization: Bearer [redacted]"),
+            (
+                "Authorization: Bearer abc.def-123",
+                "Authorization: Bearer [redacted]",
+            ),
             ("basic dXNlcjpwYXNz", "basic [redacted]"),
             ("token=s3cr3t-value", "token=[redacted]"),
             ("password: hunter2", "password: [redacted]"),
-            (r#"{"client-key-data":"LS0tLS1CRUdJTg=="}"#, r#"{"client-key-data":"[redacted]"}"#),
+            (
+                r#"{"client-key-data":"LS0tLS1CRUdJTg=="}"#,
+                r#"{"client-key-data":"[redacted]"}"#,
+            ),
             ("--token abcdef", "--token [redacted]"),
-            ("AWS_SECRET_ACCESS_KEY=xyz", "AWS_SECRET_ACCESS_KEY=[redacted]"),
+            (
+                "AWS_SECRET_ACCESS_KEY=xyz",
+                "AWS_SECRET_ACCESS_KEY=[redacted]",
+            ),
             ("access_token: ya29.abc", "access_token: [redacted]"),
             ("api-key=k1", "api-key=[redacted]"),
         ];
@@ -103,7 +115,10 @@ mod tests {
         let pem = "key:\n-----BEGIN RSA PRIVATE KEY-----\nMIIE\nabcd\n-----END RSA PRIVATE KEY-----\ndone";
         assert_eq!(redact(pem), "key:\n[redacted]\ndone");
         // Cut off before its END line: the rest goes too.
-        assert_eq!(redact("x -----BEGIN CERTIFICATE-----\nMIIB"), "x [redacted]");
+        assert_eq!(
+            redact("x -----BEGIN CERTIFICATE-----\nMIIB"),
+            "x [redacted]"
+        );
     }
 
     #[test]

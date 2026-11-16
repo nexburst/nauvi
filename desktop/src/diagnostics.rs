@@ -172,7 +172,10 @@ mod tests {
     fn reads_the_os_release_name() {
         let text = "NAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04.1 LTS\"\n";
         assert_eq!(os_release_name(text).as_deref(), Some("Ubuntu 24.04.1 LTS"));
-        assert_eq!(os_release_name("NAME=Arch Linux\n").as_deref(), Some("Arch Linux"));
+        assert_eq!(
+            os_release_name("NAME=Arch Linux\n").as_deref(),
+            Some("Arch Linux")
+        );
         assert_eq!(os_release_name("ID=x\n"), None);
     }
 
@@ -184,17 +187,28 @@ mod tests {
         }
         if let Some(home) = std::env::var_os("HOME") {
             let home = home.to_string_lossy();
-            assert!(!d.text.contains(home.as_ref()), "no home folder in {}", d.text);
+            assert!(
+                !d.text.contains(home.as_ref()),
+                "no home folder in {}",
+                d.text
+            );
         }
         if let Ok(user) = std::env::var("USER") {
-            assert!(!d.text.contains(&format!("/{user}")), "no user name in {}", d.text);
+            assert!(
+                !d.text.contains(&format!("/{user}")),
+                "no user name in {}",
+                d.text
+            );
         }
     }
 
     #[test]
     fn the_bug_url_carries_the_diagnostics() {
         let url = url::Url::parse(&bug_report_url()).unwrap();
-        assert_eq!(url.as_str().split('?').next(), Some(&*format!("{REPO_URL}/issues/new")));
+        assert_eq!(
+            url.as_str().split('?').next(),
+            Some(&*format!("{REPO_URL}/issues/new"))
+        );
         let body = url
             .query_pairs()
             .find(|(k, _)| k == "body")

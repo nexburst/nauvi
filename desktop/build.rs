@@ -61,7 +61,11 @@ fn set_commit() {
         .ok()
         .filter(|s| !s.is_empty())
         .or_else(|| git(&["rev-parse", "--short=12", "HEAD"]))
-        .or_else(|| std::env::var("GITHUB_SHA").ok().map(|s| s.chars().take(12).collect()))
+        .or_else(|| {
+            std::env::var("GITHUB_SHA")
+                .ok()
+                .map(|s| s.chars().take(12).collect())
+        })
         .unwrap_or_else(|| "unknown".into());
     // Only a commit id: nothing else reaches the binary.
     let commit: String = commit
@@ -69,7 +73,11 @@ fn set_commit() {
         .filter(|c| c.is_ascii_alphanumeric())
         .take(40)
         .collect();
-    let commit = if commit.is_empty() { "unknown".into() } else { commit };
+    let commit = if commit.is_empty() {
+        "unknown".into()
+    } else {
+        commit
+    };
     println!("cargo:rustc-env=KUBELOUPE_COMMIT={commit}");
 }
 

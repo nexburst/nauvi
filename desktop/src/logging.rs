@@ -56,7 +56,10 @@ pub(crate) fn init(dir: Option<PathBuf>) {
             Some(f)
         }
         Err(e) => {
-            eprintln!("kubeloupe: could not open the log in {}: {e}", dir.display());
+            eprintln!(
+                "kubeloupe: could not open the log in {}: {e}",
+                dir.display()
+            );
             None
         }
     });
@@ -285,10 +288,15 @@ mod tests {
         for _ in 0..9 {
             log.write_line(&line);
         }
-        let files: Vec<_> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name()).collect();
+        let files: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
         assert_eq!(files.len(), KEEP + 1, "{files:?}");
         for n in 0..=KEEP {
-            let len = std::fs::metadata(RotatingFile::path(&dir, n)).unwrap().len();
+            let len = std::fs::metadata(RotatingFile::path(&dir, n))
+                .unwrap()
+                .len();
             assert!(len <= MAX_BYTES, "file {n}: {len} bytes");
         }
         std::fs::remove_dir_all(&dir).unwrap();
@@ -299,7 +307,10 @@ mod tests {
         let dir = temp_dir("long");
         let mut log = RotatingFile::open(&dir).unwrap();
         log.write_line(&vec![b'y'; MAX_BYTES as usize + 10]);
-        assert_eq!(std::fs::metadata(dir.join(LOG_FILE)).unwrap().len(), MAX_BYTES);
+        assert_eq!(
+            std::fs::metadata(dir.join(LOG_FILE)).unwrap().len(),
+            MAX_BYTES
+        );
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -311,7 +322,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         // An older, world-readable log is tightened.
         std::fs::write(dir.join(LOG_FILE), b"old\n").unwrap();
-        std::fs::set_permissions(dir.join(LOG_FILE), std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::set_permissions(dir.join(LOG_FILE), std::fs::Permissions::from_mode(0o644))
+            .unwrap();
         let mut log = RotatingFile::open(&dir).unwrap();
         log.write_line(&vec![b'z'; MAX_BYTES as usize]);
         log.write_line(b"next\n");

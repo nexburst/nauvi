@@ -142,18 +142,6 @@ export const commands = {
 	 */
 	cmdExecStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { namespace, name, container, cols, rows }, options),
 	/**
-	 *  The version, commit, OS and webview, and the text "Copy diagnostics"
-	 *  copies.
-	 */
-	cmdDiagnostics: (options?: InvokeOptions) => __TAURI_INVOKE<Diagnostics>("cmd_diagnostics", undefined, options),
-	/**  Open the documentation, a prefilled bug report or the log folder. */
-	cmdHelpOpen: (item: HelpItem, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_help_open", { item }, options),
-	/**
-	 *  Write an error the UI caught to the app log. `source`: where it was
-	 *  caught (`boundary`, `error`, `rejection`).
-	 */
-	cmdLogUiError: (source: string, message: string, stack: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_log_ui_error", { source, message, stack }, options),
-	/**
 	 *  The chart of each given revision (a few payloads downloaded at a time),
 	 *  for the list's chart columns. Errors are per release.
 	 */
@@ -210,6 +198,18 @@ export const commands = {
 	cmdHelmSearch: (query: string, allVersions: boolean, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_search", { query, allVersions }, options),
 	/**  `helm upgrade` (or its dry run) of a release in the window's cluster. */
 	cmdHelmUpgrade: (request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_upgrade", { request }, options),
+	/**
+	 *  The version, commit, OS and webview, and the text "Copy diagnostics"
+	 *  copies.
+	 */
+	cmdDiagnostics: (options?: InvokeOptions) => __TAURI_INVOKE<Diagnostics>("cmd_diagnostics", undefined, options),
+	/**  Open the documentation, a prefilled bug report or the log folder. */
+	cmdHelpOpen: (item: HelpItem, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_help_open", { item }, options),
+	/**
+	 *  Write an error the UI caught to the app log. `source`: where it was
+	 *  caught (`boundary`, `error`, `rejection`).
+	 */
+	cmdLogUiError: (source: string, message: string, stack: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_log_ui_error", { source, message, stack }, options),
 	/**  Kill the shell and delete its temp kubeconfig. */
 	cmdLocalShellClose: (session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_close", { session }, options),
 	cmdLocalShellInput: (session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_input", { session, data }, options),
@@ -781,7 +781,7 @@ export type DetailWatchEvent = {
 export type Diagnostics = {
 	version: string,
 	commit: string,
-	/**  The OS and its version, e.g. "Ubuntu 24.04.1 LTS (Linux 6.8.0)". */
+	/**  The OS and its version, e.g. "Ubuntu 24.04.1 LTS, Linux 6.8.0". */
 	os: string,
 	arch: string,
 	/**  The webview engine and its version. */

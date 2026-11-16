@@ -50,7 +50,11 @@ pub(crate) fn install<R: Runtime>(app: &AppHandle<R>) {
     use tauri::menu::{MenuItem, MenuItemKind, PredefinedMenuItem, HELP_SUBMENU_ID};
 
     const ITEMS: [(&str, &str, HelpItem); 3] = [
-        ("help-documentation", "kubeloupe Documentation", HelpItem::Documentation),
+        (
+            "help-documentation",
+            "kubeloupe Documentation",
+            HelpItem::Documentation,
+        ),
         ("help-report-bug", "Report a Bug…", HelpItem::ReportBug),
         ("help-log-folder", "Open Log Folder", HelpItem::LogFolder),
     ];

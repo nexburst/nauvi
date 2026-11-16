@@ -10,6 +10,7 @@ import { catalogHandlers } from "./catalog";
 import { clusterHandlers } from "./cluster";
 import { debugHandlers } from "./debug";
 import { execHandlers } from "./exec";
+import { helpHandlers } from "./help";
 import { helmHandlers } from "./helm";
 import { helmChartsHandlers } from "./helm-charts";
 import { localShellHandlers } from "./local-shell";
@@ -35,6 +36,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...clusterHandlers(s),
     ...debugHandlers(s),
     ...execHandlers(s),
+    ...helpHandlers(s),
     ...helmHandlers(s),
     ...helmChartsHandlers(s),
     ...localShellHandlers(s),
