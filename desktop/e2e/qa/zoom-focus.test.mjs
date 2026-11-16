@@ -19,6 +19,7 @@ import { deleteNamespace, httpPodYaml, tempNamespace, waitPodReady } from "../li
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { pickNamespaces } from "../lib/table.mjs";
 import { terminal } from "../lib/terminal.mjs";
+import { waitTheme } from "../lib/theme.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 180_000 };
@@ -62,9 +63,7 @@ async function closeSettings(app) {
 async function setTheme(app, theme) {
   await openSettings(app);
   await app.js(`document.querySelector('[data-testid="settings"] input[name="theme"][value="${theme}"]').click()`);
-  await app.waitFor(async () => (await app.js("return document.documentElement.dataset.theme")) === theme, {
-    message: `data-theme=${theme}`,
-  });
+  await waitTheme(app, theme);
 }
 
 /** The pod `shell` in the temp namespace, listed alone. */

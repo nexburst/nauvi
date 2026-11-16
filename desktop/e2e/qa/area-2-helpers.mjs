@@ -178,10 +178,5 @@ export async function answerDiscard(app, label) {
   await app.waitFor(async () => !(await discardDialog(app)), { message: "the discard dialog to close" });
 }
 
-/** Switch the page to the light or dark theme (for screenshots of both). */
-export function setTheme(app, theme) {
-  return app.js(
-    `if (arguments[0]) document.documentElement.dataset.theme = arguments[0]; else delete document.documentElement.dataset.theme;`,
-    theme,
-  );
-}
+// Switch the page to the light or dark theme and wait until it shows (#276).
+export { setTheme } from "../lib/theme.mjs";

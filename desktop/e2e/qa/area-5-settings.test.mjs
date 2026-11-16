@@ -13,6 +13,7 @@ import { By, Key } from "selenium-webdriver";
 import { byTestId } from "../lib/app.mjs";
 import { openPodLogs, pane } from "../lib/dock.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { waitTheme } from "../lib/theme.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
@@ -37,6 +38,7 @@ async function closeSettings(app) {
 
 async function setTheme(app, theme) {
   await app.js(`document.querySelector('[data-testid="settings"] input[name="theme"][value="${theme}"]').click()`);
+  await waitTheme(app, theme === "system" ? null : theme);
 }
 
 /** Native controls on the Settings page: their computed colours, for the log. */
@@ -74,9 +76,6 @@ describe("area 5: Settings page and themes", { timeout: 10 * 60_000 }, () => {
   it("Settings in the Light theme", T, async () => {
     const { app } = s;
     await setTheme(app, "light");
-    await app.waitFor(async () => (await app.js("return document.documentElement.dataset.theme")) === "light", {
-      message: "data-theme=light",
-    });
     assert.ok((await bodyLuminance(app)) > 0.8, "light background");
     const styles = await controlStyles(app);
     console.log(`light controls: ${JSON.stringify(styles)}`);

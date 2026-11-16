@@ -21,6 +21,7 @@ import {
   pickNamespaces,
   tableData,
 } from "../lib/table.mjs";
+import { waitTheme } from "../lib/theme.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
@@ -31,9 +32,7 @@ async function setTheme(app, label) {
   const radio = await dialog.findElement(By.xpath(`.//label[normalize-space()='${label}']/input`));
   await app.js("arguments[0].click()", radio);
   const value = label.toLowerCase();
-  await app.waitFor(async () => (await app.js("return document.documentElement.dataset.theme ?? ''")) === value, {
-    message: `data-theme=${value}`,
-  });
+  await waitTheme(app, value);
   await (await dialog.findElement(By.xpath(".//button[normalize-space()='Close']"))).click();
   await app.driver.actions().sendKeys("").perform(); // Escape
   await app.waitFor(async () => (await app.driver.findElements(byTestId("settings"))).length === 0, {

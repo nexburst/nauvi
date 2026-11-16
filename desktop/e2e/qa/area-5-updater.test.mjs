@@ -16,6 +16,7 @@ import { after, before, describe, it } from "node:test";
 import { By, Key } from "selenium-webdriver";
 import { byTestId } from "../lib/app.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { setTheme } from "../lib/theme.mjs";
 import { openNewWindow, switchTo, windowHandles } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
@@ -233,11 +234,10 @@ for (const [name, exe, noteRe] of READ_ONLY_COPIES) {
       console.log(`layout: ${JSON.stringify(box)}`);
       assert.ok(box.noteRight <= box.bannerRight + 1, "the note stays inside the banner");
       for (const theme of ["dark", "light"]) {
-        await app.js("document.documentElement.dataset.theme = arguments[0]", theme);
-        await sleep(300);
+        await setTheme(app, theme);
         await app.shot(`${name}-banner-${theme}`);
       }
-      await app.js("delete document.documentElement.dataset.theme");
+      await setTheme(app, null);
     });
   });
 }

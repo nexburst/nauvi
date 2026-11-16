@@ -8,10 +8,10 @@ import { describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { byTestId } from "../lib/app.mjs";
 import { appSession, unreachableKubeconfig } from "../lib/qa.mjs";
+import { waitTheme } from "../lib/theme.mjs";
 
 const T = { timeout: 120_000 };
 
-const theme = (app) => app.js("return document.documentElement.dataset.theme ?? ''");
 
 describe("startup without a reachable cluster, settings and theme", { timeout: 10 * 60_000 }, () => {
   const s = appSession("startup", { kubeconfig: unreachableKubeconfig() });
@@ -42,7 +42,7 @@ describe("startup without a reachable cluster, settings and theme", { timeout: 1
     ]) {
       const radio = await dialog.findElement(By.xpath(`.//label[normalize-space()='${label}']/input`));
       await app.js("arguments[0].click()", radio);
-      await app.waitFor(async () => (await theme(app)) === value, { message: `data-theme=${value}` });
+      await waitTheme(app, value);
       await app.shot(`theme-${value}`);
     }
   });
@@ -51,6 +51,6 @@ describe("startup without a reachable cluster, settings and theme", { timeout: 1
     const { app } = s;
     await app.restart();
     await app.find(By.css("header"));
-    await app.waitFor(async () => (await theme(app)) === "light", { timeout: 30_000, message: "data-theme=light" });
+    await waitTheme(app, "light", { timeout: 30_000 });
   });
 });

@@ -179,17 +179,8 @@ export function scrollPanelTo(app, css) {
   );
 }
 
-/**
- * Force the light or dark theme (what Settings > Theme sets on <html>), or
- * follow the system with null.
- */
-export function setTheme(app, theme) {
-  return app.js(
-    `if (arguments[0]) document.documentElement.dataset.theme = arguments[0];
-     else delete document.documentElement.dataset.theme;`,
-    theme,
-  );
-}
+// The theme: set it and wait until it shows (lib/theme.mjs, #276).
+export { setTheme } from "./theme.mjs";
 
 /** Whether the action buttons at the top of the panel are all disabled. */
 export function actionButtons(app) {
