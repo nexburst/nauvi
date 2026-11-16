@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   compileQuery,
+  invalidRegexMessage,
   findTime,
   indexOfId,
   lineTime,
@@ -38,6 +39,10 @@ describe("compileQuery", () => {
       expect(r.message).not.toMatch(/^Invalid regular expression/);
       expect(r.message.length).toBeGreaterThan(0);
     }
+    expect(invalidRegexMessage(new SyntaxError("Invalid regular expression: /(a/gi: Unterminated group"))).toBe(
+      "Unterminated group",
+    );
+    expect(invalidRegexMessage(new SyntaxError("Invalid regular expression: missing )"))).toBe("missing )");
     // Plain text never fails.
     expect(q("(a").kind).toBe("text");
   });

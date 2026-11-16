@@ -933,10 +933,10 @@
     font-size: 12px;
     min-width: 0;
   }
+  /* A set width: an error next to it shrinks (with an ellipsis), not the box. */
   .filter {
-    flex: 1 1 200px;
-    min-width: 100px;
-    max-width: 480px;
+    flex: 0 0 auto;
+    width: clamp(140px, 35vw, 480px);
   }
   .mini:focus {
     outline: none;
@@ -967,6 +967,7 @@
   }
   .search-error,
   .jump-note {
+    flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

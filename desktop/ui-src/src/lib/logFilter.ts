@@ -32,10 +32,14 @@ export function compileQuery(q: LogQuery): CompiledQuery {
   return { kind: "regex", source: q.text, flags };
 }
 
-/** "Invalid regular expression: /(a/: Unterminated group" -> "Unterminated group". */
-function invalidRegexMessage(e: unknown): string {
+/**
+ * The engine's reason without its preamble: V8 says "Invalid regular
+ * expression: /(a/gi: Unterminated group", JavaScriptCore (WebKit) "Invalid
+ * regular expression: missing )".
+ */
+export function invalidRegexMessage(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e);
-  const m = msg.match(/^Invalid regular expression: \/.*\/[a-z]*: (.+)$/s);
+  const m = msg.match(/^Invalid regular expression: (?:\/.*\/[a-z]*: )?(.+)$/s);
   return m ? m[1] : msg;
 }
 
