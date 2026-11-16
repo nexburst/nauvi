@@ -50,7 +50,6 @@ test("one row at 1280 px with the saved note and with an error", async ({ page }
   await expectOneRow(page);
   // Cut with an ellipsis; the whole message is in the tooltip.
   await expect(note(page)).toHaveAttribute("title", /Permission denied$/);
-  if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/wide.png` });
 });
 
 test("one row at 1280 px with the detail panel open: Columns and Export CSV become icons", async ({ page }) => {
@@ -79,5 +78,4 @@ test("one row at 1280 px with the detail panel open: Columns and Export CSV beco
   expect(n.y).toBeGreaterThanOrEqual(bar.y + bar.height);
   expect(n.x + n.width).toBeLessThanOrEqual(aside.x);
   expect(await note(page).evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
-  if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/panel.png` });
 });
