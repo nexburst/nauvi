@@ -18,6 +18,7 @@ import { byTestId } from "../lib/app.mjs";
 import { aliasKubeconfig, appPid, dockHeight, dragDock, openPodLogs } from "../lib/dock.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { namespaceChips, pickNamespaces } from "../lib/table.mjs";
+import { waitTheme } from "../lib/theme.mjs";
 import { cannotCloseLikeUser, selectContext, x11Windows } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
@@ -169,9 +170,7 @@ describe("settings survive a restart", { timeout: 15 * 60_000 }, () => {
       const saved = JSON.parse(readFileSync(app.profile.settingsPath, "utf8"));
       assert.equal(saved.theme, want, `theme in settings.json after exit: ${saved.theme}`);
       await app.restart({ wait: 0 });
-      await app.waitFor(async () => (await app.js("return document.documentElement.dataset.theme ?? ''")) === want, {
-        message: `${want} theme after the restart`,
-      });
+      await waitTheme(app, want, { timeout: 20_000 });
     },
   );
 

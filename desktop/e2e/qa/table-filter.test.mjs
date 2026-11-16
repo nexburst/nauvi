@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { By, Key } from "selenium-webdriver";
 import { deleteNamespace, tempNamespace } from "../lib/cluster.mjs";
-import { setTheme } from "../lib/panels.mjs";
+import { setTheme } from "../lib/theme.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { pickNamespaces, tableData } from "../lib/table.mjs";
 import { resizeWindow } from "../lib/window.mjs";
@@ -51,7 +51,6 @@ async function waitNames(app, want, message) {
 async function shots(app, label) {
   for (const theme of ["dark", "light"]) {
     await setTheme(app, theme);
-    await new Promise((r) => setTimeout(r, 300));
     await app.shot(`${label}-${theme}`);
   }
   await setTheme(app, null);

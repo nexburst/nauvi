@@ -6,7 +6,8 @@
 //   a prefilled new-issue URL and the log folder)
 // - About (Settings) shows the version and commit; Copy diagnostics copies
 //   them with the OS and webview, and nothing about the user or the cluster
-// - an uncaught error in the page reaches the log, with a token in it masked
+// - an uncaught error in the page reaches the log, with a token in it masked,
+//   on one line: newlines, bidi overrides and line separators flattened (#264)
 // Screenshots: the Help menu and About at 1280x800, dark and light.
 
 import assert from "node:assert/strict";
@@ -158,5 +159,26 @@ describe("diagnostics: app log, Help menu, About", { timeout: 8 * 60_000 }, () =
     assert.match(line, /UI error \(error\) in window main: Error: qa208 boom token=\[redacted\]/);
     assert.ok(!logText(app).includes("qa208-not-for-logs"), "the token is not in the log");
     await setTheme(app, null);
+  });
+
+  // #264: a message can't forge a log line or hide text with bidi controls.
+  it("an error with newlines, bidi overrides and line separators is one log line", T, async () => {
+    const { app } = s;
+    const forged = "2026-01-01T00:00:00.000000Z  INFO kubeloupe: qa264 forged";
+    await app.js(
+      `const e = new Error("qa264 start\\n" + arguments[0] + "\\r\\nqa264 \\u202Eevil\\u202C \\u2066iso\\u2069 \\u2028sep\\u2029end");
+       e.stack = "Error: qa264\\n    at one (a.js:1:1)\\n    at two (b.js:2:2)";
+       setTimeout(() => { throw e; });`,
+      forged,
+    );
+    await app.waitFor(() => logText(app).includes("qa264 start"), { message: "the qa264 error in the log" });
+    const text = logText(app);
+    const lines = text.split("\n").filter((l) => l.includes("qa264"));
+    console.log(`log: ${JSON.stringify(lines)}`);
+    assert.equal(lines.length, 1, "one line for the whole error");
+    assert.ok(!text.split("\n").some((l) => l.startsWith(forged)), "no line starts with the forged text");
+    assert.match(lines[0], /UI error \(error\) in window main: .*qa264 start 2026-01-01T00:00:00\.000000Z {2}INFO/);
+    assert.match(lines[0], /qa264 {2}evil  {2}iso {3}sep end/);
+    assert.ok(!/[\u202A-\u202E\u2066-\u2069\u2028\u2029\r]/.test(text), "no bidi controls or separators in the log");
   });
 });

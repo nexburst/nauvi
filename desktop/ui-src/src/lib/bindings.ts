@@ -151,6 +151,12 @@ export const commands = {
 	 */
 	cmdExecStart: (namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { namespace, name, container, cols, rows }, options),
 	/**
+	 *  Ask where to save a CSV file (starting in Downloads, with `filename`
+	 *  suggested) and write `content` there. Returns the path written, or `None`
+	 *  when the user cancelled the dialog.
+	 */
+	cmdSaveCsv: (filename: string, content: string, options?: InvokeOptions) => __TAURI_INVOKE<string | null>("cmd_save_csv", { filename, content }, options),
+	/**
 	 *  The chart of each given revision (a few payloads downloaded at a time),
 	 *  for the list's chart columns. Errors are per release.
 	 */
@@ -325,6 +331,11 @@ export const commands = {
 	cmdApplyResourceYaml: (resource: ResourceRef, namespace: string, name: string, yaml: string, resourceVersion: string, dryRun: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_apply_resource_yaml", { resource, namespace, name, yaml, resourceVersion, dryRun }, options),
 	cmdDeleteResource: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_delete_resource", { resource, namespace, name }, options),
 	/**
+	 *  The keys of a Secret (values hidden) or ConfigMap (with values), for the
+	 *  detail panel's data editor.
+	 */
+	cmdGetDataEntries: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<DataEntries>("cmd_get_data_entries", { resource, namespace, name }, options),
+	/**
 	 *  The per-kind summary and related objects of any object (a Deployment's
 	 *  ReplicaSets and pods, a Service's endpoints, the pods on a Node...).
 	 */
@@ -333,6 +344,15 @@ export const commands = {
 	cmdGetResourceDetail: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ResourceDetail>("cmd_get_resource_detail", { resource, namespace, name }, options),
 	/**  An object as YAML. Secret values stay hidden unless `reveal` is set. */
 	cmdGetResourceYaml: (resource: ResourceRef, namespace: string, name: string, reveal: boolean, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_get_resource_yaml", { resource, namespace, name, reveal }, options),
+	/**
+	 *  Save edited keys of a Secret or ConfigMap with a JSON merge patch of
+	 *  only those keys. `resource_version` is the version they were loaded at
+	 *  (empty: don't check); if the object changed since, nothing is saved and
+	 *  the outcome says so.
+	 */
+	cmdPatchData: (resource: ResourceRef, namespace: string, name: string, changes: DataChange[], resourceVersion: string, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_patch_data", { resource, namespace, name, changes, resourceVersion }, options),
+	/**  One Secret value, on an explicit reveal of that key. Never logged. */
+	cmdRevealDataValue: (resource: ResourceRef, namespace: string, name: string, key: string, options?: InvokeOptions) => __TAURI_INVOKE<RevealedValue>("cmd_reveal_data_value", { resource, namespace, name, key }, options),
 	/**  The settings, as loaded on start and changed since. */
 	cmdGetSettings: (options?: InvokeOptions) => __TAURI_INVOKE<Settings_Serialize>("cmd_get_settings", undefined, options),
 	/**
@@ -833,6 +853,55 @@ export type ContextState = "connected" |
  *  user asks (set by the desktop app, #244).
  */
 "local_files";
+
+/**  One change of a data save. */
+export type DataChange = {
+	key: string,
+	field: DataField,
+	/**  Removes the key; `value` is ignored. */
+	delete: boolean,
+	value: string,
+	encoding: DataEncoding,
+};
+
+/**  How a value is written. */
+export type DataEncoding = 
+/**  The value as text (UTF-8). */
+"text" | 
+/**  The bytes, base64-encoded. */
+"base64";
+
+/**  The data of a Secret or ConfigMap, and the version it was read at. */
+export type DataEntries = {
+	resource_version: string,
+	/**  `immutable: true`: the API server refuses any change of the data. */
+	immutable: boolean,
+	entries: DataEntry[],
+};
+
+/**  One key of a Secret or ConfigMap. */
+export type DataEntry = {
+	key: string,
+	field: DataField,
+	/**  Size of the (decoded) value. */
+	bytes: number,
+	/**  Not valid UTF-8: shown (and edited) as base64. */
+	binary: boolean,
+	/**
+	 *  A Secret's values are never listed: empty and `hidden` until
+	 *  [`reveal_data_value`]. A ConfigMap's value is here, as text, or as
+	 *  base64 if `binary`.
+	 */
+	value: string,
+	hidden: boolean,
+};
+
+/**  Which map of the object an entry is in. */
+export type DataField = 
+/**  `data`: base64 in a Secret, text in a ConfigMap. */
+"data" | 
+/**  A ConfigMap's `binaryData` (base64). */
+"binaryData";
 
 /**  What a detail watch reports. */
 export type DetailState = 
@@ -1736,6 +1805,13 @@ export type ResourceRow = {
 	 *  empty if it is fine ([`problems::row_problem`]).
 	 */
 	problem: string,
+};
+
+/**  One Secret value, revealed. */
+export type RevealedValue = {
+	/**  Text, or base64 if `binary`. */
+	value: string,
+	binary: boolean,
 };
 
 /**

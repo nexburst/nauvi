@@ -25,6 +25,7 @@
 
 mod apply;
 mod columns;
+mod data;
 mod detail;
 mod detail_watch;
 mod discovery;
@@ -44,6 +45,10 @@ mod table;
 
 pub use apply::{apply_manifests, cli_apply, ApplyResult, ApplyStatus, ManifestOptions};
 pub use columns::make_row;
+pub use data::{
+    data_patch, entries_of, get_data_entries, patch_data, reveal_data_value, revealed_of, scrub,
+    DataChange, DataEncoding, DataEntries, DataEntry, DataField, RevealedValue,
+};
 pub use detail::{detail_of, get_resource_detail, summarize_events};
 pub use detail_watch::{run_detail_watch, DetailState, DETAIL_FLUSH};
 pub use discovery::{can_i, can_list, check_access, discover, resolve_kind};
@@ -57,7 +62,7 @@ pub use pod_detail::{
     MountInfo, PodExtras, PortInfo, ProbeInfo, StateInfo,
 };
 pub use pod_printer::printed_pod_status;
-pub use problems::row_problem;
+pub use problems::{not_ready_reason, row_problem};
 pub use related::{get_related, related_objects, Fact, Related, RelatedGroup, RelatedItem};
 pub use status::{classify, pod_status_of, statuses_of, WorkloadStatus, STARTING, WORKLOAD_KINDS};
 pub use table::{align_columns, render_table, table_cells, table_header};

@@ -4,6 +4,7 @@
   import ConditionsTable from "./ConditionsTable.svelte";
   import DetailNotices from "./DetailNotices.svelte";
   import EventsTable from "./EventsTable.svelte";
+  import KeyValueData from "./KeyValueData.svelte";
   import KindSummary from "./KindSummary.svelte";
   import MetaSection from "./MetaSection.svelte";
   import RelatedGroups from "./RelatedGroups.svelte";
@@ -40,6 +41,10 @@
 
   /** Workloads get usage charts of all their pods (and Logs in the header). */
   const isWorkload = $derived(isWorkloadResource(target.resource));
+  /** Secrets and ConfigMaps get the key/value data editor (#224). */
+  const hasData = $derived(
+    target.resource.group === "" && (target.resource.kind === "Secret" || target.resource.kind === "ConfigMap"),
+  );
   /** A CRD gets a button to the table of its instances. */
   const instances = $derived(isCrdDefinitions(target.resource) ? crdInstancesKind(kinds.all, target.name) : undefined);
   const tabs = $derived([
@@ -114,14 +119,8 @@
           <ServicePorts namespace={target.namespace} name={target.name} disabled={live.deleted} />
         {/if}
 
-        {#if info.secret_keys.length > 0}
-          <h3>Data</h3>
-          <p class="muted small">Values are hidden. Reveal them in the YAML tab.</p>
-          <ul class="plain">
-            {#each info.secret_keys as k (k.key)}
-              <li class="mono">{k.key} <span class="muted">({k.bytes} bytes)</span></li>
-            {/each}
-          </ul>
+        {#if hasData}
+          <KeyValueData {target} disabled={live.deleted} />
         {/if}
 
         <RelatedGroups {related} />
@@ -202,26 +201,5 @@
   }
   .body {
     padding: 12px 16px;
-  }
-  .body h3 {
-    margin: 14px 0 8px;
-    font-size: 13px;
-  }
-  .mono {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 12px;
-  }
-  .small {
-    font-size: 12px;
-    margin: 0 0 6px;
-  }
-  ul.plain {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    font-size: 13px;
-  }
-  ul.plain li {
-    padding: 2px 0;
   }
 </style>

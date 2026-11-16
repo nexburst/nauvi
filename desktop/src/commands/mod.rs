@@ -11,6 +11,7 @@ pub(crate) mod catalog;
 pub(crate) mod cluster;
 pub(crate) mod debug;
 pub(crate) mod exec;
+pub(crate) mod files;
 pub(crate) mod helm;
 pub(crate) mod helm_charts;
 pub(crate) mod help;
@@ -63,6 +64,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             exec::cmd_exec_input,
             exec::cmd_exec_resize,
             exec::cmd_exec_start,
+            files::cmd_save_csv,
             helm::cmd_helm_charts,
             helm::cmd_helm_get,
             helm::cmd_helm_list,
@@ -105,9 +107,12 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             resources::cmd_apply_manifests,
             resources::cmd_apply_resource_yaml,
             resources::cmd_delete_resource,
+            resources::cmd_get_data_entries,
             resources::cmd_get_related,
             resources::cmd_get_resource_detail,
             resources::cmd_get_resource_yaml,
+            resources::cmd_patch_data,
+            resources::cmd_reveal_data_value,
             settings::cmd_get_settings,
             settings::cmd_update_settings,
             updater::cmd_update_check,
