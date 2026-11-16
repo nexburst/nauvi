@@ -59,20 +59,28 @@ Svelte) and a CLI, both built on the same Rust core.
 - **Dock**: logs and terminals open in tabs at the bottom of the window, so
   several run at once and keep running when you close the panel or switch
   views. Open them from a panel or the right-click menu (Logs, Shell); drag
-  the top edge to resize, double-click a tab to maximize, Ctrl+` to hide or
-  show it. At most 10 log streams run at once.
-- **Local terminal** (Ctrl+Shift+`, the dock's `+` or "New local terminal"
-  in the palette): your own shell (`$SHELL -l`; on Windows `pwsh`,
-  `powershell` or `cmd`) in your home directory, with `kubectl` and `helm`
-  already pointed at the app's context and namespace. The app writes a small
-  temp kubeconfig (mode 0600) with just that context entry and puts it first
-  in `KUBECONFIG`, so your own kubeconfig files are never changed; the file
-  is deleted when the tab closes or the app exits. The tab shows
+  the top edge to resize, double-click a tab to maximize, Ctrl+` or
+  Ctrl+J (⌘J on macOS) to hide or show it. Ctrl+` is the key left of 1 (or
+  next to the left Shift), so it also works on layouts where the backtick is
+  a dead key. On Linux and Windows, Ctrl+J inside a terminal goes to the
+  shell; use Ctrl+` there. At most 10 log streams run at once.
+- **Local terminal** (Ctrl+Shift+` or Ctrl+Shift+J (⇧⌘J on macOS), the
+  dock's `+` or "New local terminal" in the palette): your own shell
+  (`$SHELL -l`; on Windows `pwsh`, `powershell` or `cmd`) in your home
+  directory, with `kubectl` and `helm` already pointed at the app's context
+  and namespace. The app writes a small temp kubeconfig (mode 0600) with just
+  that context entry and puts it first in `KUBECONFIG`, so your own
+  kubeconfig files are never changed; the file is deleted when the tab closes
+  or the app exits. After a force-quit or a crash, `kubeloupe-shell-*.yaml`
+  files stay in the system temp directory; they hold only the context entry
+  (no credentials) and can be deleted. The tab shows
   `<context> · <namespace>`; changing the app's namespace later does not
   change shells that are already open.
 - **YAML editor** with server-side apply. After saving, it tells you which
   fields it took over from other field managers (for example from
   `kubectl` or a controller). Secret values stay hidden until you reveal them.
+  Closing a window or quitting with unsaved edits asks first (Keep editing /
+  Discard changes).
 - **Create from YAML** ("+ Create"): one or many documents, from a template
   for the current kind, a file you open or drop. Validated with a server dry
   run first; the results are listed per object.
@@ -113,7 +121,11 @@ Svelte) and a CLI, both built on the same Rust core.
   selector, or the palette). Each window is connected to one cluster, titled
   with its context, and has its own watches, logs, terminals and port
   forwards: switching or closing one window leaves the others alone. The
-  windows open when you quit are reopened on the next start.
+  windows open when you quit are reopened on the next start, where they were
+  and at their size; "New window" opens offset from the current window. On
+  macOS, closing the last window keeps kubeloupe in the Dock (that window's
+  port-forwards, shells and logs stop with it); click the Dock icon to open a
+  window again.
 - **Cluster catalog** (the grid button next to the context selector, or
   "Go to Cluster catalog" in the palette): every context with its API
   server, user, source file, last use and status (connected, login failed,
@@ -141,14 +153,18 @@ Svelte) and a CLI, both built on the same Rust core.
 The CLI uses the current kubeconfig context. Every command takes
 `--context NAME` and `--kubeconfig PATH` to use another context or file, so
 one script can work against several clusters. Run `kubeloupe --help` or
-`kubeloupe <command> --help` for every option.
+`kubeloupe <command> --help` for every option; `kubeloupe --version` prints
+the installed version.
 
 Output is meant for scripts too: results go to stdout, errors and log lines
 to stderr (no colour unless stderr is a terminal), a failure exits with
 status 1 and a usage error with 2. `get` with nothing to list prints
 "No resources found" on stderr and nothing on stdout. Commands on one named
 object (`describe`, `yaml`, `get <kind> <name>`) default to the context's
-namespace; lists default to all namespaces.
+namespace; lists default to all namespaces. Table columns are sized to their
+content and two spaces apart; use `get -o name|json|yaml` for output to parse.
+`exec` exits with the remote command's exit code, like `kubectl exec` (1 if
+the command cannot be run).
 
 | Command | What it does |
 |---|---|
@@ -165,7 +181,7 @@ namespace; lists default to all namespaces.
 | `kubeloupe logs <pod> [-n NS] [-c CONTAINER] [-p] [-f] [--tail N]` | A pod's logs: `-c` picks a container, `-p` the previous (crashed) instance, `-f` follows |
 | `kubeloupe logs deploy/<name>` (also `sts/`, `ds/`, `job/`) | The logs of every pod of a workload, as `[pod] line` |
 | `kubeloupe top [pods\|nodes] [-n NS]` | CPU/memory usage (needs metrics-server); `-n` limits pods to one namespace |
-| `kubeloupe exec <pod> [-n NS] [-c CONTAINER] -- <command>` | Run a command in a pod and print its output |
+| `kubeloupe exec <pod> [-n NS] [-c CONTAINER] -- <command>` | Run a command in a pod and print its output; exits with the command's exit code |
 | `kubeloupe debug <pod> [-n NS] [-c CONTAINER] [--image IMAGE]` | Add an ephemeral debug container (default `busybox:1.37`) that shares the container's processes, and attach to it. Works on images without a shell; the container cannot be removed afterwards |
 | `kubeloupe node-shell <node> [-n NS] [--image IMAGE]` | A root shell on a node through a privileged pod (in `kube-system` by default; it needs Pod Security `privileged`). The pod is deleted when the shell exits |
 | `kubeloupe port-forward <target> <[local:]remote>... [-n NS]` | Forward to localhost until Ctrl-C. Target: a pod name, `svc/<name>`, `deploy/<name>` (also `pod/`, `sts/`, `rs/`, `ds/`). Ports: `8080:80`, `:80` (random local), or `80` (the same local port if free and ≥ 1024, else random); the remote port may be a port name |
@@ -197,13 +213,30 @@ files:
 
 The builds are not signed yet, so the OS will warn you the first time:
 
-- macOS: drag the app to Applications, then right-click it and choose Open
-  (then Open again). If macOS says the app is damaged, run
-  `xattr -dr com.apple.quarantine /Applications/kubeloupe.app`.
+- macOS: open the `.dmg` and drag the app to Applications in Finder. Don't
+  run it from the disk image: macOS then runs it from a temporary read-only
+  copy, which can't update itself. The first launch says "Apple could not verify…";
+  click Done, then open System Settings → Privacy & Security and click
+  **Open Anyway** next to the kubeloupe message (on macOS 15 and later,
+  right-click → Open no longer offers this). If macOS says the app is
+  damaged, run `xattr -dr com.apple.quarantine /Applications/kubeloupe.app`.
+- macOS CLI: a downloaded `kubeloupe` binary is killed at launch (exit
+  status 137) until you remove the quarantine flag:
+  `xattr -d com.apple.quarantine ./kubeloupe`.
 - Windows: SmartScreen shows "Windows protected your PC"; click
   More info, then Run anyway.
 - Linux needs no workaround; the AppImage needs FUSE 2 (`libfuse2`) on
-  recent Ubuntu.
+  recent Ubuntu. If the window stays blank (some GPU drivers), start it with
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+
+### Proxies
+
+The app and the CLI ignore `HTTPS_PROXY` (and `NO_PROXY`) from the
+environment when they talk to a cluster, so a machine-wide proxy doesn't
+break access to local or internal clusters. To reach a cluster through a
+proxy, set `proxy-url` (an `http://` proxy) on that cluster in the
+kubeconfig. `helm` and `kubectl` started from the app (Helm actions, the
+local terminal) still use the environment as usual.
 
 ### Updates
 
