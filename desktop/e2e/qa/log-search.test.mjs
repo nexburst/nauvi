@@ -194,6 +194,14 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
     await (await button(app, id, HIGHLIGHT)).click();
     await app.setValue(input, "ERROR");
     await app.waitFor(async () => (await logLines(app, id)).some((x) => !x.includes("ERROR")), { message: "other lines shown too" });
+    // Wait for this search, not the one before it (the count says "N matches" for both).
+    await app.waitFor(
+      async () => {
+        const marks = await app.js(`return Array.from(document.querySelectorAll(arguments[0] + ' [data-testid="log-line"] mark'), (m) => m.textContent);`, pane(id));
+        return marks.length > 0 && marks.every((m) => /^error$/i.test(m)) ? marks : null;
+      },
+      { message: "the ERROR search applied" },
+    );
     const total = await app.waitFor(
       async () => {
         const m = (await text(app, id, "log-match-count")).match(/^([\d,]+) match/);
@@ -316,6 +324,8 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       await (await button(app, sid, "Regular expression")).click();
       await (await button(app, sid, HIGHLIGHT)).click();
       const input = await searchBox(app, sid);
+      // #272: the frame rate of the busy stream alone, to compare with.
+      console.log(`busy stream, no search: ${fpsLabel(await measureFps(app, 2000))}`);
       const t0 = Date.now();
       await app.setValue(input, "status 50\\d a+!$");
       const fpsP = measureFps(app, 2000);
@@ -331,6 +341,21 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       console.log(`regex over the busy buffer: "${label}" in ${searchMs} ms; ${fpsLabel(fps)}`);
       assert.ok(searchMs < 15_000, `the search answered in ${searchMs} ms`);
       assert.ok(fps.fps >= 5, `the page kept drawing (${fps.fps.toFixed(1)} fps)`);
+      // #272: a second search reads the worker's copy; nothing is sent again.
+      // About one line in ten (the first matched one in a hundred).
+      const t1b = Date.now();
+      const fpsB = measureFps(app, 2000);
+      await app.setValue(input, "req \\d+7 status");
+      const label2 = await app.waitFor(
+        async () => {
+          const t = await text(app, sid, "log-match-count");
+          const m = t.match(/^([\d,.   ]+) match/);
+          return m && Number(m[1].replace(/[^\d]/g, "")) > 2000 ? t : null;
+        },
+        { timeout: 30_000, interval: 100, message: "the second search's count" },
+      );
+      const searchMs2 = Date.now() - t1b;
+      console.log(`second regex over the busy buffer: "${label2}" in ${searchMs2} ms; ${fpsLabel(await fpsB)}`);
       // n / N start from the lines in view (the newest, following).
       await input.sendKeys(Key.SHIFT, Key.ENTER);
       const at = await app.waitFor(
