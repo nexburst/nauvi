@@ -12,7 +12,8 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { after, describe, it } from "node:test";
 import { ARTIFACTS, CONTEXT, REPO } from "../lib/app.mjs";
@@ -44,18 +45,42 @@ function appBinary() {
   return join(target, "debug", "kubeloupe-desktop");
 }
 
-/** A private session bus; resolves to { address, stop }. */
+/**
+ * A private session bus with no activatable services (no portals or
+ * accessibility bus get started on it); resolves to { address, stop }.
+ */
 function startBus() {
-  const proc = spawn("dbus-daemon", ["--session", "--nofork", "--nopidfile", "--print-address=1"], {
-    stdio: ["ignore", "pipe", "inherit"],
+  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-bus-"));
+  const config = join(dir, "session.conf");
+  writeFileSync(
+    config,
+    `<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <listen>unix:dir=${dir}</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+`,
+  );
+  const proc = spawn("dbus-daemon", [`--config-file=${config}`, "--nofork", "--nopidfile", "--print-address=1"], {
+    stdio: ["ignore", "pipe", "ignore"],
   });
+  const stop = () => {
+    proc.kill("SIGKILL");
+    rmSync(dir, { recursive: true, force: true });
+  };
   return new Promise((ok, fail) => {
     let out = "";
     proc.once("error", fail);
     proc.stdout.on("data", (d) => {
       out += d;
-      const line = out.split("\n")[0];
-      if (out.includes("\n")) ok({ address: line.trim(), stop: () => proc.kill("SIGKILL") });
+      if (out.includes("\n")) ok({ address: out.split("\n")[0].trim(), stop });
     });
     setTimeout(() => fail(new Error("dbus-daemon printed no address")), 10_000);
   });
