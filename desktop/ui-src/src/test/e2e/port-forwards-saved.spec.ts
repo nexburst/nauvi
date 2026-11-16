@@ -149,6 +149,20 @@ test("a saved forward another window runs is not started twice (#292)", async ({
   const r = forwardRows(page).first();
   await expect(r).toContainText("Running in another window");
   await expect(r).not.toContainText("already in use");
+  // #297: Start is not offered there (it would fail with "port in use"); the
+  // tooltip says why. Edit and Delete still are.
+  const startBtn = r.getByRole("button", { name: /^Start / });
+  await expect(startBtn).toBeDisabled();
+  await expect(r.getByTestId("forward-start")).toHaveAttribute("title", /another window: stop it there/);
+  await expect(r.getByRole("button", { name: /^Edit / })).toBeEnabled();
+  await expect(r.getByRole("button", { name: /^Delete / })).toBeEnabled();
+  // The other window stopped it: Start is back, without a tooltip.
+  await fake.setCluster((c) => {
+    c.forwardsElsewhere = [];
+  }, null);
+  await expect(r).toContainText("Stopped");
+  await expect(startBtn).toBeEnabled();
+  await expect(r.getByTestId("forward-start")).not.toHaveAttribute("title");
   await expect(page.getByText("did not start")).toHaveCount(0);
   await expect(page.getByRole("contentinfo")).toContainText("1 forward, 0 running");
   expect(await fake.calls("cmdPortforwardAutostart")).toHaveLength(1);

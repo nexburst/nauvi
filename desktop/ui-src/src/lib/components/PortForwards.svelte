@@ -21,6 +21,7 @@
 
   const rows = $derived(forwardRows(forwards.saved, forwards.list));
   let starting = $state.raw<string[]>([]);
+  const ELSEWHERE_HINT = "Running in another window: stop it there to start it here";
 
   $effect(() => {
     const running = forwards.list.length;
@@ -102,13 +103,20 @@
                 >
                 <button type="button" class="btn" aria-label="Stop {f.url}" onclick={() => stopForward(f.id)}>Stop</button>
               {:else if s}
-                <button
-                  type="button"
-                  class="btn primary"
-                  aria-label="Start {forwardLabel(s.target)}:{s.remote}"
-                  disabled={starting.includes(s.id)}
-                  onclick={() => start(s.id)}>Start</button
-                >
+                {@const away = forwards.elsewhere.includes(s.id)}
+                <!-- Another window runs it (#297): starting it here would only fail
+                     with "port in use". The title is on the button and on a wrapper:
+                     some webviews show no tooltip on a disabled button. -->
+                <span class="start-wrap" title={away ? ELSEWHERE_HINT : undefined} data-testid="forward-start">
+                  <button
+                    type="button"
+                    class="btn primary"
+                    aria-label="Start {forwardLabel(s.target)}:{s.remote}"
+                    title={away ? ELSEWHERE_HINT : undefined}
+                    disabled={away || starting.includes(s.id)}
+                    onclick={() => start(s.id)}>Start</button
+                  >
+                </span>
               {/if}
               {#if s}
                 <button
@@ -196,7 +204,15 @@
     word-break: normal;
     text-align: right;
   }
-  .actions .btn + .btn {
+  .actions .btn + .btn,
+  .actions .start-wrap + .btn {
     margin-left: 4px;
+  }
+  .start-wrap {
+    display: inline-block;
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 </style>
