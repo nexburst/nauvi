@@ -292,7 +292,10 @@ jobs:
         run: |
           dmg=$(ls dist/*.dmg)
           mnt=$(mktemp -d)
-          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+          # bundle.licenseFile gives the DMG a licence agreement (#210/#274):
+          # check it is there, then accept it non-interactively to attach.
+          hdiutil imageinfo "$dmg" | grep -q 'Software License Agreement: true' || { echo "::error::the DMG has no licence agreement"; exit 1; }
+          { yes || true; } | PAGER=cat hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg" >/dev/null
           app=$(ls -d "$mnt"/*.app | head -n1)
           bin="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           lipo -archs "$bin"
