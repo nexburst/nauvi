@@ -789,6 +789,7 @@
   {#if searchError}<span class="search-error" role="alert" data-testid="log-search-error" title={searchError}
       >{searchError}</span
     >{/if}
+  {#if jumpNote}<span class="jump-note" role="status" data-testid="log-jump-note" title={jumpNote}>{jumpNote}</span>{/if}
   <form
     class="jump"
     onsubmit={(e) => {
@@ -808,7 +809,6 @@
     />
     <button type="submit" class="btn icon" disabled={jumpInput.trim() === ""}>Go</button>
   </form>
-  {#if jumpNote}<span class="jump-note" role="status" data-testid="log-jump-note" title={jumpNote}>{jumpNote}</span>{/if}
 </div>
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div
@@ -952,6 +952,14 @@
   .search-error {
     color: var(--red);
   }
+  /* Next to the box it is about, at the right end. */
+  .jump-note {
+    margin-left: auto;
+    padding-left: 8px;
+  }
+  .jump-note + .jump {
+    margin-left: 0;
+  }
   .jump-note {
     color: var(--amber);
   }
@@ -959,7 +967,9 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    margin-left: 8px;
+    /* At the right end: an error or note before it does not move it. */
+    margin-left: auto;
+    padding-left: 8px;
     flex-shrink: 0;
   }
   .jump-input {
