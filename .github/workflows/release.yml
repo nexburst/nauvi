@@ -352,7 +352,7 @@ jobs:
           name="kubeloupe-cli-${TAG}-${{ matrix.target }}"
           out="target/${{ matrix.target }}/release"
           mkdir "$name"
-          cp README.md "$name/"
+          cp README.md LICENSE "$name/"
           if [ "$RUNNER_OS" = "Windows" ]; then
             cp "$out/kubeloupe.exe" "$name/"
             7z a "$name.zip" "$name"

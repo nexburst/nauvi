@@ -1,0 +1,62 @@
+name: Bug report
+description: Something in kubeloupe does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. For security problems, please report privately instead (see SECURITY.md).
+  - type: input
+    id: version
+    attributes:
+      label: kubeloupe version
+      description: The release you installed, or the output of `kubeloupe --version` for the CLI.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where
+      options:
+        - Desktop app
+        - CLI
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system
+      placeholder: "Ubuntu 24.04 / macOS 15 (Apple silicon) / Windows 11"
+    validations:
+      required: true
+  - type: input
+    id: cluster
+    attributes:
+      label: Cluster type and Kubernetes version
+      placeholder: "kind 1.31 / EKS 1.30 / GKE / k3s / minikube"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected and what happened
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and screenshots
+      description: Error messages, terminal output or screenshots. Remove tokens, server addresses and other secrets first.
+      render: text

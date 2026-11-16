@@ -32,6 +32,9 @@
     "category": "DeveloperTool",
     "shortDescription": "A Lens alternative written in Rust - a Kubernetes IDE",
     "publisher": "kubeloupe",
+    "copyright": "Copyright (c) 2026 the kubeloupe contributors",
+    "license": "MIT",
+    "licenseFile": "../LICENSE",
     "createUpdaterArtifacts": true
   },
   "plugins": {
