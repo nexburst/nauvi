@@ -22,3 +22,11 @@ export function clusterError(e: unknown): { status: string; message: string } {
 /** What to do without a kubeconfig: the catalog adds files and pasted ones. */
 export const NO_KUBECONFIG_HINT =
   "Open the cluster catalog (the grid button in the header) to add a kubeconfig file or folder, or paste one.";
+
+/**
+ * Whether `message` is the API server's "not found" for the object `name`
+ * (`pods "web-1" not found`, maybe after some context): it is gone.
+ */
+export function isNotFound(message: string, name: string): boolean {
+  return message.endsWith(`"${name}" not found`);
+}

@@ -95,7 +95,9 @@
 
   {#if tab === "overview"}
     <div class="body">
-      {#if live.loadError && !info}
+      {#if live.deleted && !info}
+        <!-- DetailNotices says it was deleted. -->
+      {:else if live.loadError && !info}
         <p class="error-text">Could not load details: {live.loadError}</p>
       {:else if !info}
         <p class="muted">Loading…</p>

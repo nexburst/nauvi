@@ -150,6 +150,18 @@ describe("bindingFor", () => {
     expect(left(press("r", { metaKey: true }), true)).toBe(false);
   });
 
+  it("goes back and forward with Alt+arrows, or ⌘[ and ⌘] on macOS (#223)", () => {
+    expect(command(press("ArrowLeft", { altKey: true }))).toBe("back");
+    expect(command(press("ArrowRight", { altKey: true }))).toBe("forward");
+    expect(command(press("[", { metaKey: true }), true)).toBe("back");
+    expect(command(press("]", { metaKey: true }), true)).toBe("forward");
+    // Plain arrows, Alt+arrows on macOS (by word) and Ctrl+[ are not.
+    expect(command(press("ArrowLeft"))).toBeNull();
+    expect(command(press("ArrowLeft", { altKey: true }), true)).toBeNull();
+    expect(command(press("ArrowLeft", { altKey: true, shiftKey: true }))).toBeNull();
+    expect(command(press("[", { ctrlKey: true }))).toBeNull();
+  });
+
   it("leaves Space with Shift alone", () => {
     expect(command(press(" "))).toBe("toggleRow");
     expect(command(press(" ", { shiftKey: true }))).toBeNull();
@@ -174,6 +186,9 @@ describe("formatBinding", () => {
     expect(shortcutHint("toggleDock", true)).toBe("⌘J or ⌃`");
     expect(formatBinding(of("refresh"), false)).toEqual(["F5", "Ctrl+R"]);
     expect(shortcutHint("refresh", true)).toBe("F5 or ⌘R");
+    expect(shortcutHint("back", false)).toBe("Alt+←");
+    expect(shortcutHint("back", true)).toBe("⌘[");
+    expect(shortcutHint("forward", false)).toBe("Alt+→");
   });
 
   it("covers every binding with a label", () => {

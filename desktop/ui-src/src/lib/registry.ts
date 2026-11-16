@@ -21,8 +21,9 @@ import { createUi } from "./stores/create.svelte";
 import { checkLeftovers } from "./stores/debug.svelte";
 import { helm } from "./stores/helm.svelte";
 import { charts } from "./stores/helmCharts.svelte";
-import { keyboard } from "./stores/keyboard.svelte";
+import { keyboard, listenMouseButtons } from "./stores/keyboard.svelte";
 import { live } from "./stores/live.svelte";
+import { trackHistory } from "./stores/navigation.svelte";
 import { listenUpdates, startupCheck } from "./stores/updates.svelte";
 import ActionDialog from "./components/ActionDialog.svelte";
 import ActionNotice from "./components/ActionNotice.svelte";
@@ -132,6 +133,9 @@ export const LISTENERS: (() => Promise<() => void>)[] = [
   listenDrain,
   listenUpdates,
   listenKubeconfigs,
+  listenMouseButtons,
+  // Back/forward (#223): records each place the window shows.
+  async () => trackHistory(),
 ];
 
 /** Started once the app has its settings and context (`startApp`). */

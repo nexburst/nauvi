@@ -19,6 +19,7 @@ import { openLocalShell } from "./localShell";
 import { zoomIn, zoomOut, zoomReset } from "./settings.svelte";
 import { unsaved } from "./unsaved.svelte";
 import { refresh } from "./app.svelte";
+import { goBack, goForward } from "./navigation.svelte";
 
 export const keyboard = $state({
   palette: false,
@@ -225,7 +226,43 @@ export function handleKey(e: KeyboardEvent) {
     case "detailTab":
       if (tabs && hit.index < tabs.count()) done(e, () => tabs?.select(hit.index));
       return;
+    case "back":
+      return done(e, goBack);
+    case "forward":
+      return done(e, goForward);
   }
+}
+
+/** `MouseEvent.button` of the mouse's back and forward buttons (4 and 5). */
+const MOUSE_BACK = 3;
+const MOUSE_FORWARD = 4;
+
+/** Whether the back/forward buttons may move now: not behind a dialog or overlay. */
+function navigationFree(): boolean {
+  return !modalOpen() && !keyboard.palette && !keyboard.help && !keyboard.settings;
+}
+
+/**
+ * The mouse's back and forward buttons (#223), anywhere in the window.
+ * Returns the function that stops listening.
+ */
+export async function listenMouseButtons(): Promise<() => void> {
+  const isNav = (e: MouseEvent) => e.button === MOUSE_BACK || e.button === MOUSE_FORWARD;
+  // The engine's own back/forward would leave the app's page.
+  const onDown = (e: MouseEvent) => {
+    if (isNav(e)) e.preventDefault();
+  };
+  const onUp = (e: MouseEvent) => {
+    if (!isNav(e)) return;
+    e.preventDefault();
+    if (navigationFree()) (e.button === MOUSE_BACK ? goBack : goForward)();
+  };
+  window.addEventListener("mousedown", onDown, true);
+  window.addEventListener("mouseup", onUp, true);
+  return () => {
+    window.removeEventListener("mousedown", onDown, true);
+    window.removeEventListener("mouseup", onUp, true);
+  };
 }
 
 function done(e: KeyboardEvent, fn: () => void) {
