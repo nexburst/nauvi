@@ -35,6 +35,15 @@ where
     F: FnOnce(Client, String) -> Fut,
     Fut: Future<Output = Result<()>>,
 {
+    in_temp_ns_for(prefix, Duration::from_secs(300), body).await
+}
+
+/// [`in_temp_ns`] with its own time limit.
+async fn in_temp_ns_for<F, Fut>(prefix: &str, limit: Duration, body: F) -> Result<()>
+where
+    F: FnOnce(Client, String) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
     let client = connect().await?;
     // A counter too: tests run in parallel in one process.
     static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
@@ -46,7 +55,7 @@ where
         "apiVersion": "v1", "kind": "Namespace", "metadata": { "name": ns }
     }))?;
     namespaces.create(&PostParams::default(), &obj).await?;
-    let result = tokio::time::timeout(Duration::from_secs(300), body(client.clone(), ns.clone()))
+    let result = tokio::time::timeout(limit, body(client.clone(), ns.clone()))
         .await
         .unwrap_or_else(|_| Err(anyhow::anyhow!("test timed out")));
     let _ = namespaces.delete(&ns, &DeleteParams::background()).await;
@@ -277,5 +286,79 @@ async fn pod_forward_by_port_name_and_clear_errors() -> Result<()> {
         );
         Ok(())
     })
+    .await
+}
+
+/// A connection that stays idle for longer than the client's read timeout
+/// (295 s) still works afterwards: the forward pings the API server (#304).
+#[tokio::test]
+#[ignore]
+async fn an_idle_forwarded_connection_outlives_the_read_timeout() -> Result<()> {
+    let idle = kubeloupe::READ_TIMEOUT + Duration::from_secs(20);
+    in_temp_ns_for(
+        "kl-it-pf-idle",
+        idle + TIMEOUT * 2,
+        |client, ns| async move {
+            // An echo server on 7000 that serves one connection at a time.
+            let pod: Pod = serde_json::from_value(serde_json::json!({
+                "apiVersion": "v1", "kind": "Pod",
+                "metadata": { "name": "echo" },
+                "spec": {
+                    "terminationGracePeriodSeconds": 0,
+                    "containers": [{
+                        "name": "echo", "image": "busybox:1.36",
+                        "command": ["sh", "-c", "while true; do nc -l -p 7000 -e cat; done"],
+                        "ports": [{ "containerPort": 7000 }],
+                        "readinessProbe": { "exec": { "command": ["true"] }, "periodSeconds": 1 }
+                    }]
+                }
+            }))?;
+            let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
+            pods.create(&PostParams::default(), &pod).await?;
+            eventually("the echo pod is ready", TIMEOUT, || async {
+                Ok(pods.get("echo").await.ok().filter(pod_is_ready).map(|_| ()))
+            })
+            .await?;
+            let fwd = PortForward::start(
+                &client,
+                target(ForwardKind::Pod, &ns, "echo"),
+                RemotePort::Number(7000),
+                LocalPort::Random,
+            )
+            .await?;
+
+            // The probe may have taken the server's first turn: retry until
+            // a connection echoes.
+            let mut conn = eventually("an echoing connection", TIMEOUT, || async {
+                let mut s = tokio::net::TcpStream::connect(("127.0.0.1", fwd.local_port)).await?;
+                s.write_all(b"hello\n").await?;
+                let mut got = [0u8; 6];
+                match tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut got)).await {
+                    Ok(Ok(_)) if &got == b"hello\n" => Ok(Some(s)),
+                    _ => Ok(None),
+                }
+            })
+            .await?;
+
+            tokio::time::sleep(idle).await;
+            ensure!(
+                fwd.status().connections == 1,
+                "the idle connection was closed: {:?}",
+                fwd.status()
+            );
+            conn.write_all(b"still there\n").await?;
+            let mut got = [0u8; 12];
+            tokio::time::timeout(Duration::from_secs(30), conn.read_exact(&mut got))
+                .await
+                .context("no echo after the idle time")?
+                .context("the connection closed while idle")?;
+            ensure!(
+                &got == b"still there\n",
+                "{:?}",
+                String::from_utf8_lossy(&got)
+            );
+            Ok(())
+        },
+    )
     .await
 }

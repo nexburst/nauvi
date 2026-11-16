@@ -2623,6 +2623,7 @@ dependencies = [
  "serde_yaml",
  "specta",
  "tokio",
+ "tokio-tungstenite",
  "tower",
  "tracing",
  "tracing-subscriber",
