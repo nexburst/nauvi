@@ -137,26 +137,52 @@ fn os_version() -> String {
     }
 }
 
+/// Read from the registry, not `cmd /C ver`: that prints in the console's
+/// code page and the system's language ("Versión" came out with a U+FFFD
+/// on a Spanish Windows, #294).
 #[cfg(target_os = "windows")]
 fn os_version() -> String {
-    use std::os::windows::process::CommandExt;
-    /// No console window flashes up.
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let out = std::process::Command::new("cmd")
-        .args(["/C", "ver"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output();
-    match out {
-        Ok(o) if o.status.success() => {
-            let text = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if text.is_empty() {
-                "Windows".into()
-            } else {
-                text
-            }
-        }
-        _ => "Windows".into(),
+    let Ok(key) =
+        windows_registry::LOCAL_MACHINE.open(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+    else {
+        return "Windows".into();
+    };
+    let text = |name: &str| key.get_string(name).unwrap_or_default();
+    let mut build = text("CurrentBuild");
+    if build.trim().is_empty() {
+        build = text("CurrentBuildNumber");
     }
+    windows_version_text(
+        &text("ProductName"),
+        &text("DisplayVersion"),
+        &build,
+        key.get_u32("UBR").ok(),
+    )
+}
+
+/// "Windows 10 Pro 22H2 (build 19045.6466)" from the registry's
+/// `ProductName`, `DisplayVersion`, `CurrentBuild` and `UBR`; empty values
+/// are left out. Windows 11 still says "Windows 10" in `ProductName`, so a
+/// build of 22000 or later renames it.
+#[cfg(any(target_os = "windows", test))]
+fn windows_version_text(product: &str, display: &str, build: &str, ubr: Option<u32>) -> String {
+    let (product, display, build) = (product.trim(), display.trim(), build.trim());
+    let is_11 = build.parse::<u32>().is_ok_and(|b| b >= 22000);
+    let mut out = match product.strip_prefix("Windows 10") {
+        Some(rest) if is_11 => format!("Windows 11{rest}"),
+        _ if product.is_empty() => "Windows".to_string(),
+        _ => product.to_string(),
+    };
+    if !display.is_empty() {
+        out.push(' ');
+        out.push_str(display);
+    }
+    match (build.is_empty(), ubr) {
+        (true, _) => {}
+        (false, Some(ubr)) => out.push_str(&format!(" (build {build}.{ubr})")),
+        (false, None) => out.push_str(&format!(" (build {build})")),
+    }
+    out
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
@@ -177,6 +203,26 @@ mod tests {
             Some("Arch Linux")
         );
         assert_eq!(os_release_name("ID=x\n"), None);
+    }
+
+    #[test]
+    fn formats_the_windows_version() {
+        // The values of the Spanish Windows 10 in #294.
+        assert_eq!(
+            windows_version_text("Windows 10 Pro", "22H2", "19045", Some(6466)),
+            "Windows 10 Pro 22H2 (build 19045.6466)"
+        );
+        // Windows 11 keeps "Windows 10" in ProductName.
+        assert_eq!(
+            windows_version_text("Windows 10 Home", "24H2", "26100", Some(2314)),
+            "Windows 11 Home 24H2 (build 26100.2314)"
+        );
+        // Older Windows has no DisplayVersion; Server names stay as they are.
+        assert_eq!(
+            windows_version_text("Windows Server 2019 Datacenter", "", "17763", None),
+            "Windows Server 2019 Datacenter (build 17763)"
+        );
+        assert_eq!(windows_version_text("", "", "", None), "Windows");
     }
 
     #[test]
