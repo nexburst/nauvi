@@ -41,7 +41,8 @@ async function forwardFromPanel(app, local) {
   const panel = await app.find(byTestId("detail-panel"));
   await app.setValue(await panel.findElement(By.css('input[aria-label="Pod port"]')), "8080");
   await app.setValue(await panel.findElement(By.css('input[aria-label="Local port"]')), local);
-  await (await panel.findElement(By.xpath(".//button[normalize-space()='Forward']"))).click();
+  // The section's own Forward button (a container card's "Forward port 8080" ignores the local port).
+  await (await panel.findElement(By.xpath(".//input[@aria-label='Local port']/following-sibling::button[normalize-space()='Forward']"))).click();
   const url = await app.waitFor(async () => (await panel.getText()).match(/Forwarding (http:\/\/127\.0\.0\.1:\d+)/)?.[1], {
     message: "Forwarding http://127.0.0.1:<port>",
   });
