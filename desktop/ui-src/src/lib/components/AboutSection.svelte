@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { copyDiagnostics, help, loadDiagnostics, openHelpItem } from "../stores/help.svelte";
 
   /** Settings → About (#208): the version and commit, the OS and webview,
@@ -9,11 +9,13 @@
   const d = $derived(help.diagnostics);
 
   onMount(() => {
-    void loadDiagnostics();
-    if (help.showAbout) {
-      help.showAbout = false;
-      section?.scrollIntoView({ block: "start" });
-    }
+    const show = help.showAbout;
+    help.showAbout = false;
+    // Scroll once the facts are in and the dialog has focused its Close
+    // button (which scrolls it back to the top).
+    void loadDiagnostics()
+      .then(() => tick())
+      .then(() => requestAnimationFrame(() => show && section?.scrollIntoView({ block: "start" })));
   });
 
   async function copy() {

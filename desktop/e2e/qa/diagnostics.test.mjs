@@ -105,11 +105,14 @@ describe("diagnostics: app log, Help menu, About", { timeout: 8 * 60_000 }, () =
     await pickHelp(app, "About kubeloupe");
     const about = await app.find(byTestId("about-settings"));
     await app.waitFor(async () => (await about.getText()).includes("commit"), { message: "the version shown" });
-    const inView = await app.js(
-      "const r = arguments[0].getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight",
-      about,
+    await app.waitFor(
+      () =>
+        app.js(
+          "const r = arguments[0].getBoundingClientRect(); return r.top >= 0 && r.bottom <= window.innerHeight",
+          about,
+        ),
+      { message: "About scrolled into view" },
     );
-    assert.ok(inView, "About is scrolled into view");
     console.log(`about: ${await (await app.find(byTestId("about-version"))).getText()}`);
   });
 
