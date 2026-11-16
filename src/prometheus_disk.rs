@@ -119,13 +119,25 @@ mod tests {
     #[test]
     fn pairs_size_and_free_space_by_node() {
         let size = [
-            series(&[("node", "kind-control-plane"), ("instance", "10.0.0.5:9100")], 100.0),
+            series(
+                &[
+                    ("node", "kind-control-plane"),
+                    ("instance", "10.0.0.5:9100"),
+                ],
+                100.0,
+            ),
             series(&[("instance", "worker-1")], 50.0),
             series(&[("instance", "worker-2:9100")], 0.0),
             series(&[("instance", "lonely:9100")], 10.0),
         ];
         let avail = [
-            series(&[("node", "kind-control-plane"), ("instance", "10.0.0.5:9100")], 40.0),
+            series(
+                &[
+                    ("node", "kind-control-plane"),
+                    ("instance", "10.0.0.5:9100"),
+                ],
+                40.0,
+            ),
             series(&[("instance", "worker-1")], 60.0),
             series(&[("instance", "worker-2:9100")], 0.0),
         ];

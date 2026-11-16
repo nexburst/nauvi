@@ -144,9 +144,13 @@ pub fn metrics_addon(id: MetricsAddonId) -> MetricsAddon {
         MetricsAddonId::MetricsServer => MetricsAddon {
             id,
             title: s("metrics-server"),
-            summary: s("Live CPU and memory of pods and nodes: the usage columns, the overview's \
-                        usage bars and kubectl top."),
-            components: vec![s("metrics-server (a Deployment and the metrics.k8s.io API)")],
+            summary: s(
+                "Live CPU and memory of pods and nodes: the usage columns, the overview's \
+                        usage bars and kubectl top.",
+            ),
+            components: vec![s(
+                "metrics-server (a Deployment and the metrics.k8s.io API)",
+            )],
             repo_url: s(METRICS_SERVER_REPO),
             chart: s("metrics-server"),
             version: s("3.14.0"),
@@ -157,9 +161,11 @@ pub fn metrics_addon(id: MetricsAddonId) -> MetricsAddon {
             options: vec![MetricsAddonOption {
                 id: s(KUBELET_INSECURE_TLS),
                 label: s("Skip kubelet TLS verification (--kubelet-insecure-tls)"),
-                detail: s("Needed on kind, minikube and other clusters whose kubelets have \
+                detail: s(
+                    "Needed on kind, minikube and other clusters whose kubelets have \
                            self-signed certificates. metrics-server then trusts any kubelet \
-                           certificate; leave it off on other clusters."),
+                           certificate; leave it off on other clusters.",
+                ),
                 arg: s("--kubelet-insecure-tls"),
             }],
         },
@@ -186,7 +192,11 @@ pub fn metrics_addon(id: MetricsAddonId) -> MetricsAddon {
 
 /// The values helm gets: the user's, with the ticked options' arguments
 /// added to `args` (created if missing). Unchanged without options.
-pub fn values_with_options(addon: &MetricsAddon, values: &str, options: &[String]) -> Result<String> {
+pub fn values_with_options(
+    addon: &MetricsAddon,
+    values: &str,
+    options: &[String],
+) -> Result<String> {
     let mut args = Vec::new();
     for id in options {
         let opt = addon
@@ -217,7 +227,10 @@ pub fn values_with_options(addon: &MetricsAddon, values: &str, options: &[String
         *list = serde_yaml::Value::Sequence(Vec::new());
     }
     let seq = list.as_sequence_mut().ok_or_else(|| {
-        anyhow!("args in the values must be a list to add {}", args.join(" "))
+        anyhow!(
+            "args in the values must be a list to add {}",
+            args.join(" ")
+        )
     })?;
     for arg in args {
         let v = serde_yaml::Value::String(arg);
@@ -277,7 +290,12 @@ pub fn addon_permissions(addon: MetricsAddonId, namespace: &str) -> Vec<Permissi
         perm("create", rbac, "clusterrolebindings", None),
     ];
     if addon == MetricsAddonId::MetricsServer {
-        out.push(perm("create", "apiregistration.k8s.io", "apiservices", None));
+        out.push(perm(
+            "create",
+            "apiregistration.k8s.io",
+            "apiservices",
+            None,
+        ));
         // Read access to the API server's client CA, always in kube-system.
         out.push(perm("create", rbac, "rolebindings", Some("kube-system")));
     }
@@ -321,7 +339,11 @@ pub async fn metrics_addon_access(
         )
     }))
     .await;
-    let denied = perms.iter().zip(answers).find(|(_, ok)| !ok).map(|(p, _)| p);
+    let denied = perms
+        .iter()
+        .zip(answers)
+        .find(|(_, ok)| !ok)
+        .map(|(p, _)| p);
     Ok(ActionAccess {
         id: addon.as_str().to_string(),
         allowed: denied.is_none(),
@@ -399,12 +421,15 @@ mod tests {
         assert_eq!(doc["args"][0], "--kubelet-insecure-tls");
         assert_eq!(doc["replicas"], 1);
         // Kept, and not twice.
-        let v = values_with_options(&addon, "args: [--v=2, --kubelet-insecure-tls]\n", &opts).unwrap();
+        let v =
+            values_with_options(&addon, "args: [--v=2, --kubelet-insecure-tls]\n", &opts).unwrap();
         let doc: serde_yaml::Value = serde_yaml::from_str(&v).unwrap();
         assert_eq!(doc["args"].as_sequence().unwrap().len(), 2);
         assert_eq!(
-            serde_yaml::from_str::<serde_yaml::Value>(&values_with_options(&addon, "", &opts).unwrap())
-                .unwrap()["args"][0],
+            serde_yaml::from_str::<serde_yaml::Value>(
+                &values_with_options(&addon, "", &opts).unwrap()
+            )
+            .unwrap()["args"][0],
             "--kubelet-insecure-tls"
         );
         assert!(values_with_options(&addon, "args: nope\n", &opts).is_err());
@@ -418,7 +443,10 @@ mod tests {
     #[test]
     fn permissions_start_with_cluster_scoped_objects() {
         let p = addon_permissions(MetricsAddonId::MetricsServer, "kube-system");
-        assert_eq!(p[0].describe(), "create clusterroles.rbac.authorization.k8s.io");
+        assert_eq!(
+            p[0].describe(),
+            "create clusterroles.rbac.authorization.k8s.io"
+        );
         assert!(p
             .iter()
             .any(|p| p.describe() == "create apiservices.apiregistration.k8s.io"));

@@ -36,6 +36,7 @@
   "limited-user": 32,
   "local-shell": 35,
   "logs-download": 54,
+  "metrics-install": 420,
   "multi-window": 18,
   "namespaces-live": 41,
   "persistence": 167,

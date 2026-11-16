@@ -5,9 +5,7 @@
 use super::helm::target;
 use crate::state::Cluster;
 use kubeloupe::action_access::ActionAccess;
-use kubeloupe::helm::{
-    self, HelmDeployResult, MetricsAddon, MetricsAddonId, MetricsAddonRequest,
-};
+use kubeloupe::helm::{self, HelmDeployResult, MetricsAddon, MetricsAddonId, MetricsAddonRequest};
 
 /// Every add-on, with its pinned chart, repository and starting values.
 #[tauri::command]
