@@ -129,7 +129,35 @@ pub(crate) struct Settings {
     /// The table filter's recent and starred searches (#219), offered in
     /// every list. Only what the user typed in the filter box and its two
     /// toggles: never anything read from the cluster (so no Secret data).
+    /// A bad entry is skipped on load, keeping the others.
+    #[serde(deserialize_with = "lenient_searches")]
+    #[specta(type = SearchHistory)]
     pub(crate) searches: SearchHistory,
+}
+
+/// `searches` as read from the file: each entry parsed on its own, so one
+/// bad entry (or a list that is not a list) does not cost the rest (#219).
+fn lenient_searches<'de, D>(d: D) -> Result<SearchHistory, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Value::Object(obj) = Value::deserialize(d)? else {
+        return Ok(SearchHistory::default());
+    };
+    let list = |key: &str| -> Vec<SavedSearch> {
+        match obj.get(key) {
+            Some(Value::Array(entries)) => entries
+                .iter()
+                .filter_map(|v| serde_json::from_value::<SavedSearch>(v.clone()).ok())
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    Ok(SearchHistory {
+        recent: list("recent"),
+        starred: list("starred"),
+    }
+    .normalized())
 }
 
 /// One search of the table filter (#219).
@@ -710,6 +738,26 @@ mod tests {
         assert!(s.searches.recent[0].match_case);
         assert!(!s.searches.recent[0].regex);
         assert!(s.searches.starred.is_empty());
+
+        // One bad entry is skipped; the other entries and the starred list stay.
+        let s = parse(
+            r#"{"theme":"dark","searches":{
+                "recent":[{"text":3},{"text":"web"},"nonsense",{"text":""},{"text":"web"}],
+                "starred":[{"text":"^db-","regex":true},{"regex":"yes"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.theme, Theme::Dark);
+        let texts: Vec<&str> = s.searches.recent.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, ["web"]);
+        assert_eq!(s.searches.starred.len(), 1);
+        assert!(s.searches.starred[0].regex);
+        // Not an object, or lists that are not lists: empty, the rest kept.
+        let s = parse(r#"{"theme":"light","searches":[1,2]}"#).unwrap();
+        assert_eq!(s.theme, Theme::Light);
+        assert_eq!(s.searches, SearchHistory::default());
+        let s = parse(r#"{"searches":{"recent":"x","starred":[{"text":"a"}]}}"#).unwrap();
+        assert!(s.searches.recent.is_empty());
+        assert_eq!(s.searches.starred[0].text, "a");
     }
 
     #[test]

@@ -1999,6 +1999,7 @@ export type Settings_Deserialize = {
 	 *  The table filter's recent and starred searches (#219), offered in
 	 *  every list. Only what the user typed in the filter box and its two
 	 *  toggles: never anything read from the cluster (so no Secret data).
+	 *  A bad entry is skipped on load, keeping the others.
 	 */
 	searches?: SearchHistory_Deserialize,
 };
@@ -2047,6 +2048,7 @@ export type Settings_Serialize = {
 	 *  The table filter's recent and starred searches (#219), offered in
 	 *  every list. Only what the user typed in the filter box and its two
 	 *  toggles: never anything read from the cluster (so no Secret data).
+	 *  A bad entry is skipped on load, keeping the others.
 	 */
 	searches: SearchHistory_Serialize,
 };
