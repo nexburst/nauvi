@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { byTestId } from "../lib/app.mjs";
+import { pane, panelButton } from "../lib/dock.mjs";
 import { deleteNamespace, httpPodYaml, kubectl, podNames, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
 import { actionButtons, panelText, waitPanelTitle } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
@@ -291,13 +292,23 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
     const { app } = s;
     // The crashing pod logs "boom" before each exit.
     await app.openDetail("Pods", ns, "qa-crash");
-    await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Logs']"))).click();
+    // The button sits at the bottom of a long panel that re-renders on every
+    // restart: scroll it into view first (WebKitWebDriver does not always),
+    // and click again if no log tab opened.
+    const logTab = pane(`logs:${ns}/qa-crash`);
+    await app.waitFor(
+      async () => {
+        if (!(await app.js(`return !!document.querySelector(arguments[0])`, logTab))) await panelButton(app, "Logs");
+        return app.js(`return !!document.querySelector(arguments[0])`, logTab);
+      },
+      { timeout: 20_000, interval: 2000, message: "the qa-crash log tab in the dock" },
+    );
     await app.waitFor(
       async () => (await app.js(`return document.querySelector('[data-testid="dock"]')?.innerText ?? ""`)).includes("boom"),
       { timeout: 30_000, message: '"boom" in the dock log tab' },
     );
     await app.openDetail("Pods", "demo", "multi");
-    await (await app.find(By.xpath("//*[@data-testid='detail-panel']//button[normalize-space()='Open terminal']"))).click();
+    await panelButton(app, "Open terminal");
     await app.find(byTestId("terminal"), { timeout: 30_000 });
     const out = await terminal(app).run("hostname", { timeout: 30_000 });
     assert.equal(out, "multi");
