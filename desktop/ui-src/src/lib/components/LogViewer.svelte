@@ -319,12 +319,14 @@
   }
 
   /**
-   * After an update: follow the newest line, or (scrolled up, e.g. at a
+   * After an update: follow the newest line, or with Follow off (e.g. at a
    * match) keep the same lines in view when older ones were trimmed above.
+   * With Follow on but scrolled up, the view is left as it was: pinning it
+   * would hold it on lines that are about to be trimmed.
    */
   async function settleScroll(wasAtBottom: boolean, trimmed: number) {
-    if (follow && wasAtBottom) {
-      await followIfNeeded(true);
+    if (follow) {
+      await followIfNeeded(wasAtBottom);
       return;
     }
     if (trimmed > 0 && scrollEl) {

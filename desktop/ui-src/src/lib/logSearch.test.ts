@@ -20,8 +20,8 @@ class FakeWorker {
   postMessage(req: WorkerRequest) {
     this.all.push(req);
     if ("op" in req) {
-      if (req.op === "load") this.corpus.load(req.first, req.lines.slice());
-      else this.corpus.append(req.first, req.lines);
+      if (req.op === "load") this.corpus.load(req.at);
+      this.corpus.append(req.at, req.first, req.lines);
       return;
     }
     if ("items" in req) this.received.push(req);
@@ -154,6 +154,25 @@ describe("LogSearcher over a corpus (#272)", () => {
     // Loaded: later lines go one batch at a time.
     buf.push(["x"]);
     s.appended(["x"]);
+    expect(workers[0].corpus.size).toBe(buf.lines.length);
+  });
+
+  it("keeps the numbers right when a trim overtakes the load", async () => {
+    const { s, workers } = searcher();
+    const buf = new LogBuffer();
+    s.attach(buf);
+    buf.push(Array.from({ length: LOAD_PIECE * 2 }, (_, i) => `old ${i}`));
+    const run = s.runRange(q("x"), buf.first(), buf.first() + 1, () => {});
+    await new Promise((r) => setTimeout(r, 0));
+    // A flood: the buffer is trimmed past what was sent so far.
+    const flood = Array.from({ length: 60_000 }, (_, i) => `new ${i}`);
+    buf.push(flood);
+    s.appended(flood);
+    await run;
+    const want = buf.end() - 3;
+    const r = await collect(s, q("^new 59997$"), want - 2, want + 3, buf);
+    // (The fake worker reports [0, 1] for any match.)
+    expect(r.out).toEqual([null, null, [0, 1], null, null]);
     expect(workers[0].corpus.size).toBe(buf.lines.length);
   });
 

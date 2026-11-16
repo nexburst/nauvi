@@ -248,6 +248,24 @@ test("stepping to a match turns Follow off and keeps the match in view", async (
   expect(fake.errors).toEqual([]);
 });
 
+test("at a match with Follow off, trimming the oldest lines does not move the view", async ({ page }) => {
+  const fake = await openPodLogs(page);
+  const batch = (from: number) => Array.from({ length: 10_000 }, (_, i) => `line ${from + i}${(from + i) % 1000 === 0 ? " hit" : ""}`);
+  for (let k = 0; k < 5; k++) await fake.emitLogLines(batch(k * 10_000));
+  await toggle(page, "Highlight the matches and keep the other lines, instead of filtering").click();
+  await search(page).fill("hit");
+  await expect(count(page)).toHaveText("50 matches");
+  await search(page).press("Shift+Enter");
+  const current = logs(page).locator('[data-testid="log-line"].current');
+  await expect(current).toHaveText("line 49000 hit");
+  // 10,000 more: the 10,000 oldest shown lines are trimmed above the view.
+  await fake.emitLogLines(batch(50_000));
+  await expect(count(page)).toHaveText(/^\d+ of 50$/);
+  await expect(current).toHaveText("line 49000 hit");
+  await expect(current).toBeInViewport();
+  expect(fake.errors).toEqual([]);
+});
+
 // #272: the worker keeps its own copy of the lines; new lines and a full
 // buffer (trimmed at the start) are searched right.
 test("a regex search stays right as lines come in and the buffer is trimmed", async ({ page }) => {

@@ -31,11 +31,13 @@ export interface RangeRequest {
 }
 
 /**
- * Changes to the worker's copy of the lines: `load` replaces it, `append`
- * adds lines at the end. Both drop the lines before `first` (trimmed).
+ * Changes to the worker's copy of the lines: `load` empties it, `append`
+ * adds `lines`, numbered from `at`. Both drop the lines before `first`
+ * (trimmed).
  */
 export interface CorpusMessage {
   op: "load" | "append";
+  at: number;
   first: number;
   lines: string[];
 }
@@ -128,7 +130,8 @@ export class LogSearcher {
    */
   appended(lines: string[]) {
     if (!this.synced || !this.worker || !this.corpus || lines.length === 0) return;
-    this.worker.postMessage({ op: "append", first: this.corpus.first(), lines } satisfies CorpusMessage);
+    const at = this.corpus.end() - lines.length;
+    this.worker.postMessage({ op: "append", at, first: this.corpus.first(), lines } satisfies CorpusMessage);
   }
 
   /**
@@ -184,12 +187,12 @@ export class LogSearcher {
    */
   private async load(worker: Worker, src: CorpusSource): Promise<boolean> {
     let at = src.first();
-    worker.postMessage({ op: "load", first: at, lines: [] } satisfies CorpusMessage);
+    worker.postMessage({ op: "load", at, first: at, lines: [] } satisfies CorpusMessage);
     for (;;) {
       at = Math.max(at, src.first());
       const end = Math.min(src.end(), at + LOAD_PIECE);
       if (at < end) {
-        worker.postMessage({ op: "append", first: src.first(), lines: src.slice(at, end) } satisfies CorpusMessage);
+        worker.postMessage({ op: "append", at, first: src.first(), lines: src.slice(at, end) } satisfies CorpusMessage);
         at = end;
       }
       // Lines that came meanwhile are part of the next piece.

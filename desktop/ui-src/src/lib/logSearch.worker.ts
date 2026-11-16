@@ -19,8 +19,8 @@ function regex(source: string, flags: string): RegExp {
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {
   const req = e.data;
   if ("op" in req) {
-    if (req.op === "load") corpus.load(req.first, req.lines);
-    else corpus.append(req.first, req.lines);
+    if (req.op === "load") corpus.load(req.at);
+    corpus.append(req.at, req.first, req.lines);
     return;
   }
   let reply: SearchReply;
