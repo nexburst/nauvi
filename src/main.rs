@@ -92,6 +92,16 @@ async fn run(cli: Cli) -> Result<()> {
         );
         return Ok(());
     }
+    if let Commands::Mcp { allow_writes } = cli.command {
+        // Connects on the first tool call, never interactively: stdin is
+        // the protocol.
+        let opts = kubeloupe::mcp::McpOptions {
+            allow_writes,
+            kubeconfig: cli.kubeconfig,
+            context: cli.context,
+        };
+        return kubeloupe::mcp::serve_stdio(opts).await;
+    }
     // Exec credential plugins may prompt only when we have a terminal.
     let client = client_with(
         cli.kubeconfig.as_deref(),
@@ -100,7 +110,7 @@ async fn run(cli: Cli) -> Result<()> {
     )
     .await?;
     match cli.command {
-        Commands::Completions { .. } => unreachable!("handled above"),
+        Commands::Completions { .. } | Commands::Mcp { .. } => unreachable!("handled above"),
         Commands::Pods { namespace } => list_pods(&client, namespace.as_deref()).await?,
         Commands::Get {
             kind,

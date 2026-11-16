@@ -33,6 +33,8 @@ pub mod errors;
 pub mod exec_credentials;
 pub mod helm;
 pub mod liveness;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod node_shell;
 pub mod poll;
 pub mod reconnect;

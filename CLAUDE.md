@@ -12,7 +12,8 @@ recovering) a development machine: `docs/dev-setup.md`.
   `actions`, `cli`, `get`, `describe`), plus `src/resources/` (discovery,
   columns, table, ops, detail). `lib.rs` re-exports them. The CLI is
   `src/main.rs`, with its arguments in `src/args.rs`; `tests/cli.rs` runs the
-  binary.
+  binary. `src/mcp/` is `kubeloupe mcp`, the MCP server (only
+  `src/mcp/server.rs` uses the SDK; `tests/mcp.rs` drives it over stdio).
 - `desktop/src/`: the Tauri app. `main.rs` builds the app, `state.rs` holds
   `AppState`, `commands/` has one module per concern and `commands/mod.rs`
   registers every command and event (`specta_builder`).
