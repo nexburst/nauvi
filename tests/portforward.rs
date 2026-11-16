@@ -289,6 +289,67 @@ async fn pod_forward_by_port_name_and_clear_errors() -> Result<()> {
     .await
 }
 
+/// An echo server on port 7000 of pod `echo` (each connection gets its own
+/// `cat`), and a forward to it on a random local port.
+async fn start_echo(client: &Client, ns: &str) -> Result<PortForward> {
+    let pod: Pod = serde_json::from_value(serde_json::json!({
+        "apiVersion": "v1", "kind": "Pod",
+        "metadata": { "name": "echo" },
+        "spec": {
+            "terminationGracePeriodSeconds": 0,
+            "containers": [{
+                "name": "echo", "image": "busybox:1.36",
+                "command": ["nc", "-lk", "-p", "7000", "-e", "cat"],
+                "ports": [{ "containerPort": 7000 }],
+                "readinessProbe": { "exec": { "command": ["true"] }, "periodSeconds": 1 }
+            }]
+        }
+    }))?;
+    let pods: Api<Pod> = Api::namespaced(client.clone(), ns);
+    pods.create(&PostParams::default(), &pod).await?;
+    eventually("the echo pod is ready", TIMEOUT, || async {
+        Ok(pods.get("echo").await.ok().filter(pod_is_ready).map(|_| ()))
+    })
+    .await?;
+    PortForward::start(
+        client,
+        target(ForwardKind::Pod, ns, "echo"),
+        RemotePort::Number(7000),
+        LocalPort::Random,
+    )
+    .await
+}
+
+/// Send `payload` on a new connection to `port` while reading the echo
+/// back, and return what came back.
+async fn echo_through(port: u16, payload: Vec<u8>) -> Result<Vec<u8>> {
+    let s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+    let (mut rd, mut wr) = s.into_split();
+    let len = payload.len();
+    let writer = tokio::spawn(async move { wr.write_all(&payload).await.map(|_| wr) });
+    let mut got = vec![0u8; len];
+    tokio::time::timeout(TIMEOUT, rd.read_exact(&mut got))
+        .await
+        .context("the echo timed out")?
+        .context("the connection closed early")?;
+    writer.await??;
+    Ok(got)
+}
+
+/// `len` bytes that differ per `seed` and per position.
+fn pattern(seed: u64, len: usize) -> Vec<u8> {
+    let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    (0..len)
+        .map(|_| {
+            // xorshift64
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x >> 24) as u8
+        })
+        .collect()
+}
+
 /// A connection that stays idle for longer than the client's read timeout
 /// (295 s) still works afterwards: the forward pings the API server (#304).
 #[tokio::test]
@@ -299,46 +360,14 @@ async fn an_idle_forwarded_connection_outlives_the_read_timeout() -> Result<()> 
         "kl-it-pf-idle",
         idle + TIMEOUT * 2,
         |client, ns| async move {
-            // An echo server on 7000 that serves one connection at a time.
-            let pod: Pod = serde_json::from_value(serde_json::json!({
-                "apiVersion": "v1", "kind": "Pod",
-                "metadata": { "name": "echo" },
-                "spec": {
-                    "terminationGracePeriodSeconds": 0,
-                    "containers": [{
-                        "name": "echo", "image": "busybox:1.36",
-                        "command": ["sh", "-c", "while true; do nc -l -p 7000 -e cat; done"],
-                        "ports": [{ "containerPort": 7000 }],
-                        "readinessProbe": { "exec": { "command": ["true"] }, "periodSeconds": 1 }
-                    }]
-                }
-            }))?;
-            let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
-            pods.create(&PostParams::default(), &pod).await?;
-            eventually("the echo pod is ready", TIMEOUT, || async {
-                Ok(pods.get("echo").await.ok().filter(pod_is_ready).map(|_| ()))
-            })
-            .await?;
-            let fwd = PortForward::start(
-                &client,
-                target(ForwardKind::Pod, &ns, "echo"),
-                RemotePort::Number(7000),
-                LocalPort::Random,
-            )
-            .await?;
-
-            // The probe may have taken the server's first turn: retry until
-            // a connection echoes.
-            let mut conn = eventually("an echoing connection", TIMEOUT, || async {
-                let mut s = tokio::net::TcpStream::connect(("127.0.0.1", fwd.local_port)).await?;
-                s.write_all(b"hello\n").await?;
-                let mut got = [0u8; 6];
-                match tokio::time::timeout(Duration::from_secs(5), s.read_exact(&mut got)).await {
-                    Ok(Ok(_)) if &got == b"hello\n" => Ok(Some(s)),
-                    _ => Ok(None),
-                }
-            })
-            .await?;
+            let fwd = start_echo(&client, &ns).await?;
+            let mut conn = tokio::net::TcpStream::connect(("127.0.0.1", fwd.local_port)).await?;
+            conn.write_all(b"hello\n").await?;
+            let mut got = [0u8; 6];
+            tokio::time::timeout(Duration::from_secs(30), conn.read_exact(&mut got))
+                .await
+                .context("no first echo")??;
+            ensure!(&got == b"hello\n", "{:?}", String::from_utf8_lossy(&got));
 
             tokio::time::sleep(idle).await;
             ensure!(
@@ -360,5 +389,52 @@ async fn an_idle_forwarded_connection_outlives_the_read_timeout() -> Result<()> 
             Ok(())
         },
     )
+    .await
+}
+
+/// 10 MB goes through the forward and back unchanged (#304: our own
+/// port-forward protocol code).
+#[tokio::test]
+#[ignore]
+async fn ten_megabytes_round_trip_byte_for_byte() -> Result<()> {
+    in_temp_ns("kl-it-pf-big", |client, ns| async move {
+        let fwd = start_echo(&client, &ns).await?;
+        let sent = pattern(304, 10 * 1024 * 1024);
+        let got = echo_through(fwd.local_port, sent.clone()).await?;
+        if let Some(i) = sent.iter().zip(&got).position(|(a, b)| a != b) {
+            bail!("the echo differs at byte {i} of {}", sent.len());
+        }
+        ensure!(got.len() == sent.len());
+        Ok(())
+    })
+    .await
+}
+
+/// 20 connections through one forward at once, each with its own payload,
+/// each getting back exactly its own bytes.
+#[tokio::test]
+#[ignore]
+async fn twenty_parallel_connections_each_get_their_own_echo() -> Result<()> {
+    in_temp_ns("kl-it-pf-par", |client, ns| async move {
+        let fwd = start_echo(&client, &ns).await?;
+        let port = fwd.local_port;
+        let mut tasks = tokio::task::JoinSet::new();
+        for i in 0..20u64 {
+            tasks.spawn(async move {
+                // Different sizes too, from 64 KiB to ~1.3 MiB.
+                let sent = pattern(i, 64 * 1024 * (1 + i as usize));
+                let got = echo_through(port, sent.clone()).await?;
+                ensure!(got == sent, "connection {i} got another echo");
+                Ok::<_, anyhow::Error>(())
+            });
+        }
+        while let Some(r) = tasks.join_next().await {
+            r??;
+        }
+        let st = fwd.status();
+        ensure!(st.total_connections >= 20, "{st:?}");
+        ensure!(st.last_error.is_empty(), "{st:?}");
+        Ok(())
+    })
     .await
 }
