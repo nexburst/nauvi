@@ -54,6 +54,10 @@
 
 <style>
   .toolbar {
+    /* Columns and Export CSV turn into icons when it is narrow. */
+    container: toolbar / inline-size;
+    /* The export note sits under it when the row is too narrow. */
+    position: relative;
     display: flex;
     flex-wrap: wrap;
     align-items: center;

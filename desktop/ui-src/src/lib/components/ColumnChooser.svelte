@@ -55,12 +55,17 @@
 <div class="chooser" bind:this={root} onkeydown={onKey}>
   <button
     type="button"
-    class="btn"
+    class="btn trigger"
     aria-haspopup="dialog"
     aria-expanded={open}
+    aria-label={`Columns${hiddenCount ? ` (${hiddenCount} hidden)` : ""}`}
     title="Show or hide columns"
     bind:this={trigger}
-    onclick={() => (open ? hide() : show())}>Columns{hiddenCount ? ` (${hiddenCount} hidden)` : ""}</button
+    onclick={() => (open ? hide() : show())}
+    ><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"
+      ><rect x="2" y="2.5" width="12" height="11" rx="1.5" /><path d="M6 2.5v11M10 2.5v11" /></svg
+    ><span class="label">Columns{hiddenCount ? ` (${hiddenCount} hidden)` : ""}</span
+    >{#if hiddenCount}<span class="count" data-count={hiddenCount}></span>{/if}</button
   >
   {#if open}
     <div class="popover" role="dialog" aria-label="Columns">
@@ -85,6 +90,41 @@
 <style>
   .chooser {
     position: relative;
+    flex-shrink: 0;
+  }
+  .trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+  }
+  .icon,
+  .count {
+    display: none;
+  }
+  .icon {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+  }
+  /* A narrow toolbar (the detail panel open): the icon and the hidden
+     count; the name is in the tooltip and the accessible name. */
+  @container toolbar (max-width: 720px) {
+    .icon {
+      display: block;
+    }
+    .count {
+      display: inline;
+    }
+    /* From CSS, so the button's text stays "Columns (n hidden)". */
+    .count::after {
+      content: attr(data-count);
+    }
+    .label {
+      display: none;
+    }
   }
   .popover {
     position: absolute;

@@ -52,20 +52,46 @@
   type="button"
   class="btn export"
   title="Save the rows and columns shown to a CSV file"
+  aria-label="Export CSV"
   disabled={!ready || busy}
-  onclick={exportCsv}>Export CSV</button
+  onclick={exportCsv}
+  ><svg class="icon" viewBox="0 0 16 16" aria-hidden="true"
+    ><path d="M8 2v8M4.5 6.5 8 10l3.5-3.5M3 13h10" /></svg
+  ><span class="label">Export CSV</span></button
 >
 
 <style>
   .export {
     flex-shrink: 0;
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+  }
+  .icon {
+    display: none;
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  /* A narrow toolbar (the detail panel open): the icon only; the name is in
+     the tooltip and the accessible name. */
+  @container toolbar (max-width: 720px) {
+    .icon {
+      display: block;
+    }
+    .label {
+      display: none;
+    }
   }
   .note {
+    /* Takes only the room left on the row (it never wraps the toolbar),
+       up to 300 px; the full text is in the tooltip. */
+    flex: 1 1 0;
     min-width: 0;
-    flex: 0 1 auto;
-    /* Narrow enough that the toolbar keeps one row at 1280 px; the full
-       text is in the tooltip. */
     max-width: 300px;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -75,5 +101,21 @@
   }
   .note.error {
     color: var(--error-text);
+  }
+  /* Too narrow to leave it room in the row: it shows under the toolbar, at
+     its right end, until it goes away. */
+  @container toolbar (max-width: 720px) {
+    .note {
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 16px;
+      z-index: 20;
+      max-width: calc(100% - 32px);
+      padding: 4px 8px;
+      background: var(--bg-raised);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
   }
 </style>

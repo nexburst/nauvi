@@ -87,6 +87,9 @@ spec:
 /** Kinds that fail for a known, filed reason; checked by their own todo test. */
 const KNOWN = {};
 
+/** Sidebar entries that are views, not a kind's table. */
+const VIEWS = ["Overview", "Applications", "Port Forwards"];
+
 /** The header status of a kind without the watch verb, listed every 30 s (#95). */
 const POLLING = "Not live: refreshed every 30 s";
 
@@ -187,8 +190,8 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     await waitLive(app);
     // Open the API group folds (Custom Resources, Other), and take each
     // label once (metrics.k8s.io has its own Nodes and Pods). Views that are
-    // not a kind's table are left out: the Overviews, Port Forwards and the
-    // Helm section.
+    // not a kind's table are left out: the Overviews, Applications (checked
+    // on its own below), Port Forwards and the Helm section.
     const labels = await app.js(
       `document.querySelectorAll("nav details").forEach((d) => (d.open = true));
        let section = "";
@@ -196,7 +199,7 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
        for (const el of document.querySelectorAll("nav h4, nav button")) {
          if (el.tagName === "H4") { section = el.textContent.trim(); continue; }
          const label = el.childNodes[0]?.textContent.trim() ?? "";
-         if (label && section !== "Helm" && label !== "Overview" && label !== "Port Forwards") all.push(label);
+         if (label && section !== "Helm" && !VIEWS.includes(label)) all.push(label);
        }
        return [...new Set(all)];`,
     );
@@ -208,6 +211,23 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
       if (problem) problems.push(problem);
     }
     assert.deepEqual(problems, []);
+  });
+
+  it("Applications (a view, not a kind) lists without an error", T, async () => {
+    const { app } = s;
+    await app.nav("Applications");
+    await app.find(By.css('[data-testid="applications"] [role="grid"][aria-label="Applications"]'));
+    await app.waitFor(async () => (await app.statusText()) === "Live", { message: 'header status "Live"' });
+    // Rows or the empty message, depending on the cluster; no error either way.
+    await app.waitFor(
+      async () =>
+        app.js(
+          `return !!document.querySelector('[data-testid="application-row"], [data-testid="applications-empty"]')`,
+        ),
+      { message: "application rows or the empty message" },
+    );
+    assert.equal(await bannerText(app), "", "no error banner");
+    await app.shot("applications");
   });
 
   it("Component Statuses (no watch verb) lists and says it is not live", T, async () => {
