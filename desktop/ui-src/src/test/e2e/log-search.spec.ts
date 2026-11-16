@@ -193,6 +193,20 @@ test("Jump to time without timestamps says to turn them on", async ({ page }) =>
   expect(fake.errors).toEqual([]);
 });
 
+test("without a current match, n / N start from the lines in view", async ({ page }) => {
+  const fake = await openPodLogs(page);
+  await fake.emitLogLines(Array.from({ length: 2000 }, (_, i) => `line ${i}${i % 100 === 0 ? " hit" : ""}`));
+  await toggle(page, "Highlight the matches and keep the other lines, instead of filtering").click();
+  await search(page).fill("hit");
+  await expect(count(page)).toHaveText("20 matches");
+  // Following, at the bottom: N goes to the newest match, not the oldest
+  // (which a busy stream trims away soon).
+  await search(page).press("Shift+Enter");
+  await expect(count(page)).toHaveText("20 of 20");
+  await expect(logs(page).locator('[data-testid="log-line"].current')).toHaveText("line 1900 hit");
+  expect(fake.errors).toEqual([]);
+});
+
 test("a regex matches the container prefix of merged lines", async ({ page }) => {
   const fake = await openPodLogs(page);
   await logs(page).getByTitle("Container", { exact: true }).selectOption({ label: "All containers" });

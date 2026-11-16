@@ -82,6 +82,12 @@ function text(app, id, testid) {
   return app.js(`return document.querySelector(arguments[0] + ' [data-testid="' + arguments[1] + '"]')?.textContent.trim() ?? ""`, pane(id), testid);
 }
 
+/** The line count in the status ("1,234 lines"; the list is virtual). */
+async function statusCount(app, id) {
+  const m = (await logStatus(app, id)).match(/([\d,.\u00a0\u202f ]+)\+? lines/);
+  return m ? Number(m[1].replace(/[^\d]/g, "")) : 0;
+}
+
 async function searchBox(app, id) {
   return app.find(By.css(`${pane(id)} input[type="search"]`));
 }
@@ -119,7 +125,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
     await waitLive(app);
     await resizeWindow(app, 1280, 800);
     id = await openPodLogs(app, ns, "qa-search");
-    await app.waitFor(async () => (await logLines(app, id)).length >= 40, { timeout: 60_000, message: "40 lines" });
+    await app.waitFor(async () => (await statusCount(app, id)) >= 60, { timeout: 60_000, message: "60 lines" });
     const input = await searchBox(app, id);
 
     await app.setValue(input, "error");
@@ -184,8 +190,20 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       { message: '"N matches"' },
     );
     assert.ok(total >= 2, `${total} matches`);
+    // The pod keeps logging, so the total grows: compare positions.
+    const pos = async () => {
+      const m = (await text(app, id, "log-match-count")).match(/^([\d,]+) of ([\d,]+)$/);
+      return m ? { at: Number(m[1].replace(/,/g, "")), of: Number(m[2].replace(/,/g, "")) } : null;
+    };
+    const waitPos = (want, message) =>
+      app.waitFor(async () => {
+        const p = await pos();
+        return p && want(p) ? p : null;
+      }, { message });
+    // From the top of the buffer: Enter goes to the first match in view.
+    await app.js(`document.querySelector(arguments[0] + ' [data-testid="log-output"] .scroller').scrollTop = 0`, pane(id));
     await input.sendKeys(Key.ENTER);
-    await app.waitFor(async () => (await text(app, id, "log-match-count")) === `1 of ${total}`, { message: `"1 of ${total}"` });
+    await waitPos((p) => p.at === 1, '"1 of N"');
     const current = () =>
       app.js(
         `const l = document.querySelector(arguments[0] + ' [data-testid="log-line"].current');
@@ -195,22 +213,22 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
         pane(id),
       );
     const first = await app.waitFor(current, { message: "the current match" });
-    assert.ok(first.text.includes("ERROR") && first.inView, JSON.stringify(first));
+    // Not match case: "error" lines count too.
+    assert.ok(/error/i.test(first.text) && first.inView, JSON.stringify(first));
     await input.sendKeys(Key.ENTER);
-    await app.waitFor(async () => (await text(app, id, "log-match-count")) === `2 of ${total}`, { message: `"2 of ${total}"` });
+    await waitPos((p) => p.at === 2, '"2 of N"');
 
     // n / N with the focus in the log output.
     await app.js(`document.querySelector(arguments[0] + ' [data-testid="log-output"]').focus()`, pane(id));
     await app.driver.actions().sendKeys("N").perform();
-    await app.waitFor(async () => (await text(app, id, "log-match-count")) === `1 of ${total}`, { message: "N: back to 1" });
+    await waitPos((p) => p.at === 1, "N: back to 1");
     await app.driver.actions().sendKeys("N").perform();
-    await app.waitFor(async () => (await text(app, id, "log-match-count")).endsWith(` of ${total}`) && !(await text(app, id, "log-match-count")).startsWith("1 "), {
-      message: "N wraps to the last",
-    });
+    const last = await waitPos((p) => p.at > 2, "N wraps to the last");
     await app.driver.actions().sendKeys("n").perform();
-    await app.waitFor(async () => (await text(app, id, "log-match-count")) === `1 of ${total}`, { message: "n wraps to 1" });
+    // To 1, unless a newer match came in meanwhile.
+    const next = await waitPos((p) => p.at === 1 || p.at === last.at + 1, "n wraps to 1");
     await (await app.find(By.css(`${pane(id)} button[aria-label="Next match"]`))).click();
-    await app.waitFor(async () => (await text(app, id, "log-match-count")) === `2 of ${total}`, { message: "the ↓ button" });
+    await waitPos((p) => p.at === next.at + 1 || p.at === 1, "the ↓ button");
     const cur = await current();
     assert.ok(cur?.inView, `the current match is in view: ${JSON.stringify(cur)}`);
     console.log(`highlight: ${total} matches; current "${cur.text}"`);
@@ -218,7 +236,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
 
     // Off again: filtering.
     await (await button(app, id, HIGHLIGHT)).click();
-    await app.waitFor(async () => (await logLines(app, id)).every((x) => x.includes("ERROR")), { message: "filtering again" });
+    await app.waitFor(async () => (await logLines(app, id)).every((x) => /error/i.test(x)), { message: "filtering again" });
     await app.setValue(input, "");
     await (await button(app, id, "Regular expression")).click();
   });
@@ -233,7 +251,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
     await shots(app, "jump-no-timestamps");
 
     await (await app.find(By.xpath(`//*[@data-tab='${id}']//label[normalize-space()='Timestamps']/input`))).click();
-    await app.waitFor(async () => (await logLines(app, id)).length > 40 && (await logLines(app, id)).every((x) => /^\d{4}-/.test(x)), {
+    await app.waitFor(async () => (await statusCount(app, id)) > 40 && (await logLines(app, id)).every((x) => /^\d{4}-/.test(x)), {
       timeout: 60_000,
       message: "timestamped lines",
     });
@@ -241,7 +259,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
     await app.js(`document.querySelector(arguments[0] + ' [data-testid="log-output"] .scroller').scrollTop = 0`, pane(id));
     const lines = await app.waitFor(async () => {
       const l = await logLines(app, id);
-      return l.length > 30 ? l : null;
+      return l.length > 12 ? l : null;
     });
     const a = lines[10].split(" ")[0];
     const b = lines[11].split(" ")[0];
@@ -301,8 +319,16 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       console.log(`regex over the busy buffer: "${label}" in ${searchMs} ms; ${fps.fps.toFixed(1)} fps meanwhile, worst frame ${fps.worst.toFixed(0)} ms`);
       assert.ok(searchMs < 15_000, `the search answered in ${searchMs} ms`);
       assert.ok(fps.fps >= 5, `the page kept drawing (${fps.fps.toFixed(1)} fps)`);
-      await input.sendKeys(Key.ENTER);
-      await app.waitFor(async () => /^1 of /.test(await text(app, sid, "log-match-count")), { message: '"1 of N"' });
+      // n / N start from the lines in view (the newest, following).
+      await input.sendKeys(Key.SHIFT, Key.ENTER);
+      const at = await app.waitFor(
+        async () => {
+          const m = (await text(app, sid, "log-match-count")).match(/^([\d,.\u00a0\u202f ]+) of /);
+          return m ? m[1] : null;
+        },
+        { message: '"N of N"' },
+      );
+      console.log(`Shift+Enter went to match ${at}`);
       await shots(app, "busy-highlight");
 
       // `(a+)+$` on "aaa…a!" backtracks for ever: stopped after the limit.

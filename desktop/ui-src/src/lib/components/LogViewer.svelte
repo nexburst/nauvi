@@ -552,12 +552,35 @@
     return -1;
   }
 
+  /**
+   * Where n / N start without a current match: just before the first line
+   * in view going forward (so it counts), the last one in view going back.
+   */
+  function viewEdgeId(forward: boolean): number {
+    if (!scrollEl) return -1;
+    const top = scrollEl.getBoundingClientRect();
+    let first = Infinity;
+    let last = -1;
+    for (const row of scrollEl.querySelectorAll<HTMLElement>(".vrow")) {
+      const r = row.getBoundingClientRect();
+      if (r.bottom <= top.top || r.top >= top.bottom) continue;
+      const i = Number(row.dataset.index);
+      first = Math.min(first, i);
+      last = Math.max(last, i);
+    }
+    if (last < 0) return -1;
+    return forward ? (d.lines[first]?.id ?? 0) - 1 : (d.lines[last]?.id ?? -1);
+  }
+
   /** Go to the next / previous match (after the display has caught up). */
   function goMatch(forward: boolean) {
     // Enter right after typing: run the search first.
     if (filterTimer !== undefined) applySearch();
     enqueue(async () => {
-      const pos = stepMatch(d.matches, currentId, forward);
+      // Without a current match (or once it is trimmed off a busy stream):
+      // from the lines in view.
+      const cur = currentId >= 0 && indexOfId(d.matches, currentId) >= 0 ? currentId : -1;
+      const pos = stepMatch(d.matches, cur, forward, cur < 0 ? viewEdgeId(forward) : -1);
       if (pos < 0) return;
       currentId = d.matches[pos];
       const index = lineIndex(currentId);
