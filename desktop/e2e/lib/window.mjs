@@ -144,6 +144,19 @@ export function pressX11Keys(pid, ...keysyms) {
 }
 
 /**
+ * Click mouse `button` (3: right) at (x, y) of the app's first window through
+ * XTEST (lib/xclick.py): a real click, where WebDriver's synthesized one
+ * may differ. Returns false when the app has no window.
+ */
+export function clickX11(pid, x, y, button = 1) {
+  const [id] = x11Windows(pid);
+  if (!id) return false;
+  const script = join(dirname(fileURLToPath(import.meta.url)), "xclick.py");
+  execFileSync("python3", [script, id, String(Math.round(x)), String(Math.round(y)), String(button)], { stdio: "inherit" });
+  return true;
+}
+
+/**
  * Close the app's windows the way a window manager's close button does
  * (WM_DELETE_WINDOW, lib/wm-close.py), so the app's own close and exit
  * handlers run. WebDriver's Close Window on the last window ends the session
