@@ -114,7 +114,7 @@ async fn guarded_pod(client: &Client, ns: &str) -> Result<String> {
         let p = pdbs.get("guarded").await?;
         let gen = p.metadata.generation;
         Ok(p.status
-            .filter(|s| s.observed_generation == gen && s.current_healthy == 1)
+            .filter(|s| s.observed_generation == gen && s.current_healthy == Some(1))
             .map(|_| ()))
     })
     .await?;
