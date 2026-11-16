@@ -67,6 +67,12 @@ export function regexRanges(re: RegExp, text: string, max = MAX_HITS_PER_LINE): 
   return out;
 }
 
+/** `[]` when `re` matches `text` anywhere, else null: the table filter (#219) needs no ranges. */
+export function testHit(re: RegExp, text: string): number[] | null {
+  re.lastIndex = 0;
+  return re.test(text) ? [] : null;
+}
+
 /** Substring ranges; `needle` is lower-case already unless `matchCase`. */
 export function textRanges(text: string, needle: string, matchCase: boolean, max = MAX_HITS_PER_LINE): number[] | null {
   if (!needle) return null;

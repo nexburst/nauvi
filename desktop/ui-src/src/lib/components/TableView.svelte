@@ -53,7 +53,6 @@
   store={live.store}
   metrics={live.metrics}
   now={live.now}
-  search={app.search}
   status={app.statusFilter}
   {selectedKey}
   {onselect}

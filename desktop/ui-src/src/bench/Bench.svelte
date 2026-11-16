@@ -5,6 +5,7 @@
   import type { Metrics, Row } from "../lib/columns";
   import type { PodUsage, ResourceKind } from "../lib/bindings";
   import { KeyedStore } from "../lib/stores/keyed.svelte";
+  import { app } from "../lib/stores/app.svelte";
 
   // Same store, table and virtual list as the real Pods view, fed by a
   // synthetic watch: no Tauri, no cluster. See the README for how to run it.
@@ -42,7 +43,7 @@
   let total = $state(10_000);
   let changesPerBatch = $state(200);
   let batchMs = $state(200);
-  let search = $state("");
+  // The table filters with the toolbar's text (`app.search`, #219).
   let metrics = $state.raw<Metrics>(EMPTY_METRICS);
   let now = $state.raw(Date.now());
   let scrollEl = $state<HTMLDivElement | null>(null);
@@ -203,7 +204,7 @@
     <button class="btn" class:active={scrolling} onclick={() => (scrolling = !scrolling)}>
       {scrolling ? "Stop scroll" : "Auto scroll"}
     </button>
-    <input class="input" type="search" placeholder="Filter…" bind:value={search} />
+    <input class="input" type="search" placeholder="Filter…" bind:value={app.search} />
   </div>
   <div class="stats">
     <span>{shown} of {totalRows} rows</span>
@@ -220,7 +221,6 @@
       {store}
       {metrics}
       {now}
-      {search}
       bind:scrollEl
       oncount={(s, t) => {
         shown = s;

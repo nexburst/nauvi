@@ -19,6 +19,8 @@
   import type { KeyedStore } from "../stores/keyed.svelte";
   import { visibleEntries } from "../view";
   import type { Sort } from "../view";
+  import { ListFilter } from "../stores/tableFilter.svelte";
+  import { rawHay } from "../tableFilter";
   import { sortOf, withSort } from "../settings";
   import { kindSettings, updateSettings } from "../stores/settings.svelte";
   import { registerTableExport } from "../stores/tableExport.svelte";
@@ -29,7 +31,6 @@
     store: KeyedStore<Row>;
     metrics: Metrics;
     now: number;
-    search?: string;
     /** Only rows of this `ResourceRow.status` ("" = all). */
     status?: string;
     /** Key of the highlighted row, if any. */
@@ -45,7 +46,6 @@
     store,
     metrics,
     now,
-    search = "",
     status = "",
     selectedKey = null,
     onselect,
@@ -73,7 +73,13 @@
 
   // Re-evaluated when the rows, the filter, the sort, or (only when sorting by
   // a metric / age column) the metrics or clock change.
-  const visible = $derived(visibleEntries(store.entries, search, sort, columns, { metrics, now }, status));
+  // The toolbar filter (#219): text, match case or a regex in the worker.
+  const filter = new ListFilter(() => store.entries, {
+    key: (e) => e.key,
+    lower: (e) => e.hay,
+    text: (e) => rawHay(e.row),
+  });
+  const visible = $derived(visibleEntries(store.entries, filter.match, sort, columns, { metrics, now }, status));
   const getKey = $derived((i: number) => visible[i]?.key ?? i);
 
   $effect(() => {

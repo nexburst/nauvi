@@ -5,7 +5,8 @@
   import { app } from "../../stores/app.svelte";
   import { checkHelm, helm } from "../../stores/helm.svelte";
   import { charts, loadCharts, selectChart } from "../../stores/helmCharts.svelte";
-  import { filterCharts } from "../../helmCharts";
+  import { chartHay, filterCharts } from "../../helmCharts";
+  import { ListFilter } from "../../stores/tableFilter.svelte";
   import { watchGutter } from "../../scrollGutter";
 
   /** The charts in the configured repositories (newest version of each), filtered by the toolbar. */
@@ -33,7 +34,14 @@
     untrack(() => void loadCharts());
   });
 
-  const visible = $derived(filterCharts(charts.charts, app.search));
+  // The toolbar filter (#219): text, match case or a regex in the worker.
+  const filter = new ListFilter(() => charts.charts, {
+    key: (c) => c.name,
+    lower: (c) => chartHay(c).toLowerCase(),
+    text: (c) => chartHay(c),
+    lines: (c) => chartHay(c, "\n"),
+  });
+  const visible = $derived(filterCharts(charts.charts, filter.match));
   const getKey = $derived((i: number) => visible[i]?.name ?? i);
   const reposOpen = $derived(showRepos || (charts.reposLoaded && charts.repos.length === 0));
 

@@ -9,6 +9,8 @@ import type {
   Settings_Serialize,
   Theme,
 } from "./bindings";
+import { normalizeHistory } from "./searchHistory";
+import type { SearchHistory } from "./searchHistory";
 import type { Sort } from "./view";
 import { clampTerminalFont, clampZoom, DEFAULT_TERMINAL_FONT, DEFAULT_ZOOM } from "./zoom";
 
@@ -38,6 +40,8 @@ export interface SettingsPatch {
   zoom?: number;
   /** Terminal font size in pixels (#207). */
   terminal_font_size?: number;
+  /** The table filter's whole search history (#219). */
+  searches?: SearchHistory;
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -58,6 +62,7 @@ export function defaultSettings(): Settings {
     zoom: DEFAULT_ZOOM,
     terminal_font_size: DEFAULT_TERMINAL_FONT,
     forwards: {},
+    searches: { recent: [], starred: [] },
   };
 }
 
@@ -106,6 +111,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.favourites != null) next.favourites = patch.favourites;
   if (patch.zoom != null) next.zoom = clampZoom(patch.zoom);
   if (patch.terminal_font_size != null) next.terminal_font_size = clampTerminalFont(patch.terminal_font_size);
+  if (patch.searches != null) next.searches = normalizeHistory(patch.searches);
   return next;
 }
 

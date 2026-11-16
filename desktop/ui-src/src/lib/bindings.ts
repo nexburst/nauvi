@@ -1925,6 +1925,47 @@ export type SavedForward = {
 	auto_start: boolean,
 };
 
+/**  One search of the table filter (#219). */
+export type SavedSearch = SavedSearch_Serialize | SavedSearch_Deserialize;
+
+/**  One search of the table filter (#219). */
+export type SavedSearch_Deserialize = {
+	text?: string,
+	regex?: boolean,
+	match_case?: boolean,
+};
+
+/**  One search of the table filter (#219). */
+export type SavedSearch_Serialize = {
+	text: string,
+	regex: boolean,
+	match_case: boolean,
+};
+
+/**
+ *  The table filter's search history (#219): the last `MAX_RECENT`
+ *  searches, newest first, and the starred ones, in the order starred.
+ */
+export type SearchHistory = SearchHistory_Serialize | SearchHistory_Deserialize;
+
+/**
+ *  The table filter's search history (#219): the last `MAX_RECENT`
+ *  searches, newest first, and the starred ones, in the order starred.
+ */
+export type SearchHistory_Deserialize = {
+	recent?: SavedSearch_Deserialize[],
+	starred?: SavedSearch_Deserialize[],
+};
+
+/**
+ *  The table filter's search history (#219): the last `MAX_RECENT`
+ *  searches, newest first, and the starred ones, in the order starred.
+ */
+export type SearchHistory_Serialize = {
+	recent: SavedSearch_Serialize[],
+	starred: SavedSearch_Serialize[],
+};
+
 export type SecretKey = {
 	key: string,
 	/**  Decoded size in bytes. */
@@ -1974,6 +2015,8 @@ export type SettingsPatch_Deserialize = {
 	favourites?: string[] | null,
 	zoom?: number | null,
 	terminal_font_size?: number | null,
+	/**  The whole search history (#219). */
+	searches?: SearchHistory_Deserialize | null,
 };
 
 /**
@@ -1993,6 +2036,8 @@ export type SettingsPatch_Serialize = {
 	favourites?: string[] | null,
 	zoom?: number | null,
 	terminal_font_size?: number | null,
+	/**  The whole search history (#219). */
+	searches?: SearchHistory_Serialize | null,
 };
 
 export type Settings_Deserialize = {
@@ -2035,6 +2080,13 @@ export type Settings_Deserialize = {
 	 *  invalid are skipped on load, keeping the others.
 	 */
 	forwards?: { [key in string]: SavedForward[] },
+	/**
+	 *  The table filter's recent and starred searches (#219), offered in
+	 *  every list. Only what the user typed in the filter box and its two
+	 *  toggles: never anything read from the cluster (so no Secret data).
+	 *  A bad entry is skipped on load, keeping the others.
+	 */
+	searches?: SearchHistory_Deserialize,
 };
 
 export type Settings_Serialize = {
@@ -2077,6 +2129,13 @@ export type Settings_Serialize = {
 	 *  invalid are skipped on load, keeping the others.
 	 */
 	forwards: { [key in string]: SavedForward[] },
+	/**
+	 *  The table filter's recent and starred searches (#219), offered in
+	 *  every list. Only what the user typed in the filter box and its two
+	 *  toggles: never anything read from the cluster (so no Secret data).
+	 *  A bad entry is skipped on load, keeping the others.
+	 */
+	searches: SearchHistory_Serialize,
 };
 
 /**  One source of contexts, for the catalog's list of sources. */

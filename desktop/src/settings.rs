@@ -126,6 +126,87 @@ pub(crate) struct Settings {
     #[serde(deserialize_with = "lenient_forwards")]
     #[specta(type = BTreeMap<String, Vec<SavedForward>>)]
     pub(crate) forwards: BTreeMap<String, Vec<SavedForward>>,
+    /// The table filter's recent and starred searches (#219), offered in
+    /// every list. Only what the user typed in the filter box and its two
+    /// toggles: never anything read from the cluster (so no Secret data).
+    /// A bad entry is skipped on load, keeping the others.
+    #[serde(deserialize_with = "lenient_searches")]
+    #[specta(type = SearchHistory)]
+    pub(crate) searches: SearchHistory,
+}
+
+/// `searches` as read from the file: each entry parsed on its own, so one
+/// bad entry (or a list that is not a list) does not cost the rest (#219).
+fn lenient_searches<'de, D>(d: D) -> Result<SearchHistory, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let Value::Object(obj) = Value::deserialize(d)? else {
+        return Ok(SearchHistory::default());
+    };
+    let list = |key: &str| -> Vec<SavedSearch> {
+        match obj.get(key) {
+            Some(Value::Array(entries)) => entries
+                .iter()
+                .filter_map(|v| serde_json::from_value::<SavedSearch>(v.clone()).ok())
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    Ok(SearchHistory {
+        recent: list("recent"),
+        starred: list("starred"),
+    }
+    .normalized())
+}
+
+/// One search of the table filter (#219).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default)]
+pub(crate) struct SavedSearch {
+    pub(crate) text: String,
+    pub(crate) regex: bool,
+    pub(crate) match_case: bool,
+}
+
+/// The table filter's search history (#219): the last `MAX_RECENT`
+/// searches, newest first, and the starred ones, in the order starred.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(default)]
+pub(crate) struct SearchHistory {
+    pub(crate) recent: Vec<SavedSearch>,
+    pub(crate) starred: Vec<SavedSearch>,
+}
+
+/// At most this many recent searches are kept (the UI keeps the same).
+pub(crate) const MAX_RECENT: usize = 10;
+/// At most this many starred searches are kept.
+pub(crate) const MAX_STARRED: usize = 50;
+/// Longer searches are not kept.
+pub(crate) const MAX_SEARCH_LEN: usize = 200;
+
+impl SearchHistory {
+    /// Drop empty, too long and repeated entries and cap both lists, so a
+    /// hand-edited or old file cannot grow without bound.
+    pub(crate) fn normalized(self) -> Self {
+        fn clean(list: Vec<SavedSearch>, max: usize) -> Vec<SavedSearch> {
+            let mut out: Vec<SavedSearch> = Vec::new();
+            for s in list {
+                if s.text.trim().is_empty() || s.text.chars().count() > MAX_SEARCH_LEN {
+                    continue;
+                }
+                if !out.contains(&s) {
+                    out.push(s);
+                }
+            }
+            out.truncate(max);
+            out
+        }
+        Self {
+            recent: clean(self.recent, MAX_RECENT),
+            starred: clean(self.starred, MAX_STARRED),
+        }
+    }
 }
 
 /// A port-forward kept across restarts (#217). Only what is needed to start
@@ -172,6 +253,7 @@ impl Default for Settings {
             zoom: 100,
             terminal_font_size: 12,
             forwards: BTreeMap::new(),
+            searches: SearchHistory::default(),
         }
     }
 }
@@ -232,6 +314,9 @@ pub(crate) struct SettingsPatch {
     pub(crate) zoom: Option<u32>,
     #[specta(optional)]
     pub(crate) terminal_font_size: Option<u32>,
+    /// The whole search history (#219).
+    #[specta(optional)]
+    pub(crate) searches: Option<SearchHistory>,
 }
 
 impl Settings {
@@ -265,6 +350,9 @@ impl Settings {
         }
         if let Some(v) = patch.terminal_font_size {
             self.terminal_font_size = v.clamp(TERMINAL_FONT_RANGE.0, TERMINAL_FONT_RANGE.1);
+        }
+        if let Some(v) = patch.searches {
+            self.searches = v.normalized();
         }
         self.contexts.extend(patch.contexts.unwrap_or_default());
         self.kinds.extend(patch.kinds.unwrap_or_default());
@@ -606,6 +694,70 @@ mod tests {
         let s = parse(r#"{"theme":"light","forwards":[1,2]}"#).unwrap();
         assert_eq!(s.theme, Theme::Light);
         assert!(s.forwards.is_empty());
+    }
+
+    #[test]
+    fn search_history_is_capped_and_cleaned() {
+        let search = |text: &str| SavedSearch {
+            text: text.into(),
+            ..Default::default()
+        };
+        let mut s = Settings::default();
+        let mut recent: Vec<SavedSearch> = (0..15).map(|i| search(&format!("q{i}"))).collect();
+        recent.insert(1, search("q0"));
+        recent.insert(2, search("  "));
+        recent.insert(3, search(&"x".repeat(MAX_SEARCH_LEN + 1)));
+        s.apply(SettingsPatch {
+            searches: Some(SearchHistory {
+                recent,
+                starred: vec![
+                    SavedSearch {
+                        text: "^web-".into(),
+                        regex: true,
+                        match_case: false,
+                    },
+                    search("^web-"),
+                ],
+            }),
+            ..Default::default()
+        });
+        let texts: Vec<&str> = s.searches.recent.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            ["q0", "q1", "q2", "q3", "q4", "q5", "q6", "q7", "q8", "q9"]
+        );
+        // The same text with other toggles is another search.
+        assert_eq!(s.searches.starred.len(), 2);
+        assert!(s.searches.starred[0].regex);
+
+        // Read back from a file, a bad entry keeps its defaults.
+        let s =
+            parse(r#"{"searches":{"recent":[{"text":"web","match_case":true},{"text":"db"}]}}"#)
+                .unwrap();
+        assert_eq!(s.searches.recent.len(), 2);
+        assert!(s.searches.recent[0].match_case);
+        assert!(!s.searches.recent[0].regex);
+        assert!(s.searches.starred.is_empty());
+
+        // One bad entry is skipped; the other entries and the starred list stay.
+        let s = parse(
+            r#"{"theme":"dark","searches":{
+                "recent":[{"text":3},{"text":"web"},"nonsense",{"text":""},{"text":"web"}],
+                "starred":[{"text":"^db-","regex":true},{"regex":"yes"}]}}"#,
+        )
+        .unwrap();
+        assert_eq!(s.theme, Theme::Dark);
+        let texts: Vec<&str> = s.searches.recent.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, ["web"]);
+        assert_eq!(s.searches.starred.len(), 1);
+        assert!(s.searches.starred[0].regex);
+        // Not an object, or lists that are not lists: empty, the rest kept.
+        let s = parse(r#"{"theme":"light","searches":[1,2]}"#).unwrap();
+        assert_eq!(s.theme, Theme::Light);
+        assert_eq!(s.searches, SearchHistory::default());
+        let s = parse(r#"{"searches":{"recent":"x","starred":[{"text":"a"}]}}"#).unwrap();
+        assert!(s.searches.recent.is_empty());
+        assert_eq!(s.searches.starred[0].text, "a");
     }
 
     #[test]

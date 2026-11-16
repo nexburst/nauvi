@@ -3,6 +3,7 @@
   import NamespacePicker from "./NamespacePicker.svelte";
   import ColumnChooser from "./ColumnChooser.svelte";
   import ExportCsv from "./ExportCsv.svelte";
+  import TableFilter from "./TableFilter.svelte";
   import { openCreate } from "../stores/create.svelte";
   import { HELM_VIEW } from "../helm";
   import { WORKLOADS_VIEW } from "../workloads";
@@ -25,14 +26,7 @@
     <NamespacePicker />
   </div>
   {#if !overview}
-    <input
-      id="table-filter"
-      class="input search"
-      type="search"
-      placeholder="Filter…"
-      aria-label="Filter"
-      bind:value={app.search}
-    />
+    <TableFilter />
   {/if}
   {#if app.statusFilter && kind}
     <!-- Set by a count in the Workloads overview. -->
@@ -73,10 +67,6 @@
   /* Narrow windows (many namespace chips, the detail panel open): the filter
      shrinks to a usable minimum, the buttons keep one line, and what does
      not fit wraps onto a second row. */
-  .search {
-    flex: 0 1 220px;
-    min-width: 120px;
-  }
   .namespaces {
     /* The picker's button is 160px; its chips wrap below it. */
     min-width: 160px;
