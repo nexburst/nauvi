@@ -5,10 +5,14 @@
 //! the queries return nothing and the Nodes table shows no Disk column.
 
 use crate::{query_range, PromSeries, PrometheusTarget};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use kube::Client;
 use serde::Serialize;
 use std::collections::BTreeMap;
+use std::time::Duration;
+
+/// How long the Disk column waits for Prometheus.
+const QUERY_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The root filesystem of one node.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -16,8 +20,8 @@ use std::collections::BTreeMap;
 pub struct NodeDisk {
     /// The node name.
     pub name: String,
-    pub used_bytes: f64,
-    pub size_bytes: f64,
+    pub used_bytes: u64,
+    pub size_bytes: u64,
 }
 
 /// Size and free space of `/`, per node. The node is the `node` label (the
@@ -65,8 +69,8 @@ pub fn to_node_disks(size: &[PromSeries], avail: &[PromSeries]) -> Vec<NodeDisk>
             let free = *avail.get(&name)?;
             Some(NodeDisk {
                 name,
-                used_bytes: (size - free).max(0.0),
-                size_bytes: size,
+                used_bytes: (size - free).max(0.0) as u64,
+                size_bytes: size as u64,
             })
         })
         .collect()
@@ -80,10 +84,21 @@ pub async fn prometheus_node_disks(
 ) -> Result<Vec<NodeDisk>> {
     let (size_q, avail_q) = node_disk_queries();
     // A range of one point: the parser and errors of the usage charts.
-    let (size, avail) = tokio::try_join!(
-        query_range(client, target, &size_q, now_secs, now_secs, 60),
-        query_range(client, target, &avail_q, now_secs, now_secs, 60),
-    )?;
+    let both = async {
+        tokio::try_join!(
+            query_range(client, target, &size_q, now_secs, now_secs, 60),
+            query_range(client, target, &avail_q, now_secs, now_secs, 60),
+        )
+    };
+    let (size, avail) = tokio::time::timeout(QUERY_TIMEOUT, both)
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "Prometheus at {} did not answer within {} s",
+                target.label(),
+                QUERY_TIMEOUT.as_secs()
+            )
+        })??;
     Ok(to_node_disks(&size, &avail))
 }
 
@@ -120,13 +135,13 @@ mod tests {
             [
                 NodeDisk {
                     name: "kind-control-plane".into(),
-                    used_bytes: 60.0,
-                    size_bytes: 100.0
+                    used_bytes: 60,
+                    size_bytes: 100
                 },
                 NodeDisk {
                     name: "worker-1".into(),
-                    used_bytes: 0.0,
-                    size_bytes: 50.0
+                    used_bytes: 0,
+                    size_bytes: 50
                 },
             ]
         );

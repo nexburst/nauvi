@@ -14,6 +14,7 @@
   import { capacityBars, eventKind, overviewCount, podCards } from "../overview";
   import { NODE_KIND_ID, POD_KIND_ID, overviewBadges } from "../problems";
   import { reportProblems, staleProblems } from "../stores/problems.svelte";
+  import MetricsOffer from "./helm/MetricsOffer.svelte";
 
   /** Retry a failed start after this long. */
   const RETRY_MS = 5_000;
@@ -182,6 +183,11 @@
         {/each}
         {#if !overview.capacity.metrics}
           <p class="muted small">No usage: the metrics API (metrics-server) is not available.</p>
+          <MetricsOffer
+            addon="metrics-server"
+            label="Install metrics-server…"
+            text="Install it with helm: a dry run first, nothing changes until you confirm."
+          />
         {/if}
       </section>
     {/if}

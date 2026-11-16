@@ -1470,8 +1470,8 @@ export type NodeCounts = {
 export type NodeDisk = {
 	/**  The node name. */
 	name: string,
-	used_bytes: number | null,
-	size_bytes: number | null,
+	used_bytes: number,
+	size_bytes: number,
 };
 
 /**

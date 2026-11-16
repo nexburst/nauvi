@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnKind, ResourceKind, ResourceRow } from "./bindings";
-import { columnsFor, EMPTY_METRICS, isNode, isPod, nodeReadyClass } from "./columns";
+import { columnsFor, EMPTY_METRICS, isNode, isPod, nodeReadyClass, shownColumns } from "./columns";
 import type { Ctx, Metrics } from "./columns";
 
 function kindWith(kinds: [string, ColumnKind][], kind = "Pod", group = ""): ResourceKind {
@@ -132,6 +132,33 @@ describe("columnsFor", () => {
     expect(mem.sort(node, ctx)).toBe(1024 ** 3);
     expect(cpu.spark?.(node, ctx)).toEqual([900, 1500]);
     expect(mem.spark?.(node, ctx)).toEqual([3, 4]);
+  });
+
+  it("shows the Disk column only once Prometheus reports disks", () => {
+    const cols = columnsFor(
+      kindWith(
+        [
+          ["name", "text"],
+          ["disk", "nodeDisk"],
+        ],
+        "Node",
+      ),
+    );
+    const disk = cols[1];
+    const node = row(["node-1", ""], { key: "node-1", name: "node-1", namespace: "" });
+    expect(shownColumns(cols, [], ctx).map((c) => c.key)).toEqual(["name"]);
+    const withDisks: Metrics = {
+      ...metrics,
+      disks: new Map([["node-1", { name: "node-1", used_bytes: 10 * 1024 ** 3, size_bytes: 40 * 1024 ** 3 }]]),
+    };
+    const c2: Ctx = { metrics: withDisks, now: 0 };
+    expect(shownColumns(cols, [], withDisks).map((c) => c.key)).toEqual(["name", "disk"]);
+    expect(shownColumns(cols, ["disk"], withDisks).map((c) => c.key)).toEqual(["name"]);
+    expect(disk.text(node, c2)).toBe("10Gi / 40Gi (25%)");
+    expect(disk.sort(node, c2)).toBe(25);
+    const other = row(["x", ""], { key: "node-2", name: "node-2", namespace: "" });
+    expect(disk.text(other, c2)).toBe("—");
+    expect(disk.sort(other, c2)).toBe(-1);
   });
 
   it("tells pods and nodes apart from other kinds", () => {

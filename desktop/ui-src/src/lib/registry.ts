@@ -23,6 +23,7 @@ import { helm } from "./stores/helm.svelte";
 import { charts } from "./stores/helmCharts.svelte";
 import { keyboard, listenMouseButtons } from "./stores/keyboard.svelte";
 import { live } from "./stores/live.svelte";
+import { metricsInstall } from "./stores/metricsInstall.svelte";
 import { trackHistory } from "./stores/navigation.svelte";
 import { listenUpdates, startupCheck } from "./stores/updates.svelte";
 import ActionDialog from "./components/ActionDialog.svelte";
@@ -38,6 +39,7 @@ import HelmConfirm from "./components/helm/HelmConfirm.svelte";
 import HelmDeployDialog from "./components/helm/HelmDeployDialog.svelte";
 import HelmDetail from "./components/helm/HelmDetail.svelte";
 import HelmView from "./components/helm/HelmView.svelte";
+import MetricsInstallDialog from "./components/helm/MetricsInstallDialog.svelte";
 import NodeShellLeftovers from "./components/NodeShellLeftovers.svelte";
 import Overview from "./components/Overview.svelte";
 import PortForwards from "./components/PortForwards.svelte";
@@ -124,6 +126,11 @@ export const DIALOGS: Slot[] = [
     when: () => catalog.settingsFor !== null,
     key: () => catalog.settingsFor,
     props: () => ({ id: catalog.settingsFor! }),
+  }),
+  slot(MetricsInstallDialog, {
+    when: () => metricsInstall.addon !== null,
+    key: () => metricsInstall.addon,
+    props: () => ({ id: metricsInstall.addon! }),
   }),
 ];
 

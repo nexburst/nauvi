@@ -21,6 +21,14 @@ export function prometheusStatus(s: FakeState): PrometheusStatus {
 
 export function prometheusHandlers(s: FakeState) {
   return {
+    cmdNodeDiskUsage: () => {
+      const status = prometheusStatus(s);
+      if (!status.target) return { nodes: [], source: "", note: status.note };
+      const p = s.cluster.prometheus;
+      if (p.failure) throw p.failure;
+      const note = p.disks.length ? "" : `Prometheus at ${status.target} has no node-exporter disk metrics.`;
+      return { nodes: structuredClone(p.disks), source: status.target, note };
+    },
     cmdPrometheusStatus: () => prometheusStatus(s),
   } satisfies AreaHandlers;
 }
