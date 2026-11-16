@@ -9,10 +9,12 @@
   import type { DockTabSpec } from "../dock";
   import { kindOfResource, requestAction } from "../stores/actions.svelte";
   import { openDockTab } from "../stores/dock.svelte";
+  import { copyLink } from "../stores/links.svelte";
   import type { Target } from "../stores/detail.svelte";
 
   /** The detail panel's header of action icons (#218): the row menu's Logs
-   *  and Shell, every action the registry lists for the kind, and Edit.
+   *  and Shell, every action the registry lists for the kind, Edit and Copy
+   *  link (#299, never greyed: it only reads the kubeconfig).
    *  Actions RBAC would refuse are greyed, with the reason in the tooltip.
    *  `disabled` once the object is gone. */
   interface Props {
@@ -34,7 +36,7 @@
   let access = $state.raw(new Map<string, ActionAccess>());
   onMount(() => {
     let live = true;
-    const ids = items.map((a) => a.id);
+    const ids = items.map((a) => a.id).filter((id) => id !== "link");
     commands
       .cmdCheckActions(target.resource, target.namespace, ids)
       .then((list) => {
@@ -55,6 +57,7 @@
     tip = null;
     if (a.run === "dock") openDockTab(dockSpec(a.spec));
     else if (a.run === "edit") onEdit();
+    else if (a.run === "link") void copyLink(target.resource, target.namespace, target.name);
     else if (kind) requestAction(kind, [{ namespace: target.namespace, name: target.name }], a.action);
   }
 

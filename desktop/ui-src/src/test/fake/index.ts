@@ -15,6 +15,7 @@ import { filesHandlers } from "./files";
 import { helpHandlers } from "./help";
 import { helmHandlers } from "./helm";
 import { helmChartsHandlers } from "./helm-charts";
+import { linksHandlers } from "./links";
 import { localShellHandlers } from "./local-shell";
 import { logsHandlers } from "./logs";
 import { metricsAddonsHandlers } from "./metrics-addons";
@@ -44,6 +45,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...helpHandlers(s),
     ...helmHandlers(s),
     ...helmChartsHandlers(s),
+    ...linksHandlers(s),
     ...localShellHandlers(s),
     ...logsHandlers(s),
     ...metricsAddonsHandlers(s),

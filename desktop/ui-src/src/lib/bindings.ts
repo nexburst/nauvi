@@ -232,6 +232,16 @@ export const commands = {
 	 *  caught (`boundary`, `error`, `rejection`).
 	 */
 	cmdLogUiError: (source: string, message: string, stack: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_log_ui_error", { source, message, stack }, options),
+	/**
+	 *  The link to an object of this window's context. Reads the kubeconfig
+	 *  files; no login.
+	 */
+	cmdObjectLink: (resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_object_link", { resource, namespace, name }, options),
+	/**
+	 *  The link request waiting for this window, if any (`LinkPending` says
+	 *  when there is one; a window also asks once when it starts).
+	 */
+	cmdTakeLink: (options?: InvokeOptions) => __TAURI_INVOKE<LinkRequest | null>("cmd_take_link", undefined, options),
 	/**  Kill the shell and delete its temp kubeconfig. */
 	cmdLocalShellClose: (session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_close", { session }, options),
 	cmdLocalShellInput: (session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_input", { session, data }, options),
@@ -474,6 +484,7 @@ export const events = {
 	execClosed: makeEvent<ExecClosed, ExecClosed>("exec-closed"),
 	execOutput: makeEvent<ExecOutput, ExecOutput>("exec-output"),
 	kubeconfigsChanged: makeEvent<KubeconfigsChanged, KubeconfigsChanged>("kubeconfigs-changed"),
+	linkPending: makeEvent<LinkPending, LinkPending>("link-pending"),
 	overviewState: makeEvent<OverviewStateChanged, OverviewStateChanged>("overview-state"),
 	overviewUpdate: makeEvent<OverviewChanged_Serialize, OverviewChanged_Deserialize>("overview-update"),
 	podLog: makeEvent<PodLog, PodLog>("pod-log"),
@@ -1432,6 +1443,16 @@ export type KubeconfigsChanged = {
 	generation: number,
 };
 
+/**  A window has a [`LinkRequest`] waiting: take it with `cmd_take_link`. */
+export type LinkPending = Record<string, never>;
+
+/**  What a window is asked to do. */
+export type LinkRequest = 
+/**  Show this object. */
+{ type: "open"; link: ObjectLink } | 
+/**  The link could not be opened; say why. */
+{ type: "notice"; message: string };
+
 /**
  *  A started local shell: its session id, and the context and namespace
  *  kubectl uses in it.
@@ -1598,6 +1619,19 @@ export type NodeUsage = {
 /**  One object of a bulk delete. */
 export type ObjectId = {
 	/**  Empty for cluster-scoped kinds. */
+	namespace: string,
+	name: string,
+};
+
+/**  What a link points at. */
+export type ObjectLink = {
+	/**  The context's id in the catalog (its name, for the default kubeconfig). */
+	context: string,
+	/**  `""` for the core group. */
+	group: string,
+	version: string,
+	kind: string,
+	/**  `""` for a cluster-scoped object. */
 	namespace: string,
 	name: string,
 };

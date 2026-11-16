@@ -41,7 +41,7 @@
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { events } from "../lib/bindings";
-import type { DetailState, Overview_Serialize, TaggedLine, WatchBatch, WatchState } from "../lib/bindings";
+import type { DetailState, LinkRequest, Overview_Serialize, TaggedLine, WatchBatch, WatchState } from "../lib/bindings";
 import { defaultCluster } from "./fixtures/cluster";
 import type { FakeCluster } from "./fixtures/cluster";
 import { available } from "./fixtures/updates";
@@ -117,6 +117,10 @@ export interface FakeApi {
   emitUnsavedCloseRequested(quit?: boolean): Promise<void>;
   /** Send `exec-output`: `data` printed by the shell of `session` (`exec-1` is the first). */
   emitExecOutput(session: string, data: string): Promise<void>;
+  /** Queue a kubeloupe:// link request for the window (#299), as a launch with a link does. */
+  queueLink(request: LinkRequest): void;
+  /** Queue it and send `link-pending`, as a second launch with a link does. */
+  openLink(request: LinkRequest): Promise<void>;
 }
 
 declare global {
@@ -217,6 +221,13 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     },
     emitUnsavedCloseRequested: (quit = false) => events.unsavedCloseRequested.emit({ quit }),
     emitExecOutput: (session, data) => events.execOutput.emit({ session, stream: "stdout", data }),
+    queueLink: (request) => {
+      st.link = request;
+    },
+    openLink: (request) => {
+      st.link = request;
+      return events.linkPending.emit({});
+    },
   };
   window.__fake = api;
   return api;

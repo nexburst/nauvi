@@ -60,9 +60,17 @@
     "copyright": "Copyright (c) 2026 the kubeloupe contributors",
     "license": "MIT",
     "licenseFile": "../LICENSE",
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": true,
+    "linux": {
+      "deb": {
+        "desktopTemplate": "bundle/kubeloupe.desktop"
+      }
+    }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": { "schemes": ["kubeloupe"] }
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA1N0Q5ODgzOUJFNjQwNDQKUldSRVFPYWJnNWg5QldYTGRpRTNiS0dvTjJnZGtTbXBXQmNrMC9VY2loSWNpSDZ1eUpHNllPVEoK",
       "endpoints": ["https://github.com/pedrosanzmtz/kubeloupe/releases/latest/download/latest.json"]

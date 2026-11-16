@@ -11,6 +11,7 @@
   import { requestAction } from "../stores/actions.svelte";
   import { dockMenuFor } from "../dock";
   import { openDockTab } from "../stores/dock.svelte";
+  import { copyLink } from "../stores/links.svelte";
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove } from "../stores/keyboard.svelte";
   import type { ResourceKind } from "../bindings";
@@ -154,6 +155,8 @@
           label: d.label,
           run: () => openDockTab(d.spec),
         })),
+        // A kubeloupe:// link to the object (#299).
+        { label: "Copy link", run: () => void copyLink(kind.resource, row.namespace, row.name) },
         ...kind.actions.map((a) => ({
           label: a.label,
           danger: a.destructive,

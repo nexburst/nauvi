@@ -123,6 +123,7 @@ function waitForPort(port, timeoutMs) {
  *   env         extra environment for the app, e.g. { SHELL: "/bin/sh" }
  *   shellEnv    true to let the app import the login shell's environment
  *               (off by default, so the app sees exactly this environment)
+ *   args        command-line arguments for the app (e.g. a kubeloupe:// link)
  */
 export async function launch(name, opts = {}) {
   const ownProfile = !opts.profile;
@@ -202,7 +203,7 @@ async function startSession(name, opts) {
     const build = () =>
       new Builder()
         .usingServer(`http://127.0.0.1:${port}/`)
-        .withCapabilities({ browserName: "wry", "tauri:options": { application: app } })
+        .withCapabilities({ browserName: "wry", "tauri:options": { application: app, args: opts.args ?? [] } })
         .build();
     let driver;
     try {

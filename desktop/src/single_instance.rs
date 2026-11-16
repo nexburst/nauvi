@@ -2,8 +2,9 @@
 //! running one, which brings its window to the front, and exits. Two copies
 //! would both write `settings.json` and lose each other's changes.
 //!
-//! The second launch's arguments and context are ignored: it only focuses
-//! the app that is already running.
+//! The second launch's context is ignored: it only focuses the app that is
+//! already running. Its one argument that counts is a `kubeloupe://` link
+//! (#299, `links.rs`), which the running app opens.
 //!
 //! On Linux the running app owns a D-Bus name on the session bus. The name
 //! includes the config directory, so apps with their own settings (another
@@ -18,8 +19,13 @@ use tauri::{AppHandle, Manager, Wry};
 /// The plugin; register it before the other plugins, so a second launch
 /// exits before anything else starts.
 pub(crate) fn plugin(identifier: &str) -> TauriPlugin<Wry> {
-    let builder =
-        tauri_plugin_single_instance::Builder::new().callback(|app, _args, _cwd| focus(app));
+    // A second launch with a kubeloupe:// link (#299) goes to the window
+    // the link is for; any other second launch focuses the app.
+    let builder = tauri_plugin_single_instance::Builder::new().callback(|app, args, _cwd| {
+        if !crate::links::open_from_args(app, &args) {
+            focus(app);
+        }
+    });
     #[cfg(target_os = "linux")]
     let builder = builder.dbus_id(dbus_id(identifier, &linux_config_dir()));
     #[cfg(not(target_os = "linux"))]

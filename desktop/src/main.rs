@@ -9,6 +9,7 @@ mod catalog;
 mod close_guard;
 mod commands;
 mod diagnostics;
+mod links;
 mod local_shell;
 mod log_streams;
 mod logging;
@@ -87,6 +88,8 @@ fn main() {
             app.manage(store);
             commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());
+            // Started from a kubeloupe:// link (#299).
+            links::open_launch_link(app.handle());
             close_guard::install(app.handle());
             Ok(())
         })
@@ -120,6 +123,9 @@ fn main() {
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => windows::reopen(app),
             tauri::RunEvent::Exit => windows::before_exit(app),
+            // macOS hands kubeloupe:// links to the running app (#299).
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Opened { urls } => links::opened(app, &urls),
             _ => {}
         });
 }

@@ -6,7 +6,7 @@
 
 import type { commands } from "../../lib/bindings";
 import { events } from "../../lib/bindings";
-import type { ResourceKind, ResourceRef, ResourceRow } from "../../lib/bindings";
+import type { LinkRequest, ResourceKind, ResourceRef, ResourceRow } from "../../lib/bindings";
 import type { FakeCluster } from "../fixtures/cluster";
 
 type Commands = typeof commands;
@@ -46,6 +46,8 @@ export interface FakeState {
   /** Releases a `cmd_update_install` waiting half way through its download. */
   finishDownload: (() => void) | null;
   restarted: boolean;
+  /** The kubeloupe:// link request waiting for the window (#299). */
+  link: LinkRequest | null;
 }
 
 export function newState(cluster: FakeCluster): FakeState {
@@ -71,6 +73,7 @@ export function newState(cluster: FakeCluster): FakeState {
     lastWorkloads: null,
     finishDownload: null,
     restarted: false,
+    link: null,
   };
 }
 

@@ -17,6 +17,7 @@ import { HELM_CHARTS_VIEW } from "./helmCharts";
 import { WORKLOADS_VIEW } from "./workloads";
 import { app } from "./stores/app.svelte";
 import { listenDrain } from "./stores/actions.svelte";
+import { listenLinks, takePendingLink } from "./stores/links.svelte";
 import { apps } from "./stores/applications.svelte";
 import { catalog, listenKubeconfigs } from "./stores/catalog.svelte";
 import { createUi } from "./stores/create.svelte";
@@ -153,6 +154,8 @@ export const LISTENERS: (() => Promise<() => void>)[] = [
   listenMouseButtons,
   // Back/forward (#223): records each place the window shows.
   async () => trackHistory(),
+  // kubeloupe:// links (#299).
+  listenLinks,
 ];
 
 /** Started once the app has its settings and context (`startApp`). */
@@ -160,4 +163,6 @@ export const AFTER_START: (() => Promise<void>)[] = [
   checkLeftovers,
   // The update check waits for the settings (its on/off switch).
   startupCheck,
+  // A kubeloupe:// link that came while the window started (#299).
+  takePendingLink,
 ];
