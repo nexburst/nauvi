@@ -17,6 +17,12 @@ export const commands = {
 	 */
 	cmdCancelDrain: (drainId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cancel_drain", { drainId }, options),
 	/**
+	 *  Which of `ids` (action ids, plus "logs", "shell" and "edit") the user
+	 *  may run on one object, for greying out the detail panel's actions. A
+	 *  check that cannot be made counts as allowed.
+	 */
+	cmdCheckActions: (resource: ResourceRef, namespace: string, ids: string[], options?: InvokeOptions) => __TAURI_INVOKE<ActionAccess[]>("cmd_check_actions", { resource, namespace, ids }, options),
+	/**
 	 *  Cordon a node and evict its pods in the background. Progress arrives as
 	 *  `DrainProgress` events and the end as `DrainFinished`; returns the drain id.
 	 */
@@ -413,6 +419,16 @@ export const events = {
 export type AccessResult = {
 	id: string,
 	allowed: boolean,
+};
+
+/**
+ *  Whether one action is allowed. `reason` is empty when it is, otherwise a
+ *  sentence naming the first request RBAC refuses.
+ */
+export type ActionAccess = {
+	id: string,
+	allowed: boolean,
+	reason: string,
 };
 
 /**  One action offered for a kind. */

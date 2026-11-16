@@ -53,5 +53,10 @@ export function actionsHandlers(s: FakeState) {
       return drainId;
     },
     cmdCancelDrain: () => null,
+    cmdCheckActions: (_resource, _namespace, ids) =>
+      ids.map((id) => {
+        const reason = cluster.deniedActions[id];
+        return { id, allowed: reason === undefined, reason: reason ?? "" };
+      }),
   } satisfies AreaHandlers;
 }

@@ -37,6 +37,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
         .commands(collect_commands![
             actions::cmd_bulk_delete,
             actions::cmd_cancel_drain,
+            actions::cmd_check_actions,
             actions::cmd_drain_node,
             actions::cmd_run_action,
             catalog::cmd_add_kubeconfig_source,
