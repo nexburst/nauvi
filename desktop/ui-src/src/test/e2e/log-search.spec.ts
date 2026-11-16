@@ -252,16 +252,20 @@ test("at a match with Follow off, trimming the oldest lines does not move the vi
   const fake = await openPodLogs(page);
   const batch = (from: number) => Array.from({ length: 10_000 }, (_, i) => `line ${from + i}${(from + i) % 1000 === 0 ? " hit" : ""}`);
   for (let k = 0; k < 5; k++) await fake.emitLogLines(batch(k * 10_000));
+  // 54,000 shown: just under the trim (55,000).
+  await fake.emitLogLines(batch(50_000).slice(0, 4000));
   await toggle(page, "Highlight the matches and keep the other lines, instead of filtering").click();
   await search(page).fill("hit");
-  await expect(count(page)).toHaveText("50 matches");
+  await expect(count(page)).toHaveText("54 matches");
+  // The newest match, near the end of the list.
   await search(page).press("Shift+Enter");
   const current = logs(page).locator('[data-testid="log-line"].current');
-  await expect(current).toHaveText("line 49000 hit");
-  // 10,000 more: the 10,000 oldest shown lines are trimmed above the view.
-  await fake.emitLogLines(batch(50_000));
+  await expect(current).toHaveText("line 53000 hit");
+  // 2,000 more: 6,000 of the oldest are trimmed above the view and the list
+  // gets shorter (the browser clamps the scroll position first).
+  await fake.emitLogLines(batch(54_000).slice(0, 2000));
   await expect(count(page)).toHaveText(/^\d+ of 50$/);
-  await expect(current).toHaveText("line 49000 hit");
+  await expect(current).toHaveText("line 53000 hit");
   await expect(current).toBeInViewport();
   expect(fake.errors).toEqual([]);
 });

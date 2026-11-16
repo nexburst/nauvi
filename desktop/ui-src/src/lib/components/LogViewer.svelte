@@ -330,8 +330,12 @@
       return;
     }
     if (trimmed > 0 && scrollEl) {
+      // Read before the list shrinks: near its end the browser clamps
+      // scrollTop to the new height first.
+      const el = scrollEl;
+      const top = el.scrollTop;
       await tick();
-      scrollEl.scrollTop = Math.max(0, scrollEl.scrollTop - trimmed * LINE_HEIGHT);
+      el.scrollTop = Math.max(0, top - trimmed * LINE_HEIGHT);
     }
   }
 
