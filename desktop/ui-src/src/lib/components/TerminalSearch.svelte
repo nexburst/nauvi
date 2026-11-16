@@ -160,6 +160,7 @@
   }
   .count {
     min-width: 72px;
+    padding: 0 4px;
     color: var(--text-muted);
     white-space: nowrap;
     text-align: center;
