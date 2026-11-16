@@ -62,6 +62,9 @@ fn main() {
         // `commands/updater.rs`, which restarts with `request_restart`. The
         // webview gets no updater or process permission (#245).
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // The save dialog of the CSV export (#221), only from
+        // `commands/files.rs`: the webview gets no dialog permission.
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(builder.invoke_handler())
         // A reload starts the window's session over (#205).
         .on_page_load(page_load::on_page_load)

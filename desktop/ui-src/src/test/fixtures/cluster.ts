@@ -100,6 +100,8 @@ export interface FakeCluster {
   prometheus: FakePrometheus;
   /** What the update check finds (#30); up to date by default. */
   update: FakeUpdate;
+  /** The save dialog (`cmd_save_csv`) is cancelled by the user this many more times. */
+  saveDialogCancels: number;
 }
 
 /** Unix seconds, a fixed distance in the past so ages are stable. */
@@ -483,6 +485,7 @@ export function defaultCluster(): FakeCluster {
     helm: defaultHelm(),
     settings: defaultSettings(),
     update: upToDate(),
+    saveDialogCancels: 0,
   };
 }
 

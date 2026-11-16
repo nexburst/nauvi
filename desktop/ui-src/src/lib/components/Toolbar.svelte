@@ -2,6 +2,7 @@
   import { app, currentKind } from "../stores/app.svelte";
   import NamespacePicker from "./NamespacePicker.svelte";
   import ColumnChooser from "./ColumnChooser.svelte";
+  import ExportCsv from "./ExportCsv.svelte";
   import { openCreate } from "../stores/create.svelte";
   import { HELM_VIEW } from "../helm";
   import { WORKLOADS_VIEW } from "../workloads";
@@ -44,6 +45,7 @@
   {/if}
   {#if kind}
     <ColumnChooser {kind} />
+    <ExportCsv {kind} />
   {/if}
   {#if !overview}
     <button type="button" class="btn primary create" title="Create resources from YAML" onclick={openCreate}
