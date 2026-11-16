@@ -127,9 +127,6 @@ mod tests {
             .unwrap();
         let kc = Kubeconfig::read_from(&file).unwrap();
         let files = context_local_files(&kc, "one", &file);
-        assert_eq!(
-            files,
-            vec![dir.0.join("team/token").display().to_string()]
-        );
+        assert_eq!(files, vec![dir.0.join("team/token").display().to_string()]);
     }
 }

@@ -9,11 +9,16 @@
 // on one line and uncut, paths wrap only at '/', the status message is at
 // most two lines, the row actions (Open, More) fit in one line; screenshots
 // in dark and light, and of the More menu.
+// Checks (#244): an added kubeconfig whose user sends a token file from
+// outside its folder to a stand-in API server is not checked on add or by
+// Check all (the server gets no request), its row names the file; Check
+// sends it and connects. Screenshots light and dark at 1280x800.
 
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
@@ -57,10 +62,54 @@ const click = (app, css) =>
     `const el = document.querySelector(arguments[0]); if (!el) return false; el.scrollIntoView({ block: "center" }); el.click(); return true;`,
     css,
   );
+const clickButton = (app, scope, text) =>
+  app.js(
+    `const b = Array.from(document.querySelectorAll(arguments[0] + " button")).find((b) => b.textContent.trim() === arguments[1]);
+     b?.click();
+     return !!b;`,
+    scope,
+    text,
+  );
+
+// #244: an added kubeconfig (in its own folder) whose user sends a token
+// file from another folder, to a stand-in API server that records what it
+// gets and answers /version.
+const STOLEN = "qa-244-local-files";
+const SECRET = `qa-244-secret-${Date.now().toString(36)}`;
+const tokenPath = join(dir, "secrets", "token");
+mkdirSync(join(dir, "secrets"));
+writeFileSync(tokenPath, `${SECRET}\n`, { mode: 0o600 });
+mkdirSync(join(dir, "stolen"));
+const stolen = join(dir, "stolen", "stolen.yaml");
+const honeypot = { hits: [], server: null, listening: null };
+honeypot.server = createServer((req, res) => {
+  honeypot.hits.push({ url: req.url, auth: req.headers.authorization ?? "" });
+  if (!req.url.startsWith("/version")) {
+    res.writeHead(404).end();
+    return;
+  }
+  res.writeHead(200, { "content-type": "application/json" }).end(
+    JSON.stringify({
+      major: "1",
+      minor: "31",
+      gitVersion: "v1.31.0-qa244",
+      gitCommit: "",
+      gitTreeState: "clean",
+      buildDate: "2026-01-01T00:00:00Z",
+      goVersion: "go1.22",
+      compiler: "gc",
+      platform: "linux/amd64",
+    }),
+  );
+});
+honeypot.listening = new Promise((resolve) => honeypot.server.listen(0, "127.0.0.1", () => resolve(honeypot.server.address().port)));
 
 describe("cluster catalog", { timeout: 10 * 60_000 }, () => {
   const s = appSession("catalog");
-  after(() => rmSync(dir, { recursive: true, force: true }));
+  after(() => {
+    honeypot.server.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   it("adds a folder of kubeconfigs and checks every cluster", T, async () => {
     const { app } = s;
@@ -181,5 +230,68 @@ describe("cluster catalog", { timeout: 10 * 60_000 }, () => {
     );
     assert.equal(sha(team), before.team, "team.yaml changed");
     assert.equal(sha(broken), before.broken, "broken.yaml changed");
+  });
+
+  it("a context that sends a token file from outside its folder waits for a click (#244)", T, async () => {
+    const { app } = s;
+    const port = await honeypot.listening;
+    writeFileSync(
+      stolen,
+      JSON.stringify({
+        apiVersion: "v1",
+        kind: "Config",
+        clusters: [{ name: "hp", cluster: { server: `http://127.0.0.1:${port}` } }],
+        users: [{ name: "thief", user: { tokenFile: tokenPath } }],
+        contexts: [{ name: STOLEN, context: { cluster: "hp", user: "thief" } }],
+      }),
+      { mode: 0o600 },
+    );
+    await resizeWindow(app, 1280, 800);
+    if (!(await app.js(`return !!document.querySelector('[data-testid="catalog"]')`))) {
+      await click(app, 'button[aria-label="Cluster catalog"]');
+    }
+    await app.find(By.css('[data-testid="catalog"]'));
+    await app.waitFor(() => clickButton(app, '[data-testid="catalog"]', "Add kubeconfig…"), {
+      message: "the Add kubeconfig… button",
+    });
+    const input = await app.find(By.css('input[aria-label="Kubeconfig file or folder"]'));
+    await app.setValue(input, stolen);
+    await click(app, 'form[aria-label="Add kubeconfig"] button[type="submit"]');
+
+    const files = () =>
+      app.js(`return document.querySelector(arguments[0])?.querySelector('[data-testid="catalog-local-files"]')?.innerText.trim() ?? ""`, row(STOLEN));
+    await app.waitFor(async () => (await files()) === `Sends local files: ${tokenPath}`, {
+      message: `${STOLEN} lists the token file`,
+    });
+    // The default kubeconfig's and the folder's contexts are checked as before.
+    await app.waitFor(async () => (await statusOf(app, ADDED)) === "Connected", { timeout: 40_000, message: `${ADDED} connected` });
+    await new Promise((r) => setTimeout(r, 4000));
+    assert.ok((await statusOf(app, STOLEN)).startsWith("Check"), await statusOf(app, STOLEN));
+    assert.deepEqual(honeypot.hits, [], "nothing reached the server on add");
+
+    // Check all checks the rest; this one still waits, nothing sent.
+    assert.ok(await clickButton(app, '[data-testid="catalog"]', "Check all"));
+    await app.waitFor(async () => (await statusOf(app, CONTEXT)) === "Connected", { timeout: 40_000, message: "Check all done" });
+    await new Promise((r) => setTimeout(r, 4000));
+    console.log(`after Check all: ${JSON.stringify(await statusOf(app, STOLEN))}`);
+    assert.ok((await statusOf(app, STOLEN)).startsWith("Check"), await statusOf(app, STOLEN));
+    assert.deepEqual(honeypot.hits, [], "nothing reached the server on Check all");
+    await app.js(`document.querySelector(arguments[0])?.scrollIntoView({ block: "center" })`, row(STOLEN));
+    await setTheme(app, "light");
+    await app.shot("catalog-local-files-light");
+    await setTheme(app, "dark");
+    await app.shot("catalog-local-files-dark");
+    await setTheme(app, "light");
+
+    // A click is the user's choice: the file is read and sent.
+    await click(app, `${row(STOLEN)} button[aria-label=${JSON.stringify(`Check ${STOLEN}`)}]`);
+    await app.waitFor(async () => (await statusOf(app, STOLEN)).startsWith("Connected"), {
+      timeout: 30_000,
+      message: `${STOLEN} connected to the stand-in server`,
+    });
+    console.log(`hits: ${JSON.stringify(honeypot.hits)}`);
+    assert.ok(honeypot.hits.length > 0 && honeypot.hits.every((h) => h.auth === `Bearer ${SECRET}`), "sent on click");
+    await app.shot("catalog-local-files-checked-light");
+    await setTheme(app, null);
   });
 });
