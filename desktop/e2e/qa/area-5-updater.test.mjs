@@ -7,7 +7,8 @@
 // off skips the check after a restart, while Check for updates in Settings
 // still asks; the palette reports "latest version" and errors; a failed
 // check on start stays quiet; a second window does not check on start;
-// without the override a debug build never asks.
+// without the override a debug build never asks; a copy on a DMG or a
+// translocated one (#206) offers no install.
 
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -182,3 +183,61 @@ describe("area 5: updates without the override", { timeout: 5 * 60_000 }, () => 
     assert.equal(await count(app, '[data-testid="update-banner"]'), 0);
   });
 });
+
+// #206: a copy run from the DMG or translocated by Gatekeeper cannot be
+// replaced, so it offers no Install. KUBELOUPE_UPDATE_EXE_PATH (debug builds
+// only) makes the check see the macOS paths of #159 on Linux.
+const READ_ONLY_COPIES = [
+  ["dmg", "/Volumes/kubeloupe/kubeloupe.app/Contents/MacOS/kubeloupe", /running from the disk image/],
+  [
+    "translocated",
+    "/private/var/folders/7k/2lyy0kc93xs3m1qz5jw0t8hr0000gn/T/AppTranslocation/0F4D3A6E-58B4-4E3B-9C2A-6A0E7A8D1F42/d/kubeloupe.app/Contents/MacOS/kubeloupe",
+    /App Translocation/,
+  ],
+];
+
+for (const [name, exe, noteRe] of READ_ONLY_COPIES) {
+  describe(`area 5: a ${name} copy offers no install (#206)`, { timeout: 5 * 60_000 }, () => {
+    let server2;
+    let endpoint2;
+    before(async () => {
+      server2 = createServer((_req, res) => {
+        const body = latestJson("9.9.9");
+        res.writeHead(200, { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(body) });
+        res.end(body);
+      });
+      await new Promise((r) => server2.listen(0, "127.0.0.1", r));
+      endpoint2 = `http://127.0.0.1:${server2.address().port}/latest.json`;
+    });
+    after(() => server2?.close());
+    const s = appSession(`area-5-updater-${name}`, () => ({
+      env: { KUBELOUPE_UPDATE_ENDPOINT: endpoint2, KUBELOUPE_UPDATE_EXE_PATH: exe },
+    }));
+
+    it(`the banner sends a ${name} copy to Applications, in both themes`, T, async () => {
+      const { app } = s;
+      await waitLive(app);
+      const banner = await app.find(byTestId("update-banner"), { timeout: 30_000 });
+      const text = (await app.js("return arguments[0].innerText", banner)).replace(/\s+/g, " ");
+      console.log(`banner: ${text}`);
+      assert.match(text, /kubeloupe 9\.9\.9 is available/);
+      assert.match(text, /Download from the release page/);
+      assert.doesNotMatch(text, /Install and restart/);
+      assert.match(text, /Move kubeloupe to Applications/);
+      assert.match(text, noteRe);
+      const box = await app.js(
+        `const b = document.querySelector('[data-testid="update-banner"]').getBoundingClientRect();
+         const n = document.querySelector('[data-testid="update-banner"] .note').getBoundingClientRect();
+         return { bannerRight: b.right, noteRight: n.right, bannerHeight: b.height, width: innerWidth };`,
+      );
+      console.log(`layout: ${JSON.stringify(box)}`);
+      assert.ok(box.noteRight <= box.bannerRight + 1, "the note stays inside the banner");
+      for (const theme of ["dark", "light"]) {
+        await app.js("document.documentElement.dataset.theme = arguments[0]", theme);
+        await sleep(300);
+        await app.shot(`${name}-banner-${theme}`);
+      }
+      await app.js("delete document.documentElement.dataset.theme");
+    });
+  });
+}

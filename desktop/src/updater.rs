@@ -14,6 +14,11 @@ pub(crate) const RELEASES_URL: &str = "https://github.com/pedrosanzmtz/kubeloupe
 /// `python3 -m http.server`). Release builds ignore it.
 pub(crate) const ENDPOINT_ENV: &str = "KUBELOUPE_UPDATE_ENDPOINT";
 
+/// Points debug builds at another executable path for the location check
+/// (`/Volumes/kubeloupe/kubeloupe.app/...`), so the QA scenario can show
+/// the note on Linux. Release builds ignore it.
+pub(crate) const EXE_PATH_ENV: &str = "KUBELOUPE_UPDATE_EXE_PATH";
+
 /// The release page of `version` (`0.2.0` or `v0.2.0`).
 pub(crate) fn release_page(version: &str) -> String {
     format!("{RELEASES_URL}/tag/v{}", version.trim_start_matches('v'))
@@ -108,7 +113,59 @@ impl InstallSupport {
     }
 }
 
-/// Whether the update can be installed in place, given how this copy was
+/// Where this copy runs from, when that place cannot be updated in place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReadOnlyLocation {
+    /// Straight from the mounted disk image (`/Volumes/<name>/kubeloupe.app`).
+    DiskImage,
+    /// A Gatekeeper-translocated copy
+    /// (`/private/var/folders/…/AppTranslocation/<uuid>/d/kubeloupe.app`):
+    /// macOS runs a quarantined app that was not moved by Finder from a
+    /// random read-only path.
+    Translocated,
+}
+
+impl ReadOnlyLocation {
+    pub(crate) fn note(self) -> &'static str {
+        match self {
+            ReadOnlyLocation::DiskImage => {
+                "kubeloupe is running from the disk image, which is read-only. Move kubeloupe to Applications to update it in place, or download the new version from the release page."
+            }
+            ReadOnlyLocation::Translocated => {
+                "macOS runs this copy of kubeloupe from a temporary read-only location (App Translocation). Move kubeloupe to Applications with Finder to update it in place, or download the new version from the release page."
+            }
+        }
+    }
+}
+
+/// Whether the executable at `exe` runs from a place an update cannot
+/// replace. `exe` is `std::env::current_exe()`, for example
+/// `/Applications/kubeloupe.app/Contents/MacOS/kubeloupe`.
+pub(crate) fn read_only_location(exe: &str) -> Option<ReadOnlyLocation> {
+    if exe.contains("/AppTranslocation/") {
+        Some(ReadOnlyLocation::Translocated)
+    } else if exe.starts_with("/Volumes/") {
+        Some(ReadOnlyLocation::DiskImage)
+    } else {
+        None
+    }
+}
+
+/// The executable path for the location check: `EXE_PATH_ENV` in debug
+/// builds when set, else `actual`.
+pub(crate) fn exe_path(
+    debug: bool,
+    override_value: Option<String>,
+    actual: Option<String>,
+) -> String {
+    override_value
+        .filter(|v| debug && !v.trim().is_empty())
+        .or(actual)
+        .unwrap_or_default()
+}
+
+/// Whether the update can be installed in place, given where this copy
+/// runs from (`exe`, see `read_only_location`), how it was
 /// installed (`bundle`, from `tauri::utils::platform::bundle_type`), the
 /// updater target (`linux-x86_64`) and the target keys of the release's
 /// `latest.json`.
@@ -118,12 +175,17 @@ impl InstallSupport {
 /// but only from a signed `<target>-deb` / `<target>-rpm` entry: without
 /// one it would fall back to the AppImage entry and fail, so then the user
 /// is sent to the release page instead. A binary that was not installed
-/// from a bundle (`cargo build`) cannot update itself.
+/// from a bundle (`cargo build`) cannot update itself. A copy on a disk
+/// image or a translocated one cannot be replaced, whatever its bundle.
 pub(crate) fn install_support<S: AsRef<str>>(
+    exe: &str,
     bundle: Option<BundleType>,
     target: &str,
     platforms: &[S],
 ) -> InstallSupport {
+    if let Some(place) = read_only_location(exe) {
+        return InstallSupport::no(place.note());
+    }
     let has = |key: &str| platforms.iter().any(|p| p.as_ref() == key);
     match bundle {
         None => InstallSupport::no(
@@ -220,6 +282,8 @@ mod tests {
         assert_eq!(release_page("v0.2.0"), release_page("0.2.0"));
     }
 
+    const INSTALLED: &str = "/Applications/kubeloupe.app/Contents/MacOS/kubeloupe";
+
     const ACTION_KEYS: &[&str] = &[
         "linux-x86_64",
         "linux-x86_64-appimage",
@@ -240,27 +304,95 @@ mod tests {
             BundleType::Msi,
             BundleType::Nsis,
         ] {
-            assert!(install_support(Some(b), "linux-x86_64", ACTION_KEYS).can_install);
+            assert!(install_support(INSTALLED, Some(b), "linux-x86_64", ACTION_KEYS).can_install);
         }
     }
 
     #[test]
     fn a_deb_needs_a_signed_deb_entry() {
-        let s = install_support(Some(BundleType::Deb), "linux-x86_64", ACTION_KEYS);
+        let s = install_support(
+            INSTALLED,
+            Some(BundleType::Deb),
+            "linux-x86_64",
+            ACTION_KEYS,
+        );
         assert!(!s.can_install);
         assert!(s.note.contains(".deb"), "{}", s.note);
 
         let mut keys = ACTION_KEYS.to_vec();
         keys.push("linux-x86_64-deb");
-        assert!(install_support(Some(BundleType::Deb), "linux-x86_64", &keys).can_install);
-        assert!(!install_support(Some(BundleType::Rpm), "linux-x86_64", &keys).can_install);
+        assert!(
+            install_support(INSTALLED, Some(BundleType::Deb), "linux-x86_64", &keys).can_install
+        );
+        assert!(
+            !install_support(INSTALLED, Some(BundleType::Rpm), "linux-x86_64", &keys).can_install
+        );
     }
 
     #[test]
     fn a_plain_binary_cannot_update_itself() {
-        let s = install_support(None, "linux-x86_64", ACTION_KEYS);
+        let s = install_support(INSTALLED, None, "linux-x86_64", ACTION_KEYS);
         assert!(!s.can_install);
         assert!(s.note.contains("release page"), "{}", s.note);
+    }
+
+    // Paths of the macOS test machine (#159).
+    const DMG: &str = "/Volumes/kubeloupe/kubeloupe.app/Contents/MacOS/kubeloupe";
+    const TRANSLOCATED: &str = "/private/var/folders/7k/2lyy0kc93xs3m1qz5jw0t8hr0000gn/T/AppTranslocation/0F4D3A6E-58B4-4E3B-9C2A-6A0E7A8D1F42/d/kubeloupe.app/Contents/MacOS/kubeloupe";
+
+    #[test]
+    fn read_only_locations() {
+        assert_eq!(read_only_location(DMG), Some(ReadOnlyLocation::DiskImage));
+        assert_eq!(
+            read_only_location("/Volumes/kubeloupe 0.1.0/kubeloupe.app/Contents/MacOS/kubeloupe"),
+            Some(ReadOnlyLocation::DiskImage)
+        );
+        assert_eq!(
+            read_only_location(TRANSLOCATED),
+            Some(ReadOnlyLocation::Translocated)
+        );
+        for ok in [
+            INSTALLED,
+            "/Users/qa/Applications/kubeloupe.app/Contents/MacOS/kubeloupe",
+            "/Users/qa/Volumes/kubeloupe.app/Contents/MacOS/kubeloupe",
+            "/opt/homebrew/Caskroom/kubeloupe/0.1.0/kubeloupe.app/Contents/MacOS/kubeloupe",
+            "/home/qa/Applications/kubeloupe_0.1.0_amd64.AppImage",
+            r"C:\Program Files\kubeloupe\kubeloupe.exe",
+            "",
+        ] {
+            assert_eq!(read_only_location(ok), None, "{ok}");
+        }
+    }
+
+    #[test]
+    fn a_disk_image_or_translocated_copy_cannot_install() {
+        for exe in [DMG, TRANSLOCATED] {
+            let s = install_support(exe, Some(BundleType::App), "darwin-aarch64", ACTION_KEYS);
+            assert!(!s.can_install, "{exe}");
+            assert!(
+                s.note.contains("Move kubeloupe to Applications"),
+                "{}",
+                s.note
+            );
+        }
+        let s = install_support(
+            INSTALLED,
+            Some(BundleType::App),
+            "darwin-aarch64",
+            ACTION_KEYS,
+        );
+        assert!(s.can_install);
+        assert!(s.note.is_empty());
+    }
+
+    #[test]
+    fn the_exe_path_override_is_read_by_debug_builds_only() {
+        let actual = Some(INSTALLED.to_string());
+        assert_eq!(exe_path(false, Some(DMG.into()), actual.clone()), INSTALLED);
+        assert_eq!(exe_path(true, Some(DMG.into()), actual.clone()), DMG);
+        assert_eq!(exe_path(true, Some(" ".into()), actual.clone()), INSTALLED);
+        assert_eq!(exe_path(true, None, actual), INSTALLED);
+        assert_eq!(exe_path(true, None, None), "");
     }
 
     #[test]
