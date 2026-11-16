@@ -258,17 +258,9 @@ message: '${FORMULA}'
     await sleep(500); // let WebKitGTK repaint before the shot
     await app.shot("write-error-light");
     await setTheme(app, null);
-
-    // A name typed without .csv whose .csv file exists: the dialog never
-    // asked about that file, so it is not replaced.
-    const large = join(app.profile.downloads, "qa-large.csv");
-    const before = readFileSync(large, "utf8");
-    await exportWith(app, ...keysOf("qa-large"), "Return");
-    await app.waitFor(async () => (await noteText(app)).includes("already exists"), {
-      message: "the already-exists error",
-    });
-    assert.equal(readFileSync(large, "utf8"), before, "qa-large.csv is unchanged");
-    await app.shot("exists-error");
+    // (A name typed without .csv whose .csv file exists is refused by
+    // `files.rs`, unit-tested there: GTK completes the typed name to the
+    // existing file and asks itself, so it cannot be driven here.)
     await app.filter("");
   });
 
