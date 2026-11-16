@@ -9,7 +9,7 @@
 // - a view-only ServiceAccount (made here): Logs offered; Shell, Attach,
 //   Edit, Delete... greyed with "Not allowed: you can't ..." and inert
 // - the limited user (limited-user.sh, `edit` in team-a): nothing greyed
-//   in team-a. Skipped without KUBELOUPE_LIMITED_KUBECONFIG.
+//   in team-a but Debug where `edit` lacks pods/ephemeralcontainers. Skipped without KUBELOUPE_LIMITED_KUBECONFIG.
 // Everything lives in a temp namespace.
 
 import assert from "node:assert/strict";
@@ -89,7 +89,7 @@ function waitBar(app, labels) {
 
 /** The tooltip's text, or null. */
 function tipText(app) {
-  return app.js(`return document.querySelector('[data-testid="action-tip"]')?.innerText ?? null`);
+  return app.js(`return document.querySelector('[data-testid="action-tip"]')?.innerText.trim() ?? null`);
 }
 
 async function headerButton(app, label) {
@@ -335,7 +335,13 @@ describe("detail panel action header (limited user, edit in team-a)", { timeout:
     const after = await bar(app);
     console.log(`limited header: ${JSON.stringify(after)}`);
     assert.equal(b.length, after.length);
-    assert.ok(after.every((x) => !x.denied), "edit in team-a allows every pod action");
+    // `edit` covers every pod action, except Debug on clusters whose `edit`
+    // role has no pods/ephemeralcontainers (kind v1.37 in CI): that one is
+    // greyed with its reason.
+    for (const x of after) {
+      if (x.label === "Debug…" && x.denied) assert.match(x.reason, /pods\/ephemeralcontainers in namespace team-a/);
+      else assert.ok(!x.denied, `${x.label} offered to edit in team-a`);
+    }
     await bothThemes(app, "limited-pod");
   });
 });
