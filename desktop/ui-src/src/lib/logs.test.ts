@@ -60,6 +60,22 @@ describe("LogBuffer", () => {
     expect(b.lines[0]).toBe(String(LOG_BUFFER_MAX / 10 + 1));
   });
 
+  it("numbers the lines across trims and clears (#272)", () => {
+    const b = new LogBuffer();
+    b.push(Array.from({ length: LOG_BUFFER_MAX + LOG_BUFFER_MAX / 10 + 1 }, (_, i) => String(i)));
+    const first = LOG_BUFFER_MAX / 10 + 1;
+    expect(b.first()).toBe(first);
+    expect(b.end()).toBe(first + LOG_BUFFER_MAX);
+    expect(b.slice(first + 2, first + 4)).toEqual([String(first + 2), String(first + 3)]);
+    // Trimmed lines are left out.
+    expect(b.slice(0, first + 1)).toEqual([String(first)]);
+    expect(b.sliceTags(first, first + 2)).toEqual([0, 0]);
+    b.clear();
+    expect(b.first()).toBe(b.end());
+    b.push(["x"]);
+    expect(b.slice(b.first(), b.end())).toEqual(["x"]);
+  });
+
   it("clear empties the lines but keeps known tags", () => {
     const b = new LogBuffer();
     b.pushTagged([{ pod: "p", container: "c", line: "x" }]);

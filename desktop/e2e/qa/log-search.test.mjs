@@ -341,7 +341,22 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
         { message: '"N of N"' },
       );
       console.log(`Shift+Enter went to match ${at}`);
+      // #272: stepping turned Follow off, so the busy stream does not
+      // scroll the match away (nor do trims of the oldest lines).
+      const followBox = await app.find(By.xpath(`//*[@data-tab='${sid}']//label[normalize-space()='Follow']/input`));
+      assert.equal(await followBox.isSelected(), false, "Follow is off after stepping");
+      await app.driver.sleep(3000);
+      const kept = await app.js(
+        `const l = document.querySelector(arguments[0] + ' [data-testid="log-line"].current');
+         if (!l) return null;
+         const r = l.getBoundingClientRect(); const o = document.querySelector(arguments[0] + ' [data-testid="log-output"]').getBoundingClientRect();
+         return { text: l.textContent, inView: r.top >= o.top - 1 && r.bottom <= o.bottom + 1 };`,
+        pane(sid),
+      );
+      console.log(`3 s later the current match: ${JSON.stringify(kept)}`);
+      assert.ok(kept?.inView, `the current match stays in view: ${JSON.stringify(kept)}`);
       await shots(app, "busy-highlight");
+      await followBox.click();
 
       // `(a+)+$` on "aaa…a!" backtracks for ever: stopped after the limit.
       const t1 = Date.now();
