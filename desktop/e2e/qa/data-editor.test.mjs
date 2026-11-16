@@ -105,10 +105,7 @@ async function valueBox(app, key) {
 }
 
 const secretValue = (namespace, name, key) =>
-  Buffer.from(
-    kubectl(["-n", namespace, "get", "secret", name, "-o", `jsonpath={.data.${key.replace(/\./g, "\\.")}}`]),
-    "base64",
-  ).toString();
+  Buffer.from(JSON.parse(kubectl(["-n", namespace, "get", "secret", name, "-o", "json"])).data?.[key] ?? "", "base64").toString();
 
 /** A user that may read ConfigMaps and Secrets in `namespace` but not change them. */
 function readerKubeconfig(namespace) {
