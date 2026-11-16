@@ -34,6 +34,13 @@ export const commands = {
 	 */
 	cmdRunAction: (resource: ResourceRef, namespace: string, name: string, action: ActionId, replicas: number | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_run_action", { resource, namespace, name, action, replicas }, options),
 	/**
+	 *  Start the applications feed `id` (chosen by the UI) for `namespaces`
+	 *  (empty: all namespaces). Replaces a feed with the same id; the UI starts
+	 *  a new one when the namespace selection changes.
+	 */
+	cmdApplicationsStart: (id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_start", { id, namespaces }, options),
+	cmdApplicationsStop: (id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_stop", { id }, options),
+	/**
 	 *  Add a kubeconfig file or a folder of them (`~` expands). Its contexts
 	 *  show up in every window. Returns the sources.
 	 */
@@ -425,6 +432,8 @@ export const commands = {
 
 /** Events */
 export const events = {
+	applicationsState: makeEvent<ApplicationsStateChanged, ApplicationsStateChanged>("applications-state"),
+	applicationsUpdate: makeEvent<ApplicationsChanged, ApplicationsChanged>("applications-update"),
 	detailWatch: makeEvent<DetailWatchEvent, DetailWatchEvent>("detail-watch"),
 	drainFinished: makeEvent<DrainFinished, DrainFinished>("drain-finished"),
 	drainProgress: makeEvent<DrainProgress, DrainProgress>("drain-progress"),
@@ -509,6 +518,82 @@ export type ActionInput =
 "port" | 
 /**  The container to debug and the debug image. */
 "debug";
+
+/**  The rolled-up status of an application. */
+export type AppHealth = 
+/**  A workload failed or has a failing replica. */
+"Degraded" | 
+/**  A workload is not fully ready yet. */
+"Progressing" | 
+/**  Every workload is fine. */
+"Healthy" | 
+/**  Every workload is suspended. */
+"Suspended";
+
+/**  Where an application's grouping comes from. */
+export type AppSource = 
+/**  A Helm release (its name is the release's). */
+"Helm" | 
+/**  The `app.kubernetes.io/instance` label. */
+"Instance" | 
+/**  The `app.kubernetes.io/name` label. */
+"Name";
+
+/**  A workload of an application. */
+export type AppWorkload = {
+	/**  API group and kind, to open its table. */
+	group: string,
+	kind: string,
+	namespace: string,
+	name: string,
+	status: WorkloadStatus,
+	/**  Why it is not fine ("0 of 2 ready"), or "". */
+	problem: string,
+};
+
+/**  One application. */
+export type Application = {
+	/**  `namespace/name`, unique in a list. */
+	key: string,
+	namespace: string,
+	name: string,
+	source: AppSource,
+	/**  The distinct `app.kubernetes.io/name` labels of its workloads, sorted. */
+	components: string[],
+	/**  The distinct `app.kubernetes.io/version` labels, sorted. */
+	versions: string[],
+	/**  The distinct `app.kubernetes.io/managed-by` labels, sorted. */
+	managed_by: string[],
+	health: AppHealth,
+	/**  The first problem ("Deployment web: 0 of 2 ready"), or "". */
+	reason: string,
+	/**  Problem workloads first, then by kind and name. */
+	workloads: AppWorkload[],
+	/**  The oldest workload's creation (unix seconds). */
+	created: number,
+};
+
+/**
+ *  A new applications list for the feed `id` (sent when it changed, at
+ *  most about once a second).
+ */
+export type ApplicationsChanged = {
+	id: number,
+	list: ApplicationsList,
+};
+
+/**  The applications of the selected namespaces. */
+export type ApplicationsList = {
+	/**  Sorted by namespace and name. */
+	applications: Application[],
+	/**  What is missing or narrowed, and why (RBAC). */
+	notes: string[],
+};
+
+/**  Connection state of the applications feed `id`. */
+export type ApplicationsStateChanged = {
+	id: number,
+} & WatchState;
 
 /**  What an apply did. */
 export type ApplyOutcome = 

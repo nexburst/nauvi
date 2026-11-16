@@ -6,6 +6,7 @@
  */
 
 import { actionsHandlers } from "./actions";
+import { applicationsHandlers } from "./applications";
 import { catalogHandlers } from "./catalog";
 import { clusterHandlers } from "./cluster";
 import { debugHandlers } from "./debug";
@@ -33,6 +34,7 @@ import { workloadsHandlers } from "./workloads";
 export function allHandlers(s: FakeState): Handlers {
   return {
     ...actionsHandlers(s),
+    ...applicationsHandlers(s),
     ...catalogHandlers(s),
     ...clusterHandlers(s),
     ...debugHandlers(s),

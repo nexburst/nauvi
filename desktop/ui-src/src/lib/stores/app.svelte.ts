@@ -7,6 +7,7 @@ import { HELM_VIEW } from "../helm";
 import { CATALOG_VIEW } from "../catalog";
 import { HELM_CHARTS_VIEW } from "../helmCharts";
 import { WORKLOADS_VIEW } from "../workloads";
+import { APPLICATIONS_VIEW } from "../applications";
 import { contextToRestore, namespacesToRestore } from "../settings";
 import { isMainWindow } from "../window";
 import { closeDetail, detail, openDetail } from "./detail.svelte";
@@ -123,6 +124,7 @@ function restorePendingView() {
     view === HELM_VIEW ||
     view === HELM_CHARTS_VIEW ||
     view === WORKLOADS_VIEW ||
+    view === APPLICATIONS_VIEW ||
     view === CATALOG_VIEW
   ) {
     app.view = view;

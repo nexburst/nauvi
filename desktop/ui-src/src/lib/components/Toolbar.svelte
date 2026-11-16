@@ -6,11 +6,15 @@
   import { openCreate } from "../stores/create.svelte";
   import { HELM_VIEW } from "../helm";
   import { WORKLOADS_VIEW } from "../workloads";
+  import { APPLICATIONS_VIEW } from "../applications";
 
   const kind = $derived(currentKind());
   // Only namespaced kinds (and Helm releases) can be narrowed to a namespace.
   const namespaced = $derived(
-    app.view === HELM_VIEW || app.view === WORKLOADS_VIEW || (kind?.resource.namespaced ?? false),
+    app.view === HELM_VIEW ||
+      app.view === WORKLOADS_VIEW ||
+      app.view === APPLICATIONS_VIEW ||
+      (kind?.resource.namespaced ?? false),
   );
   /** The Workloads overview has nothing to filter or create. */
   const overview = $derived(app.view === WORKLOADS_VIEW);

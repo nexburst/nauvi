@@ -9,6 +9,7 @@
  */
 
 import type { Component } from "svelte";
+import { APPLICATIONS_VIEW } from "./applications";
 import { CATALOG_VIEW } from "./catalog";
 import { PORT_FORWARDS_VIEW } from "./forwards";
 import { HELM_VIEW } from "./helm";
@@ -16,6 +17,7 @@ import { HELM_CHARTS_VIEW } from "./helmCharts";
 import { WORKLOADS_VIEW } from "./workloads";
 import { app } from "./stores/app.svelte";
 import { listenDrain } from "./stores/actions.svelte";
+import { apps } from "./stores/applications.svelte";
 import { catalog, listenKubeconfigs } from "./stores/catalog.svelte";
 import { createUi } from "./stores/create.svelte";
 import { checkLeftovers } from "./stores/debug.svelte";
@@ -27,6 +29,8 @@ import { trackHistory } from "./stores/navigation.svelte";
 import { listenUpdates, startupCheck } from "./stores/updates.svelte";
 import ActionDialog from "./components/ActionDialog.svelte";
 import ActionNotice from "./components/ActionNotice.svelte";
+import ApplicationDetail from "./components/ApplicationDetail.svelte";
+import Applications from "./components/Applications.svelte";
 import CatalogView from "./components/catalog/CatalogView.svelte";
 import ClusterSettings from "./components/catalog/ClusterSettings.svelte";
 import CommandPalette from "./components/CommandPalette.svelte";
@@ -86,6 +90,7 @@ export const VIEWS: View[] = [
   { id: HELM_CHARTS_VIEW, component: HelmChartsView, toolbar: true },
   { id: WORKLOADS_VIEW, component: WorkloadsOverview, toolbar: true },
   { id: PORT_FORWARDS_VIEW, component: PortForwards, toolbar: false },
+  { id: APPLICATIONS_VIEW, component: Applications, toolbar: true },
 ];
 
 /** Above the view. */
@@ -107,6 +112,11 @@ export const SIDE_PANELS: Slot[] = [
     when: () => app.view === HELM_CHARTS_VIEW && !!charts.selected,
     key: () => charts.selected,
     props: () => ({ chart: charts.selected! }),
+  }),
+  slot(ApplicationDetail, {
+    when: () => app.view === APPLICATIONS_VIEW && !!apps.current,
+    key: () => apps.selected,
+    props: () => ({ target: apps.current! }),
   }),
 ];
 

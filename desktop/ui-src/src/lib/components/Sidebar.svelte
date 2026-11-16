@@ -4,6 +4,7 @@
   import { HELM_VIEW } from "../helm";
   import { HELM_CHARTS_VIEW } from "../helmCharts";
   import { WORKLOADS_VIEW } from "../workloads";
+  import { APPLICATIONS_VIEW } from "../applications";
   import { isCrdDefinitions } from "../crd";
   import { PORT_FORWARDS_VIEW } from "../forwards";
   import { forwards, refreshForwards } from "../stores/forwards.svelte";
@@ -118,6 +119,12 @@
           class:active={app.view === WORKLOADS_VIEW}
           aria-label="Workloads overview"
           onclick={() => setView(WORKLOADS_VIEW)}>Overview</button
+        >
+        <!-- Not a kind: workloads grouped by app labels and Helm release (#226). -->
+        <button
+          type="button"
+          class:active={app.view === APPLICATIONS_VIEW}
+          onclick={() => setView(APPLICATIONS_VIEW)}>Applications</button
         >
       {/if}
       {#each list as kind (kind.id)}
