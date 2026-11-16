@@ -120,10 +120,6 @@ pub fn detail_of(
     })
 }
 
-/// Most events of one object read for its detail panel (it shows the
-/// newest 50).
-const RELATED_EVENTS_READ: usize = 1000;
-
 /// Events whose involved object has this uid, newest first. Best effort:
 /// without permission to read events the panel just shows none.
 async fn related_events(client: &Client, namespace: &str, uid: &str) -> Vec<RelatedEvent> {
@@ -137,11 +133,10 @@ async fn related_events(client: &Client, namespace: &str, uid: &str) -> Vec<Rela
         Api::namespaced(client.clone(), namespace)
     };
     let lp = ListParams::default().fields(&format!("involvedObject.uid={uid}"));
-    // Bounded (#311): an object that keeps failing may have many events.
-    let Ok(read) = crate::bounded_list::list_bounded(&api, &lp, RELATED_EVENTS_READ).await else {
+    let Ok(list) = api.list(&lp).await else {
         return Vec::new();
     };
-    summarize_events(read.items)
+    summarize_events(list.items)
 }
 
 /// Events for the panel, newest first, at most 50.

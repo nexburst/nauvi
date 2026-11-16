@@ -309,10 +309,16 @@ fn run_plugin_within(exec: &ExecConfig, timeout: Duration) -> Result<ExecCredent
 /// `cmd.output()`, except that the child is killed once it has run for
 /// `timeout`.
 ///
+/// What is killed is the plugin with what it started (a wrapper script's
+/// `sleep`, `aws` under a shell): on Unix its process group, which a
+/// non-interactive plugin gets of its own (an interactive one stays in the
+/// terminal's group, so it can read the terminal: there only the plugin is
+/// killed); on Windows its process tree (`taskkill /T`).
+///
 /// stdout (and stderr, unless `interactive` inherits it) is read on its
 /// own thread, so a chatty plugin cannot block on a full pipe. After a
-/// kill the readers are not waited for: a grandchild (a script's `sleep`)
-/// may keep the pipes open, and its reader ends when it does.
+/// kill the readers are never waited for, so a process that escaped the
+/// kill and still holds a pipe cannot block the caller.
 fn output_within(
     cmd: &mut std::process::Command,
     interactive: bool,
@@ -325,6 +331,11 @@ fn output_within(
     cmd.stdout(Stdio::piped());
     if !interactive {
         cmd.stderr(Stdio::piped());
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
     }
     let started = Instant::now();
     let mut child = cmd.spawn().map_err(AuthError::AuthExecStart)?;
@@ -353,7 +364,7 @@ fn output_within(
         match child.try_wait().map_err(AuthError::AuthExecStart)? {
             Some(status) => break status,
             None if Instant::now() >= deadline => {
-                let _ = child.kill();
+                kill_tree(&mut child, interactive);
                 let _ = child.wait();
                 tracing::warn!(
                     timeout_secs = timeout.as_secs(),
@@ -376,6 +387,36 @@ fn output_within(
         stdout: collect(stdout),
         stderr: collect(stderr),
     })
+}
+
+/// Kill a plugin that ran too long, with the processes it started (see
+/// [`output_within`]).
+fn kill_tree(child: &mut std::process::Child, interactive: bool) {
+    #[cfg(unix)]
+    if !interactive {
+        if let Ok(pgid) = libc::pid_t::try_from(child.id()) {
+            // SAFETY: plain syscall; the group is the child's own (it was
+            // started with `process_group(0)` and is not reaped yet).
+            unsafe { libc::killpg(pgid, libc::SIGKILL) };
+        }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let _ = interactive;
+        let _ = std::process::Command::new("taskkill")
+            .args(["/T", "/F", "/PID", &child.id().to_string()])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
+            .status();
+    }
+    #[cfg(not(any(unix, windows)))]
+    let _ = interactive;
+    // The plugin itself, in every case (and if the above failed).
+    let _ = child.kill();
 }
 
 /// Whether kube-client would log in with the exec plugin: it has one, and
@@ -623,11 +664,14 @@ mod tests {
         let dir = temp_dir("slow");
         let script = dir.join("slow.sh");
         let pid_file = dir.join("pid");
+        let child_file = dir.join("grandchild");
+        // A wrapper whose grandchild (`sleep`) holds stdout and stderr.
         std::fs::write(
             &script,
             format!(
-                "#!/bin/sh\necho $$ > '{}'\necho 'Waiting for the browser login' >&2\nsleep 30\necho '{{}}'\n",
-                pid_file.display()
+                "#!/bin/sh\necho $$ > '{}'\necho 'Waiting for the browser login' >&2\nsleep 30 &\necho $! > '{}'\nwait\necho '{{}}'\n",
+                pid_file.display(),
+                child_file.display()
             ),
         )
         .unwrap();
@@ -643,15 +687,19 @@ mod tests {
             err_text(&err),
             "the credential plugin did not finish within 1 s, so kubeloupe stopped it"
         );
-        // The plugin itself is gone (killed and reaped).
-        let pid: i32 = std::fs::read_to_string(&pid_file)
-            .unwrap()
-            .trim()
-            .parse()
-            .unwrap();
-        // SAFETY: signal 0 only checks that the process exists.
-        let alive = unsafe { libc::kill(pid, 0) } == 0;
-        assert!(!alive, "plugin {pid} still runs");
+        // The plugin and its grandchild are gone. The grandchild is reaped
+        // by init once its parent is killed: give that a moment.
+        let read_pid =
+            |p: &Path| -> i32 { std::fs::read_to_string(p).unwrap().trim().parse().unwrap() };
+        for pid in [read_pid(&pid_file), read_pid(&child_file)] {
+            // SAFETY: signal 0 only checks that the process exists.
+            let alive = || unsafe { libc::kill(pid, 0) } == 0;
+            let until = std::time::Instant::now() + Duration::from_secs(3);
+            while alive() && std::time::Instant::now() < until {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            assert!(!alive(), "process {pid} still runs");
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

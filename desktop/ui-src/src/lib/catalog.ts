@@ -123,6 +123,17 @@ export function pathParts(path: string): string[] {
   return path.match(/[^/\\]*[/\\]|[^/\\]+$/g) ?? [path];
 }
 
+/**
+ * A check's message for its catalog row, without the "Login to `<id>`
+ * failed: " start: the row already names the context and says "Login
+ * failed", so its two lines show the reason (#311). The tooltip keeps the
+ * whole message.
+ */
+export function rowMessage(message: string, id: string): string {
+  const start = `Login to \`${id}\` failed: `;
+  return message.startsWith(start) ? message.slice(start.length) : message;
+}
+
 /** Run `fn` on every item, at most `limit` at a time. */
 export async function runLimited<T>(items: readonly T[], limit: number, fn: (item: T) => Promise<void>) {
   let next = 0;

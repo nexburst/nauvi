@@ -133,7 +133,8 @@ const slowPid = join(dir, "slow-pid");
 const slowFile = join(dir, "slow.yaml");
 writeFileSync(
   slow,
-  `#!/bin/sh\necho $$ > '${slowPid}'\necho 'Open the browser to log in' >&2\nsleep 300\n`,
+  `#!/bin/sh\necho $$ > '${slowPid}'\necho 'Open the browser to log in' >&2\n` +
+    `sleep 300 &\necho $! > '${slowPid}-child'\nwait\n`,
 );
 chmodSync(slow, 0o755);
 writeFileSync(
@@ -382,9 +383,21 @@ describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () 
     const status = await statusOf(app, SLOW_ID);
     console.log(`timed out after ${took.toFixed(1)} s: ${JSON.stringify(status)}`);
     assert.ok(status.includes(`did not finish within ${TIMEOUT_SECS} s, so kubeloupe stopped it`), status);
+    // The row's two lines start with the reason, not the context or a path.
+    const shown = await app.js(
+      `return document.querySelector(arguments[0])?.querySelector('[data-testid="catalog-status-message"]')?.textContent.trim() ?? ""`,
+      row(SLOW_ID),
+    );
+    assert.ok(shown.startsWith("`slow-login.sh` did not finish"), shown);
     assert.ok(took >= TIMEOUT_SECS - 1 && took < TIMEOUT_SECS + 20, `took ${took} s`);
-    const pid = Number(readFileSync(slowPid, "utf8").trim());
-    assert.ok(pid > 0 && !alive(pid), `the plugin (pid ${pid}) was killed`);
+    for (const file of [slowPid, `${slowPid}-child`]) {
+      const pid = Number(readFileSync(file, "utf8").trim());
+      // The grandchild is reaped by init after its parent is killed.
+      await app.waitFor(async () => pid > 0 && !alive(pid), {
+        timeout: 5_000,
+        message: `the plugin's process ${pid} was killed`,
+      });
+    }
     await app.shot("exec-timeout-light");
     await setTheme(app, "dark");
     await app.shot("exec-timeout-dark");

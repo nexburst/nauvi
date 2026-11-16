@@ -8,6 +8,7 @@
     lastUsedText,
     orderContexts,
     pathParts,
+    rowMessage,
     SOURCE_LABELS,
     STATE_LABELS,
   } from "../../catalog";
@@ -214,7 +215,9 @@
                   title={check.message || check.version}>{STATE_LABELS[check.state]}</span
                 >
                 {#if check.state !== "connected"}
-                  <div class="why muted" data-testid="catalog-status-message" title={check.message}>{check.message}</div>
+                  <div class="why muted" data-testid="catalog-status-message" title={check.message}>
+                    {rowMessage(check.message, c.name)}
+                  </div>
                 {/if}
                 {#if check.state === "not_allowed"}
                   <button type="button" class="btn small" aria-label="Check {name}" onclick={() => void checkOnDemand(c.name)}

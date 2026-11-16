@@ -155,8 +155,14 @@ pub fn exec_failed_message(cmd: &str, ctx: &str, status: ExitStatus, stderr: &[u
     )
 }
 
-/// The message for an exec plugin that was stopped after `after`.
+/// The message for an exec plugin that was stopped after `after`. It names
+/// the program without its folder, so the catalog row's two lines show the
+/// reason (the prompt showed the full command).
 pub fn timed_out_message(cmd: &str, ctx: &str, after: std::time::Duration) -> String {
+    let cmd = std::path::Path::new(cmd)
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or(cmd.into());
     format!(
         "{LOGIN_FAILED}{ctx}` failed: `{cmd}` did not finish within {}, so kubeloupe stopped it. \
          If it waits for a login in the browser, finish the login and try again.",
@@ -371,6 +377,10 @@ mod tests {
             msg,
             "Login to `prod` failed: `aws` did not finish within 1 min, so kubeloupe stopped it. \
              If it waits for a login in the browser, finish the login and try again."
+        );
+        assert!(
+            timed_out_message("/opt/bin/kubelogin", "x", std::time::Duration::from_secs(6))
+                .contains(": `kubelogin` did not finish within 6 s")
         );
 
         let unauthorized = kube::Error::Api(

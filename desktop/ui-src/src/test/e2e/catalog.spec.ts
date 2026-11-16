@@ -32,6 +32,9 @@ test("the catalog lists every context with its status and source, checked on ope
   const prod = catalogRow(page, "prod");
   await expect(prod.getByTestId("catalog-status")).toContainText("Login failed");
   await expect(prod.getByTestId("catalog-status-message")).toContainText("SSO session expired");
+  // The row starts with the reason; the tooltip keeps the whole message (#311).
+  await expect(prod.getByTestId("catalog-status-message")).toHaveText(/^`aws` exited with exit code 255/);
+  await expect(prod.getByTestId("catalog-status-message")).toHaveAttribute("title", /^Login to `prod` failed: /);
   // The default kubeconfig cannot be removed from here.
   await expect(prod.getByRole("button", { name: /Remove/ })).toHaveCount(0);
   await expect(page.getByTestId("catalog-source")).toHaveText(/Kubeconfig\s*\/home\/user\/.kube\/config\s*2 contexts/);
