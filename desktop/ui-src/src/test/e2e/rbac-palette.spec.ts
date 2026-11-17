@@ -188,3 +188,89 @@ test("on a read-only context the palette and Delete give the read-only reason", 
   await expect(dialog(page)).toHaveCount(0);
   expect(await fake.calls("cmdRunAction")).toEqual([]);
 });
+
+// Switching cluster while an action is on its way (#349): nothing may run
+// on the cluster shown afterwards with objects of the one shown before.
+
+/** Show the `prod` cluster, from the cluster tree (even under a dialog). */
+async function switchToProd(page: Page) {
+  await page
+    .locator('[data-testid="cluster-node"][data-cluster="prod"]')
+    .getByRole("button", { name: "prod", exact: true })
+    .dispatchEvent("click");
+  await expect(
+    page.locator('[data-testid="cluster-node"][data-cluster="prod"]'),
+  ).toHaveAttribute("data-state", "visible");
+}
+
+test("a switch while the keyboard Delete is checking opens no dialog", async ({
+  page,
+}) => {
+  const fake = await openApp(page, (cluster) => {
+    cluster.checkActionsDelayMs = 1500;
+  });
+  await openKind(page, "Pods");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Delete");
+  await switchToProd(page);
+  // Well past the check's answer.
+  await page.waitForTimeout(2000);
+  await expect(dialog(page)).toHaveCount(0);
+  expect(await fake.calls("cmdRunAction")).toEqual([]);
+});
+
+test("a palette pick waiting for the check after a switch runs nothing", async ({
+  page,
+}) => {
+  const fake = await openApp(page, (cluster) => {
+    cluster.checkActionsDelayMs = 1500;
+  });
+  await openKind(page, "Pods");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type(">evict");
+  await page.keyboard.press("Enter");
+  await switchToProd(page);
+  await page.waitForTimeout(2000);
+  await expect(palette(page)).toHaveCount(0);
+  await expect(dialog(page)).toHaveCount(0);
+  expect(await fake.calls("cmdRunAction")).toEqual([]);
+});
+
+test("a dialog opened before a switch runs nothing on the new cluster", async ({
+  page,
+}) => {
+  const fake = await openApp(page);
+  await openKind(page, "Pods");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Delete");
+  await expect(dialog(page)).toHaveAccessibleName("Delete Pod");
+  await switchToProd(page);
+  await dialog(page)
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(notice(page)).toContainText(
+    "The window switched to another cluster: nothing was changed",
+  );
+  expect(await fake.calls("cmdRunAction")).toEqual([]);
+  expect(fake.errors).toEqual([]);
+});
+
+test("a confirmed action runs on the cluster it was asked on", async ({
+  page,
+}) => {
+  await openApp(page);
+  await openKind(page, "Pods");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Delete");
+  await dialog(page)
+    .getByRole("button", { name: "Delete", exact: true })
+    .click();
+  await expect(dialog(page)).toHaveCount(0);
+  expect(
+    (await page.evaluate(() => window.__fake.clusterCalls())).filter(
+      ([c]) => c === "cmdRunAction",
+    ),
+  ).toEqual([["cmdRunAction", "kind-dev"]]);
+});

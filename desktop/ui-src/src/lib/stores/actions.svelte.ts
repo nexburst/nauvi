@@ -25,6 +25,9 @@ export interface ActionRequest {
   replicas: number;
   /** What the user typed to confirm (force delete). */
   typed: string;
+  /** The cluster it was asked on (#349): it runs there, never on whatever
+   *  the window shows by the time it is confirmed. */
+  cluster: string;
 }
 
 export interface DrainView {
@@ -109,7 +112,7 @@ export function requestAction(kind: ResourceKind, targets: ActionTarget[], actio
     openDockTab({ type: "attach", pod, container: null });
     return;
   }
-  const req: ActionRequest = { kind, targets, action, replicas, typed: "" };
+  const req: ActionRequest = { kind, targets, action, replicas, typed: "", cluster: visibleCluster() };
   if (needsDialog(action, targets)) {
     actionUi.request = req;
     actionUi.busy = false;
@@ -139,9 +142,19 @@ export function canConfirm(req: ActionRequest): boolean {
   return true;
 }
 
+/** Said when a dialog outlived the cluster it was opened on. */
+export const SWITCHED_NOTICE = "The window switched to another cluster: nothing was changed";
+
 export function confirmRequest() {
   const req = actionUi.request;
-  if (req && canConfirm(req)) void execute(req, true);
+  if (!req || !canConfirm(req)) return;
+  // Its objects are of a cluster the window no longer shows (#349).
+  if (req.cluster !== visibleCluster()) {
+    closeDialog();
+    setNotice(false, SWITCHED_NOTICE, { level: "warning" });
+    return;
+  }
+  void execute(req, true);
 }
 
 async function execute(req: ActionRequest, inDialog: boolean) {
@@ -154,11 +167,11 @@ async function execute(req: ActionRequest, inDialog: boolean) {
   }
   try {
     if (action.id === "drain") {
-      await startDrain(targets[0].name);
+      await startDrain(req.cluster, targets[0].name);
       return;
     }
     if (targets.length > 1) {
-      const results = await api(visibleCluster()).cmdBulkDelete(
+      const results = await api(req.cluster).cmdBulkDelete(
         resource,
         targets.map((t) => ({ namespace: t.namespace, name: t.name })),
       );
@@ -174,7 +187,7 @@ async function execute(req: ActionRequest, inDialog: boolean) {
       return;
     }
     const t = targets[0];
-    const msg = await api(visibleCluster()).cmdRunAction(resource, t.namespace, t.name, action.id, replicas);
+    const msg = await api(req.cluster).cmdRunAction(resource, t.namespace, t.name, action.id, replicas);
     const gone = action.id === "delete" || action.id === "forceDelete" || action.id === "evict";
     if (gone) closeDetailIf(kind, t);
     actionUi.request = null;
@@ -199,8 +212,7 @@ function closeDetailIf(kind: ResourceKind, t: ActionTarget) {
   }
 }
 
-async function startDrain(node: string) {
-  const cluster = visibleCluster();
+async function startDrain(cluster: string, node: string) {
   actionUi.drain = { id: null, cluster, node, lines: [], finished: false, error: "", summary: null };
   try {
     const id = await api(cluster).cmdDrainNode(node, DRAIN_TIMEOUT_SECS);

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { rankItems, withReasons } from "../palette";
+  import { visibleCluster } from "../cluster";
   import type { Ranked } from "../palette";
   import { reloadNamespaces } from "../stores/app.svelte";
   import { activeTable, closePalette, keyboard } from "../stores/keyboard.svelte";
@@ -16,6 +17,8 @@
   let reasons = $state.raw(new Map<string, string>());
   // svelte-ignore state_referenced_locally
   const access = paletteAccess(items);
+  // The cluster its actions are about.
+  const openedOn = visibleCluster();
   // svelte-ignore state_referenced_locally
   let query = $state(keyboard.paletteQuery);
   let active = $state(0);
@@ -55,9 +58,14 @@
 
   async function run(r: Ranked | undefined) {
     if (!r || r.item.reason) return;
-    // Picked before the check answered: wait for it.
+    // Picked before the check answered: wait for it, unless the window
+    // switched cluster meanwhile (the entry is about the old one).
     if (r.item.access) {
       const refused = await access;
+      if (visibleCluster() !== openedOn) {
+        closePalette();
+        return;
+      }
       if (refused.has(r.item.id)) {
         reasons = refused;
         return;

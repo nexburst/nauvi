@@ -11,6 +11,7 @@
   import { rangeKeys } from "../selection";
   import { requestAction, setNotice } from "../stores/actions.svelte";
   import { deleteDenied, deniedActions, namespacesOf } from "../access";
+  import { visibleCluster } from "../cluster";
   import { dockMenuFor } from "../dock";
   import { openDockTab } from "../stores/dock.svelte";
   import { copyLink, prefetchLink } from "../stores/links.svelte";
@@ -270,8 +271,11 @@
           : [];
     if (targets.length === 0) return;
     const token = ++deleteCheck;
+    const asked = visibleCluster();
     const reason = await deleteDenied(kind.resource, targets);
-    if (token !== deleteCheck) return;
+    // Pressed again meanwhile, or the window switched cluster: these rows
+    // are not the ones it shows any more.
+    if (token !== deleteCheck || visibleCluster() !== asked) return;
     if (reason) setNotice(false, reason, { level: "warning" });
     else requestAction(kind, targets, del);
   }
