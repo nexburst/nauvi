@@ -102,6 +102,54 @@ function measure(root) {
 
 const mb = (k) => (k / 1024).toFixed(0);
 
+/**
+ * The biggest mappings of `pid` by RSS, grouped by backing file (anonymous
+ * memory by permissions): where the memory is, for #353. kB.
+ */
+function topMappings(pid, n = 12) {
+  let text;
+  try {
+    text = readFileSync(`/proc/${pid}/smaps`, "utf8");
+  } catch {
+    return [];
+  }
+  const groups = new Map();
+  let cur = null;
+  for (const line of text.split("\n")) {
+    const head = line.match(/^[0-9a-f]+-[0-9a-f]+ (\S+) \S+ \S+ \S+\s*(.*)$/);
+    if (head) {
+      const file = head[2].trim();
+      const name = file ? file.split("/").pop() : `[anon ${head[1]}]`;
+      cur = groups.get(name) ?? { name, rss: 0, pss: 0, maps: 0 };
+      cur.maps++;
+      groups.set(name, cur);
+      continue;
+    }
+    const field = line.match(/^(Rss|Pss):\s+(\d+) kB/);
+    if (field && cur) cur[field[1].toLowerCase()] += Number(field[2]);
+  }
+  return [...groups.values()].sort((a, b) => b.rss - a.rss).slice(0, n);
+}
+
+/** Counters from the page: what the UI holds (WebKit has no performance.memory). */
+async function pageCounters(app) {
+  try {
+    return await app.js(() => ({
+      domNodes: document.getElementsByTagName("*").length,
+      scripts: performance.getEntriesByType("resource").filter((e) => e.initiatorType === "script").length,
+      styleRules: [...document.styleSheets].reduce((n, sh) => {
+        try {
+          return n + sh.cssRules.length;
+        } catch {
+          return n;
+        }
+      }, 0),
+    }));
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
+
 function markdown(r) {
   const line = (label, x) => `| ${label} | ${x.count} | ${mb(x.rss)} MB | ${mb(x.pss)} MB |`;
   return [
@@ -146,6 +194,13 @@ describe("idle memory on the Overview", { skip, timeout: 5 * 60_000 }, () => {
     assert.ok(r.core.rss > 0, "read the core's RSS");
     assert.ok(r.web.count > 0, `a WebKitWebProcess under the app: ${JSON.stringify(r.processes)}`);
 
+    r.page = await pageCounters(app);
+    r.mappings = Object.fromEntries(
+      [pid, ...r.processes.filter((p) => p.comm.startsWith("WebKitWebProc")).map((p) => p.pid)].map((p) => [
+        p,
+        topMappings(p),
+      ]),
+    );
     writeFileSync(join(ARTIFACTS, "idle-memory.json"), JSON.stringify(r, null, 2));
     const md = markdown(r);
     console.log(md);
