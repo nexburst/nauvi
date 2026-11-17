@@ -511,6 +511,10 @@ mod tests {
             scheduled: true,
             cpu_request_millicores: 0,
             memory_request_bytes: 0,
+            cpu_limit_millicores: 0,
+            memory_limit_bytes: 0,
+            cpu_unlimited: 0,
+            memory_unlimited: 0,
         };
         (format!("demo/{name}"), s)
     }

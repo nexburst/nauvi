@@ -460,9 +460,13 @@ export function defaultCluster(): FakeCluster {
       },
       capacity: {
         cpu_requests_millicores: 1200,
+        cpu_limits_millicores: 2500,
+        cpu_unlimited_containers: 0,
         cpu_allocatable_millicores: 8000,
         cpu_usage_millicores: 900,
         memory_requests_bytes: 3 * 1024 ** 3,
+        memory_limits_bytes: 6 * 1024 ** 3,
+        memory_unlimited_containers: 3,
         memory_allocatable_bytes: 16 * 1024 ** 3,
         memory_usage_bytes: 2 * 1024 ** 3,
         metrics: true,

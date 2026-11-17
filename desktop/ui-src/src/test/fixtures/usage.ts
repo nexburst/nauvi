@@ -17,7 +17,7 @@ export interface FakePrometheus {
   note: string;
   /** Make every query fail with this reason ("" = they work). */
   failure: string;
-  /** Series by `pods|namespace/name|range`, `nodes|name|range` or `workloads|Kind|namespace/name|range`. */
+  /** Series by `pods|namespace/name|range`, `nodes|name|range`, `workloads|Kind|namespace/name|range` or `cluster|1h`. */
   series: Record<string, SeriesView>;
   /** Root filesystems node-exporter reports (`cmd_node_disk_usage`). */
   disks: NodeDisk[];
@@ -164,6 +164,8 @@ export function prometheusFixture(): FakePrometheus {
       },
       "nodes|node-1|1h": { since: node[0].t, samples: node, containers: [] },
       "workloads|Deployment|demo/web|1h": { since: total[0].t, samples: sum(total, total), containers: [] },
+      // The overview's chart (#328): the nodes summed.
+      "cluster|1h": { since: node[0].t, samples: sum(node, node), containers: [] },
     },
   };
 }

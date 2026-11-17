@@ -47,6 +47,13 @@ pub struct PodSummary {
     pub scheduled: bool,
     pub cpu_request_millicores: u64,
     pub memory_request_bytes: u64,
+    /// The limits set, summed like the requests; a container without a
+    /// limit adds nothing.
+    pub cpu_limit_millicores: u64,
+    pub memory_limit_bytes: u64,
+    /// App containers and native sidecars without a cpu / memory limit.
+    pub cpu_unlimited: u64,
+    pub memory_unlimited: u64,
 }
 
 /// The part of a node the overview needs.
@@ -101,7 +108,9 @@ pub fn pod_summary(pod: &Pod) -> PodSummary {
         .map(|c| c.restart_count)
         .sum();
     let spec = pod.spec.as_ref();
-    let (cpu, memory) = spec.map(pod_requests).unwrap_or_default();
+    let (cpu, memory) = spec.map(|s| pod_resources(s, false)).unwrap_or_default();
+    let (cpu_limit, memory_limit) = spec.map(|s| pod_resources(s, true)).unwrap_or_default();
+    let (cpu_unlimited, memory_unlimited) = spec.map(unlimited_containers).unwrap_or_default();
     PodSummary {
         namespace: pod.metadata.namespace.clone().unwrap_or_default(),
         name: pod.metadata.name.clone().unwrap_or_default(),
@@ -114,6 +123,10 @@ pub fn pod_summary(pod: &Pod) -> PodSummary {
         scheduled: spec.and_then(|s| s.node_name.as_ref()).is_some(),
         cpu_request_millicores: cpu,
         memory_request_bytes: memory,
+        cpu_limit_millicores: cpu_limit,
+        memory_limit_bytes: memory_limit,
+        cpu_unlimited,
+        memory_unlimited,
     }
 }
 
@@ -129,32 +142,73 @@ fn quantity(map: Option<&BTreeMap<String, Quantity>>, key: &str, cpu: bool) -> u
     parsed.unwrap_or(0)
 }
 
-fn container_requests(c: &Container) -> (u64, u64) {
-    let requests = c.resources.as_ref().and_then(|r| r.requests.as_ref());
-    (
-        quantity(requests, "cpu", true),
-        quantity(requests, "memory", false),
+/// A container's (cpu, memory) requests, or its limits.
+fn container_resources(c: &Container, limits: bool) -> (u64, u64) {
+    let r = c.resources.as_ref();
+    let map = if limits {
+        r.and_then(|r| r.limits.as_ref())
+    } else {
+        r.and_then(|r| r.requests.as_ref())
+    };
+    (quantity(map, "cpu", true), quantity(map, "memory", false))
+}
+
+/// A native sidecar: an init container that keeps running
+/// (`restartPolicy: Always`).
+fn is_sidecar(c: &Container) -> bool {
+    c.restart_policy.as_deref() == Some("Always")
+}
+
+/// What the scheduler reserves for a pod, or (`limits`) the limits set, the
+/// way the scheduler sums them: the app containers plus the native sidecars,
+/// or the largest an init container needs (with the sidecars started before
+/// it), whichever is larger, plus the pod overhead (which counts towards
+/// both).
+fn pod_resources(spec: &k8s_openapi::api::core::v1::PodSpec, limits: bool) -> (u64, u64) {
+    let add = |(a, b): (u64, u64), (c, m): (u64, u64)| (a + c, b + m);
+    let max = |(a, b): (u64, u64), (c, m): (u64, u64)| (a.max(c), b.max(m));
+    let mut sidecars = (0, 0);
+    let mut init = (0, 0);
+    for c in spec.init_containers.as_deref().unwrap_or_default() {
+        let own = container_resources(c, limits);
+        let needs = if is_sidecar(c) {
+            sidecars = add(sidecars, own);
+            sidecars
+        } else {
+            add(own, sidecars)
+        };
+        init = max(init, needs);
+    }
+    let app = spec
+        .containers
+        .iter()
+        .map(|c| container_resources(c, limits))
+        .fold(sidecars, add);
+    let overhead = spec.overhead.as_ref();
+    add(
+        max(app, init),
+        (
+            quantity(overhead, "cpu", true),
+            quantity(overhead, "memory", false),
+        ),
     )
 }
 
-/// What the scheduler reserves for a pod: the sum of its containers'
-/// requests or the largest init container's, whichever is larger, plus the
-/// pod overhead.
-fn pod_requests(spec: &k8s_openapi::api::core::v1::PodSpec) -> (u64, u64) {
-    let (mut cpu, mut memory) = spec
+/// How many of the pod's long-running containers (app containers and
+/// native sidecars) have no (cpu, memory) limit.
+fn unlimited_containers(spec: &k8s_openapi::api::core::v1::PodSpec) -> (u64, u64) {
+    let sidecars = spec.init_containers.as_deref().unwrap_or_default();
+    let running = spec
         .containers
         .iter()
-        .map(container_requests)
-        .fold((0, 0), |(a, b), (c, m)| (a + c, b + m));
-    for init in spec.init_containers.as_deref().unwrap_or_default() {
-        let (c, m) = container_requests(init);
-        cpu = cpu.max(c);
-        memory = memory.max(m);
+        .chain(sidecars.iter().filter(|c| is_sidecar(c)));
+    let mut n = (0, 0);
+    for c in running {
+        let limits = c.resources.as_ref().and_then(|r| r.limits.as_ref());
+        n.0 += u64::from(limits.is_none_or(|l| !l.contains_key("cpu")));
+        n.1 += u64::from(limits.is_none_or(|l| !l.contains_key("memory")));
     }
-    let overhead = spec.overhead.as_ref();
-    cpu += quantity(overhead, "cpu", true);
-    memory += quantity(overhead, "memory", false);
-    (cpu, memory)
+    n
 }
 
 pub fn node_summary(node: &Node) -> NodeSummary {
@@ -319,8 +373,9 @@ pub fn node_counts<'a>(nodes: impl IntoIterator<Item = &'a NodeSummary>) -> Node
     c
 }
 
-/// Requests and usage against what the nodes can allocate. Requests count
-/// the pods bound to a node that have not finished, like the scheduler.
+/// Requests, limits and usage against what the nodes can allocate. Requests
+/// and limits count the pods bound to a node that have not finished, like
+/// the scheduler.
 /// `usage` is the nodes' (cpu millicores, memory bytes) from the metrics
 /// API, if it is available.
 pub fn capacity<'a, 'b>(
@@ -330,9 +385,13 @@ pub fn capacity<'a, 'b>(
 ) -> Capacity {
     let mut c = Capacity {
         cpu_requests_millicores: 0,
+        cpu_limits_millicores: 0,
+        cpu_unlimited_containers: 0,
         cpu_allocatable_millicores: 0,
         cpu_usage_millicores: usage.map(|u| u.0).unwrap_or(0),
         memory_requests_bytes: 0,
+        memory_limits_bytes: 0,
+        memory_unlimited_containers: 0,
         memory_allocatable_bytes: 0,
         memory_usage_bytes: usage.map(|u| u.1).unwrap_or(0),
         metrics: usage.is_some(),
@@ -349,6 +408,10 @@ pub fn capacity<'a, 'b>(
             c.pods += 1;
             c.cpu_requests_millicores += p.cpu_request_millicores;
             c.memory_requests_bytes += p.memory_request_bytes;
+            c.cpu_limits_millicores += p.cpu_limit_millicores;
+            c.memory_limits_bytes += p.memory_limit_bytes;
+            c.cpu_unlimited_containers += p.cpu_unlimited;
+            c.memory_unlimited_containers += p.memory_unlimited;
         }
     }
     c
@@ -554,6 +617,117 @@ mod tests {
 
         assert_eq!(node_counts(&nodes), NodeCounts { total: 2, ready: 2 });
         assert!(!capacity(&pods, &nodes, None).metrics);
+    }
+
+    #[test]
+    fn capacity_sums_the_limits_that_are_set() {
+        let limited = |name: &str, extra: serde_json::Value| {
+            pod(
+                name,
+                "Running",
+                merge_into(
+                    json!({ "spec": { "containers": [
+                        { "name": "a", "resources": {
+                            "requests": { "cpu": "100m", "memory": "64Mi" },
+                            "limits": { "cpu": "500m", "memory": "128Mi" } } },
+                        // No limits: adds nothing to them.
+                        { "name": "b", "resources": { "requests": { "cpu": "50m" } } }
+                    ]}}),
+                    extra,
+                ),
+            )
+        };
+        let pods: Vec<PodSummary> = [
+            limited("plain", json!({})),
+            // An init container with a larger limit wins, per resource; the
+            // overhead counts towards the limits too.
+            limited(
+                "init",
+                json!({ "spec": {
+                    "initContainers": [{ "name": "i", "resources": { "limits": { "cpu": "2", "memory": "16Mi" } } }],
+                    "overhead": { "cpu": "10m", "memory": "1Mi" }
+                }}),
+            ),
+            // Finished or unscheduled pods count for neither.
+            limited("done", json!({ "status": { "phase": "Succeeded" } })),
+            limited("unscheduled", json!({ "spec": { "nodeName": null } })),
+        ]
+        .iter()
+        .map(pod_summary)
+        .collect();
+        assert_eq!(pods[0].cpu_limit_millicores, 500);
+        assert_eq!(pods[0].memory_limit_bytes, 128 << 20);
+        assert_eq!(pods[1].cpu_limit_millicores, 2010);
+        assert_eq!(pods[1].memory_limit_bytes, 129 << 20);
+
+        let c = capacity(&pods, &[], None);
+        assert_eq!(c.pods, 2);
+        assert_eq!(c.cpu_limits_millicores, 500 + 2010);
+        assert_eq!(c.memory_limits_bytes, (128 + 129) << 20);
+        // Requests are unchanged: 150m each, plus the overhead.
+        assert_eq!(c.cpu_requests_millicores, 150 + 160);
+        assert_eq!(c.memory_requests_bytes, (64 + 65) << 20);
+        assert!(!c.metrics);
+        // Container b of each counted pod has no limit; the init container
+        // of "init" is not counted (it does not keep running).
+        assert_eq!((pods[1].cpu_unlimited, pods[1].memory_unlimited), (1, 1));
+        assert_eq!(c.cpu_unlimited_containers, 2);
+        assert_eq!(c.memory_unlimited_containers, 2);
+    }
+
+    #[test]
+    fn native_sidecars_add_to_the_app_containers_like_the_scheduler() {
+        const MI: u64 = 1 << 20;
+        let app = json!({ "name": "app", "resources": {
+            "requests": { "cpu": "100m", "memory": "64Mi" },
+            "limits": { "cpu": "200m", "memory": "128Mi" } } });
+        let p = pod_summary(&pod(
+            "meshed",
+            "Running",
+            json!({ "spec": {
+                "containers": [app.clone()],
+                "initContainers": [
+                    { "name": "setup", "resources": {
+                        "requests": { "cpu": "1" }, "limits": { "cpu": "2" } } },
+                    { "name": "proxy", "restartPolicy": "Always", "resources": {
+                        "requests": { "cpu": "50m", "memory": "32Mi" },
+                        "limits": { "cpu": "100m", "memory": "64Mi" } } },
+                    // Runs with the proxy already started.
+                    { "name": "late", "resources": {
+                        "requests": { "cpu": "500m", "memory": "512Mi" } } }
+                ]
+            }}),
+        ));
+        // cpu: setup's 1 core wins over app + proxy (150m); memory: late's
+        // 512Mi plus the proxy's 32Mi wins over app + proxy (96Mi).
+        assert_eq!(p.cpu_request_millicores, 1000);
+        assert_eq!(p.memory_request_bytes, 544 * MI);
+        // Limits: setup's 2 cores; app + proxy (192Mi) for memory.
+        assert_eq!(p.cpu_limit_millicores, 2000);
+        assert_eq!(p.memory_limit_bytes, 192 * MI);
+        assert_eq!((p.cpu_unlimited, p.memory_unlimited), (0, 0));
+
+        // Only a sidecar: it adds to the app container, and without limits
+        // it counts as a container without a limit.
+        let p = pod_summary(&pod(
+            "sidecar",
+            "Running",
+            json!({ "spec": {
+                "containers": [app],
+                "initContainers": [{ "name": "log", "restartPolicy": "Always", "resources": {
+                    "requests": { "cpu": "50m", "memory": "32Mi" } } }]
+            }}),
+        ));
+        assert_eq!(p.cpu_request_millicores, 150);
+        assert_eq!(p.memory_request_bytes, 96 * MI);
+        assert_eq!(p.cpu_limit_millicores, 200);
+        assert_eq!(p.memory_limit_bytes, 128 * MI);
+        assert_eq!((p.cpu_unlimited, p.memory_unlimited), (1, 1));
+    }
+
+    fn merge_into(mut a: serde_json::Value, b: serde_json::Value) -> serde_json::Value {
+        merge(&mut a, b);
+        a
     }
 
     #[test]
