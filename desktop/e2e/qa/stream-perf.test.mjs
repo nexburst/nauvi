@@ -289,7 +289,11 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     const mem = peakMemory(pid);
     let r;
     try {
+      // The keys pressed during the last flood are still on the line.
+      await term.interrupt();
+      await term.waitFor(/\$\s*$/, { message: "an empty prompt" });
       await term.type("yes");
+      await term.waitFor(/^y\ny\ny$/m, { message: "`yes` running" });
       await new Promise((done) => setTimeout(done, YES_MS));
       await app.shot("yes-flooding");
       const t0 = performance.now();
