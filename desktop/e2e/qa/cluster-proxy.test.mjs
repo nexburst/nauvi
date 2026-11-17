@@ -184,6 +184,11 @@ describe("a proxy per cluster", { timeout: 15 * 60_000 }, () => {
     await setTheme(app, "dark");
     await typeUrl(app, `ftp://${USER}:${PASSWORD}@127.0.0.1:${proxy.port}`);
     await app.waitFor(async () => /not ftp:\/\//.test(await sectionText(app)), { message: "the scheme error" });
+    await typeUrl(app, `https://${USER}:${PASSWORD}@127.0.0.1:${proxy.port}`);
+    await app.waitFor(async () => /HTTPS proxies aren't supported yet/.test(await sectionText(app)), {
+      message: "the HTTPS proxy error",
+    });
+    assert.ok(!(await bodyText(app)).includes(PASSWORD));
     assert.ok(!(await bodyText(app)).includes(PASSWORD));
     await typeUrl(app, `http://${USER}:${PASSWORD}@127.0.0.1:${proxy.port}/some/path`);
     await app.waitFor(async () => /no path or query/.test(await sectionText(app)), { message: "the path error" });

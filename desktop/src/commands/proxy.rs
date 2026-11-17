@@ -43,8 +43,8 @@ pub(crate) fn cmd_get_cluster_proxy(
     info(&state.sources, &id)
 }
 
-/// Set the proxy of the cluster of context `id`: `url` a proxy URL (http://,
-/// https:// or socks5://), `""` to remove it, or left out to keep the saved
+/// Set the proxy of the cluster of context `id`: `url` a proxy URL (http://
+/// or socks5://), `""` to remove it, or left out to keep the saved
 /// one and change only `local`.
 #[tauri::command]
 #[specta::specta]

@@ -147,13 +147,15 @@ mod tests {
         let path = d.join("proxies.json");
         std::fs::write(
             &path,
-            r#"{"a": {"url": "ftp://x"}, "b": 7, "c": {"url": "http://ok:1"}}"#,
+            r#"{"a": {"url": "ftp://x"}, "b": 7, "c": {"url": "http://ok:1"}, "d": {"url": "https://tls:1"}}"#,
         )
         .unwrap();
         let store = ProxyStore::load(Some(path.clone()));
         assert_eq!(store.get("a"), None);
         assert_eq!(store.get("b"), None);
         assert_eq!(store.get("c"), Some(proxy("http://ok:1", false)));
+        // Saved before HTTPS proxies were refused: not used.
+        assert_eq!(store.get("d"), None);
         std::fs::write(&path, "not json").unwrap();
         assert_eq!(ProxyStore::load(Some(path)).get("c"), None);
         std::fs::remove_dir_all(&d).unwrap();

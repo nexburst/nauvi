@@ -24,6 +24,9 @@
   // svelte-ignore state_referenced_locally
   const shown = id === visibleCluster();
 
+  /** Whether the app's proxy applies: else the kubeconfig's proxy-url, if any. */
+  const settingApplies = $derived(!!info?.url && (info.local || !info.server_local));
+
   async function load() {
     try {
       info = await commands.cmdGetClusterProxy(id);
@@ -82,8 +85,14 @@
     <p class="hint route" data-testid="proxy-route">{info.route}</p>
     {#if info.url}
       <div class="row">
-        <span>Proxy</span>
+        <span>Proxy {settingApplies ? "(in effect)" : "(not used)"}</span>
         <span class="current mono" data-testid="proxy-current">{info.url}</span>
+      </div>
+    {/if}
+    {#if info.kubeconfig_proxy}
+      <div class="row">
+        <span>Kubeconfig proxy {settingApplies ? "(replaced)" : "(in effect)"}</span>
+        <span class="current mono" data-testid="proxy-kubeconfig">{info.kubeconfig_proxy}</span>
       </div>
     {/if}
   {/if}
@@ -123,7 +132,7 @@
     </p>
   {/if}
   <p class="muted hint">
-    An http://, https:// or socks5:// proxy for every request, watch, terminal and port-forward of this cluster,
+    An http:// or socks5:// proxy for every request, watch, terminal and port-forward of this cluster,
     instead of the kubeconfig's proxy-url. A user name and password go in the URL (http://user:password@host:port);
     nauvi keeps them in its own config folder, never in the kubeconfig, and shows them masked. Helm and local terminals
     do not use it.

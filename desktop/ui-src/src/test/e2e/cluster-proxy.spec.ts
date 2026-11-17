@@ -82,7 +82,12 @@ test("a bad proxy URL says what is wrong and saves nothing", async ({
   await field.fill("ftp://me:hunter2@proxy.example");
   await field.press("Enter");
   await expect(section(page).getByTestId("proxy-error")).toHaveText(
-    "A proxy URL starts with http://, https:// or socks5://, not ftp://.",
+    "A proxy URL starts with http:// or socks5://, not ftp://.",
+  );
+  await field.fill("https://proxy.example:3128");
+  await field.press("Enter");
+  await expect(section(page).getByTestId("proxy-error")).toHaveText(
+    "HTTPS proxies aren't supported yet; use http:// or socks5://.",
   );
   await field.fill("socks5://me:pw@proxy.example");
   await section(page).getByRole("button", { name: "Save proxy" }).click();
@@ -158,6 +163,26 @@ test("Reconnect now opens a fresh session on the same cluster", async ({
   await expect(
     page.getByRole("combobox", { name: "Cluster context" }),
   ).toHaveValue("kind-dev");
+});
+
+test("the kubeconfig's own proxy-url is shown, and which proxy is in effect", async ({ page }) => {
+  await openApp(page, (cluster) => {
+    cluster.kubeconfigProxies = { prod: "http://[redacted]@corp.example:8080" };
+  });
+  await openSettingsFor(page, "prod");
+  const kc = section(page).getByTestId("proxy-kubeconfig");
+  await expect(kc).toHaveText("http://[redacted]@corp.example:8080");
+  await expect(section(page)).toContainText("Kubeconfig proxy (in effect)");
+  await expect(section(page).getByTestId("proxy-route")).toHaveText(
+    "Connects through the kubeconfig's proxy-url, http://[redacted]@corp.example:8080.",
+  );
+
+  const field = section(page).getByRole("textbox", { name: "Proxy URL" });
+  await field.fill("http://proxy.example:3128");
+  await field.press("Enter");
+  await expect(section(page)).toContainText("Proxy (in effect)");
+  await expect(section(page)).toContainText("Kubeconfig proxy (replaced)");
+  await expect(section(page).getByTestId("proxy-route")).toHaveText("Connects through http://proxy.example:3128.");
 });
 
 test("an error from the backend shows in the section", async ({ page }) => {

@@ -33,14 +33,14 @@ function redact(url: string): string {
 function parse(text: string): string {
   const t = text.trim();
   const m = /^([a-z0-9]+):\/\/(?:([^@/]*)@)?([^/:@\s]+)(?::(\d*))?\/?$/i.exec(t);
-  if (!t.includes("://")) throw "Start the proxy URL with http://, https:// or socks5://, for example http://proxy.example:3128.";
+  if (!t.includes("://")) throw "Start the proxy URL with http:// or socks5://, for example http://proxy.example:3128.";
   const scheme = t.split("://")[0].toLowerCase();
-  if (!["http", "https", "socks5"].includes(scheme))
-    throw `A proxy URL starts with http://, https:// or socks5://, not ${scheme}://.`;
+  if (scheme === "https") throw "HTTPS proxies aren't supported yet; use http:// or socks5://.";
+  if (!["http", "socks5"].includes(scheme)) throw `A proxy URL starts with http:// or socks5://, not ${scheme}://.`;
   if (!m) throw `Not a valid proxy URL: ${redact(t)}.`;
   if (m[2] !== undefined && scheme === "socks5")
     throw "A user name and password are not supported for SOCKS5 proxies; use an HTTP proxy for that, or a SOCKS5 proxy without them.";
-  const port = m[4] || { http: "80", https: "443", socks5: "1080" }[scheme];
+  const port = m[4] || { http: "80", socks5: "1080" }[scheme];
   return `${scheme}://${m[2] !== undefined ? m[2] + "@" : ""}${m[3]}:${port}`;
 }
 
@@ -54,17 +54,20 @@ export function proxyHandlers(s: FakeState) {
     if (!ctx) throw `There is no context ${cluster} in your kubeconfigs.`;
     const saved = fakeProxies(s).get(cluster);
     const serverLocal = isLocal(fullContext(ctx).server);
+    const kubeconfigProxy = s.cluster.kubeconfigProxies?.[cluster] ?? "";
     const route =
       saved && (saved.local || !serverLocal)
         ? `Connects through ${redact(saved.url)}.`
-        : saved
-          ? "Connects directly: the cluster is on this machine, and the proxy is not used for it unless you ask below."
-          : "Connects directly. Proxy environment variables (HTTPS_PROXY) are not used.";
+        : kubeconfigProxy
+          ? `Connects through the kubeconfig's proxy-url, ${kubeconfigProxy}.`
+          : saved
+            ? "Connects directly: the cluster is on this machine, and the proxy is not used for it unless you ask below."
+            : "Connects directly. Proxy environment variables (HTTPS_PROXY) are not used.";
     return {
       url: saved ? redact(saved.url) : "",
       has_credentials: !!saved && saved.url !== redact(saved.url),
       local: saved?.local ?? false,
-      kubeconfig_proxy: "",
+      kubeconfig_proxy: kubeconfigProxy,
       server_local: serverLocal,
       route,
     };
