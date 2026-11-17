@@ -1,5 +1,6 @@
 //! Resource details, YAML get / apply, delete.
 
+use crate::state::mutation::Mutation;
 use crate::state::Cluster;
 use nauvi::actions::{self};
 use nauvi::resources::{self, ResourceDetail, ResourceRef};
@@ -58,7 +59,7 @@ pub(crate) async fn cmd_get_resource_yaml(
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn cmd_apply_resource_yaml(
-    cluster: Cluster,
+    cluster: Mutation,
     resource: ResourceRef,
     namespace: String,
     name: String,
@@ -80,7 +81,7 @@ pub(crate) async fn cmd_apply_resource_yaml(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_delete_resource(
-    cluster: Cluster,
+    cluster: Mutation,
     resource: ResourceRef,
     namespace: String,
     name: String,
@@ -98,7 +99,7 @@ pub(crate) async fn cmd_delete_resource(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_apply_manifests(
-    cluster: Cluster,
+    cluster: Mutation,
     yaml: String,
     namespace: String,
     dry_run: bool,
@@ -157,7 +158,7 @@ pub(crate) async fn cmd_reveal_data_value(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_patch_data(
-    cluster: Cluster,
+    cluster: Mutation,
     resource: ResourceRef,
     namespace: String,
     name: String,

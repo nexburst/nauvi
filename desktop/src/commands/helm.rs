@@ -1,6 +1,7 @@
 //! Helm releases: native listing and decoding, rollback and uninstall
 //! through the `helm` CLI.
 
+use crate::state::mutation::Mutation;
 use crate::state::{Cluster, ClusterSession};
 use nauvi::actions::describe_error;
 use nauvi::helm::{
@@ -103,7 +104,7 @@ impl std::ops::Deref for HelmRun {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_rollback(
-    cluster: Cluster,
+    cluster: Mutation,
     namespace: String,
     name: String,
     revision: u32,
@@ -119,7 +120,7 @@ pub(crate) async fn cmd_helm_rollback(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_uninstall(
-    cluster: Cluster,
+    cluster: Mutation,
     namespace: String,
     name: String,
     storage: HelmStorage,

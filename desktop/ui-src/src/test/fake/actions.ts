@@ -3,6 +3,7 @@
 import { events } from "../../lib/bindings";
 import { addRow, findRow, kindOf, removeRow, rowKey } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
+import { readOnlyReason } from "./gate";
 
 export function actionsHandlers(s: FakeState) {
   const { cluster } = s;
@@ -61,7 +62,9 @@ export function actionsHandlers(s: FakeState) {
     cmdCancelDrain: () => null,
     cmdCheckActions: (_resource, namespace, ids) =>
       ids.map((id) => {
-        const reason = cluster.deniedActions[`${namespace}/${id}`] ?? cluster.deniedActions[id];
+        // A read-only context refuses every change, whatever RBAC says (#338).
+        const ro = id === "logs" || id === "portForward" ? undefined : readOnlyReason(s);
+        const reason = ro ?? cluster.deniedActions[`${namespace}/${id}`] ?? cluster.deniedActions[id];
         return { id, allowed: reason === undefined, reason: reason ?? "" };
       }),
   } satisfies AreaHandlers;

@@ -1,5 +1,6 @@
 //! Resource actions: run an action, bulk delete, drain a node.
 
+use crate::state::mutation::Mutation;
 use crate::state::{next_session, Cluster};
 use nauvi::action_access::{self, ActionAccess};
 use nauvi::actions::{self, ActionId, BulkItemResult, DrainEvent, DrainSummary};
@@ -16,7 +17,7 @@ use tauri_specta::Event;
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_run_action(
-    cluster: Cluster,
+    cluster: Mutation,
     resource: ResourceRef,
     namespace: String,
     name: String,
@@ -38,6 +39,7 @@ pub(crate) async fn cmd_run_action(
 #[specta::specta]
 pub(crate) async fn cmd_check_actions(
     cluster: Cluster,
+    store: tauri::State<'_, std::sync::Arc<crate::settings::SettingsStore>>,
     resource: ResourceRef,
     namespace: String,
     ids: Vec<String>,
@@ -49,7 +51,15 @@ pub(crate) async fn cmd_check_actions(
     if cluster.is_closed() {
         return Err(crate::state::SWITCHED.into());
     }
-    Ok(out)
+    // A read-only context refuses every change, whatever RBAC says (#338).
+    let mode = store.context_mode(cluster.id());
+    let name = match mode {
+        nauvi::context_mode::ContextMode::ReadOnly => {
+            crate::state::mutation::context_name(&cluster)
+        }
+        _ => String::new(),
+    };
+    Ok(nauvi::context_mode::apply_to_access(mode, &name, out))
 }
 
 /// One object of a bulk delete.
@@ -65,7 +75,7 @@ pub(crate) struct ObjectId {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_bulk_delete(
-    cluster: Cluster,
+    cluster: Mutation,
     resource: ResourceRef,
     items: Vec<ObjectId>,
 ) -> Result<Vec<BulkItemResult>, String> {
@@ -97,7 +107,7 @@ pub(crate) struct DrainFinished {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_drain_node(
-    cluster: Cluster,
+    cluster: Mutation,
     node: String,
     timeout_secs: u32,
 ) -> Result<String, String> {

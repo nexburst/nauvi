@@ -28,6 +28,7 @@ import { charts } from "./stores/helmCharts.svelte";
 import { keyboard, listenMouseButtons } from "./stores/keyboard.svelte";
 import { live } from "./stores/live.svelte";
 import { metricsInstall } from "./stores/metricsInstall.svelte";
+import { protect } from "./stores/contextMode.svelte";
 import { notifications } from "./stores/notifications.svelte";
 import { trackHistory } from "./stores/navigation.svelte";
 import { listenUpdates, startupCheck } from "./stores/updates.svelte";
@@ -49,6 +50,7 @@ import HelmView from "./components/helm/HelmView.svelte";
 import MetricsInstallDialog from "./components/helm/MetricsInstallDialog.svelte";
 import NodeShellLeftovers from "./components/NodeShellLeftovers.svelte";
 import NotificationsPanel from "./components/NotificationsPanel.svelte";
+import ProtectedConfirm from "./components/ProtectedConfirm.svelte";
 import Overview from "./components/Overview.svelte";
 import PortForwards from "./components/PortForwards.svelte";
 import SettingsDialog from "./components/SettingsDialog.svelte";
@@ -148,6 +150,8 @@ export const DIALOGS: Slot[] = [
     key: () => metricsInstall.addon,
     props: () => ({ id: metricsInstall.addon! }),
   }),
+  // The typed confirmation of a change to a protected cluster (#338).
+  slot(ProtectedConfirm, { when: () => protect.queue.length > 0 }),
 ];
 
 /** Event subscriptions, made before the first watch starts; each returns its unlisten. */

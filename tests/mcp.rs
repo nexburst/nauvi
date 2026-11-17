@@ -35,8 +35,24 @@ struct Server {
 
 impl Server {
     fn start(args: &[&str]) -> Self {
+        // Not the developer's own app settings: a context they marked
+        // read-only or protected there would refuse the write tools (#338).
+        let config = std::env::temp_dir().join(format!("nauvi-mcp-cfg-{}", std::process::id()));
+        Self::start_with_config(args, &config)
+    }
+
+    /// A server that reads the app's settings from `config/com.nauvi.app`
+    /// (Linux: `XDG_CONFIG_HOME`).
+    fn start_with_config(args: &[&str], config: &std::path::Path) -> Self {
+        Self::start_with_env(args, config, &[])
+    }
+
+    /// [`Self::start_with_config`] with extra environment variables.
+    fn start_with_env(args: &[&str], config: &std::path::Path, env: &[(&str, &str)]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_nauvi"))
             .args(args)
+            .envs(env.iter().copied())
+            .env("XDG_CONFIG_HOME", config)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -422,6 +438,144 @@ async fn mcp_write_tools_on_the_cluster() -> Result<()> {
         assert!(deleted.starts_with("Deleted ConfigMap"), "{deleted}");
         let (err, text) = s.call("apply", json!({ "manifest": "kind: [", "namespace": ns }));
         assert!(err, "{text}");
+        Ok(())
+    }
+    .await;
+    drop_ns(&client, &ns).await;
+    result
+}
+
+/// Write tools follow the app's per-context mode (#338): refused on a
+/// read-only or protected context, as the app's settings file says, before
+/// anything reaches the cluster. Linux only (the file is found through
+/// `XDG_CONFIG_HOME`).
+#[tokio::test]
+#[ignore]
+async fn mcp_write_tools_follow_the_context_mode() -> Result<()> {
+    if !cfg!(target_os = "linux") {
+        eprintln!("skipped: the app's settings are found through XDG_CONFIG_HOME on Linux");
+        return Ok(());
+    }
+    let client = connect().await?;
+    let ns = temp_ns(&client, "it-mcp-mode").await?;
+    let result = async {
+        let ctx = context();
+        let manifest =
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: from-mcp\ndata:\n  k: v\n";
+        for (mode, words) in [
+            ("readOnly", "is read-only"),
+            ("protected", "is protected"),
+            ("bogus", "is read-only"),
+        ] {
+            let config =
+                std::env::temp_dir().join(format!("nauvi-mcp-mode-{}-{mode}", std::process::id()));
+            let dir = config.join("com.nauvi.app");
+            std::fs::create_dir_all(&dir)?;
+            let settings = json!({ "contexts": { ctx.clone(): { "mode": mode } } });
+            std::fs::write(dir.join("settings.json"), settings.to_string())?;
+            let mut s = Server::start_with_config(
+                &["--context", ctx.as_str(), "mcp", "--allow-writes"],
+                &config,
+            );
+            s.initialize();
+            let (err, text) = s.call("apply", json!({ "manifest": manifest, "namespace": ns }));
+            assert!(err && text.contains(words), "{mode}: {text}");
+            let (err, text) = s.call("delete", json!({ "kind": "cm/x", "namespace": ns }));
+            assert!(err && text.contains(words), "{mode}: {text}");
+            // Reads still work.
+            s.ok("list", json!({ "kind": "configmaps", "namespace": ns }));
+            let _ = std::fs::remove_dir_all(&config);
+        }
+        let cms: Api<k8s_openapi::api::core::v1::ConfigMap> = Api::namespaced(client.clone(), &ns);
+        assert!(
+            cms.get_opt("from-mcp").await?.is_none(),
+            "a refused apply stored it"
+        );
+        Ok(())
+    }
+    .await;
+    drop_ns(&client, &ns).await;
+    result
+}
+
+/// With `--kubeconfig` or `KUBECONFIG`, the mode is matched by the source
+/// the app stored with it (file and context), not by the app's id for the
+/// context (security review of #338). A file the app's catalog does not
+/// have, with no stored mode, refuses writes. Linux only (`XDG_CONFIG_HOME`).
+#[tokio::test]
+#[ignore]
+async fn mcp_mode_of_a_non_default_kubeconfig() -> Result<()> {
+    if !cfg!(target_os = "linux") {
+        eprintln!("skipped: the app's settings are found through XDG_CONFIG_HOME on Linux");
+        return Ok(());
+    }
+    let client = connect().await?;
+    let ns = temp_ns(&client, "it-mcp-kc").await?;
+    let result = async {
+        let ctx = context();
+        let dir = std::env::temp_dir().join(format!("nauvi-mcp-kc-{}", std::process::id()));
+        let app = dir.join("cfg").join("com.nauvi.app");
+        std::fs::create_dir_all(&app)?;
+        // A copy of the test kubeconfig, added in the app.
+        let kc = kube::config::Kubeconfig::read()?;
+        let work = dir.join("work.yaml");
+        let stray = dir.join("stray.yaml");
+        std::fs::write(&work, serde_yaml::to_string(&kc)?)?;
+        std::fs::write(&stray, serde_yaml::to_string(&kc)?)?;
+        let work_str = work.display().to_string();
+        // The mode is stored with its source (file and context), under
+        // whatever id the app gave it: the CLI matches the source.
+        let source = nauvi::context_mode::ModeSource::new(&work, &ctx);
+        let mut contexts = serde_json::Map::new();
+        contexts.insert(
+            format!("{ctx} (work.yaml)"),
+            json!({ "mode": "readOnly", "mode_source": source }),
+        );
+        let settings = json!({ "kubeconfig_sources": [work_str], "contexts": contexts });
+        std::fs::write(app.join("settings.json"), settings.to_string())?;
+        let manifest =
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: from-mcp\ndata:\n  k: v\n";
+        let config = dir.join("cfg");
+        for (file, words) in [
+            (&work, "is read-only"),
+            (&stray, "not in nauvi's cluster catalog"),
+        ] {
+            let file = file.display().to_string();
+            let mut s = Server::start_with_config(
+                &[
+                    "--kubeconfig",
+                    &file,
+                    "--context",
+                    &ctx,
+                    "mcp",
+                    "--allow-writes",
+                ],
+                &config,
+            );
+            s.initialize();
+            let (err, text) = s.call("apply", json!({ "manifest": manifest, "namespace": ns }));
+            assert!(err && text.contains(words), "{file}: {text}");
+            s.ok("list", json!({ "kind": "configmaps", "namespace": ns }));
+        }
+        // KUBECONFIG = the added file: the CLI calls the context `ctx`, the
+        // app by the added file's id; the stored source matches.
+        let mut s = Server::start_with_env(
+            &["--context", &ctx, "mcp", "--allow-writes"],
+            &config,
+            &[("KUBECONFIG", work_str.as_str())],
+        );
+        s.initialize();
+        let (err, text) = s.call("apply", json!({ "manifest": manifest, "namespace": ns }));
+        assert!(
+            err && text.contains("is read-only"),
+            "KUBECONFIG={work_str}: {text}"
+        );
+        let cms: Api<k8s_openapi::api::core::v1::ConfigMap> = Api::namespaced(client.clone(), &ns);
+        assert!(
+            cms.get_opt("from-mcp").await?.is_none(),
+            "a refused apply stored it"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
         Ok(())
     }
     .await;

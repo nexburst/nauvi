@@ -4,13 +4,14 @@ import { ADDONS, installAddon } from "../fixtures/metricsAddons";
 import { prometheusFixture } from "../fixtures/usage";
 import { copy } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
+import { readOnlyReason } from "./gate";
 
 export function metricsAddonsHandlers(s: FakeState) {
   const { cluster } = s;
   return {
     cmdMetricsAddons: () => copy(ADDONS),
     cmdMetricsAddonAccess: (addon, namespace) => {
-      const reason = cluster.metricsAddons.denied[addon] ?? "";
+      const reason = readOnlyReason(s) ?? cluster.metricsAddons.denied[addon] ?? "";
       if (!namespace.trim()) throw "Choose a namespace first";
       return { id: addon, allowed: !reason, reason };
     },

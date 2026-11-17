@@ -241,6 +241,11 @@ pub fn catalogue(allow_writes: bool) -> Vec<ToolSpec> {
 
 /// Whether `name` may be called. Checked before the server connects to the
 /// cluster.
+/// Whether `name` is a tool that changes the cluster.
+pub fn writes(name: &str) -> bool {
+    write_tools().iter().any(|t| t.name == name)
+}
+
 pub fn check(name: &str, allow_writes: bool) -> Result<()> {
     if read_tools().iter().any(|t| t.name == name) {
         return Ok(());

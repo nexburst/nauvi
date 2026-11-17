@@ -3,7 +3,7 @@
 //! window's cluster, all through the `helm` CLI.
 
 use super::helm::target;
-use crate::state::Cluster;
+use crate::state::mutation::Mutation;
 use nauvi::helm::{
     self, HelmChartDetails, HelmChartVersion, HelmDeployRequest, HelmDeployResult, HelmRepo,
     HelmRepoUpdate,
@@ -80,7 +80,7 @@ pub(crate) async fn cmd_helm_chart_show(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_install(
-    cluster: Cluster,
+    cluster: Mutation,
     request: HelmDeployRequest,
 ) -> Result<HelmDeployResult, String> {
     helm::helm_install(&*target(&cluster)?, &request)
@@ -92,7 +92,7 @@ pub(crate) async fn cmd_helm_install(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_helm_upgrade(
-    cluster: Cluster,
+    cluster: Mutation,
     request: HelmDeployRequest,
 ) -> Result<HelmDeployResult, String> {
     helm::helm_upgrade(&*target(&cluster)?, &request)

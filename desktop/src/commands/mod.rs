@@ -36,6 +36,9 @@ pub(crate) mod window;
 pub(crate) mod workload_usage;
 pub(crate) mod workloads;
 
+#[cfg(test)]
+mod mutation_gate;
+
 use tauri_specta::{collect_commands, collect_events, Builder};
 
 /// The typed command and event registry. Also used to generate
@@ -140,6 +143,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             resources::cmd_patch_data,
             resources::cmd_reveal_data_value,
             settings::cmd_get_settings,
+            settings::cmd_set_context_mode,
             settings::cmd_update_settings,
             updater::cmd_update_check,
             updater::cmd_update_install,

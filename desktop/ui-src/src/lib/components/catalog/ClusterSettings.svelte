@@ -5,6 +5,9 @@
   import { app } from "../../stores/app.svelte";
   import { closeClusterSettings, isPinned, togglePin } from "../../stores/catalog.svelte";
   import { contextSettings, updateContext } from "../../stores/settings.svelte";
+  import { CONTEXT_MODES } from "../../contextMode";
+  import { contextMode, setContextMode } from "../../stores/contextMode.svelte";
+  import type { ContextMode } from "../../bindings";
   import ClusterProxy from "./ClusterProxy.svelte";
 
   /** One cluster's settings page (#78): its name and colour in nauvi,
@@ -33,6 +36,17 @@
   const color = $derived(contextSettings(id).color);
   const pinned = $derived(isPinned(id));
   const hideMetrics = $derived(contextSettings(id).hide_metrics);
+  const mode = $derived(contextMode(id));
+  let modeError = $state("");
+
+  async function saveMode(next: ContextMode) {
+    modeError = "";
+    try {
+      await setContextMode(id, next);
+    } catch (e) {
+      modeError = String(e);
+    }
+  }
 
   function save(change: Partial<ContextSettings>) {
     void updateContext(id, change);
@@ -103,6 +117,25 @@
         <input type="checkbox" checked={pinned} onchange={() => togglePin(id)} />
         Pinned (first in the context selector and the palette)
       </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Changes</legend>
+      <div class="modes" role="radiogroup" aria-label="Changes">
+        {#each CONTEXT_MODES as m (m.mode)}
+          <label class="choice mode-choice">
+            <input
+              type="radio"
+              name="context-mode"
+              value={m.mode}
+              checked={mode === m.mode}
+              onchange={() => saveMode(m.mode)}
+            />
+            <span><strong>{m.label}</strong> <span class="muted">{m.hint}</span></span>
+          </label>
+        {/each}
+      </div>
+      {#if modeError}<p class="hint error-text" role="alert">{modeError}</p>{/if}
     </fieldset>
 
     <fieldset>
@@ -248,6 +281,12 @@
   }
   .row {
     justify-content: space-between;
+  }
+  .mode-choice {
+    align-items: flex-start;
+  }
+  .mode-choice .muted {
+    font-size: 12px;
   }
   .row .input {
     width: 280px;

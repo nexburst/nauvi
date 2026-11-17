@@ -109,6 +109,13 @@ export function portforwardHandlers(s: FakeState) {
     cmdPortforwardElsewhere: () => copy(cluster.forwardsElsewhere),
     cmdPortforwardAutostart: () => {
       const failed: { saved_id: string; error: string }[] = [];
+      // A protected context starts none by itself (#338).
+      const current = cluster.contexts.find((c) => c.current)?.name ?? "";
+      if (cluster.settings.contexts[current]?.mode === "protected") {
+        return saved()
+          .filter((f) => f.auto_start)
+          .map((f) => ({ saved_id: f.id, error: `${current} is protected: start it by hand and type the context name` }));
+      }
       for (const f of saved()) {
         const runs = (id: string) => cluster.forwards.some((r) => r.saved_id === id) || cluster.forwardsElsewhere.includes(id);
         if (!f.auto_start || runs(f.id)) continue;

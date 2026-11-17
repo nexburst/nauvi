@@ -107,6 +107,8 @@ export const EMPTY_CONTEXT: ContextSettings = {
   shell_cwd: "",
   last_used: 0,
   hide_metrics: false,
+  mode: "normal",
+  mode_source: { file: "", given: "", context: "" },
 };
 export const EMPTY_KIND: KindSettings = { sort_key: "", sort_desc: false, hidden: [] };
 

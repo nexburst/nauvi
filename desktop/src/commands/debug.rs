@@ -2,6 +2,7 @@
 //! `exec-*` events and commands drive them once started).
 
 use crate::commands::exec::{emit_note, start_session, SessionClose};
+use crate::state::mutation::Mutation;
 use crate::state::{AppState, Cluster, ClusterSession, SessionCleanup};
 use nauvi::debug::{add_debug_container, attach_container, describe_debug_error};
 use nauvi::node_shell::{
@@ -27,7 +28,7 @@ fn claim_session(state: &ClusterSession, session: String) -> Result<String, Stri
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn cmd_debug_start(
-    cluster: Cluster,
+    cluster: Mutation,
     session: String,
     namespace: String,
     name: String,
@@ -79,7 +80,7 @@ pub(crate) async fn cmd_debug_start(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_node_shell_start(
-    cluster: Cluster,
+    cluster: Mutation,
     session: String,
     node: String,
     namespace: String,
@@ -159,7 +160,7 @@ async fn leftovers(
 /// how many were deleted; fails with the first error after trying them all.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_node_shell_cleanup(cluster: Cluster) -> Result<u32, String> {
+pub(crate) async fn cmd_node_shell_cleanup(cluster: Mutation) -> Result<u32, String> {
     let client = cluster.client().await?;
     let pods = leftovers(cluster.app(), &client)
         .await

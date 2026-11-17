@@ -78,6 +78,8 @@ test("a cluster opens in its default namespace and shows its colour", async ({ p
       shell_cwd: "",
       last_used: 0,
       hide_metrics: false,
+      mode: "normal",
+      mode_source: { file: "", given: "", context: "" },
     };
   });
   await expect(page.getByTestId("context-color")).toHaveCount(0);

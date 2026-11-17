@@ -24,6 +24,7 @@ use tauri::ipc::{CommandArg, CommandItem, InvokeError};
 use tauri::{AppHandle, EventTarget, Manager};
 
 pub(crate) mod idle;
+pub(crate) mod mutation;
 
 /// Why something started for a cluster is dropped: the window left it
 /// (switched to another context, disconnected it, closed or reloaded).
@@ -288,6 +289,15 @@ impl ClusterSession {
             task.abort();
         }
         sessions
+    }
+
+    /// Take every terminal of this session: its exec, attach, debug and
+    /// node shell sessions (still to close) and its local shells (which
+    /// stop when dropped). For a context that turned read-only (#338).
+    pub(crate) fn take_terminals(
+        &self,
+    ) -> (HashMap<String, ExecSession>, HashMap<String, LocalShell>) {
+        (take_all(&self.exec_sessions), take_all(&self.local_shells))
     }
 
     /// `(namespace, pod)` of the node shells this session has open.
@@ -743,6 +753,17 @@ impl AppState {
             .collect()
     }
 
+    /// The sessions of cluster `id` in every window, with the window's
+    /// label.
+    pub(crate) fn sessions_of(&self, id: &str) -> Vec<(String, Arc<ClusterSession>)> {
+        self.windows
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(label, w)| w.clusters.get(id).map(|s| (label.clone(), s.clone())))
+            .collect()
+    }
+
     /// Whether any window runs the saved forward `saved_id` (#217), for any
     /// cluster.
     pub(crate) fn runs_forward(&self, saved_id: &str) -> bool {
@@ -877,20 +898,27 @@ impl<'de> CommandArg<'de, tauri::Wry> for Cluster {
             key: CLUSTER_KEY,
             ..command
         })?;
+        Ok(Cluster::of_call(&command, &cluster))
+    }
+}
+
+impl Cluster {
+    /// The session of cluster `id` in the window that made the call.
+    pub(crate) fn of_call(command: &CommandItem<'_, tauri::Wry>, id: &str) -> Self {
         let webview = command.message.webview();
         let label = webview.label().to_string();
         let app = webview.app_handle().clone();
-        let session = app.state::<AppState>().cluster(&label, &cluster);
-        Ok(Cluster {
+        let session = app.state::<AppState>().cluster(&label, id);
+        Cluster {
             session,
             label,
             app,
-        })
+        }
     }
 }
 
 /// The payload key that names the cluster of a call.
-const CLUSTER_KEY: &str = "cluster";
+pub(crate) const CLUSTER_KEY: &str = "cluster";
 
 /// In the bindings as the `cluster: string` parameter. Every command names
 /// it `cluster` and takes it first; `lib/cluster.test.ts` checks both.
@@ -938,6 +966,25 @@ mod tests {
         assert!(state.claim_autostart("fwd-1").is_some());
         drop(b);
         assert!(state.forwards_elsewhere("main").is_empty());
+    }
+
+    #[test]
+    fn the_sessions_of_a_cluster_are_found_in_every_window() {
+        let state = AppState::default();
+        state.open("main", Some("prod".into()));
+        state.open("cluster-1", Some("dev".into()));
+        state.connect("cluster-1", Some("prod".into()));
+        let mut labels: Vec<String> = state
+            .sessions_of("prod")
+            .into_iter()
+            .map(|(l, _)| l)
+            .collect();
+        labels.sort();
+        assert_eq!(labels, ["cluster-1", "main"]);
+        assert_eq!(state.sessions_of("dev").len(), 1);
+        assert!(state.sessions_of("other").is_empty());
+        let (execs, shells) = state.session("main").take_terminals();
+        assert!(execs.is_empty() && shells.is_empty());
     }
 
     #[test]

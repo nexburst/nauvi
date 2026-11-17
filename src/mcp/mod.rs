@@ -11,7 +11,8 @@
 //! It uses the kubeconfig the CLI uses (`--kubeconfig`, else `KUBECONFIG`
 //! and `~/.kube/config`) and its current context, or `--context`. It never
 //! reads the app's added kubeconfig sources, so it never runs their exec
-//! plugins. Diagnostics go to stderr: stdout carries the protocol.
+//! plugins. Write tools follow the app's per-context mode (#338): refused
+//! on a context the app marks read-only or protected. Diagnostics go to stderr: stdout carries the protocol.
 
 mod limits;
 mod read_tools;
@@ -34,6 +35,9 @@ pub struct McpOptions {
     pub allow_writes: bool,
     pub kubeconfig: Option<PathBuf>,
     pub context: Option<String>,
+    /// The app's settings file, for the context's read-only or protected
+    /// mode (#338). `None`: where the desktop app keeps it.
+    pub app_settings: Option<PathBuf>,
 }
 
 /// Serve MCP on stdin/stdout until the client closes stdin.

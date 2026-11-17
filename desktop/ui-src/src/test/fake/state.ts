@@ -14,9 +14,10 @@ type Commands = typeof commands;
 export type CommandName = keyof Commands;
 type Result<K extends CommandName> = Awaited<ReturnType<Commands[K]>>;
 /** A command's parameters without its `cluster` (ADR 0007): the fake has one
- *  cluster, and `fake-backend.ts` checks that the value is there. */
+ *  cluster, and `fake-backend.ts` checks that the value is there (and, for a
+ *  mutating command, emulates the read-only / protected gate, #338). */
 type Args<K extends CommandName> = K extends ClusterCommand
-  ? Parameters<Commands[K]> extends [string, ...infer A]
+  ? Parameters<Commands[K]> extends [unknown, ...infer A]
     ? A
     : never
   : Parameters<Commands[K]>;
