@@ -66,32 +66,14 @@ fn program_name(command: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kube::config::{AuthProviderConfig, ExecConfig};
+    use serde_json::json;
 
     fn exec(command: &str, args: &[&str]) -> AuthInfo {
-        AuthInfo {
-            exec: Some(ExecConfig {
-                api_version: None,
-                command: Some(command.into()),
-                args: Some(args.iter().map(|a| a.to_string()).collect()),
-                env: None,
-                drop_env: None,
-                interactive_mode: None,
-                cluster: None,
-                provide_cluster_info: false,
-            }),
-            ..Default::default()
-        }
+        serde_json::from_value(json!({ "exec": { "command": command, "args": args } })).unwrap()
     }
 
     fn provider(name: &str) -> AuthInfo {
-        AuthInfo {
-            auth_provider: Some(AuthProviderConfig {
-                name: name.into(),
-                config: Default::default(),
-            }),
-            ..Default::default()
-        }
+        serde_json::from_value(json!({ "auth-provider": { "name": name, "config": {} } })).unwrap()
     }
 
     #[test]
