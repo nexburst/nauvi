@@ -112,6 +112,10 @@ impl LocalShell {
         if let Some(cwd) = &spec.cwd {
             cmd.cwd(cwd);
         }
+        // What the app set for its own webview (#353) is not the user's.
+        for var in crate::webkit_env::set_by_app() {
+            cmd.env_remove(var);
+        }
         for (key, value) in &spec.env {
             cmd.env(key, value);
         }

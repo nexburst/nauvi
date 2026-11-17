@@ -8,11 +8,33 @@
 //! the app turns the DMA-BUF renderer off. With a GPU those buffers live in
 //! GPU memory and nothing changes. A `WEBKIT_DISABLE_DMABUF_RENDERER` the
 //! user set, to anything, is kept.
+//!
+//! Without a render node the app process also keeps Mesa out (#353, round
+//! 2): GTK opens GLX when it opens the display, and WebKit opens an EGL
+//! display to look up the render node it hands the web process. Both load
+//! Mesa's software rasterizer, whose libLLVM alone is about 45 MB resident,
+//! for nothing: the app process draws the web process's shared-memory
+//! buffers with cairo. `GDK_GL=disable` stops GTK's GLX, and naming the
+//! render node (`/dev/null`: there is none) stops WebKit's lookup. The web
+//! process still renders with Mesa as before. A value the user set is kept.
 
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// The WebKitGTK variable that turns the DMA-BUF renderer off.
 const DISABLE_DMABUF: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
+
+/// What the app sets without a render node, on top of [`DISABLE_DMABUF`].
+const NO_GPU_EXTRA: &[(&str, &str)] = &[
+    // GTK 3: no GLX (or EGL) at display open.
+    ("GDK_GL", "disable"),
+    // WebKit's UI process: the render node, so it opens no EGL display.
+    ("WEBKIT_WEB_RENDER_DEVICE_FILE", "/dev/null"),
+];
+
+/// The variables [`apply`] set, for child processes that should not
+/// inherit them (the local terminal).
+static SET_BY_APP: OnceLock<Vec<&'static str>> = OnceLock::new();
 
 /// What [`apply`] did, for the app log (logging starts later).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,10 +79,25 @@ pub(crate) fn apply() -> Renderer {
         std::env::var_os(DISABLE_DMABUF),
         has_render_node(Path::new("/dev/dri")),
     );
+    let mut set = Vec::new();
     if renderer == Renderer::NoGpu {
         std::env::set_var(DISABLE_DMABUF, "1");
+        set.push(DISABLE_DMABUF);
+        for &(var, value) in NO_GPU_EXTRA {
+            if std::env::var_os(var).is_none() {
+                std::env::set_var(var, value);
+                set.push(var);
+            }
+        }
     }
+    let _ = SET_BY_APP.set(set);
     renderer
+}
+
+/// The variables the app set for WebKitGTK (not the user): the local
+/// terminal removes them, so programs started there don't inherit them.
+pub(crate) fn set_by_app() -> &'static [&'static str] {
+    SET_BY_APP.get().map(Vec::as_slice).unwrap_or(&[])
 }
 
 /// One line in the app log about the choice.
@@ -69,7 +106,8 @@ pub(crate) fn log(renderer: Renderer) {
         Renderer::Unchanged => {}
         Renderer::Gpu => tracing::info!("webview: GPU render node found, DMA-BUF renderer"),
         Renderer::NoGpu => tracing::info!(
-            "webview: no GPU render node, DMA-BUF renderer off ({DISABLE_DMABUF}=1) to save memory"
+            "webview: no GPU render node, DMA-BUF renderer off and no GL in the app process to save memory ({})",
+            set_by_app().join(", ")
         ),
     }
 }
