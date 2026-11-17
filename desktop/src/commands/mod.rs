@@ -18,6 +18,7 @@ pub(crate) mod files;
 pub(crate) mod helm;
 pub(crate) mod helm_charts;
 pub(crate) mod help;
+pub(crate) mod kubectl;
 pub(crate) mod links;
 pub(crate) mod local_shell;
 pub(crate) mod logs;
@@ -95,6 +96,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             help::cmd_diagnostics,
             help::cmd_help_open,
             help::cmd_log_ui_error,
+            kubectl::cmd_kubectl_download,
+            kubectl::cmd_kubectl_match,
             links::cmd_object_link,
             links::cmd_take_link,
             local_shell::cmd_local_shell_close,

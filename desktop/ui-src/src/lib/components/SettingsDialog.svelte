@@ -204,6 +204,23 @@
       </p>
     </fieldset>
 
+    <fieldset data-testid="kubectl-settings">
+      <legend>Local terminal</legend>
+      <label class="choice">
+        <input
+          type="checkbox"
+          checked={current.kubectl_match}
+          onchange={(e) => updateSettings({ kubectl_match: e.currentTarget.checked })}
+        />
+        Offer a kubectl that matches the cluster
+      </label>
+      <p class="muted hint">
+        When your kubectl is more than one minor version from the cluster, a local terminal offers to download the
+        matching one from dl.k8s.io (checked against its published SHA-256). It is used only in this app's local
+        terminals, never in place of your own.
+      </p>
+    </fieldset>
+
     <fieldset data-testid="editor-settings">
       <legend>YAML editor</legend>
       <label class="row">
