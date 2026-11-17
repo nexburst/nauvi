@@ -23,8 +23,12 @@
   let starting = $state.raw<string[]>([]);
   const ELSEWHERE_HINT = "Running in another window: stop it there to start it here";
 
+  // Reads app.count too: clicking Port Forwards while it is shown clears it
+  // (setView) without remounting this view, and the next poll may be late
+  // in a background window (#320).
   $effect(() => {
-    app.count = forwardsCount(rows, forwards.elsewhere);
+    const text = forwardsCount(rows, forwards.elsewhere);
+    if (app.count !== text) app.count = text;
   });
 
   async function start(id: string) {

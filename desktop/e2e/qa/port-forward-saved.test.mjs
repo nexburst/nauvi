@@ -215,9 +215,12 @@ describe("saved port-forwards (#217)", { timeout: 15 * 60_000 }, () => {
     console.log(`Start in the other window: disabled, title "${tip}"`);
     assert.match(tip, /another window: stop it there/);
     // #320: the status bar agrees with the row.
-    const footer = await app.js(`return document.querySelector("footer")?.innerText ?? ""`);
-    console.log(`status bar of the other window: "${footer}"`);
-    assert.match(footer, /1 forward, 0 running, 1 in another window/);
+    const footerText = () => app.js(`return document.querySelector("footer")?.innerText ?? ""`);
+    console.log(`status bar of the other window: "${await footerText()}"`);
+    await app.waitFor(async () => /1 forward, 0 running, 1 in another window/.test(await footerText()), {
+      timeout: 5_000,
+      message: 'the status bar says "1 forward, 0 running, 1 in another window"',
+    });
     await switchTo(app, main);
     // #320: Ports and Local URL stay on one line each in the running window.
     const lines = await app.js(`
