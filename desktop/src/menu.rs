@@ -20,8 +20,7 @@ pub(crate) enum HelpItem {
     Documentation,
     /// A new GitHub issue with the diagnostics filled in.
     ReportBug,
-    /// The folder with the app log, in the file manager (on macOS the log
-    /// selected in Finder, see [`log_folder_action`]).
+    /// The folder with the app log, in the file manager.
     LogFolder,
 }
 
