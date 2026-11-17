@@ -41,13 +41,15 @@ const PODS = Number(process.env.QA_PERF_PODS || 5000);
 const BURSTS = 3;
 
 /**
- * The 50k-line burst (median of BURSTS). Release: the qa.yml runner showed
- * 0.7-0.9 s, frame p95 30-45 ms, core 0.2-0.3 s and web 0.6 s CPU, 420 MB
- * RSS (#115); the limits leave 4x or more for a slow runner. Debug: a
- * loaded 4-core dev box showed 3-5 s, p95 100-125 ms, 4 s CPU each, 600 MB.
+ * The 50k-line burst (median of BURSTS). Release, on qa.yml runners (#115):
+ * 0.7-1.7 s, frame p95 30-60 ms, core 0.2-0.55 s and web 0.6-1.6 s CPU,
+ * 420-450 MB RSS; runners differ a lot (`kubectl logs` of the same pod took
+ * 0.3 s on one, 2.8 s on another), so the limits leave about 3x over the
+ * slow one. Debug: a loaded 4-core dev box showed 3-5 s, p95 90-125 ms,
+ * 4 s CPU each, 600 MB.
  */
 const LOG_BUDGET = RELEASE
-  ? { ms: 4000, p95Frame: 150, coreCpuS: 1.5, webCpuS: 3, coreAndWebRssMb: 800 }
+  ? { ms: 6000, p95Frame: 200, coreCpuS: 2, webCpuS: 5, coreAndWebRssMb: 900 }
   : { ms: 20_000, p95Frame: 400, coreCpuS: 12, webCpuS: 15, coreAndWebRssMb: 1200 };
 
 const skip = process.platform !== "linux" ? "reads /proc (Linux only)" : false;
