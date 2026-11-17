@@ -1,5 +1,8 @@
-// Area 2 of #83, PR #23: a bulk delete by a user without delete rights shows
-// the 403 per object. The scenario makes its own read-only user: a
+// Area 2 of #83, PR #23, and #340: a user without delete rights gets no
+// delete. Since #340 the bulk bar and the row menu refuse it up front, with
+// the missing permission, and no dialog opens (when the access check cannot
+// be made, the per-object 403 list still shows; see actions.spec.ts in
+// Playwright). The scenario makes its own read-only user: a
 // ServiceAccount bound to `view` in a temp namespace, with a short token in a
 // private kubeconfig (it never touches ~/.kube/config).
 
@@ -11,7 +14,7 @@ import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { deleteNamespace, kubectl, tempNamespace } from "../lib/cluster.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
-import { actionDialogText, contextMenu, dialogButton, menuItem, noticeText, openKind } from "./area-2-helpers.mjs";
+import { closeMenu, contextMenu, openKind } from "./area-2-helpers.mjs";
 
 const T = { timeout: 180_000 };
 const CONFIGMAPS = ["qa-ro-a", "qa-ro-b", "qa-ro-c"];
@@ -64,56 +67,45 @@ describe("area 2: bulk delete without delete rights", { timeout: 10 * 60_000 }, 
   });
   const s = appSession("area-2-rbac", () => ({ kubeconfig: viewerKubeconfig(ns) }));
 
-  it("lists every object with the reason it was not deleted", T, async () => {
+  it("refuses the delete up front, with the missing permission", T, async () => {
     const { app } = s;
+    const reason = `Not allowed: you can't delete configmaps in namespace ${ns}`;
     await openKind(app, "Config Maps", ns, "qa-ro-");
     await waitLive(app);
     await app.waitFor(async () => (await app.rows()).length === CONFIGMAPS.length, { message: "3 ConfigMaps" });
-    const before = await contextMenu(app, "qa-ro-a", ns);
-    console.log(`menu for a viewer: ${JSON.stringify(before)}`);
-    await app.driver.actions().sendKeys("").perform();
+
+    // The row menu: Delete greyed, with the reason under it.
+    await contextMenu(app, "qa-ro-a", ns);
+    const item = await app.waitFor(
+      () =>
+        app.js(`
+          const b = Array.from(document.querySelectorAll('[data-testid="context-menu"] [role="menuitem"]'))
+            .find((b) => b.textContent.trim() === "Delete");
+          const r = b && document.getElementById(b.getAttribute("aria-describedby") ?? "");
+          return r ? { disabled: b.disabled, reason: r.textContent.trim() } : null;`),
+      { message: "the row menu's Delete greyed" },
+    );
+    console.log(`menu Delete for a viewer: ${JSON.stringify(item)}`);
+    assert.deepEqual(item, { disabled: true, reason });
+    await app.shot("forbidden-menu");
+    await closeMenu(app);
+
+    // The bulk bar: Delete 3 greyed, with the reason; clicking opens nothing.
     await (await app.driver.findElement(By.css('input[aria-label="Select all visible rows"]'))).click();
     const bulk = await app.waitFor(
-      () => app.js(`return document.querySelector('[role="toolbar"][aria-label="Selection"]')?.innerText ?? null`),
-      { message: "the selection bar" },
+      () => app.js(`return document.querySelector('[data-testid="bulk-reason"]')?.textContent.trim() ?? null`),
+      { message: "the selection bar's reason" },
     );
     console.log(`selection bar: ${bulk}`);
-    if (!bulk.includes("Delete 3")) {
-      // The app hid the bulk delete for a user who can't delete: that is a
-      // pass of a different kind; record it.
-      console.log("no Delete button for a read-only user");
-      return;
-    }
-    await (await app.find(By.xpath("//*[@aria-label='Selection']//button[normalize-space()='Delete 3…']"))).click();
-    await (await dialogButton(app, "Delete 3")).click();
-    const text = await app.waitFor(
-      async () => {
-        const t = await actionDialogText(app);
-        return t?.includes("could not be deleted") ? t : null;
-      },
-      { message: "the failure list" },
+    assert.equal(bulk, reason);
+    const del = await app.find(
+      By.xpath("//*[@aria-label='Selection']//button[starts-with(normalize-space(),'Delete 3')]"),
     );
-    console.log(`dialog: ${text}`);
-    assert.match(text, /0 of 3 deleted\. 3 could not be deleted/);
-    for (const n of CONFIGMAPS) assert.match(text, new RegExp(`${ns}/${n}\\s+Not allowed`), `${n}: Not allowed`);
-    await app.shot("forbidden-list");
-    await (await dialogButton(app, "Close")).click();
+    assert.equal(await del.getAttribute("aria-disabled"), "true");
+    await del.click();
+    await new Promise((r) => setTimeout(r, 500));
+    assert.equal((await app.driver.findElements(By.css('[data-testid="action-dialog"]'))).length, 0, "no dialog");
+    await app.shot("forbidden-bulk");
     assert.equal((await app.rows()).length, CONFIGMAPS.length, "nothing was deleted");
-
-    // A single delete shows the same reason inline (outside a selection).
-    await (await app.find(By.xpath("//*[@aria-label='Selection']//button[normalize-space()='Clear']"))).click();
-    await contextMenu(app, "qa-ro-a", ns);
-    await menuItem(app, "Delete");
-    await (await dialogButton(app, "Delete")).click();
-    const single = await app.waitFor(
-      async () => {
-        const t = await actionDialogText(app);
-        return t && /Not allowed|forbidden/i.test(t) ? t : null;
-      },
-      { message: "the inline 403" },
-    );
-    console.log(`single delete: ${single} | notice: ${await noticeText(app)}`);
-    await app.shot("forbidden-single");
-    await (await dialogButton(app, "Cancel")).click();
   });
 });
