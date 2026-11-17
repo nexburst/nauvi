@@ -56,6 +56,10 @@ export interface FakeState {
   restarted: boolean;
   /** The nauvi:// link request waiting for the window (#299). */
   link: LinkRequest | null;
+  /** The cluster the call being handled names (`""`: a global command). */
+  target: string;
+  /** Clusters connected in the background (`cmd_cluster_connect`). */
+  connected: Set<string>;
 }
 
 export function newState(cluster: FakeCluster): FakeState {
@@ -82,6 +86,8 @@ export function newState(cluster: FakeCluster): FakeState {
     finishDownload: null,
     restarted: false,
     link: null,
+    target: "",
+    connected: new Set(),
   };
 }
 
@@ -92,13 +98,21 @@ export const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 export const rowKey = (namespace: string, name: string) => (namespace ? `${namespace}/${name}` : name);
 
 export function kindOf(s: FakeState, resource: ResourceRef): ResourceKind {
-  const kind = s.cluster.kinds.find((k) => sameResource(k.resource, resource));
+  const kind = served(s, "kinds").find((k) => sameResource(k.resource, resource));
   if (!kind) throw `the server could not find the requested resource (${resource.plural})`;
   return kind;
 }
 
 export function rowsOf(s: FakeState, kind: ResourceKind): ResourceRow[] {
+  const other = s.cluster.byCluster?.[s.target]?.rows;
+  if (other) return (other[kind.id] ??= []);
   return (s.cluster.rows[kind.id] ??= []);
+}
+
+/** `cluster[field]`, or what the cluster of the call serves instead (`byCluster`). */
+export function served<K extends "namespaces" | "kinds">(s: FakeState, field: K): FakeCluster[K] {
+  const other = s.cluster.byCluster?.[s.target];
+  return other && field in other ? (other[field] as FakeCluster[K]) : s.cluster[field];
 }
 
 export function findRow(

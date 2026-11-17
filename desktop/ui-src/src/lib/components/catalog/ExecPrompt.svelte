@@ -4,8 +4,20 @@
   import { answerPrompt } from "../../stores/catalog.svelte";
 
   /** Asks before an added kubeconfig's login commands run (#201): shows
-   *  each command line exactly and the contexts that use it. */
-  let { source, commands }: { source: string; commands: ExecCommand[] } = $props();
+   *  each command line exactly and the contexts that use it. `onanswer`:
+   *  what the answer does (by default the catalog's prompt); `compact`:
+   *  inside a node of the cluster tree (ADR 0007). */
+  let {
+    source,
+    commands,
+    onanswer = answerPrompt,
+    compact = false,
+  }: {
+    source: string;
+    commands: ExecCommand[];
+    onanswer?: (allow: boolean) => Promise<void>;
+    compact?: boolean;
+  } = $props();
 
   const many = $derived(commands.length > 1);
   /** The local files the contexts of `c` send besides running it (#244). */
@@ -19,7 +31,7 @@
   }
 </script>
 
-<div class="prompt" role="alertdialog" aria-label="Allow login command" data-testid="exec-prompt">
+<div class="prompt" class:compact role="alertdialog" aria-label="Allow login command" data-testid="exec-prompt">
   <p>
     <strong>{source}</strong> logs in by running {many ? "these commands" : "this command"} on this computer, as you:
   </p>
@@ -39,9 +51,9 @@
     this source.
   </p>
   <div class="buttons">
-    <button type="button" class="btn primary" onclick={() => void answerPrompt(true)}>Allow and check</button>
+    <button type="button" class="btn primary" onclick={() => void onanswer(true)}>{compact ? "Allow and connect" : "Allow and check"}</button>
     <!-- The safe answer has the focus, so Enter never allows by accident. -->
-    <button type="button" class="btn" onclick={() => void answerPrompt(false)} use:focus>Don't run</button>
+    <button type="button" class="btn" onclick={() => void onanswer(false)} use:focus>Don't run</button>
   </div>
 </div>
 
@@ -96,6 +108,13 @@
   }
   .buttons {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
+  }
+  /* Inside a node of the sidebar's cluster tree. */
+  .prompt.compact {
+    margin: 4px 4px 8px 0;
+    padding: 8px;
+    font-size: 12px;
   }
 </style>

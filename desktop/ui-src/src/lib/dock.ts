@@ -34,9 +34,14 @@ export type DockTabSpec =
   | { type: "localShell"; seq: number; context: string; namespace: string };
 
 export type DockTab = DockTabSpec & {
-  /** Stable per object: opening the same thing again focuses this tab. */
+  /** Stable per object and cluster: opening the same thing again focuses this tab. */
   id: string;
+  /** The object's part of `id` (`tabId`), the same in every cluster. */
+  key: string;
   title: string;
+  /** The cluster it runs on (ADR 0007): its commands go there, and it
+   *  keeps running while the window shows another cluster. */
+  cluster: string;
 };
 
 export const DOCK_MIN_HEIGHT = 120;
@@ -93,15 +98,26 @@ export function localShellNamespace(selected: readonly string[], contextNamespac
   return selected[0] || contextNamespace || "default";
 }
 
-export function makeTab(spec: DockTabSpec): DockTab {
-  return { ...spec, id: tabId(spec), title: tabTitle(spec) };
+/** The id of `spec`'s tab on `cluster` (`""`: the id of the object alone). */
+export function clusterTabId(spec: DockTabSpec, cluster: string): string {
+  return cluster ? `${cluster}|${tabId(spec)}` : tabId(spec);
 }
 
-/** The tabs after opening `spec` (appended unless already open), and its id. */
-export function openTab(tabs: DockTab[], spec: DockTabSpec): { tabs: DockTab[]; active: string } {
-  const id = tabId(spec);
+export function makeTab(spec: DockTabSpec, cluster = ""): DockTab {
+  return { ...spec, id: clusterTabId(spec, cluster), key: tabId(spec), title: tabTitle(spec), cluster };
+}
+
+/** The tabs after opening `spec` on `cluster` (appended unless already open), and its id. */
+export function openTab(tabs: DockTab[], spec: DockTabSpec, cluster = ""): { tabs: DockTab[]; active: string } {
+  const id = clusterTabId(spec, cluster);
   if (tabs.some((t) => t.id === id)) return { tabs, active: id };
-  return { tabs: [...tabs, makeTab(spec)], active: id };
+  return { tabs: [...tabs, makeTab(spec, cluster)], active: id };
+}
+
+/** Whether the tab strip names each tab's cluster: when the tabs run on
+ *  more than one, or on another than the one shown. */
+export function labelClusters(tabs: readonly DockTab[], visible: string): boolean {
+  return tabs.some((t) => t.cluster !== tabs[0].cluster || t.cluster !== visible);
 }
 
 /**

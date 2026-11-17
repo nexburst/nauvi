@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import LogViewer from "./LogViewer.svelte";
   import Terminal from "./Terminal.svelte";
-  import { api, visibleCluster } from "../cluster";
+  import { api } from "../cluster";
   import type { LogContainer } from "../bindings";
   import type { DockTab } from "../dock";
 
@@ -32,7 +32,7 @@
       return;
     }
     try {
-      const d = await api(visibleCluster()).cmdGetResourceDetail(tab.pod.resource, tab.pod.namespace, tab.pod.name);
+      const d = await api(tab.cluster).cmdGetResourceDetail(tab.pod.resource, tab.pod.namespace, tab.pod.name);
       containers = d.pod.log_containers;
       shell = d.pod.containers.find((c) => c.kind === "regular")?.name ?? null;
     } catch {
@@ -42,21 +42,21 @@
   });
 </script>
 
-<div class="pane" class:hidden={!active} data-testid="dock-pane" data-tab={tab.id}>
+<div class="pane" class:hidden={!active} data-testid="dock-pane" data-tab={tab.key} data-cluster={tab.cluster}>
   {#if tab.type === "podLogs"}
-    <LogViewer pod={tab.pod} {containers} {ready} hidden={!active} />
+    <LogViewer pod={tab.pod} {containers} {ready} hidden={!active} cluster={tab.cluster} />
   {:else if tab.type === "workloadLogs"}
-    <LogViewer workload={tab.workload} hidden={!active} />
+    <LogViewer workload={tab.workload} hidden={!active} cluster={tab.cluster} />
   {:else if tab.type === "localShell"}
-    <Terminal target={{ kind: "local", namespace: tab.namespace }} {active} />
+    <Terminal target={{ kind: "local", namespace: tab.namespace }} {active} cluster={tab.cluster} />
   {:else if tab.type === "debug"}
-    <Terminal target={{ kind: "debug", pod: tab.pod, target: tab.target, image: tab.image }} {active} />
+    <Terminal target={{ kind: "debug", pod: tab.pod, target: tab.target, image: tab.image }} {active} cluster={tab.cluster} />
   {:else if tab.type === "attach"}
-    <Terminal target={{ kind: "attach", pod: tab.pod, container: tab.container }} {active} />
+    <Terminal target={{ kind: "attach", pod: tab.pod, container: tab.container }} {active} cluster={tab.cluster} />
   {:else if tab.type === "nodeShell"}
-    <Terminal target={{ kind: "nodeShell", node: tab.node, namespace: tab.namespace }} {active} />
+    <Terminal target={{ kind: "nodeShell", node: tab.node, namespace: tab.namespace }} {active} cluster={tab.cluster} />
   {:else if ready}
-    <Terminal target={{ kind: "pod", pod: tab.pod, container: shell }} {active} />
+    <Terminal target={{ kind: "pod", pod: tab.pod, container: shell }} {active} cluster={tab.cluster} />
   {/if}
 </div>
 

@@ -48,9 +48,11 @@
     ready?: boolean;
     /** An inactive dock tab: lines are buffered, not rendered, until shown. */
     hidden?: boolean;
+    /** The cluster it streams from (ADR 0007): by default the one shown. */
+    cluster?: string;
   }
 
-  let { pod, workload, containers = [], ready = true, hidden = false }: Props = $props();
+  let { pod, workload, containers = [], ready = true, hidden = false, cluster = visibleCluster() }: Props = $props();
   const isWorkload = $derived(workload !== undefined);
   const title = $derived(workload ? `${workload.namespace}/${workload.name}` : pod ? `${pod.namespace}/${pod.name}` : "");
 
@@ -587,7 +589,7 @@
     const old = streaming ? streamId : null;
     streamId = ++streamCounter;
     streaming = true;
-    if (old !== null) await api(visibleCluster()).cmdStopLogs(old).catch(() => {});
+    if (old !== null) await api(cluster).cmdStopLogs(old).catch(() => {});
     podStates = {};
     containersByPod.clear();
     tagInfoCache = new Map();
@@ -595,7 +597,7 @@
     truncatedNote = "";
     try {
       if (workload) {
-        await api(visibleCluster()).cmdStreamWorkloadLogs(
+        await api(cluster).cmdStreamWorkloadLogs(
           workload.kind,
           workload.namespace,
           workload.name,
@@ -613,7 +615,7 @@
       if (container === ALL_CONTAINERS) {
         // Merged by the workload tracker; previous logs are per container.
         previous = false;
-        await api(visibleCluster()).cmdStreamPodAllLogs(
+        await api(cluster).cmdStreamPodAllLogs(
           pod.namespace,
           pod.name,
           {
@@ -626,7 +628,7 @@
         );
         return;
       }
-      await api(visibleCluster()).cmdStreamPodLogs(
+      await api(cluster).cmdStreamPodLogs(
         pod.namespace,
         pod.name,
         container || null,
@@ -665,7 +667,7 @@
         out = buf.lines.map((l, i) => (buf.tagIds[i] ? tagInfo(buf.tagIds[i]).prefix + " " + l : l));
       }
       const header = logHeader({
-        context: visibleCluster(),
+        context: cluster,
         namespace: (workload ?? pod)?.namespace ?? "",
         pod: pod?.name,
         workload: workload ? { kind: workload.kind, name: workload.name } : undefined,
@@ -893,7 +895,7 @@
     const ownStream = streamId;
     streamId = ++streamCounter;
     // Stops this tab's stream only; the other tabs keep theirs.
-    if (streaming) api(visibleCluster()).cmdStopLogs(ownStream).catch(() => {});
+    if (streaming) api(cluster).cmdStopLogs(ownStream).catch(() => {});
   });
 
   // A tab that is shown again renders what arrived while it was hidden.

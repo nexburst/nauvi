@@ -1,7 +1,8 @@
 // QA area 4 (#83): node shells (#72).
 // Checks: Shell on a Node opens a root shell on it in a dock tab; its pod
 // (kube-system, label nauvi.dev/node-shell) is deleted when the tab
-// closes, on a context switch and when the window is closed (app quits);
+// closes, when its cluster is disconnected (a context switch keeps it
+// open, ADR 0007) and when the window is closed (app quits);
 // after the app is killed with a node shell open, the next start offers to
 // delete the leftover pod, and Delete does.
 //
@@ -18,6 +19,7 @@ import { CONTEXT, byTestId } from "../lib/app.mjs";
 import { kubectl } from "../lib/cluster.mjs";
 import { aliasKubeconfig, appPid, closeTab, dockTabs, paneTerminal, panelButton } from "../lib/dock.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { disconnectCluster, waitNodeState } from "../lib/tree.mjs";
 import { terminal } from "../lib/terminal.mjs";
 import { cannotCloseLikeUser, closeLikeUser, selectContext } from "../lib/window.mjs";
 
@@ -90,11 +92,16 @@ describe("area 4: node shells", { timeout: 20 * 60_000 }, () => {
     await waitGone(app, pod);
   });
 
-  it("a context switch deletes the node shell pod", T, async () => {
+  it("a context switch keeps the node shell; disconnecting its cluster deletes its pod", T, async () => {
     const { app } = s;
     const { pod } = await shell(app);
     await selectContext(app, kc.alias);
-    await app.waitFor(async () => (await dockTabs(app)).length === 0, { message: "no tabs after the switch" });
+    await waitLive(app);
+    assert.equal((await dockTabs(app)).length, 1, "the node shell tab stays");
+    assert.ok(nodeShellPods().includes(pod), "its pod stays");
+    await waitNodeState(app, CONTEXT, "connected");
+    await disconnectCluster(app, CONTEXT);
+    await app.waitFor(async () => (await dockTabs(app)).length === 0, { message: "no tabs after the disconnect" });
     await waitGone(app, pod);
     await selectContext(app, CONTEXT);
     await waitLive(app);

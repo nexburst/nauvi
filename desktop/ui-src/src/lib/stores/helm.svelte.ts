@@ -3,7 +3,7 @@
 
 import { commands } from "../bindings";
 
-import { api, visibleCluster } from "../cluster";
+import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import type { HelmChartInfo, HelmReleaseRow, HelmStorage } from "../bindings";
 import { chartKeys, releaseKey } from "../helm";
 import { setNotice } from "./actions.svelte";
@@ -50,6 +50,19 @@ export const helm = new HelmStore();
 
 /** Ignores answers that a newer load overtook. */
 let generation = 0;
+
+// The releases of one cluster never show for the next (ADR 0007).
+onClusterSwitch(() => {
+  generation++;
+  helm.rows = [];
+  helm.charts = new Map();
+  helm.warnings = [];
+  helm.error = "";
+  helm.loaded = false;
+  helm.selected = null;
+  helm.request = null;
+  helm.actionError = "";
+});
 
 /** List the releases in `namespaces` (empty: all), then fill in their charts. */
 export async function loadReleases(namespaces: readonly string[]) {

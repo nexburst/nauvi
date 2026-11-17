@@ -174,12 +174,20 @@ test("dragging the top edge resizes the dock", async ({ page }) => {
   await expect.poll(async () => Math.abs((await dock(page).boundingBox())!.height - (before + 100))).toBeLessThan(8);
 });
 
-test("a context switch closes every tab", async ({ page }) => {
+test("a context switch keeps every tab, labelled with its cluster (ADR 0007)", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Pods");
   await openPodLogs(page, fake, "web-1");
   await expect(tabs(page)).toHaveCount(1);
   await page.getByLabel("Cluster context").selectOption("prod");
-  await expect(dock(page)).toHaveCount(0);
-  expect(await fake.activeLogStreams()).toEqual([]);
+  await expect(page.getByTestId("dock-tab-cluster")).toHaveText("kind-dev");
+  await expect(tabs(page)).toHaveCount(1);
+  expect(await fake.activeLogStreams()).toHaveLength(1);
+  expect(await fake.calls("cmdStopLogs")).toEqual([]);
+  // A tab opened on prod is a tab of its own, even for a pod of that name.
+  await openKind(page, "Pods");
+  await openPodLogs(page, fake, "web-1");
+  await expect(tabs(page)).toHaveCount(2);
+  await expect(page.getByTestId("dock-tab-cluster")).toHaveText(["kind-dev", "prod"]);
+  expect(fake.errors).toEqual([]);
 });
