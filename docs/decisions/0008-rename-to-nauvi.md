@@ -22,4 +22,5 @@ records were updated to the new name; this note is the history.
   re-run `bash scripts/test-cluster/setup.sh` (and `limited-user.sh`) to get
   the new ones, and delete the old clusters with `kind delete cluster`.
 - CI fails if the old name appears anywhere else
-  (`scripts/dev/check-old-name.sh`); this file is the only exception.
+  (`scripts/dev/check-old-name.sh`). The exceptions are this file and the
+  README's one "Formerly ..." line, which the script allows as an exact line.
