@@ -3,7 +3,8 @@
 //! channel the tab passes in).
 
 use crate::commands::exec::{emit_note, start_session, SessionClose, SessionOut};
-use crate::commands::term_frame::{TermChannel, TermOut};
+use crate::commands::term_frame::TermChannel;
+use crate::commands::term_out::TermOut;
 use crate::state::mutation::Mutation;
 use crate::state::{AppState, Cluster, ClusterSession, SessionCleanup};
 use nauvi::debug::{add_debug_container, attach_container, describe_debug_error};

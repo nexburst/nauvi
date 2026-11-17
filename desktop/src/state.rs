@@ -7,7 +7,7 @@
 //! cluster they name through the [`Cluster`] argument.
 
 use crate::catalog::{Approved, KubeconfigSources};
-use crate::commands::term_frame::TermOut;
+use crate::commands::term_out::TermOut;
 use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
 use kube::api::TerminalSize;
@@ -1456,7 +1456,7 @@ mod tests {
             task,
             cleanup: None,
             end_on_close,
-            out: crate::commands::term_frame::TermOut::detached(),
+            out: crate::commands::term_out::TermOut::detached(),
         };
         (session, typed)
     }

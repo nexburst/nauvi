@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isOutput, TermWriter } from "./termOutput";
+import { isOutput, skippedNotice, TermWriter } from "./termOutput";
 
 /** A fake xterm: records writes; `finish()` calls back the one in flight
  *  after `ms` of fake time. */
@@ -134,6 +134,43 @@ describe("TermWriter", () => {
     t.w.push("y");
     expect(t.writes).toHaveLength(0);
     expect(t.w.pending).toBe(0);
+  });
+
+  it("acknowledges the session's bytes once written, not its own notes", () => {
+    const acked: number[] = [];
+    const t = setup({ onConsumed: (n) => acked.push(n) });
+    t.w.push("note ");
+    t.w.push("abc", true);
+    t.frame();
+    expect(acked).toEqual([]);
+    t.finish();
+    expect(acked).toEqual([3]);
+  });
+
+  it("past its bound drops the oldest output, acknowledges it and notes it", () => {
+    const acked: number[] = [];
+    const t = setup({ maxPending: 10, onConsumed: (n) => acked.push(n) });
+    t.w.push("aaaaaa", true);
+    t.w.push("bbbbbb", true);
+    expect(acked).toEqual([6]);
+    expect(t.w.pending).toBe(6);
+    t.frame();
+    expect(text(t.writes[0])).toBe(skippedNotice(6) + "bbbbbb");
+  });
+
+  it("Ctrl-C's clear drops what waits, with one notice, and acknowledges it", () => {
+    const acked: number[] = [];
+    const t = setup({ startBytes: 4, minBytes: 4, maxBytes: 4, onConsumed: (n) => acked.push(n) });
+    t.w.push("0123456789", true);
+    t.frame();
+    t.w.clear();
+    expect(acked).toEqual([6]);
+    t.w.push("^C\r\n$ ", true);
+    t.finish();
+    t.frame();
+    expect(text(t.writes[1])).toBe(skippedNotice(6) + "^C\r\n");
+    expect(skippedNotice(6)).toContain("[… 1 KB of output skipped]");
+    expect(skippedNotice(3 * 1024 * 1024)).toContain("[… 3.0 MB of output skipped]");
   });
 });
 

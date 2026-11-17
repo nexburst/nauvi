@@ -31,6 +31,8 @@
       out: Channel<TermMessage>,
     ): Promise<{ id: string; intro: string; kubectl?: string }>;
     input(id: string, data: string): Promise<unknown>;
+    /** The tab wrote (or dropped) `bytes` of the output: the backend may send that much more. */
+    ack(id: string, bytes: number): Promise<unknown>;
     resize(id: string, cols: number, rows: number): Promise<unknown>;
     close(id: string): Promise<unknown>;
   }
@@ -52,6 +54,7 @@
           intro: "",
         }),
         input: c.cmdExecInput,
+        ack: c.cmdExecAck,
         resize: c.cmdExecResize,
         close: c.cmdExecClose,
       };
@@ -64,6 +67,7 @@
           intro: "",
         }),
         input: c.cmdExecInput,
+        ack: c.cmdExecAck,
         resize: c.cmdExecResize,
         close: c.cmdExecClose,
       };
@@ -81,6 +85,7 @@
         };
       },
       input: c.cmdLocalShellInput,
+      ack: c.cmdLocalShellAck,
       resize: c.cmdLocalShellResize,
       close: c.cmdLocalShellClose,
     };
@@ -98,7 +103,7 @@
   import { registerTerminalSearch } from "../stores/keyboard.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { webLink } from "../terminalLinks";
-  import { TermWriter, termChannel } from "../termOutput";
+  import { INTERRUPT, TermWriter, termChannel } from "../termOutput";
   import { settings } from "../stores/settings.svelte";
   import KubectlOffer from "./KubectlOffer.svelte";
 
@@ -207,12 +212,20 @@
     // or node shell pod starts, an attach note). xterm gets it once per
     // frame, a bounded amount at a time, so a flood never keeps the page
     // from drawing or taking keys.
-    const w = new TermWriter((data, done) => (term ? term.write(data, done) : done()));
+    // What was written (or dropped) is acknowledged, so the backend sends at
+    // most a window ahead; before `start` resolves it is owed.
+    let owed = 0;
+    const w = new TermWriter((data, done) => (term ? term.write(data, done) : done()), {
+      onConsumed: (n) => {
+        if (session) b.ack(session, n).catch(() => {});
+        else owed += n;
+      },
+    });
     writer = w;
     // A local shell's intro (from `start`'s answer) goes before its prompt.
     if (target.kind === "local") w.pause();
     const out = termChannel({
-      output: (bytes) => w.push(bytes),
+      output: (bytes) => w.push(bytes, true),
       event: (e) => {
         if (e.type === "closed") w.push(closedNote);
       },
@@ -226,12 +239,18 @@
         return;
       }
       session = id;
+      if (owed) b.ack(id, owed).catch(() => {});
       if (target.kind === "local") localKubectl = kubectl ?? "";
       if (intro) t.write(intro);
       w.resume();
       sendResize();
       // In order: concurrent input calls can overtake each other.
-      t.onData(orderedInput((data) => b.input(id, data)));
+      const send = orderedInput((data: string) => b.input(id, data));
+      t.onData((data) => {
+        // Ctrl-C drops the backlog here; the backend drops its own.
+        if (data.includes(INTERRUPT)) w.clear();
+        send(data);
+      });
       if (active) t.focus();
     } catch (e) {
       // After what the start wrote (its progress).

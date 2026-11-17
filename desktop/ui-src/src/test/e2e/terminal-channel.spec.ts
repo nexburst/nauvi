@@ -52,6 +52,27 @@ test("a flood of output is all drawn while typing still reaches the shell", asyn
   await expect(rows(page)).toContainText("FLOOD-END", { timeout: 30_000 });
 });
 
+test("written output is acknowledged; Ctrl-C drops the backlog with a notice", async ({ page }) => {
+  const fake = await openShell(page);
+  await page.evaluate(() => window.__fake.emitExecOutput("exec-1", "hello\r\n"));
+  await expect(rows(page)).toContainText("hello");
+  await expect.poll(async () => (await fake.calls("cmdExecAck")).map((c) => c.bytes)).toEqual([7]);
+  // 8 MB arrive at once; Ctrl-C before they are drawn.
+  await page.evaluate(async () => {
+    const chunk = ("y".repeat(98) + "\r\n").repeat(1000);
+    for (let i = 0; i < 80; i++) await window.__fake.emitExecOutput("exec-1", chunk);
+  });
+  await page.locator(".xterm-helper-textarea").press("Control+c");
+  await expect.poll(async () => (await fake.calls("cmdExecInput")).map((c) => c.data)).toContain("\x03");
+  await page.evaluate(() => window.__fake.emitExecOutput("exec-1", "^C\r\nREADY$ "));
+  await expect(rows(page)).toContainText(/\[… [\d.]+ MB of output skipped\]/);
+  await expect(rows(page)).toContainText("READY$");
+  // Everything received is acknowledged, written or dropped.
+  await expect
+    .poll(async () => (await fake.calls("cmdExecAck")).reduce((n, c) => n + (c.bytes as number), 0))
+    .toBe(7 + 80 * 100_000 + 11);
+});
+
 test("the end of the session is noted after its last output", async ({ page }) => {
   await openShell(page);
   await page.evaluate(async () => {

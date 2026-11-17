@@ -16,6 +16,7 @@ export function localShellHandlers(s: FakeState) {
         kubectl: s.cluster.settings.kubectl_match && k.downloaded ? k.server : "",
       };
     },
+    cmdLocalShellAck: () => null,
     cmdLocalShellInput: () => null,
     cmdLocalShellResize: () => null,
     cmdLocalShellClose: () => null,

@@ -1,6 +1,7 @@
 //! Interactive terminal sessions in pods.
 
-use super::term_frame::{send_closed, send_data, TermChannel, TermOut, Utf8Cut};
+use super::term_frame::{TermChannel, Utf8Cut};
+use super::term_out::{send_closed, send_data, TermOut};
 use crate::state::mutation::Mutation;
 use crate::state::{next_session, Cluster, ExecSession, SessionCleanup};
 use futures::SinkExt;
@@ -12,6 +13,10 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 /// The most one read of a session's output takes: under a flood the reads
 /// fill up, so the tab gets fewer, bigger messages (#115).
 const READ_BUF: usize = 64 * 1024;
+
+/// Ctrl-C: typing it drops the session's output still waiting to be sent,
+/// so the prompt shows at once instead of after the backlog (#115).
+pub(crate) const INTERRUPT: char = '\x03';
 
 /// Open an interactive shell in a pod. Returns the session id; the output
 /// arrives on `on_output` (this session's own channel, #115), then `closed`
@@ -216,7 +221,11 @@ pub(crate) async fn cmd_exec_input(
     // std MutexGuard across an await would make this future non-Send.
     let tx = {
         let sessions = cluster.exec_sessions.lock().unwrap();
-        sessions.get(&session).map(|entry| entry.stdin_tx.clone())
+        let entry = sessions.get(&session);
+        if let Some(e) = entry.filter(|_| data.contains(INTERRUPT)) {
+            e.out.clear();
+        }
+        entry.map(|e| e.stdin_tx.clone())
     };
     let Some(tx) = tx else {
         return Err("exec session not found".to_string());
@@ -224,6 +233,21 @@ pub(crate) async fn cmd_exec_input(
     tx.send(data.into_bytes())
         .await
         .map_err(|_| "exec session closed".to_string())
+}
+
+/// The tab wrote (or dropped) `bytes` of the session's output: that much
+/// more may be sent (#115). A session already gone is no error.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_exec_ack(
+    cluster: Cluster,
+    session: String,
+    bytes: u32,
+) -> Result<(), String> {
+    if let Some(e) = cluster.exec_sessions.lock().unwrap().get(&session) {
+        e.out.ack(bytes as usize);
+    }
+    Ok(())
 }
 
 #[tauri::command]

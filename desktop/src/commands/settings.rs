@@ -1,7 +1,7 @@
 //! Reading and changing the remembered settings (`settings.rs`).
 
 use crate::commands::exec::emit_note;
-use crate::commands::term_frame::send_closed;
+use crate::commands::term_out::send_closed;
 use crate::settings::{Settings, SettingsPatch, SettingsStore};
 use crate::state::AppState;
 use nauvi::context_mode::{ContextMode, ModeSource};

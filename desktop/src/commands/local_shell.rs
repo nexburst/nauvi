@@ -3,7 +3,8 @@
 //! shell exits, like pod terminals.
 
 use crate::catalog::Approved;
-use crate::commands::term_frame::{send_closed, send_data, TermChannel, TermOut};
+use crate::commands::term_frame::TermChannel;
+use crate::commands::term_out::{send_closed, send_data, TermOut};
 use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::SettingsStore;
 use crate::state::mutation::Mutation;
@@ -149,7 +150,25 @@ pub(crate) async fn cmd_local_shell_input(
     let shell = shells
         .get(&session)
         .ok_or_else(|| "local shell not found".to_string())?;
+    if data.contains(crate::commands::exec::INTERRUPT) {
+        shell.out.clear();
+    }
     shell.shell.write(data.into_bytes())
+}
+
+/// The tab wrote (or dropped) `bytes` of the shell's output (#115, see
+/// `cmd_exec_ack`).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_local_shell_ack(
+    cluster: Cluster,
+    session: String,
+    bytes: u32,
+) -> Result<(), String> {
+    if let Some(s) = cluster.local_shells.lock().unwrap().get(&session) {
+        s.out.ack(bytes as usize);
+    }
+    Ok(())
 }
 
 #[tauri::command]

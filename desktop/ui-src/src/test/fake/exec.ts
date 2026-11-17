@@ -19,6 +19,7 @@ export function execHandlers(s: FakeState) {
       );
       return session;
     },
+    cmdExecAck: () => null,
     cmdExecInput: () => null,
     cmdExecResize: () => null,
     cmdExecClose: () => null,

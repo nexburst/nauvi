@@ -183,6 +183,11 @@ export const commands = {
 	 *  running.
 	 */
 	cmdAttachStart: (cluster: MutationTarget, namespace: string, name: string, container: string | null, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_attach_start", { cluster, namespace, name, container, cols, rows, onOutput }, options),
+	/**
+	 *  The tab wrote (or dropped) `bytes` of the session's output: that much
+	 *  more may be sent (#115). A session already gone is no error.
+	 */
+	cmdExecAck: (cluster: string, session: string, bytes: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_ack", { cluster, session, bytes }, options),
 	cmdExecClose: (cluster: string, session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_close", { cluster, session }, options),
 	cmdExecInput: (cluster: string, session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_input", { cluster, session, data }, options),
 	cmdExecResize: (cluster: string, session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_resize", { cluster, session, cols, rows }, options),
@@ -290,6 +295,11 @@ export const commands = {
 	 *  when there is one; a window also asks once when it starts).
 	 */
 	cmdTakeLink: (options?: InvokeOptions) => __TAURI_INVOKE<LinkRequest | null>("cmd_take_link", undefined, options),
+	/**
+	 *  The tab wrote (or dropped) `bytes` of the shell's output (#115, see
+	 *  `cmd_exec_ack`).
+	 */
+	cmdLocalShellAck: (cluster: string, session: string, bytes: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_ack", { cluster, session, bytes }, options),
 	/**  Kill the shell and delete its temp kubeconfig. */
 	cmdLocalShellClose: (cluster: string, session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_close", { cluster, session }, options),
 	cmdLocalShellInput: (cluster: string, session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_input", { cluster, session, data }, options),

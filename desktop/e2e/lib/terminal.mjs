@@ -124,6 +124,12 @@ export class Terminal {
     return out;
   }
 
+  /** Press Ctrl-C in the terminal. */
+  async interrupt() {
+    const input = await this.#input();
+    await input.sendKeys(Key.chord(Key.CONTROL, "c"));
+  }
+
   /** The PTY's `[rows, columns]` as the shell sees them (`stty size`). */
   async size() {
     const out = await this.run("stty size");
