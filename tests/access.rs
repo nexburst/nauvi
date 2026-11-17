@@ -194,6 +194,16 @@ async fn access_kinds_sit_in_their_sidebar_groups() -> Result<()> {
             "Validating Webhook Configs",
             Category::Config,
         ),
+        (
+            "validatingadmissionpolicies",
+            "Validating Admission Policies",
+            Category::Config,
+        ),
+        (
+            "validatingadmissionpolicybindings",
+            "Validating Admission Policy Bindings",
+            Category::Config,
+        ),
         ("ingressclasses", "Ingress Classes", Category::Network),
         ("customresourcedefinitions", "Definitions", Category::Custom),
     ] {
@@ -201,6 +211,21 @@ async fn access_kinds_sit_in_their_sidebar_groups() -> Result<()> {
         ensure!(k.label == label, "{name}: {}", k.label);
         ensure!(k.category == category, "{name}: {:?}", k.category);
         ensure!(!k.crd, "{name} is built in");
+    }
+    // Dynamic Resource Allocation (resource.k8s.io, GA in 1.34) has its own
+    // group, on the clusters that serve it.
+    for (name, label) in [
+        ("deviceclasses", "Device Classes"),
+        ("resourceclaims", "Resource Claims"),
+        ("resourceclaimtemplates", "Resource Claim Templates"),
+        ("resourceslices", "Resource Slices"),
+    ] {
+        let Ok(k) = kind_named(&kinds, name) else {
+            eprintln!("{name} not served: skipping");
+            continue;
+        };
+        ensure!(k.label == label, "{name}: {}", k.label);
+        ensure!(k.category == Category::Devices, "{name}: {:?}", k.category);
     }
     // The control plane's leases have holders.
     let leases = kind_named(&kinds, "leases")?;
