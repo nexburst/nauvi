@@ -155,8 +155,9 @@ pub(crate) async fn cmd_list_contexts(
 
 /// Show context `name` (`null`: the kubeconfig's current-context) in the
 /// calling window: its own session, opened unless the window is connected
-/// to it already (ADR 0007). The window leaves the cluster it showed, which
-/// stops everything it started there; other windows are not affected.
+/// to it already (ADR 0007). The cluster it showed stays connected: its
+/// watches stop, its log streams, terminals and forwards run on. Showing
+/// the cluster shown starts it over. Other windows are not affected.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_set_context(

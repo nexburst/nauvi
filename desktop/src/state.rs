@@ -129,6 +129,9 @@ pub(crate) struct ClusterSession {
     /// or reloaded): whatever a command still in flight adds afterwards is
     /// stopped right away instead of leaking, and no client is built.
     closed: AtomicBool,
+    /// Connected but not the cluster the window shows (ADR 0007): its
+    /// streams, terminals and forwards run on, but it runs no watches.
+    hidden: AtomicBool,
 }
 
 impl ClusterSession {
@@ -300,10 +303,38 @@ impl ClusterSession {
             .collect()
     }
 
+    /// Add a watch, unless the window shows another cluster now (a watch
+    /// started just before a switch): then it is aborted.
     pub(crate) fn add_watch(&self, id: String, task: JoinHandle<()>) {
-        if let Some(old) = self.insert(&self.watches, id, task) {
+        let mut map = self.watches.lock().unwrap();
+        // Checked under the lock: `hide` sets the flag before it drains it.
+        if self.is_closed() || self.is_hidden() {
+            task.abort();
+            return;
+        }
+        if let Some(old) = map.insert(id, task) {
             old.abort();
         }
+    }
+
+    /// Whether the session is connected but not shown (it runs no watches).
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.hidden.load(Ordering::SeqCst)
+    }
+
+    /// The window shows another cluster now: stop this one's watches (and
+    /// overview feeds) and refuse new ones. Streams, terminals, forwards
+    /// and drains run on.
+    fn hide(&self) {
+        self.hidden.store(true, Ordering::SeqCst);
+        for task in take_all(&self.watches).into_values() {
+            task.abort();
+        }
+    }
+
+    /// The window shows this cluster (again).
+    fn show(&self) {
+        self.hidden.store(false, Ordering::SeqCst);
     }
 
     pub(crate) fn add_drain(&self, id: String, task: JoinHandle<()>) {
@@ -498,11 +529,9 @@ impl AppState {
     pub(crate) fn connect(&self, label: &str, context: Option<String>) -> Arc<ClusterSession> {
         let id = self.key_of(context.as_deref());
         let session = || {
-            Arc::new(ClusterSession::new(
-                id.clone(),
-                context.clone(),
-                self.sources.clone(),
-            ))
+            let s = ClusterSession::new(id.clone(), context.clone(), self.sources.clone());
+            s.hidden.store(true, Ordering::SeqCst);
+            Arc::new(s)
         };
         self.with_window(label, |w| {
             w.clusters.entry(id.clone()).or_insert_with(session).clone()
@@ -532,23 +561,30 @@ impl AppState {
 
     /// Show the cluster of `context` in window `label`: its session
     /// (reused if the window is connected to it already, else opened)
-    /// becomes the visible one, and the window leaves the one it showed
-    /// (one visible cluster per window; switching to the same context
-    /// starts it over). Returns the terminal sessions still to close.
+    /// becomes the visible one. The one it showed stays connected (ADR
+    /// 0007): its watches stop, its streams, terminals, forwards and drains
+    /// run on. Switching to the cluster shown starts it over: the old
+    /// session is left (everything but its drains stops). Returns the
+    /// terminal sessions still to close.
     pub(crate) fn switch(&self, label: &str, context: Option<String>) -> Vec<ExecSession> {
         let next = self.new_session(context);
         self.with_window(label, |w| {
-            let old = w.clusters.remove(&w.visible);
             let id = next.id.clone();
+            let mut to_close = Vec::new();
+            if id == w.visible {
+                let old = w.clusters.remove(&w.visible);
+                to_close = old.as_ref().map(|s| s.leave()).unwrap_or_default();
+                // Its drains run on: keep it, closed, until they end.
+                w.left.extend(old);
+                w.prune_left();
+            } else if let Some(old) = w.clusters.get(&w.visible) {
+                old.hide();
+            }
             w.clusters
                 .entry(id.clone())
-                .or_insert_with(|| Arc::new(next));
+                .or_insert_with(|| Arc::new(next))
+                .show();
             w.visible = id;
-            let to_close = old.as_ref().map(|s| s.leave()).unwrap_or_default();
-            // Its drains run on (they outlive a switch): keep it, closed,
-            // until they end.
-            w.left.extend(old);
-            w.prune_left();
             to_close
         })
         .unwrap_or_default()
@@ -858,34 +894,55 @@ mod tests {
     }
 
     #[test]
-    fn switching_opens_another_session_and_leaves_the_old_one() {
+    fn switching_keeps_the_old_cluster_connected_without_watches() {
         let state = AppState::default();
         state.open("cluster-1", Some("a".into()));
         let a = state.cluster("cluster-1", "a");
         a.add_watch("w1".into(), forever());
         a.add_drain("d1".into(), forever());
+        assert!(a.add_forward("pf-1".into(), forward("fwd-1")));
+        let (sh, _typed) = shell(true);
+        assert!(a.add_exec("exec-1".into(), sh).is_none());
         assert!(state.switch("cluster-1", Some("b".into())).is_empty());
-        // The old session is left, not changed: its watches are stopped,
-        // its drain runs on, and what is still added to it is refused.
-        assert_eq!(a.selected_context().as_deref(), Some("a"));
-        assert!(a.is_closed());
+        // The old session stays connected (ADR 0007): its watches stop,
+        // its forward, terminal and drain run on, and it takes new streams
+        // but no new watches.
+        assert!(!a.is_closed());
+        assert!(a.is_hidden());
         assert!(a.watches.lock().unwrap().is_empty());
         assert_eq!(a.drains.lock().unwrap().len(), 1);
+        assert_eq!(a.forwards.lock().unwrap().len(), 1);
+        assert_eq!(a.exec_sessions.lock().unwrap().len(), 1);
         a.add_watch("w2".into(), forever());
         assert!(a.watches.lock().unwrap().is_empty());
-        assert!(!a.add_forward("pf-1".into(), forward("fwd-1")));
+        assert!(a.add_forward("pf-2".into(), forward("fwd-2")));
+        assert!(Arc::ptr_eq(&a, &state.cluster("cluster-1", "a")));
         // The new one is visible and live.
         let b = state.cluster("cluster-1", "b");
         assert!(!b.is_closed());
+        assert!(!b.is_hidden());
         assert_eq!(b.selected_context().as_deref(), Some("b"));
         assert_eq!(state.visible_id("cluster-1"), "b");
         assert!(Arc::ptr_eq(&b, &state.cluster("cluster-1", "")));
         assert!(Arc::ptr_eq(&b, &state.session("cluster-1")));
-        // A late call for "a" gets a closed session of "a".
-        let late = state.cluster("cluster-1", "a");
-        assert!(late.is_closed());
-        assert_eq!(late.selected_context().as_deref(), Some("a"));
-        assert!(!Arc::ptr_eq(&late, &a));
+        // Back on "a": the same session, shown, watching again.
+        state.switch("cluster-1", Some("a".into()));
+        assert!(Arc::ptr_eq(&a, &state.session("cluster-1")));
+        assert!(!a.is_hidden());
+        a.add_watch("w3".into(), forever());
+        assert_eq!(a.watches.lock().unwrap().len(), 1);
+        assert!(b.is_hidden());
+    }
+
+    #[test]
+    fn a_background_cluster_runs_no_watches() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let b = state.connect("cluster-1", Some("b".into()));
+        assert!(b.is_hidden());
+        b.add_watch("w".into(), forever());
+        assert!(b.watches.lock().unwrap().is_empty());
+        assert!(!state.session("cluster-1").is_hidden());
     }
 
     /// A drain task that runs until aborted; the receiver errs then.
@@ -913,28 +970,27 @@ mod tests {
         let (task, rx) = drain_task();
         state.session("cluster-1").add_drain("d1".into(), task);
         state.switch("cluster-1", Some("b".into()));
-        // Kept, left, while its drain runs.
+        // Still connected.
         assert_eq!(state.all_sessions("").len(), 2);
         // Not by the cluster shown now.
         assert!(!state.cancel_drain("cluster-1", "b", "d1"));
         assert!(state.cancel_drain("cluster-1", "a", "d1"));
         assert!(aborted(rx));
-        // Nothing left to keep it for.
-        assert_eq!(state.all_sessions("").len(), 1);
         assert!(!state.cancel_drain("cluster-1", "a", "d1"));
     }
 
     #[test]
-    fn a_drain_left_by_a_switch_is_found_after_switching_back() {
+    fn a_drain_left_by_starting_over_is_still_found() {
         let state = AppState::default();
         state.open("cluster-1", Some("a".into()));
         let (task, rx) = drain_task();
         let old = state.session("cluster-1");
         old.add_drain("d1".into(), task);
-        state.switch("cluster-1", Some("b".into()));
+        // Switching to the cluster shown starts it over.
         state.switch("cluster-1", Some("a".into()));
         let again = state.session("cluster-1");
         assert!(!Arc::ptr_eq(&old, &again), "a new session for a");
+        assert!(old.is_closed());
         assert!(!again.is_closed());
         assert!(state.cancel_drain("cluster-1", "a", "d1"));
         assert!(aborted(rx));
@@ -960,7 +1016,7 @@ mod tests {
         state.open("cluster-1", Some("a".into()));
         let a = state.session("cluster-1");
         a.add_drain("d1".into(), forever());
-        state.switch("cluster-1", Some("b".into()));
+        state.switch("cluster-1", Some("a".into()));
         assert_eq!(state.all_sessions("").len(), 2);
         // What the drain task does when it ends.
         a.drains.lock().unwrap().remove("d1");
@@ -968,10 +1024,10 @@ mod tests {
         assert_eq!(state.all_sessions("").len(), 1);
         drop(state);
         assert_eq!(Arc::strong_count(&a), 1, "nothing holds the left session");
-        // Without a drain, a switch keeps nothing.
+        // Without a drain, starting over keeps nothing.
         let state = AppState::default();
         state.open("cluster-1", Some("a".into()));
-        state.switch("cluster-1", Some("b".into()));
+        state.switch("cluster-1", Some("a".into()));
         assert_eq!(state.all_sessions("").len(), 1);
     }
 
@@ -1251,7 +1307,10 @@ mod tests {
             .session("cluster-1")
             .add_exec("exec-1".into(), s)
             .is_none());
-        let stopped = state.switch("cluster-1", None);
+        // Switching away keeps it; starting the cluster over closes it.
+        assert!(state.switch("cluster-1", Some("b".into())).is_empty());
+        state.switch("cluster-1", Some("a".into()));
+        let stopped = state.switch("cluster-1", Some("a".into()));
         assert_eq!(stopped.len(), 1);
         tauri::async_runtime::block_on(async {
             for s in stopped {
