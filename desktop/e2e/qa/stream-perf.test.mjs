@@ -208,8 +208,14 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
       app,
       pid,
       rows(0),
-      // One deletecollection: the API server sends the 5k deletions in a burst.
-      async () => kubectl(["delete", "--raw", `/api/v1/namespaces/${watchNs}/pods`]),
+      // One deletecollection: the API server sends the 5k deletions in a
+      // burst. Not awaited: the request may time out after 60 s while the
+      // server keeps deleting.
+      async () => {
+        spawn("kubectl", ["--context", CONTEXT, "delete", "--raw", `/api/v1/namespaces/${watchNs}/pods`], {
+          stdio: "ignore",
+        });
+      },
       { timeout: 600_000, message: "every pod row gone" },
     );
     console.log("watch delete", JSON.stringify(results.watchDelete));
