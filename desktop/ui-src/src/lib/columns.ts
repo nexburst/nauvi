@@ -15,6 +15,8 @@ export interface Metrics {
   /** Root filesystem use by node name, from Prometheus (#225); empty or
    *  missing without node-exporter, and then the Disk column is hidden. */
   disks?: Map<string, NodeDisk>;
+  /** Hidden for the cluster (#327): the metric columns are not shown. */
+  hidden?: boolean;
 }
 
 /** Things a cell may depend on besides the row itself. */
@@ -46,6 +48,10 @@ export function shownColumns(cols: Column[], hidden: readonly string[], metrics:
 }
 
 export const EMPTY_METRICS: Metrics = { pods: new Map(), nodes: new Map(), sparks: new Map(), since: 0 };
+/** What the tables get while metrics are hidden for the cluster (#327). */
+export const HIDDEN_METRICS: Metrics = { ...EMPTY_METRICS, hidden: true };
+/** A metric column is shown unless metrics are hidden. */
+const notHidden = (m: Metrics) => !m.hidden;
 const NO_SPARK: readonly number[] = [];
 
 export function isPod(kind: ResourceKind): boolean {
@@ -102,6 +108,7 @@ function column(def: ColumnDef, index: number): Column {
         },
         sort: (r, c) => c.metrics.pods.get(r.key)?.cpu_millicores ?? -1,
         spark: (r, c) => c.metrics.sparks.get(r.key)?.cpu ?? NO_SPARK,
+        shown: notHidden,
       };
     case "podMemory":
       return {
@@ -112,6 +119,7 @@ function column(def: ColumnDef, index: number): Column {
         },
         sort: (r, c) => c.metrics.pods.get(r.key)?.memory_bytes ?? -1,
         spark: (r, c) => c.metrics.sparks.get(r.key)?.memory ?? NO_SPARK,
+        shown: notHidden,
       };
     case "nodeCpu":
       return {
@@ -126,6 +134,7 @@ function column(def: ColumnDef, index: number): Column {
         },
         sort: (r, c) => c.metrics.nodes.get(r.name)?.cpu_millicores ?? -1,
         spark: (r, c) => c.metrics.sparks.get(r.name)?.cpu ?? NO_SPARK,
+        shown: notHidden,
       };
     case "nodeMemory":
       return {
@@ -140,6 +149,7 @@ function column(def: ColumnDef, index: number): Column {
         },
         sort: (r, c) => c.metrics.nodes.get(r.name)?.memory_bytes ?? -1,
         spark: (r, c) => c.metrics.sparks.get(r.name)?.memory ?? NO_SPARK,
+        shown: notHidden,
       };
     case "nodeDisk":
       return {
@@ -152,7 +162,7 @@ function column(def: ColumnDef, index: number): Column {
           const d = c.metrics.disks?.get(r.name);
           return d ? diskPercent(d) : -1;
         },
-        shown: (m) => (m.disks?.size ?? 0) > 0,
+        shown: (m) => !m.hidden && (m.disks?.size ?? 0) > 0,
       };
     case "number":
       return { ...base, text: cell, sort: (r) => numeric(cell(r)) };

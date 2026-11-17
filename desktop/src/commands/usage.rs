@@ -1,7 +1,7 @@
 //! Usage history (#47): the ring buffers in `ClusterSession::usage`, fed by
 //! `cmd_get_metrics` and by the detail panels through `cmd_usage_history`.
 
-use crate::commands::cluster::MetricsKind;
+use crate::commands::cluster::{metrics_hidden, MetricsKind};
 use crate::commands::prometheus::prometheus_for;
 use crate::settings::SettingsStore;
 use crate::state::{Cluster, ClusterSession};
@@ -78,6 +78,23 @@ pub(crate) struct UsageHistoryView {
     pub(crate) note: String,
 }
 
+/// The note of what the panels get while metrics are hidden (#327).
+pub(crate) const HIDDEN_NOTE: &str = "Metrics are hidden for this cluster.";
+
+impl UsageHistoryView {
+    /// No samples, no reference, nothing asked of the cluster (#327).
+    pub(crate) fn hidden() -> Self {
+        Self {
+            history: SeriesView::default(),
+            reference: UsageReference::default(),
+            source: UsageSource::MetricsServer,
+            range: UsageRange::Live,
+            prometheus: String::new(),
+            note: HIDDEN_NOTE.into(),
+        }
+    }
+}
+
 /// The usage history of one pod (`namespace` set) or node, for the charts in
 /// its detail panel, with its requests and limits or allocatable. Polled
 /// while the panel is open: when no table has sampled the object lately, it
@@ -96,6 +113,10 @@ pub(crate) async fn cmd_usage_history(
     name: String,
     range: UsageRange,
 ) -> Result<UsageHistoryView, String> {
+    if metrics_hidden(&cluster, &settings) {
+        // Hidden for this cluster (#327): nothing is sampled or asked.
+        return Ok(UsageHistoryView::hidden());
+    }
     let ctx = cluster.selected_context();
     let client = cluster.client().await?;
     let pod = matches!(what, MetricsKind::Pods);

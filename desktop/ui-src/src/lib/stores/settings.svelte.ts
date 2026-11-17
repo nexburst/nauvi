@@ -31,15 +31,26 @@ export async function loadSettings() {
   applyZoom();
 }
 
+/** Settles once the backend has every change sent so far. */
+let saving: Promise<void> = Promise.resolve();
+
 /** Resolves once the backend has the change (or failed to take it). */
 export function updateSettings(patch: SettingsPatch): Promise<void> {
   settings.current = applyPatch(settings.current, patch);
-  return commands.cmdUpdateSettings(patch).then(
+  const sent = commands.cmdUpdateSettings(patch).then(
     () => {},
     () => {
       // Not saved: the change still holds for this session.
     },
   );
+  saving = Promise.all([saving, sent]).then(() => {});
+  return sent;
+}
+
+/** Resolves once the backend has every settings change made so far, for
+ *  a command that reads them there (the overview's Hide metrics, #327). */
+export function settingsSaved(): Promise<void> {
+  return saving;
 }
 
 export function contextSettings(context: string): ContextSettings {

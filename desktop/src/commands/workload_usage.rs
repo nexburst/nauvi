@@ -31,6 +31,10 @@ pub(crate) async fn cmd_workload_usage_history(
     name: String,
     range: UsageRange,
 ) -> Result<UsageHistoryView, String> {
+    if crate::commands::cluster::metrics_hidden(&cluster, &settings) {
+        // Hidden for this cluster (#327): nothing is sampled or asked.
+        return Ok(UsageHistoryView::hidden());
+    }
     let ctx = cluster.selected_context();
     let client = cluster.client().await?;
     let workload: WorkloadKind = kind.parse().map_err(|e| format!("{e:#}"))?;

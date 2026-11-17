@@ -3,7 +3,7 @@ import { api, visibleCluster } from "../cluster";
 import { thisWindow } from "../window";
 import type { WatchBatch, WatchStateChanged } from "../bindings";
 import type { MetricsKind, MetricsSnapshot, ResourceKind } from "../bindings";
-import { EMPTY_METRICS, isNode, isPod } from "../columns";
+import { EMPTY_METRICS, HIDDEN_METRICS, isNode, isPod } from "../columns";
 import type { Metrics, Row } from "../columns";
 import { setStatus, showError, stamp } from "./app.svelte";
 import { clusterError } from "../clusterError";
@@ -54,6 +54,8 @@ export class LiveTable {
   #token = 0;
   #metricsTimer: ReturnType<typeof setInterval> | null = null;
   #ageTimer: ReturnType<typeof setInterval> | null = null;
+  /** Metrics hidden for the cluster (#327): nothing is polled. */
+  #metricsHidden = false;
 
   /** Subscribe to the backend events; returns a cleanup function. */
   async listen(): Promise<() => void> {
@@ -216,11 +218,21 @@ export class LiveTable {
     this.#kind = null;
   }
 
+  /** Hide metrics (#327): stop polling and drop them; or poll again. Set
+   *  before `start` so a hidden cluster is never polled. */
+  setMetricsHidden(hidden: boolean) {
+    if (hidden === this.#metricsHidden) return;
+    this.#metricsHidden = hidden;
+    this.metrics = hidden ? HIDDEN_METRICS : EMPTY_METRICS;
+    if (this.#kind) this.#startMetrics();
+  }
+
   /** Only pods and nodes have metric columns; poll just the one on screen. */
   #startMetrics() {
     this.#token++;
     if (this.#metricsTimer) clearInterval(this.#metricsTimer);
     this.#metricsTimer = null;
+    if (this.#metricsHidden) return;
     const kind = this.#kind;
     const what: MetricsKind | null = !kind ? null : isPod(kind) ? "pods" : isNode(kind) ? "nodes" : null;
     if (!what) return;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnKind, ResourceKind, ResourceRow } from "./bindings";
-import { columnsFor, EMPTY_METRICS, isNode, isPod, nodeReadyClass, shownColumns } from "./columns";
+import { columnsFor, EMPTY_METRICS, HIDDEN_METRICS, isNode, isPod, nodeReadyClass, shownColumns } from "./columns";
 import type { Ctx, Metrics } from "./columns";
 
 function kindWith(kinds: [string, ColumnKind][], kind = "Pod", group = ""): ResourceKind {
@@ -159,6 +159,35 @@ describe("columnsFor", () => {
     const other = row(["x", ""], { key: "node-2", name: "node-2", namespace: "" });
     expect(disk.text(other, c2)).toBe("—");
     expect(disk.sort(other, c2)).toBe(-1);
+  });
+
+  it("drops every metric column while metrics are hidden (#327)", () => {
+    const pods = columnsFor(
+      kindWith([
+        ["name", "text"],
+        ["cpu", "podCpu"],
+        ["memory", "podMemory"],
+      ]),
+    );
+    const nodes = columnsFor(
+      kindWith(
+        [
+          ["name", "text"],
+          ["cpu", "nodeCpu"],
+          ["memory", "nodeMemory"],
+          ["disk", "nodeDisk"],
+        ],
+        "Node",
+      ),
+    );
+    const withDisks: Metrics = {
+      ...metrics,
+      disks: new Map([["node-1", { name: "node-1", mountpoint: "/", used_bytes: 1, size_bytes: 2 }]]),
+    };
+    expect(shownColumns(pods, [], metrics).map((c) => c.key)).toEqual(["name", "cpu", "memory"]);
+    expect(shownColumns(pods, [], HIDDEN_METRICS).map((c) => c.key)).toEqual(["name"]);
+    expect(shownColumns(nodes, [], withDisks).map((c) => c.key)).toEqual(["name", "cpu", "memory", "disk"]);
+    expect(shownColumns(nodes, [], { ...withDisks, hidden: true }).map((c) => c.key)).toEqual(["name"]);
   });
 
   it("tells pods and nodes apart from other kinds", () => {

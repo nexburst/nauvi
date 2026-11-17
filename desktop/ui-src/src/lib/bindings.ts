@@ -931,6 +931,12 @@ export type ContextSettings_Deserialize = {
 	shell_cwd?: string,
 	/**  When a window last connected to it, epoch milliseconds (0: never). */
 	last_used?: number,
+	/**
+	 *  Hide CPU and memory usage for this cluster (#327): no metric
+	 *  columns, usage charts or overview usage, and the metrics API is not
+	 *  polled.
+	 */
+	hide_metrics?: boolean,
 };
 
 /**
@@ -962,6 +968,12 @@ export type ContextSettings_Serialize = {
 	shell_cwd: string,
 	/**  When a window last connected to it, epoch milliseconds (0: never). */
 	last_used: number,
+	/**
+	 *  Hide CPU and memory usage for this cluster (#327): no metric
+	 *  columns, usage charts or overview usage, and the metrics API is not
+	 *  polled.
+	 */
+	hide_metrics: boolean,
 };
 
 export type ContextState = "connected" | 

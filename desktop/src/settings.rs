@@ -77,6 +77,17 @@ pub(crate) struct ContextSettings {
     pub(crate) shell_cwd: String,
     /// When a window last connected to it, epoch milliseconds (0: never).
     pub(crate) last_used: u64,
+    /// Hide CPU and memory usage for this cluster (#327): no metric
+    /// columns, usage charts or overview usage, and the metrics API is not
+    /// polled.
+    pub(crate) hide_metrics: bool,
+}
+
+impl Settings {
+    /// Whether metrics are hidden for the context `id` (#327).
+    pub(crate) fn metrics_hidden(&self, id: &str) -> bool {
+        self.contexts.get(id).is_some_and(|c| c.hide_metrics)
+    }
 }
 
 /// What is remembered per kind (by kind id).
@@ -532,6 +543,15 @@ mod tests {
         let s = parse(r#"{"contexts":{"kind":{"view":"v1/pods"}}}"#).unwrap();
         assert_eq!(s.contexts["kind"].view, "v1/pods");
         assert!(s.contexts["kind"].namespaces.is_empty());
+        assert!(!s.contexts["kind"].hide_metrics);
+    }
+
+    #[test]
+    fn metrics_are_hidden_per_context() {
+        let s = parse(r#"{"contexts":{"prod":{"hide_metrics":true},"dev":{}}}"#).unwrap();
+        assert!(s.metrics_hidden("prod"));
+        assert!(!s.metrics_hidden("dev"));
+        assert!(!s.metrics_hidden("unknown"));
     }
 
     #[test]
@@ -609,6 +629,7 @@ mod tests {
                     default_namespace: "demo".into(),
                     shell_cwd: "~/src".into(),
                     last_used: 1_700_000_000_000,
+                    hide_metrics: true,
                 },
             )])),
             favourites: Some(vec!["kind".into(), "prod (work.yaml)".into()]),

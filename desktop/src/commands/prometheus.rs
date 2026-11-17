@@ -120,6 +120,14 @@ pub(crate) async fn cmd_node_disk_usage(
     cluster: Cluster,
     settings: State<'_, Arc<SettingsStore>>,
 ) -> Result<NodeDiskView, String> {
+    if crate::commands::cluster::metrics_hidden(&cluster, &settings) {
+        // Hidden for this cluster (#327): Prometheus is not asked.
+        return Ok(NodeDiskView {
+            nodes: Vec::new(),
+            source: String::new(),
+            note: crate::commands::usage::HIDDEN_NOTE.into(),
+        });
+    }
     let client = cluster.client().await?;
     let detection = prometheus_for(&cluster, &settings, &client, false).await;
     let Some(target) = detection.target else {
