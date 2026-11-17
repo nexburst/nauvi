@@ -111,6 +111,10 @@ test("selecting a node shows that cluster; the one shown before stays connected"
   await node(page, "kind-dev").getByRole("button", { name: "Disconnect kind-dev" }).click();
   await expect(node(page, "kind-dev")).toHaveAttribute("data-state", "idle");
   expect(await clustersOf(page, "cmdClusterDisconnect")).toEqual(["kind-dev"]);
+  // Shown again, it opens with its resource groups.
+  await select(page, "kind-dev").click();
+  await expect(node(page, "kind-dev")).toHaveAttribute("data-state", "visible");
+  await expect(node(page, "kind-dev").getByRole("button", { name: "Pods", exact: true })).toBeVisible();
   expect(fake.errors).toEqual([]);
 });
 

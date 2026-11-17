@@ -358,7 +358,7 @@ export class App {
   /** The sidebar button of a kind (or Overview), by its label (in a span for kinds; a count or problem badge may follow it). */
   navButton(label) {
     return By.xpath(
-      `//nav//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)} or normalize-space(span[1])=${xq(label)}]`,
+      `//nav//*[@data-testid="sidebar-kinds"]//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)} or normalize-space(span[1])=${xq(label)}]`,
     );
   }
 

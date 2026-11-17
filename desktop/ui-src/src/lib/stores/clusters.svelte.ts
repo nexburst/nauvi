@@ -204,5 +204,10 @@ export function visibleChanged(previous: string, id: string) {
   if (previous && previous !== id && nodeOf(previous).state !== "connected") {
     setNode(previous, { state: "connected", error: "", kinds: null });
   }
-  if (id) setNode(id, { state: "connected", error: "", prompt: null });
+  if (id) {
+    setNode(id, { state: "connected", error: "", prompt: null });
+    // The cluster shown always opens with its resource groups, even if
+    // its node was collapsed (or disconnected) before.
+    if (tree.collapsed.has(id)) setExpanded(id, true);
+  }
 }
