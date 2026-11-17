@@ -11,7 +11,7 @@ use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
 use kube::api::TerminalSize;
 use kube::Client;
-use nauvi::client_for_context_with;
+use nauvi::client_for_context_via;
 use nauvi::liveness::Prober;
 use nauvi::resources::ResourceKind;
 use nauvi::UsageHistory;
@@ -221,7 +221,10 @@ impl ClusterSession {
         let selected = self.context.as_deref();
         let c = match selected {
             // The default kubeconfig's current-context, or in-cluster config.
-            None => client_for_context_with(None, false).await,
+            // Through the proxy set for it (#329), by its catalog id.
+            None => {
+                client_for_context_via(None, false, self.sources.proxy(&self.id).as_ref()).await
+            }
             // An added kubeconfig's login command runs once allowed (#201),
             // from the file as it was read for that check (#242).
             Some(id) => self.sources.approved(Some(id))?.client().await,

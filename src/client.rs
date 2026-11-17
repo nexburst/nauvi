@@ -3,6 +3,7 @@
 use crate::auth::{describe_client_error, prepare_exec, AuthTarget, NO_KUBECONFIG};
 use crate::catalog::ContextTarget;
 use crate::errors::{chain_text, kubeconfig_error_text};
+use crate::proxy::{apply_proxy, redact_credentials, ClusterProxy, ProxyRoute};
 use anyhow::{anyhow, Result};
 use kube::config::KubeConfigOptions;
 use kube::Client;
@@ -32,14 +33,25 @@ pub async fn client_for_context(context: Option<&str>) -> Result<Client> {
 /// missing plugin, rejected credentials or a certificate problem fail here,
 /// with a readable message naming the context (see [`crate::auth`]).
 pub async fn client_for_context_with(context: Option<&str>, interactive: bool) -> Result<Client> {
+    client_for_context_via(context, interactive, None).await
+}
+
+/// [`client_for_context_with`] through the cluster's proxy setting (#329),
+/// if it has one.
+pub async fn client_for_context_via(
+    context: Option<&str>,
+    interactive: bool,
+    proxy: Option<&ClusterProxy>,
+) -> Result<Client> {
     match kube::config::Kubeconfig::read() {
-        Ok(kubeconfig) => client_from_kubeconfig(kubeconfig, context, interactive).await,
+        Ok(kubeconfig) => client_from_kubeconfig_via(kubeconfig, context, interactive, proxy).await,
         // No kubeconfig inside a pod: in-cluster config. A named context
         // needs a kubeconfig.
         Err(_) if context.is_none() && in_cluster() => {
-            let config = kube::Config::incluster()
+            let mut config = kube::Config::incluster()
                 .map_err(|e| anyhow!("Cannot use the in-cluster config: {}", chain_text(&e)))?;
-            connect(config, "in-cluster".to_string(), interactive).await
+            let route = apply_proxy(&mut config, false, proxy);
+            connect(config, "in-cluster".to_string(), interactive, route).await
         }
         Err(e) => Err(anyhow!(kubeconfig_read_message(
             &e,
@@ -102,6 +114,17 @@ pub async fn client_from_kubeconfig(
     context: Option<&str>,
     interactive: bool,
 ) -> Result<Client> {
+    client_from_kubeconfig_via(kubeconfig, context, interactive, None).await
+}
+
+/// [`client_from_kubeconfig`] through the cluster's proxy setting (#329),
+/// if it has one. The kubeconfig is not changed.
+pub async fn client_from_kubeconfig_via(
+    kubeconfig: kube::config::Kubeconfig,
+    context: Option<&str>,
+    interactive: bool,
+    proxy: Option<&ClusterProxy>,
+) -> Result<Client> {
     let context_name = match context {
         Some(name) => name.to_string(),
         None => kubeconfig.current_context.clone().unwrap_or_default(),
@@ -115,16 +138,12 @@ pub async fn client_from_kubeconfig(
             user: None,
         },
     )
-    .await?;
-    if !has_proxy {
-        // kube-rs takes HTTPS_PROXY from the environment as the cluster
-        // proxy and has no no_proxy support, so on a machine with a proxy
-        // configured it would tunnel even local cluster addresses through
-        // the proxy and fail. Only honour a proxy the kubeconfig sets
-        // explicitly for this cluster.
-        config.proxy_url = None;
-    }
-    connect(config, context_name, interactive).await
+    .await
+    .map_err(|e| anyhow!(redact_credentials(&chain_text(&e))))?;
+    // Never HTTPS_PROXY from the environment: only a proxy set for this
+    // cluster (see `apply_proxy`).
+    let route = apply_proxy(&mut config, has_proxy, proxy);
+    connect(config, context_name, interactive, route).await
 }
 
 /// The client settings kube 5 changed that we keep as kube 2 had them (#252).
@@ -144,8 +163,29 @@ fn keep_kube2_defaults(config: &mut kube::Config) {
 }
 
 /// Build the client, run its exec plugin and make the first request.
-async fn connect(mut config: kube::Config, context: String, interactive: bool) -> Result<Client> {
+async fn connect(
+    mut config: kube::Config,
+    context: String,
+    interactive: bool,
+    route: ProxyRoute,
+) -> Result<Client> {
     keep_kube2_defaults(&mut config);
+    // A failure names the proxy it went through, without its credentials
+    // (nor any other URL's: a kubeconfig's proxy-url may have them too).
+    let explain = |msg: String| {
+        let via = match &route {
+            ProxyRoute::Setting(url) => format!(" (through the proxy {url} set for this cluster)"),
+            ProxyRoute::Kubeconfig => " (through the kubeconfig's proxy-url)".to_string(),
+            ProxyRoute::Direct | ProxyRoute::LocalDirect => String::new(),
+        };
+        let hint = if !via.is_empty() && msg.contains("proxy authorization required") {
+            ". The proxy wants a user name and password, or rejected the ones in its URL."
+        } else {
+            ""
+        };
+        let via = format!("{via}{hint}");
+        anyhow!(redact_credentials(&format!("{msg}{via}")))
+    };
     let exec = config.auth_info.exec.as_ref();
     let target = AuthTarget {
         context,
@@ -161,7 +201,8 @@ async fn connect(mut config: kube::Config, context: String, interactive: bool) -
             .and_then(|v| v.get("value").cloned()),
     };
     if let Some(exec) = config.auth_info.exec.as_mut() {
-        prepare_exec(exec, interactive, &target).map_err(|msg| anyhow!(msg))?;
+        prepare_exec(exec, interactive, &target)
+            .map_err(|msg| anyhow!(redact_credentials(&msg)))?;
     }
     // An exec plugin runs once, through the credential cache (#201), not
     // the ~3 times kube-client would run it for each client.
@@ -172,7 +213,7 @@ async fn connect(mut config: kube::Config, context: String, interactive: bool) -
         Some(_) => crate::exec_credentials::client_with_exec(config).await,
         None => Client::try_from(config),
     }
-    .map_err(|e| anyhow!(describe_client_error(&e, &target)))?;
+    .map_err(|e| explain(describe_client_error(&e, &target)))?;
     if let Err(e) = client.apiserver_version().await {
         if let (Some(exec), kube::Error::Api(resp)) = (&exec, &e) {
             if resp.code == 401 {
@@ -180,7 +221,7 @@ async fn connect(mut config: kube::Config, context: String, interactive: bool) -
                 crate::exec_credentials::forget(exec);
             }
         }
-        return Err(anyhow!(describe_client_error(&e, &target)));
+        return Err(explain(describe_client_error(&e, &target)));
     }
     Ok(client)
 }
@@ -194,23 +235,43 @@ pub async fn client_with(
     context: Option<&str>,
     interactive: bool,
 ) -> Result<Client> {
+    client_with_via(kubeconfig, context, interactive, None).await
+}
+
+/// [`client_with`] through the cluster's proxy setting (#329), if any.
+pub async fn client_with_via(
+    kubeconfig: Option<&Path>,
+    context: Option<&str>,
+    interactive: bool,
+    proxy: Option<&ClusterProxy>,
+) -> Result<Client> {
     match kubeconfig {
         Some(path) => {
             let kc = kube::config::Kubeconfig::read_from(path)
                 .map_err(|e| anyhow!(kubeconfig_error_text(&e, Some(path))))?;
-            client_from_kubeconfig(kc, context, interactive).await
+            client_from_kubeconfig_via(kc, context, interactive, proxy).await
         }
-        None => client_for_context_with(context, interactive).await,
+        None => client_for_context_via(context, interactive, proxy).await,
     }
 }
 
 /// Build a client for a catalog context (#78): from the file it came from,
 /// or the default kubeconfig.
 pub async fn client_for_target(target: &ContextTarget, interactive: bool) -> Result<Client> {
-    client_with(
+    client_for_target_via(target, interactive, None).await
+}
+
+/// [`client_for_target`] through the cluster's proxy setting (#329), if any.
+pub async fn client_for_target_via(
+    target: &ContextTarget,
+    interactive: bool,
+    proxy: Option<&ClusterProxy>,
+) -> Result<Client> {
+    client_with_via(
         target.kubeconfig.as_deref(),
         Some(&target.context),
         interactive,
+        proxy,
     )
     .await
 }
@@ -223,29 +284,33 @@ pub async fn client() -> Result<Client> {
 /// Whether the kubeconfig sets a proxy-url for the given context's cluster
 /// (`None` = the kubeconfig's current-context).
 fn kubeconfig_has_proxy(kubeconfig: &kube::config::Kubeconfig, context: Option<&str>) -> bool {
+    kubeconfig_proxy_url(kubeconfig, context).is_some()
+}
+
+/// The proxy-url the kubeconfig sets for the given context's cluster
+/// (`None` = the kubeconfig's current-context), with its user and password
+/// masked: for showing which proxy a cluster uses.
+pub fn kubeconfig_proxy_url(
+    kubeconfig: &kube::config::Kubeconfig,
+    context: Option<&str>,
+) -> Option<String> {
     let current = match context {
         Some(name) => name.to_string(),
-        None => match kubeconfig.current_context.clone() {
-            Some(name) => name,
-            None => return false,
-        },
+        None => kubeconfig.current_context.clone()?,
     };
-    let Some(cluster_name) = kubeconfig
+    let cluster_name = kubeconfig
         .contexts
         .iter()
         .find(|c| c.name == current)
         .and_then(|c| c.context.as_ref())
-        .map(|ctx| ctx.cluster.clone())
-    else {
-        return false;
-    };
+        .map(|ctx| ctx.cluster.clone())?;
     kubeconfig
         .clusters
         .iter()
         .find(|c| c.name == cluster_name)
         .and_then(|c| c.cluster.as_ref())
-        .map(|cluster| cluster.proxy_url.is_some())
-        .unwrap_or(false)
+        .and_then(|cluster| cluster.proxy_url.as_deref())
+        .map(redact_credentials)
 }
 
 #[cfg(test)]

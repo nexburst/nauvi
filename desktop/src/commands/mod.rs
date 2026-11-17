@@ -25,6 +25,7 @@ pub(crate) mod metrics_addons;
 pub(crate) mod overview;
 pub(crate) mod portforward;
 pub(crate) mod prometheus;
+pub(crate) mod proxy;
 pub(crate) mod resources;
 pub(crate) mod settings;
 pub(crate) mod updater;
@@ -126,6 +127,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             portforward::cmd_service_ports,
             prometheus::cmd_node_disk_usage,
             prometheus::cmd_prometheus_status,
+            proxy::cmd_get_cluster_proxy,
+            proxy::cmd_set_cluster_proxy,
             resources::cmd_apply_manifests,
             resources::cmd_apply_resource_yaml,
             resources::cmd_delete_resource,
