@@ -230,7 +230,7 @@ describe("read-only and protected contexts", { timeout: 15 * 60_000 }, () => {
     if (remote.length) await app.setValue(remote[0], "8080");
     await (await dialog.findElement(byTestId("forward-confirm"))).click();
     await app.waitFor(() => confirmOpen(app), { message: "the confirmation before the forward" });
-    assert.match(await (await app.find(byTestId("protected-confirm"))).getText(), /Start a port-forward to pod/);
+    assert.match(await (await app.find(byTestId("protected-confirm"))).getText(), /Start a (saved )?port-forward/);
     // Left open for the screenshot.
   });
 
