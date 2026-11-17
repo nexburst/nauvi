@@ -5,7 +5,7 @@
 use super::tools::{self, ToolSpec};
 use super::McpOptions;
 use crate::client_with;
-use crate::context_mode::ContextMode;
+use crate::context_mode::{CliMode, ContextMode};
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
     ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
@@ -80,15 +80,19 @@ impl NauviMcp {
                 None => return Ok(()),
             },
         };
-        match crate::context_mode::mode_in_settings(&path, &context) {
-            ContextMode::Normal => Ok(()),
-            ContextMode::ReadOnly => Err(format!(
+        let kubeconfig = self.opts.kubeconfig.as_deref();
+        match crate::context_mode::mode_for_cli(&path, kubeconfig, &context) {
+            CliMode::Known(ContextMode::Normal) => Ok(()),
+            CliMode::Known(ContextMode::ReadOnly) => Err(format!(
                 "{}; nauvi mcp follows the app's setting",
                 crate::context_mode::read_only_reason(&context)
             )),
-            ContextMode::Protected => Err(format!(
+            CliMode::Known(ContextMode::Protected) => Err(format!(
                 "{context} is protected: changes need the context name typed in the app, \
                  so nauvi mcp does not change it"
+            )),
+            CliMode::Unknown(why) => Err(format!(
+                "{why}; nauvi mcp does not change it. Add the kubeconfig in the app's catalog first"
             )),
         }
     }

@@ -26,6 +26,10 @@ const GATED: &[&str] = &[
     "cmdNodeShellCleanup",
     "cmdNodeShellStart",
     "cmdPatchData",
+    // Port-forwards: allowed on a read-only context, confirmed on a
+    // protected one (`ForwardStart`).
+    "cmdPortforwardStart",
+    "cmdPortforwardStartSaved",
     "cmdRunAction",
 ];
 
@@ -64,16 +68,18 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdOverviewStart", "watches"),
     ("cmdOverviewStop", "stops a watch"),
     ("cmdOverviewUsage", "reads"),
-    // Port-forwards only read through a tunnel: both modes allow them.
-    ("cmdPortforwardAutostart", "port-forward"),
+    // Starts nothing on a protected context (the forwards come back
+    // stopped); a read-only one allows forwards.
+    (
+        "cmdPortforwardAutostart",
+        "port-forward, never on a protected context",
+    ),
     ("cmdPortforwardDelete", "a saved forward in the settings"),
     ("cmdPortforwardElsewhere", "reads"),
     ("cmdPortforwardList", "reads"),
     ("cmdPortforwardSave", "a saved forward in the settings"),
     ("cmdPortforwardSaved", "reads"),
-    ("cmdPortforwardStart", "port-forward"),
-    ("cmdPortforwardStartSaved", "port-forward"),
-    ("cmdPortforwardStop", "port-forward"),
+    ("cmdPortforwardStop", "stops a port-forward"),
     ("cmdPrometheusStatus", "reads"),
     ("cmdRevealDataValue", "reads"),
     ("cmdServicePorts", "reads"),

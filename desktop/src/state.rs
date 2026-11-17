@@ -288,6 +288,15 @@ impl ClusterSession {
         sessions
     }
 
+    /// Take every terminal of this session: its exec, attach, debug and
+    /// node shell sessions (still to close) and its local shells (which
+    /// stop when dropped). For a context that turned read-only (#338).
+    pub(crate) fn take_terminals(
+        &self,
+    ) -> (HashMap<String, ExecSession>, HashMap<String, LocalShell>) {
+        (take_all(&self.exec_sessions), take_all(&self.local_shells))
+    }
+
     /// `(namespace, pod)` of the node shells this session has open.
     pub(crate) fn node_shell_pods(&self) -> Vec<(String, String)> {
         self.exec_sessions
@@ -682,6 +691,17 @@ impl AppState {
             .collect()
     }
 
+    /// The sessions of cluster `id` in every window, with the window's
+    /// label.
+    pub(crate) fn sessions_of(&self, id: &str) -> Vec<(String, Arc<ClusterSession>)> {
+        self.windows
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(label, w)| w.clusters.get(id).map(|s| (label.clone(), s.clone())))
+            .collect()
+    }
+
     /// Whether any window runs the saved forward `saved_id` (#217), for any
     /// cluster.
     pub(crate) fn runs_forward(&self, saved_id: &str) -> bool {
@@ -884,6 +904,25 @@ mod tests {
         assert!(state.claim_autostart("fwd-1").is_some());
         drop(b);
         assert!(state.forwards_elsewhere("main").is_empty());
+    }
+
+    #[test]
+    fn the_sessions_of_a_cluster_are_found_in_every_window() {
+        let state = AppState::default();
+        state.open("main", Some("prod".into()));
+        state.open("cluster-1", Some("dev".into()));
+        state.connect("cluster-1", Some("prod".into()));
+        let mut labels: Vec<String> = state
+            .sessions_of("prod")
+            .into_iter()
+            .map(|(l, _)| l)
+            .collect();
+        labels.sort();
+        assert_eq!(labels, ["cluster-1", "main"]);
+        assert_eq!(state.sessions_of("dev").len(), 1);
+        assert!(state.sessions_of("other").is_empty());
+        let (execs, shells) = state.session("main").take_terminals();
+        assert!(execs.is_empty() && shells.is_empty());
     }
 
     #[test]

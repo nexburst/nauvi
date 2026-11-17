@@ -492,6 +492,82 @@ async fn mcp_write_tools_follow_the_context_mode() -> Result<()> {
     result
 }
 
+/// With `--kubeconfig`, the mode is the one of the context's id in the app's
+/// catalog, e.g. `kind-nauvi-test (work.yaml)` when the default kubeconfig
+/// has a context of that name too (security review of #338): marking only
+/// the bare name normal does not let writes through. A file the app's
+/// catalog does not have refuses writes. Linux only (`XDG_CONFIG_HOME`).
+#[tokio::test]
+#[ignore]
+async fn mcp_mode_of_a_non_default_kubeconfig() -> Result<()> {
+    if !cfg!(target_os = "linux") {
+        eprintln!("skipped: the app's settings are found through XDG_CONFIG_HOME on Linux");
+        return Ok(());
+    }
+    let client = connect().await?;
+    let ns = temp_ns(&client, "it-mcp-kc").await?;
+    let result = async {
+        let ctx = context();
+        let dir = std::env::temp_dir().join(format!("nauvi-mcp-kc-{}", std::process::id()));
+        let app = dir.join("cfg").join("com.nauvi.app");
+        std::fs::create_dir_all(&app)?;
+        // A copy of the test kubeconfig, added in the app.
+        let kc = kube::config::Kubeconfig::read()?;
+        let work = dir.join("work.yaml");
+        let stray = dir.join("stray.yaml");
+        std::fs::write(&work, serde_yaml::to_string(&kc)?)?;
+        std::fs::write(&stray, serde_yaml::to_string(&kc)?)?;
+        let work_str = work.display().to_string();
+        let id = nauvi::context_mode::app_context_id(
+            std::slice::from_ref(&work),
+            None,
+            Some(&work),
+            &ctx,
+        )
+        .context("the copy is in the catalog")?;
+        // The bare name stays normal (when it is another context's id).
+        let mut contexts = serde_json::Map::new();
+        contexts.insert(ctx.clone(), json!({ "mode": "normal" }));
+        contexts.insert(id.clone(), json!({ "mode": "readOnly" }));
+        let settings = json!({ "kubeconfig_sources": [work_str], "contexts": contexts });
+        std::fs::write(app.join("settings.json"), settings.to_string())?;
+        let manifest =
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: from-mcp\ndata:\n  k: v\n";
+        let config = dir.join("cfg");
+        for (file, words) in [
+            (&work, "is read-only"),
+            (&stray, "not in nauvi's cluster catalog"),
+        ] {
+            let file = file.display().to_string();
+            let mut s = Server::start_with_config(
+                &[
+                    "--kubeconfig",
+                    &file,
+                    "--context",
+                    &ctx,
+                    "mcp",
+                    "--allow-writes",
+                ],
+                &config,
+            );
+            s.initialize();
+            let (err, text) = s.call("apply", json!({ "manifest": manifest, "namespace": ns }));
+            assert!(err && text.contains(words), "{file} ({id}): {text}");
+            s.ok("list", json!({ "kind": "configmaps", "namespace": ns }));
+        }
+        let cms: Api<k8s_openapi::api::core::v1::ConfigMap> = Api::namespaced(client.clone(), &ns);
+        assert!(
+            cms.get_opt("from-mcp").await?.is_none(),
+            "a refused apply stored it"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
+    }
+    .await;
+    drop_ns(&client, &ns).await;
+    result
+}
+
 /// RBAC applies: the limited user (`edit` in team-a only) may not read
 /// kube-system's Secrets or delete there. Skips unless
 /// `NAUVI_LIMITED_KUBECONFIG` is set (scripts/test-cluster/limited-user.sh).

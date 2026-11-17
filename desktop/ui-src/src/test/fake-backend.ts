@@ -172,7 +172,7 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     }
     // The backend's gate runs before the command (`state/mutation.rs`).
     if (isMutatingCommand(name)) {
-      const refused = gateRefusal(st, target, rest);
+      const refused = gateRefusal(st, name, target, rest);
       if (refused) throw refused;
     }
     list.push(JSON.parse(JSON.stringify(rest)) as CallArgs);

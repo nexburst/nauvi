@@ -64,7 +64,8 @@ export const GLOBAL_COMMANDS = [
 /**
  * The commands that change a cluster (#338), sorted: in `bindings.ts` their
  * `cluster` is a `MutationTarget`, which the backend's gate checks against
- * the context's read-only or protected mode. `api(id)` asks the guard set
+ * the context's read-only or protected mode (port-forwards: confirmed on
+ * a protected context, allowed on a read-only one). `api(id)` asks the guard set
  * by `stores/contextMode.svelte.ts` for it, which asks the user to type the
  * context name on a protected context. `cluster.test.ts` checks this list
  * against `bindings.ts`.
@@ -87,6 +88,8 @@ export const MUTATING_COMMANDS = [
   "cmdNodeShellCleanup",
   "cmdNodeShellStart",
   "cmdPatchData",
+  "cmdPortforwardStart",
+  "cmdPortforwardStartSaved",
   "cmdRunAction",
 ] as const satisfies readonly CommandName[];
 

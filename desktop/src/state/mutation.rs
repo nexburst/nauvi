@@ -58,6 +58,18 @@ impl Deref for Mutation {
     }
 }
 
+/// What a gated command does, which decides what each mode allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Gate {
+    /// Changes the cluster or opens a shell: refused on a read-only
+    /// context, confirmed on a protected one.
+    Change,
+    /// Starts a port-forward: it only reads through a tunnel, so a
+    /// read-only context allows it, but it can reach a service that
+    /// writes, so a protected one wants the confirmation too.
+    Forward,
+}
+
 /// Why the call is refused, if it is. `id` is the session's cluster id
 /// (its context id, which the settings are keyed by) and `name` its
 /// context's name in its kubeconfig, which the user types to confirm (the
@@ -66,6 +78,7 @@ impl Deref for Mutation {
 /// a read-only one refuses it too.
 pub(crate) fn check(
     store: &SettingsStore,
+    gate: Gate,
     id: &str,
     name: &str,
     confirm: &str,
@@ -73,6 +86,9 @@ pub(crate) fn check(
 ) -> Result<(), String> {
     let mode = store.context_mode(id);
     if dry_run && mode == ContextMode::Protected {
+        return Ok(());
+    }
+    if gate == Gate::Forward && mode == ContextMode::ReadOnly {
         return Ok(());
     }
     match nauvi::context_mode::refusal(mode, name, confirm) {
@@ -84,38 +100,89 @@ pub(crate) fn check(
     }
 }
 
-/// Whether the call only validates: a top-level `dryRun` argument
-/// (`cmd_apply_resource_yaml`, `cmd_apply_manifests`) or `request.dry_run`
-/// (the Helm and add-on installs) set to `true`. The commands read the same
-/// keys; anything else (a missing key, another spelling) is not a dry run,
-/// so it needs the confirmation.
-fn dry_run(payload: &InvokeBody) -> bool {
+/// The commands that only validate when asked to, and where they read it.
+/// Anything else (another command, a missing key, another spelling) is not
+/// a dry run, so it needs the confirmation: a `dryRun` key added to a
+/// delete does not skip it.
+const DRY_RUNS: &[(&str, DryRunKey)] = &[
+    ("cmd_apply_manifests", DryRunKey::Arg),
+    ("cmd_apply_resource_yaml", DryRunKey::Arg),
+    ("cmd_helm_install", DryRunKey::Request),
+    ("cmd_helm_upgrade", DryRunKey::Request),
+    ("cmd_metrics_addon_install", DryRunKey::Request),
+];
+
+#[derive(Debug, Clone, Copy)]
+enum DryRunKey {
+    /// The `dry_run: bool` argument (`dryRun` in the payload).
+    Arg,
+    /// `request.dry_run`.
+    Request,
+}
+
+/// Whether the call of `command` only validates: it reads its dry-run flag
+/// from the same key the command does.
+fn dry_run(command: &str, payload: &InvokeBody) -> bool {
+    let Some((_, key)) = DRY_RUNS.iter().find(|(c, _)| *c == command) else {
+        return false;
+    };
     let InvokeBody::Json(v) = payload else {
         return false;
     };
-    let yes = |v: Option<&serde_json::Value>| v.and_then(serde_json::Value::as_bool) == Some(true);
-    yes(v.get("dryRun")) || yes(v.get("request").and_then(|r| r.get("dry_run")))
+    let flag = match key {
+        DryRunKey::Arg => v.get("dryRun"),
+        DryRunKey::Request => v.get("request").and_then(|r| r.get("dry_run")),
+    };
+    flag.and_then(serde_json::Value::as_bool) == Some(true)
+}
+
+/// The gate itself: the session the call names, if its context allows it.
+fn gated(command: CommandItem<'_, tauri::Wry>, gate: Gate) -> Result<Cluster, InvokeError> {
+    let target = MutationTarget::from_command(CommandItem {
+        key: CLUSTER_KEY,
+        ..command
+    })?;
+    let (id, confirm) = target.parts();
+    let cluster = Cluster::of_call(&command, id);
+    let store = cluster.app().state::<Arc<SettingsStore>>();
+    let dry_run = dry_run(command.name, command.message.payload());
+    let mode = store.context_mode(cluster.id());
+    // The name is looked up only when the context is not normal.
+    let name = match mode {
+        ContextMode::Normal => String::new(),
+        _ => context_name(&cluster),
+    };
+    // The session's id: `""` names the visible cluster.
+    check(&store, gate, cluster.id(), &name, confirm, dry_run).map_err(InvokeError::from)?;
+    Ok(cluster)
 }
 
 impl<'de> CommandArg<'de, tauri::Wry> for Mutation {
     fn from_command(command: CommandItem<'de, tauri::Wry>) -> Result<Self, InvokeError> {
-        let target = MutationTarget::from_command(CommandItem {
-            key: CLUSTER_KEY,
-            ..command
-        })?;
-        let (id, confirm) = target.parts();
-        let cluster = Cluster::of_call(&command, id);
-        let store = cluster.app().state::<Arc<SettingsStore>>();
-        let dry_run = dry_run(command.message.payload());
-        let mode = store.context_mode(cluster.id());
-        // The name is looked up only when the context is not normal.
-        let name = match mode {
-            ContextMode::Normal => String::new(),
-            _ => context_name(&cluster),
-        };
-        // The session's id: `""` names the visible cluster.
-        check(&store, cluster.id(), &name, confirm, dry_run).map_err(InvokeError::from)?;
-        Ok(Mutation(cluster))
+        gated(command, Gate::Change).map(Mutation)
+    }
+}
+
+/// The `cluster` of a command that starts a port-forward: allowed on a
+/// read-only context, confirmed on a protected one ([`Gate::Forward`]).
+pub(crate) struct ForwardStart(Cluster);
+
+impl Deref for ForwardStart {
+    type Target = Cluster;
+    fn deref(&self) -> &Cluster {
+        &self.0
+    }
+}
+
+impl<'de> CommandArg<'de, tauri::Wry> for ForwardStart {
+    fn from_command(command: CommandItem<'de, tauri::Wry>) -> Result<Self, InvokeError> {
+        gated(command, Gate::Forward).map(ForwardStart)
+    }
+}
+
+impl specta::function::FunctionArg for ForwardStart {
+    fn to_datatype(types: &mut specta::Types) -> Option<specta::datatype::DataType> {
+        Some(<MutationTarget as Type>::definition(types))
     }
 }
 
@@ -157,27 +224,29 @@ mod tests {
         let store = SettingsStore::open(None);
         store.set_context_mode("ro", ContextMode::ReadOnly);
         store.set_context_mode("prod", ContextMode::Protected);
-        assert!(check(&store, "dev", "dev", "", false).is_ok());
-        let ro = check(&store, "ro", "ro", "ro", false).unwrap_err();
+        let c = Gate::Change;
+        assert!(check(&store, c, "dev", "dev", "", false).is_ok());
+        let ro = check(&store, c, "ro", "ro", "ro", false).unwrap_err();
         assert!(ro.contains("read-only"), "{ro}");
         assert!(
-            check(&store, "ro", "ro", "", true).is_err(),
+            check(&store, c, "ro", "ro", "", true).is_err(),
             "read-only refuses dry runs"
         );
-        assert!(check(&store, "prod", "prod", "", false).is_err());
-        assert!(check(&store, "prod", "prod", "dev", false).is_err());
-        assert!(check(&store, "prod", "prod", "prod", false).is_ok());
+        assert!(check(&store, c, "prod", "prod", "", false).is_err());
+        assert!(check(&store, c, "prod", "prod", "dev", false).is_err());
+        assert!(check(&store, c, "prod", "prod", "prod", false).is_ok());
         assert!(
-            check(&store, "prod", "prod", "", true).is_ok(),
+            check(&store, c, "prod", "prod", "", true).is_ok(),
             "a dry run needs no confirmation"
         );
         // Another context's name does not confirm this one.
-        assert!(check(&store, "ro", "ro", "prod", false).is_err());
+        assert!(check(&store, c, "ro", "ro", "prod", false).is_err());
         // An added file's context is confirmed by its name, not its id.
         store.set_context_mode("prod (work.yaml)", ContextMode::Protected);
-        assert!(check(&store, "prod (work.yaml)", "prod", "prod", false).is_ok());
+        assert!(check(&store, c, "prod (work.yaml)", "prod", "prod", false).is_ok());
         assert!(check(
             &store,
+            c,
             "prod (work.yaml)",
             "prod",
             "prod (work.yaml)",
@@ -187,15 +256,106 @@ mod tests {
     }
 
     #[test]
+    fn port_forwards_run_on_read_only_and_are_confirmed_on_protected() {
+        let store = SettingsStore::open(None);
+        store.set_context_mode("ro", ContextMode::ReadOnly);
+        store.set_context_mode("prod", ContextMode::Protected);
+        let f = Gate::Forward;
+        assert!(check(&store, f, "ro", "ro", "", false).is_ok());
+        assert!(check(&store, f, "dev", "dev", "", false).is_ok());
+        let p = check(&store, f, "prod", "prod", "", false).unwrap_err();
+        assert!(p.contains("type the context name"), "{p}");
+        assert!(check(&store, f, "prod", "prod", "prod", false).is_ok());
+    }
+
+    #[test]
     fn dry_runs_are_read_from_the_keys_the_commands_read() {
         let body = InvokeBody::Json;
-        assert!(dry_run(&body(json!({ "dryRun": true }))));
-        assert!(dry_run(&body(json!({ "request": { "dry_run": true } }))));
-        assert!(!dry_run(&body(json!({ "dryRun": false }))));
-        assert!(!dry_run(&body(json!({ "dryRun": "true" }))));
-        assert!(!dry_run(&body(json!({ "dry_run": true }))));
-        assert!(!dry_run(&body(json!({ "request": { "dryRun": true } }))));
-        assert!(!dry_run(&body(json!({}))));
-        assert!(!dry_run(&InvokeBody::Raw(br#"{"dryRun":true}"#.to_vec())));
+        assert!(dry_run(
+            "cmd_apply_resource_yaml",
+            &body(json!({ "dryRun": true }))
+        ));
+        assert!(dry_run(
+            "cmd_apply_manifests",
+            &body(json!({ "dryRun": true }))
+        ));
+        assert!(dry_run(
+            "cmd_helm_install",
+            &body(json!({ "request": { "dry_run": true } }))
+        ));
+        assert!(dry_run(
+            "cmd_metrics_addon_install",
+            &body(json!({ "request": { "dry_run": true } }))
+        ));
+        assert!(!dry_run(
+            "cmd_apply_manifests",
+            &body(json!({ "dryRun": false }))
+        ));
+        assert!(!dry_run(
+            "cmd_apply_manifests",
+            &body(json!({ "dryRun": "true" }))
+        ));
+        assert!(!dry_run(
+            "cmd_apply_manifests",
+            &body(json!({ "dry_run": true }))
+        ));
+        assert!(!dry_run(
+            "cmd_helm_install",
+            &body(json!({ "dryRun": true }))
+        ));
+        assert!(!dry_run(
+            "cmd_apply_manifests",
+            &body(json!({ "request": { "dry_run": true } }))
+        ));
+        assert!(!dry_run(
+            "cmd_helm_upgrade",
+            &body(json!({ "request": { "dryRun": true } }))
+        ));
+        assert!(!dry_run("cmd_apply_manifests", &body(json!({}))));
+        assert!(!dry_run(
+            "cmd_apply_manifests",
+            &InvokeBody::Raw(br#"{"dryRun":true}"#.to_vec())
+        ));
+        // A dry-run flag on a command that does no dry run is ignored: a
+        // delete with `dryRun: true` still needs the confirmation.
+        for cmd in [
+            "cmd_delete_resource",
+            "cmd_run_action",
+            "cmd_bulk_delete",
+            "cmd_helm_uninstall",
+            "cmd_exec_start",
+        ] {
+            let payload = body(json!({ "dryRun": true, "request": { "dry_run": true } }));
+            assert!(!dry_run(cmd, &payload), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn every_dry_run_command_is_gated_and_takes_the_flag() {
+        let bindings = include_str!("../../ui-src/src/lib/bindings.ts");
+        for (cmd, key) in DRY_RUNS {
+            let camel = cmd
+                .split('_')
+                .enumerate()
+                .map(|(i, w)| {
+                    if i == 0 {
+                        w.to_string()
+                    } else {
+                        w[..1].to_uppercase() + &w[1..]
+                    }
+                })
+                .collect::<String>();
+            let line = bindings
+                .lines()
+                .find(|l| {
+                    l.trim_start()
+                        .starts_with(&format!("{camel}: (cluster: MutationTarget"))
+                })
+                .unwrap_or_else(|| panic!("{camel} is not a gated command"));
+            match key {
+                DryRunKey::Arg => assert!(line.contains("dryRun: boolean"), "{line}"),
+                DryRunKey::Request => assert!(line.contains("request: "), "{line}"),
+            }
+        }
     }
 }

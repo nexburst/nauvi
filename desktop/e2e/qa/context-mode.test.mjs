@@ -7,7 +7,9 @@
 // - Protected: a badge in the header and in the catalog; Delete asks for
 //   the context name after the usual dialog; Cancel deletes nothing; a
 //   wrong name keeps Confirm disabled; the right name deletes; opening a
-//   pod shell asks too.
+//   pod shell asks too, and so does a port-forward (allowed without asking
+//   on a read-only context).
+// - Switching to read-only closes a shell opened before, with a note.
 // - The mode is saved in settings.json under the context, separately from
 //   the other cluster settings.
 // Light and dark theme at 1280x800. Changes objects in a temp namespace only.
@@ -19,6 +21,7 @@ import { CONTEXT, byTestId, xq } from "../lib/app.mjs";
 import { deleteNamespace, httpPodYaml, kubectl, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { setTheme } from "../lib/theme.mjs";
+import { terminal } from "../lib/terminal.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 import { closeMenu, contextMenu, dialogButton, openKind, waitActionDialogClosed } from "./area-2-helpers.mjs";
 
@@ -62,6 +65,7 @@ async function setMode(app, label) {
 }
 
 async function closeSettings(app) {
+  if ((await app.driver.findElements(byTestId("cluster-settings"))).length === 0) return;
   const dialog = await app.find(byTestId("cluster-settings"));
   await (await dialog.findElement(By.xpath(".//button[normalize-space()='Close']"))).click();
   await app.waitFor(async () => (await app.driver.findElements(byTestId("cluster-settings"))).length === 0, {
@@ -86,17 +90,25 @@ describe("read-only and protected contexts", { timeout: 15 * 60_000 }, () => {
   after(() => deleteNamespace(ns));
   const s = appSession("context-mode");
 
-  it("read-only from the cluster settings page: the badge in the header (light)", T, async () => {
+  it("read-only from the cluster settings page: the badge, and an open shell is closed (light)", T, async () => {
     const { app } = s;
     await resizeWindow(app, 1280, 800);
     await setTheme(app, "light");
     await waitLive(app);
     assert.equal(await badge(app), "");
+    // A shell opened while the context is normal.
+    await openKind(app, "Pods", ns, POD);
+    await contextMenu(app, POD, ns);
+    await (await app.find(By.xpath(`//*[@data-testid='context-menu']//*[@role='menuitem'][normalize-space()='Shell']`))).click();
+    const term = terminal(app);
+    await term.waitFor(/#/, { timeout: 60_000, message: "the shell prompt" });
     await setMode(app, "Read-only");
     await app.waitFor(async () => (await badge(app)) === "Read-only", { message: "the Read-only badge" });
     await app.waitFor(() => s.app.profile.settings()?.contexts?.[CONTEXT]?.mode === "readOnly", {
       message: "mode readOnly in settings.json",
     });
+    await closeSettings(app);
+    await term.waitFor(/is now read-only: this terminal was closed/, { message: "the note in the terminal" });
   });
 
   it("read-only: the row menu greys out changes with the reason, keeps Logs (dark)", T, async () => {
@@ -201,6 +213,21 @@ describe("read-only and protected contexts", { timeout: 15 * 60_000 }, () => {
     await app.waitFor(() => confirmOpen(app), { message: "the confirmation before the shell" });
     const dialog = await app.find(byTestId("protected-confirm"));
     assert.match(await dialog.getText(), new RegExp(`Open a shell in pod ${ns}/${POD}`));
+    // Left open for the screenshot.
+  });
+
+  it("protected: a port-forward asks for the context name too (dark)", T, async () => {
+    const { app } = s;
+    await (await (await app.find(byTestId("protected-confirm"))).findElement(By.xpath(".//button[normalize-space()='Cancel']"))).click();
+    await setTheme(app, "dark");
+    await contextMenu(app, POD, ns);
+    await (await app.find(By.xpath(`//*[@data-testid='context-menu']//*[@role='menuitem'][normalize-space()='Port forward…']`))).click();
+    const dialog = await app.find(byTestId("forward-dialog"));
+    const remote = await dialog.findElements(By.css('input[aria-label="Remote port"]'));
+    if (remote.length) await app.setValue(remote[0], "8080");
+    await (await dialog.findElement(byTestId("forward-confirm"))).click();
+    await app.waitFor(() => confirmOpen(app), { message: "the confirmation before the forward" });
+    assert.match(await (await app.find(byTestId("protected-confirm"))).getText(), /Start a port-forward to pod/);
     // Left open for the screenshot.
   });
 

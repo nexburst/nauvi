@@ -9,6 +9,7 @@
 pub(crate) mod saved;
 
 use crate::settings::{SavedForward, SettingsStore};
+use crate::state::mutation::ForwardStart;
 use crate::state::{next_session, AppState, Cluster, ForwardSession, SWITCHED};
 use kube::Client;
 use nauvi::{
@@ -132,7 +133,7 @@ fn stop_saved(cluster: &Cluster, saved_id: &str) {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_portforward_start(
-    cluster: Cluster,
+    cluster: ForwardStart,
     settings: State<'_, Arc<SettingsStore>>,
     target: ForwardTarget,
     remote_port: String,
@@ -228,7 +229,7 @@ pub(crate) async fn cmd_portforward_save(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_portforward_start_saved(
-    cluster: Cluster,
+    cluster: ForwardStart,
     settings: State<'_, Arc<SettingsStore>>,
     id: String,
 ) -> Result<ForwardInfo, String> {
@@ -280,6 +281,21 @@ pub(crate) async fn cmd_portforward_autostart(
         .collect();
     if wanted.is_empty() {
         return Ok(Vec::new());
+    }
+    // A protected context starts forwards only after the user types its
+    // name (#338): none start by themselves, they come back stopped.
+    if settings.context_mode(&ctx) == nauvi::context_mode::ContextMode::Protected {
+        let error = format!(
+            "{} is protected: start it by hand and type the context name",
+            crate::state::mutation::context_name(&cluster)
+        );
+        return Ok(wanted
+            .into_iter()
+            .map(|f| AutoStartError {
+                saved_id: f.id,
+                error: error.clone(),
+            })
+            .collect());
     }
     let (_, client) = cluster.context_client().await?;
     let mut failed = Vec::new();

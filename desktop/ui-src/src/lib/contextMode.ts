@@ -8,17 +8,25 @@
 import type { ContextMode } from "./bindings";
 import type { MutatingCommand } from "./cluster";
 
-export const CONTEXT_MODES: { mode: ContextMode; label: string; hint: string }[] = [
-  { mode: "normal", label: "Normal", hint: "Changes go ahead after the usual confirmations." },
+export const CONTEXT_MODES: {
+  mode: ContextMode;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    mode: "normal",
+    label: "Normal",
+    hint: "Changes go ahead after the usual confirmations.",
+  },
   {
     mode: "protected",
     label: "Protected",
-    hint: "Every change (actions, deletes, edits, Helm, terminals) asks you to type the context name first.",
+    hint: "Every change (actions, deletes, edits, Helm, terminals) and every new port-forward asks you to type the context name first.",
   },
   {
     mode: "readOnly",
     label: "Read-only",
-    hint: "Every change is refused, terminals included. Logs and port-forwards still work.",
+    hint: "Every change is refused, terminals included; open terminals are closed. Logs and port-forwards still work.",
   },
 ];
 
@@ -31,8 +39,10 @@ export function modeLabel(mode: ContextMode | undefined): string {
 
 /** The badge tooltip. */
 export function modeTitle(mode: ContextMode | undefined, name: string): string {
-  if (mode === "readOnly") return `${name} is read-only: changes to this cluster are turned off`;
-  if (mode === "protected") return `${name} is protected: every change asks you to type the context name`;
+  if (mode === "readOnly")
+    return `${name} is read-only: changes to this cluster are turned off`;
+  if (mode === "protected")
+    return `${name} is protected: every change asks you to type the context name`;
   return "";
 }
 
@@ -65,7 +75,10 @@ function at(ns: unknown, name: unknown): string {
 }
 
 /** One line saying what a call is about to change, for the confirmation. */
-export function describeMutation(command: MutatingCommand, args: unknown[]): string {
+export function describeMutation(
+  command: MutatingCommand,
+  args: unknown[],
+): string {
   const kind = (args[0] as { kind?: string } | undefined)?.kind ?? "object";
   switch (command) {
     case "cmdRunAction":
@@ -104,5 +117,15 @@ export function describeMutation(command: MutatingCommand, args: unknown[]): str
       return `Uninstall Helm release ${at(args[0], args[1])}`;
     case "cmdMetricsAddonInstall":
       return "Install the metrics add-on";
+    case "cmdPortforwardStart": {
+      const t = args[0] as
+        { kind?: string; namespace?: string; name?: string } | undefined;
+      return `Start a port-forward to ${t?.kind ?? ""} ${at(t?.namespace, t?.name ?? "")} port ${args[1]}`.replace(
+        /\s+/g,
+        " ",
+      );
+    }
+    case "cmdPortforwardStartSaved":
+      return "Start a saved port-forward";
   }
 }

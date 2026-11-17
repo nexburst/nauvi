@@ -42,13 +42,19 @@ export function contextNameOf(id: string): string {
 }
 
 /** Change the mode of `id`; the settings come back from the backend. */
-export async function setContextMode(id: string, mode: ContextMode): Promise<void> {
+export async function setContextMode(
+  id: string,
+  mode: ContextMode,
+): Promise<void> {
   settings.current = await commands.cmdSetContextMode(id, mode);
 }
 
 /** Ask the user to type the context name. Resolves to what they typed, or
  *  null when they cancel. */
-export function askConfirmation(id: string, what: string): Promise<string | null> {
+export function askConfirmation(
+  id: string,
+  what: string,
+): Promise<string | null> {
   return new Promise((resolve) => {
     const entry: PendingConfirm = {
       id,

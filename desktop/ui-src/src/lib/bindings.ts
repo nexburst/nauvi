@@ -364,9 +364,9 @@ export const commands = {
 	 *  The forward is saved for the context (or reuses the saved one with the
 	 *  same target and ports).
 	 */
-	cmdPortforwardStart: (cluster: string, target: ForwardTarget, remotePort: string, localPort: number | null, options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo>("cmd_portforward_start", { cluster, target, remotePort, localPort }, options),
+	cmdPortforwardStart: (cluster: MutationTarget, target: ForwardTarget, remotePort: string, localPort: number | null, options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo>("cmd_portforward_start", { cluster, target, remotePort, localPort }, options),
 	/**  Start the saved forward `id`, or restart it if it runs. */
-	cmdPortforwardStartSaved: (cluster: string, id: string, options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo>("cmd_portforward_start_saved", { cluster, id }, options),
+	cmdPortforwardStartSaved: (cluster: MutationTarget, id: string, options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo>("cmd_portforward_start_saved", { cluster, id }, options),
 	/**
 	 *  Stop a forward. Stopping one that is already gone is not an error. It
 	 *  stays saved.

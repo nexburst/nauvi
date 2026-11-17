@@ -139,6 +139,92 @@ pub fn mode_in_settings(path: &Path, id: &str) -> ContextMode {
     mode_in_settings_text(&text, id)
 }
 
+/// The mode the app gives a context the CLI reaches, or why it cannot be
+/// told.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CliMode {
+    Known(ContextMode),
+    /// The app has settings, but its catalog has no such context.
+    Unknown(String),
+}
+
+/// The app's catalog id of `context` from `kubeconfig` (`None`: the default
+/// kubeconfig), in a catalog built from the app's added `sources` exactly as
+/// the app builds it ([`crate::catalog::load_catalog`]). The id is the
+/// context's name unless an earlier source has one of that name, e.g.
+/// `prod (work.yaml)`.
+pub fn app_context_id(
+    sources: &[PathBuf],
+    pasted_dir: Option<PathBuf>,
+    kubeconfig: Option<&Path>,
+    context: &str,
+) -> Option<String> {
+    use crate::catalog::{load_catalog, CatalogInput};
+    let catalog = load_catalog(&CatalogInput::here(sources.to_vec(), pasted_dir));
+    id_in_catalog(&catalog, kubeconfig, context)
+}
+
+/// [`app_context_id`] in a catalog already built.
+fn id_in_catalog(
+    catalog: &crate::catalog::Catalog,
+    kubeconfig: Option<&Path>,
+    context: &str,
+) -> Option<String> {
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let wanted = kubeconfig.map(canon);
+    catalog
+        .contexts
+        .iter()
+        .find(|c| {
+            c.context == context
+                && match &wanted {
+                    None => c.source.is_empty(),
+                    Some(file) => canon(Path::new(&c.file)) == *file,
+                }
+        })
+        .map(|c| c.name.clone())
+}
+
+/// The mode of `context` from `kubeconfig` in the app's settings at
+/// `settings_path`, keyed by the context's catalog id ([`app_context_id`]).
+/// No settings file: normal (the app never marked anything). A file that
+/// cannot be read: read-only. A context the app's catalog does not have:
+/// [`CliMode::Unknown`], which `nauvi mcp` treats as refusing writes.
+pub fn mode_for_cli(settings_path: &Path, kubeconfig: Option<&Path>, context: &str) -> CliMode {
+    let text = match std::fs::read_to_string(settings_path) {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return CliMode::Known(ContextMode::Normal)
+        }
+        Err(_) => return CliMode::Known(ContextMode::ReadOnly),
+    };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return CliMode::Known(ContextMode::ReadOnly);
+    };
+    let sources: Vec<PathBuf> = v
+        .get("kubeconfig_sources")
+        .and_then(|s| s.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|p| p.as_str())
+                .map(crate::catalog::expand_home)
+                .collect()
+        })
+        .unwrap_or_default();
+    // Where the app keeps pasted kubeconfigs: `<config dir>/kubeconfigs`.
+    let pasted = settings_path.parent().map(|d| d.join("kubeconfigs"));
+    match app_context_id(&sources, pasted, kubeconfig, context) {
+        Some(id) => CliMode::Known(mode_in_settings_text(&text, &id)),
+        None => CliMode::Unknown(format!(
+            "context {context}{} is not in nauvi's cluster catalog, so its read-only or \
+             protected setting cannot be checked",
+            kubeconfig
+                .map(|p| format!(" of {}", p.display()))
+                .unwrap_or_default()
+        )),
+    }
+}
+
 fn mode_in_settings_text(text: &str, id: &str) -> ContextMode {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
         return ContextMode::ReadOnly;
@@ -246,6 +332,47 @@ mod tests {
                 a("portForward", false, "Not allowed: you can't create"),
             ]
         );
+    }
+
+    #[test]
+    fn the_cli_finds_the_id_the_app_gives_a_context() {
+        use crate::catalog::{load_catalog, CatalogInput};
+        let dir = std::env::temp_dir().join(format!("nauvi-338-ids-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let kc = |ctx: &str| {
+            format!(
+                "apiVersion: v1\nkind: Config\ncurrent-context: {ctx}\nclusters:\n- name: c\n  cluster: {{server: 'https://127.0.0.1:1'}}\nusers:\n- name: u\n  user: {{token: t}}\ncontexts:\n- name: {ctx}\n  context: {{cluster: c, user: u}}\n"
+            )
+        };
+        let default = dir.join("config");
+        let work = dir.join("work.yaml");
+        let other = dir.join("other.yaml");
+        std::fs::write(&default, kc("prod")).unwrap();
+        std::fs::write(&work, kc("prod")).unwrap();
+        std::fs::write(&other, kc("prod")).unwrap();
+        let catalog = load_catalog(&CatalogInput {
+            default_paths: vec![default.clone()],
+            extra: vec![work.clone()],
+            pasted_dir: None,
+        });
+        assert_eq!(
+            id_in_catalog(&catalog, None, "prod").as_deref(),
+            Some("prod")
+        );
+        assert_eq!(
+            id_in_catalog(&catalog, Some(&default), "prod").as_deref(),
+            Some("prod")
+        );
+        let id = id_in_catalog(&catalog, Some(&work), "prod").unwrap();
+        assert_ne!(id, "prod", "the added file's context has its own id");
+        assert_eq!(catalog.find(&id).unwrap().file, work.display().to_string());
+        // The same file through another path.
+        let dotted = dir.join(".").join("work.yaml");
+        assert_eq!(id_in_catalog(&catalog, Some(&dotted), "prod"), Some(id));
+        // A file or context the app does not have.
+        assert_eq!(id_in_catalog(&catalog, Some(&other), "prod"), None);
+        assert_eq!(id_in_catalog(&catalog, None, "dev"), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
