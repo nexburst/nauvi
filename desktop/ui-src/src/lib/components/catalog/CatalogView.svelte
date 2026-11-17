@@ -13,6 +13,7 @@
     STATE_LABELS,
   } from "../../catalog";
   import { app, openContextWindow, switchContext } from "../../stores/app.svelte";
+  import ModeBadge from "../ModeBadge.svelte";
   import {
     catalog,
     checkAll,
@@ -202,7 +203,12 @@
                 <span class="swatch" style:background={cs.color || "transparent"} aria-hidden="true"></span>
                 <span class="label" data-testid="catalog-name">{name}</span>
               </div>
-              {#if c.current}<div class="under"><span class="badge">this window</span></div>{/if}
+              {#if c.current || (cs.mode ?? "normal") !== "normal"}
+                <div class="under">
+                  {#if c.current}<span class="badge">this window</span>{/if}
+                  <ModeBadge mode={cs.mode} name={c.context} />
+                </div>
+              {/if}
               {#if name !== c.name}<div class="muted id">{c.name}</div>{/if}
             </td>
             <td class="status" data-testid="catalog-status">

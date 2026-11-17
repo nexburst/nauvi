@@ -45,7 +45,8 @@
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { events } from "../lib/bindings";
-import { isClusterCommand } from "../lib/cluster";
+import { isClusterCommand, isMutatingCommand } from "../lib/cluster";
+import { gateRefusal } from "./fake/gate";
 import type { DetailState, LinkRequest, Overview_Serialize, TaggedLine, WatchBatch, WatchState } from "../lib/bindings";
 import type { ClusterStateChanged } from "../lib/bindings";
 import { defaultCluster } from "./fixtures/cluster";
@@ -165,8 +166,14 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     // Cluster-scoped commands name their cluster first (ADR 0007); the
     // handlers and `calls` leave it out.
     const { cluster: target, ...rest } = args ?? {};
-    if (isClusterCommand(name) !== (typeof target === "string")) {
+    const named = typeof target === "string" || (isMutatingCommand(name) && typeof target === "object" && !!target);
+    if (isClusterCommand(name) !== named) {
       throw new Error(`fake backend: ${cmd} ${isClusterCommand(name) ? "needs" : "takes no"} cluster (lib/cluster.ts)`);
+    }
+    // The backend's gate runs before the command (`state/mutation.rs`).
+    if (isMutatingCommand(name)) {
+      const refused = gateRefusal(st, target, rest);
+      if (refused) throw refused;
     }
     list.push(JSON.parse(JSON.stringify(rest)) as CallArgs);
     const fail = failures.get(name)?.shift();

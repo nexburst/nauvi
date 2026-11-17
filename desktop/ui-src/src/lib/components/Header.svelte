@@ -8,6 +8,8 @@
   import { isMacPlatform, shortcutHint } from "../keys";
   import HelpMenu from "./HelpMenu.svelte";
   import NotificationBell from "./NotificationBell.svelte";
+  import ModeBadge from "./ModeBadge.svelte";
+  import { contextMode, contextNameOf } from "../stores/contextMode.svelte";
   import { history } from "../stores/history.svelte";
   import { goBack, goForward } from "../stores/navigation.svelte";
 
@@ -31,6 +33,7 @@
   const ordered = $derived(orderContexts(app.contexts, settings.current.favourites));
   const label = (id: string) => displayName({ name: id }, contextSettings(id));
   const color = $derived(contextSettings(current).color);
+  const mode = $derived(contextMode(current));
 </script>
 
 <header>
@@ -97,6 +100,7 @@
       {/each}
     {/if}
   </select>
+  <ModeBadge {mode} name={contextNameOf(current)} />
   <button
     class="new-window"
     class:active={app.view === CATALOG_VIEW}

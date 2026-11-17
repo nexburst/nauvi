@@ -17,6 +17,7 @@
  */
 
 import { commands } from "./bindings";
+import type { MutationTarget } from "./bindings";
 
 type Commands = typeof commands;
 export type CommandName = keyof Commands;
@@ -49,6 +50,7 @@ export const GLOBAL_COMMANDS = [
   "cmdRemoveKubeconfigSource",
   "cmdSaveCsv",
   "cmdSaveLogs",
+  "cmdSetContextMode",
   "cmdSetUnsaved",
   "cmdSetZoom",
   "cmdTakeLink",
@@ -57,11 +59,62 @@ export const GLOBAL_COMMANDS = [
   "cmdUpdateSettings",
 ] as const satisfies readonly CommandName[];
 
+/**
+ * The commands that change a cluster (#338), sorted: in `bindings.ts` their
+ * `cluster` is a `MutationTarget`, which the backend's gate checks against
+ * the context's read-only or protected mode. `api(id)` asks the guard set
+ * by `stores/contextMode.svelte.ts` for it, which asks the user to type the
+ * context name on a protected context. `cluster.test.ts` checks this list
+ * against `bindings.ts`.
+ */
+export const MUTATING_COMMANDS = [
+  "cmdApplyManifests",
+  "cmdApplyResourceYaml",
+  "cmdAttachStart",
+  "cmdBulkDelete",
+  "cmdDebugStart",
+  "cmdDeleteResource",
+  "cmdDrainNode",
+  "cmdExecStart",
+  "cmdHelmInstall",
+  "cmdHelmRollback",
+  "cmdHelmUninstall",
+  "cmdHelmUpgrade",
+  "cmdLocalShellStart",
+  "cmdMetricsAddonInstall",
+  "cmdNodeShellCleanup",
+  "cmdNodeShellStart",
+  "cmdPatchData",
+  "cmdRunAction",
+] as const satisfies readonly CommandName[];
+
+export type MutatingCommand = (typeof MUTATING_COMMANDS)[number];
+const MUTATING = new Set<string>(MUTATING_COMMANDS);
+
+export function isMutatingCommand(name: string): name is MutatingCommand {
+  return MUTATING.has(name);
+}
+
+/** What a mutating call sends as its `cluster`: `id`, or `{ id, confirm }`
+ *  with the typed context name. `null`: the user cancelled. */
+export type MutationGuard = (id: string, command: MutatingCommand, args: unknown[]) => Promise<MutationTarget | null>;
+
+let guard: MutationGuard = async (id) => id;
+
+/** Set how mutating calls get their `cluster` (the protected-mode prompt). */
+export function setMutationGuard(g: MutationGuard) {
+  guard = g;
+}
+
+/** What a cancelled confirmation throws, like a backend error. */
+export const CANCELLED = "Cancelled: nothing was changed";
+
 export type GlobalCommand = (typeof GLOBAL_COMMANDS)[number];
 export type ClusterCommand = Exclude<CommandName, GlobalCommand>;
 
 /** A command with its `cluster` parameter filled in. `never` if the
- *  command does not start with a string, so a misfiled one fails to type. */
+ *  command does not start with a string (or a `MutationTarget`, which a
+ *  string is), so a misfiled one fails to type. */
 type Bound<F> = F extends (cluster: string, ...rest: infer A) => infer R ? (...rest: A) => R : never;
 
 /** The cluster-scoped commands of one cluster. */
@@ -83,7 +136,13 @@ export function api(id: string): ClusterApi {
     for (const name of Object.keys(commands)) {
       if (!isClusterCommand(name)) continue;
       const cmd = commands[name] as (...args: unknown[]) => unknown;
-      bound[name] = (...args: unknown[]) => cmd(id, ...args);
+      bound[name] = isMutatingCommand(name)
+        ? async (...args: unknown[]) => {
+            const target = await guard(id, name, args);
+            if (target === null) throw CANCELLED;
+            return cmd(target, ...args);
+          }
+        : (...args: unknown[]) => cmd(id, ...args);
     }
     a = bound as unknown as ClusterApi;
     apis.set(id, a);
