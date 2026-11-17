@@ -120,7 +120,7 @@ describe("hide clusters and cluster labels", { timeout: 12 * 60_000 }, () => {
     await openPodLogs(app, "demo", logger);
     const fwd = await ipc(app, "cmd_portforward_start", {
       cluster: CONTEXT,
-      target: { kind: "service", namespace: "demo", name: "web" },
+      target: { kind: "deployment", namespace: "demo", name: "web" },
       remotePort: "80",
       localPort: 0,
     });
