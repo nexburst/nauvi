@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ClusterLabel from "./ClusterLabel.svelte";
   import DockPane from "./DockPane.svelte";
   import { clampHeight, labelClusters } from "../dock";
   import { currentContextName } from "../stores/app.svelte";
@@ -74,7 +75,8 @@
                 class:other={t.cluster !== currentContextName()}
                 data-testid="dock-tab-cluster"
                 title={`Runs on ${contextLabel(t.cluster)}`}
-                onclick={() => activateDockTab(t.id)}>{contextLabel(t.cluster)}</span
+                onclick={() => activateDockTab(t.id)}
+                ><ClusterLabel id={t.cluster} title={`Runs on ${contextLabel(t.cluster)}`} /></span
               >
             {/if}
             <button
@@ -212,6 +214,8 @@
   }
   /* The tab's cluster (ADR 0007); stronger when the window shows another. */
   .cluster {
+    display: inline-flex;
+    align-items: center;
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;

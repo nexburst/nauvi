@@ -90,10 +90,14 @@ export function portforwardHandlers(s: FakeState) {
     },
     cmdPortforwardStop: (id) => {
       cluster.forwards = cluster.forwards.filter((f) => f.id !== id);
+      cluster.backgroundForwards = cluster.backgroundForwards.filter((f) => f.forward.id !== id);
       return null;
     },
     // A copy, like real IPC: the app must see a new list after the tests change this one.
     cmdPortforwardList: () => copy(cluster.forwards),
+    // The shown cluster's forwards, then the ones tests put on others (ADR 0007).
+    cmdPortforwardListAll: () =>
+      copy([...cluster.forwards.map((forward) => ({ cluster: ctx(), forward })), ...cluster.backgroundForwards]),
     cmdPortforwardSaved: () => copy(saved()),
     cmdPortforwardSave: (forward) => upsert(forward),
     cmdPortforwardStartSaved: (id) => {

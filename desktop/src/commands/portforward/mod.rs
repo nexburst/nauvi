@@ -199,6 +199,50 @@ pub(crate) async fn cmd_portforward_list(cluster: Cluster) -> Result<Vec<Forward
     Ok(out)
 }
 
+/// A running forward and the cluster it runs on (ADR 0007).
+#[derive(Debug, Clone, Serialize, Type)]
+pub(crate) struct ClusterForward {
+    /// The cluster's id (its context id).
+    cluster: String,
+    forward: ForwardInfo,
+}
+
+/// The running forwards of every cluster the calling window is connected
+/// to, by cluster id, then oldest first. Asking does not count as using a
+/// cluster: it does not keep an idle one connected.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_portforward_list_all(
+    webview: tauri::Webview,
+    state: State<'_, AppState>,
+) -> Result<Vec<ClusterForward>, String> {
+    Ok(list_all(&state.window_clusters(webview.label())))
+}
+
+fn list_all(sessions: &[Arc<crate::state::ClusterSession>]) -> Vec<ClusterForward> {
+    let mut out: Vec<ClusterForward> = sessions
+        .iter()
+        .flat_map(|s| {
+            let forwards = s.forwards.lock().unwrap();
+            forwards
+                .iter()
+                .map(|(id, f)| ClusterForward {
+                    cluster: s.id().to_string(),
+                    forward: info(id, f),
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        (&a.cluster, a.forward.started_at, &a.forward.id).cmp(&(
+            &b.cluster,
+            b.forward.started_at,
+            &b.forward.id,
+        ))
+    });
+    out
+}
+
 /// The saved forwards of the selected context, in the order they were added.
 #[tauri::command]
 #[specta::specta]
@@ -343,4 +387,45 @@ pub(crate) async fn cmd_service_ports(
     service_ports(&client, &namespace, &name)
         .await
         .map_err(|e| format!("{e:#}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::ClusterSession;
+
+    fn forward(started_at: u64) -> ForwardSession {
+        let target = ForwardTarget::parse("svc/web", "demo").unwrap();
+        let remote = RemotePort::parse("80").unwrap();
+        let forward =
+            tauri::async_runtime::block_on(async { PortForward::idle(target, remote, 8080) });
+        ForwardSession {
+            forward,
+            started_at,
+            saved_id: format!("saved-{started_at}"),
+            https: false,
+        }
+    }
+
+    #[test]
+    fn every_cluster_of_the_window_is_listed_with_its_forwards() {
+        let a = Arc::new(ClusterSession::new("a".into(), None, Arc::default()));
+        let b = Arc::new(ClusterSession::new("b".into(), None, Arc::default()));
+        assert!(b.add_forward("pf-2".into(), forward(20)));
+        assert!(a.add_forward("pf-3".into(), forward(30)));
+        assert!(b.add_forward("pf-1".into(), forward(10)));
+        let got: Vec<(String, String)> = list_all(&[b, a])
+            .into_iter()
+            .map(|f| (f.cluster, f.forward.id))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("a".to_string(), "pf-3".to_string()),
+                ("b".into(), "pf-1".into()),
+                ("b".into(), "pf-2".into())
+            ]
+        );
+        assert!(list_all(&[]).is_empty());
+    }
 }

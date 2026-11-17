@@ -34,6 +34,8 @@ export function clustersHandlers(s: FakeState) {
     },
     cmdClusterDisconnect: () => {
       s.connected.delete(s.target);
+      // Its forwards stop with it.
+      cluster.backgroundForwards = cluster.backgroundForwards.filter((f) => f.cluster !== s.target);
       return null;
     },
   } satisfies AreaHandlers;

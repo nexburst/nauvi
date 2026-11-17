@@ -158,6 +158,11 @@ pub(crate) struct Settings {
     /// Pinned context ids, in order: first in the context selector and the
     /// palette.
     pub(crate) favourites: Vec<String>,
+    /// Context ids hidden from the cluster tree, the context selector and
+    /// the palette (ADR 0007, "remove = hide"). Only nauvi's own list: the
+    /// kubeconfig files are never changed. The catalog shows them again
+    /// with Show hidden, and Unhide takes one off the list.
+    pub(crate) hidden_contexts: Vec<String>,
     /// The page zoom in percent (#207), within `ZOOM_RANGE`.
     pub(crate) zoom: u32,
     /// The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`.
@@ -314,6 +319,7 @@ impl Default for Settings {
             windows: Vec::new(),
             kubeconfig_sources: Vec::new(),
             favourites: Vec::new(),
+            hidden_contexts: Vec::new(),
             zoom: 100,
             terminal_font_size: 12,
             editor_font_size: 12,
@@ -380,6 +386,9 @@ pub(crate) struct SettingsPatch {
     pub(crate) windows: Option<Vec<String>>,
     #[specta(optional)]
     pub(crate) favourites: Option<Vec<String>>,
+    /// The whole list of hidden context ids.
+    #[specta(optional)]
+    pub(crate) hidden_contexts: Option<Vec<String>>,
     #[specta(optional)]
     pub(crate) zoom: Option<u32>,
     #[specta(optional)]
@@ -426,6 +435,15 @@ impl Settings {
         }
         if let Some(v) = patch.favourites {
             self.favourites = v;
+        }
+        if let Some(v) = patch.hidden_contexts {
+            let mut out: Vec<String> = Vec::new();
+            for id in v {
+                if !id.is_empty() && !out.contains(&id) {
+                    out.push(id);
+                }
+            }
+            self.hidden_contexts = out;
         }
         if let Some(v) = patch.zoom {
             self.zoom = v.clamp(ZOOM_RANGE.0, ZOOM_RANGE.1);
@@ -710,6 +728,28 @@ mod tests {
         let s = parse(r#"{"contexts":{"x":{"mode":"locked","view":"v1/pods"}}}"#).unwrap();
         assert_eq!(s.context_mode("x"), ContextMode::ReadOnly);
         assert_eq!(s.contexts["x"].view, "v1/pods");
+    }
+
+    #[test]
+    fn hidden_contexts_are_a_plain_list() {
+        let mut s = Settings::default();
+        assert!(s.hidden_contexts.is_empty());
+        s.apply(SettingsPatch {
+            hidden_contexts: Some(vec!["prod".into(), "".into(), "dev".into(), "prod".into()]),
+            ..Default::default()
+        });
+        assert_eq!(s.hidden_contexts, ["prod", "dev"]);
+        // A patch without it keeps it.
+        s.apply(SettingsPatch {
+            theme: Some(Theme::Dark),
+            ..Default::default()
+        });
+        assert_eq!(s.hidden_contexts, ["prod", "dev"]);
+        // A file from before has none; a bad value costs no other field.
+        assert!(parse("{}").unwrap().hidden_contexts.is_empty());
+        let s = parse(r#"{"hidden_contexts":"prod","theme":"light"}"#).unwrap();
+        assert!(s.hidden_contexts.is_empty());
+        assert_eq!(s.theme, Theme::Light);
     }
 
     #[test]

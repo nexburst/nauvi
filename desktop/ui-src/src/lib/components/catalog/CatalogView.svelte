@@ -26,6 +26,7 @@
     togglePin,
   } from "../../stores/catalog.svelte";
   import { live } from "../../stores/live.svelte";
+  import { askHide, hideProblem, isHidden, unhide } from "../../stores/hidden.svelte";
   import { contextSettings, settings } from "../../stores/settings.svelte";
   import { confirmDiscard } from "../../stores/unsaved.svelte";
   import AddSource from "./AddSource.svelte";
@@ -40,6 +41,8 @@
    *  Check button (#201, #244). */
   let query = $state("");
   let adding = $state(false);
+  /** List the hidden contexts too (ADR 0007), to unhide them. */
+  let showHidden = $state(false);
   /** The source a Remove is waiting to be confirmed for. */
   let removing = $state<SourceInfo | null>(null);
   const now = Date.now();
@@ -60,13 +63,17 @@
   }
   const rows = $derived.by(() => {
     void settings.current;
-    const { pinned, others } = orderContexts(app.contexts, settings.current.favourites);
+    const listed = showHidden ? app.contexts : app.contexts.filter((c) => !isHidden(c.name));
+    const { pinned, others } = orderContexts(listed, settings.current.favourites);
     return filterContexts([...pinned, ...others], query, nameOf);
   });
+  /** How many of the contexts are hidden (gone ones do not count). */
+  const hiddenCount = $derived(app.contexts.filter((c) => isHidden(c.name)).length);
 
   $effect(() => {
     const n = app.contexts.length;
-    app.count = n === 1 ? "1 cluster" : `${n} clusters`;
+    const total = n === 1 ? "1 cluster" : `${n} clusters`;
+    app.count = hiddenCount ? `${total}, ${hiddenCount} hidden` : total;
   });
 
   async function open(id: string) {
@@ -108,6 +115,12 @@
       },
       { label: "Settings…", run: () => openClusterSettings(c.name) },
     ];
+    if (isHidden(c.name)) items.push({ label: "Unhide", run: () => unhide(c.name) });
+    else {
+      // Hidden in nauvi only: the kubeconfig is not changed (ADR 0007).
+      const why = hideProblem(c.name);
+      items.push({ label: why ? "Hide… (shown here)" : "Hide…", disabled: !!why, run: () => void askHide(c.name) });
+    }
     if (source) items.push({ label: "Remove source…", danger: true, run: () => askRemove(source) });
     menu = { x: r.left, y: r.bottom + 2, title: name, items, context: c.name };
   }
@@ -123,6 +136,12 @@
       placeholder="Filter by name, server or file"
       bind:value={query}
     />
+    {#if hiddenCount > 0 || showHidden}
+      <label class="show-hidden" title="Hidden clusters are left out of the tree, the context selector and the palette">
+        <input type="checkbox" bind:checked={showHidden} data-testid="catalog-show-hidden" />
+        Show hidden ({hiddenCount})
+      </label>
+    {/if}
     <button type="button" class="btn" onclick={() => void checkAll()}>Check all</button>
     <button type="button" class="btn primary" aria-expanded={adding} onclick={() => (adding = !adding)}
       >Add kubeconfig…</button
@@ -186,7 +205,8 @@
           {@const check = catalog.checks.get(c.name)}
           {@const pinned = isPinned(c.name)}
           {@const name = nameOf(c)}
-          <tr data-testid="catalog-row" data-context={c.name} class:current={c.current}>
+          {@const hidden = isHidden(c.name)}
+          <tr data-testid="catalog-row" data-context={c.name} class:current={c.current} class:hidden-row={hidden}>
             <td>
               <button
                 type="button"
@@ -203,9 +223,10 @@
                 <span class="swatch" style:background={cs.color || "transparent"} aria-hidden="true"></span>
                 <span class="label" data-testid="catalog-name">{name}</span>
               </div>
-              {#if c.current || (cs.mode ?? "normal") !== "normal"}
+              {#if c.current || hidden || (cs.mode ?? "normal") !== "normal"}
                 <div class="under">
                   {#if c.current}<span class="badge">this window</span>{/if}
+                  {#if hidden}<span class="badge" data-testid="catalog-hidden" title="Hidden in nauvi only: the kubeconfig is not changed">hidden</span>{/if}
                   <ModeBadge mode={cs.mode} name={c.context} />
                 </div>
               {/if}
@@ -268,14 +289,18 @@
             <td class="muted">{lastUsedText(cs.last_used, now)}</td>
             <td>
               <div class="actions">
-                <button type="button" class="btn" disabled={c.current} aria-label="Open {name}" onclick={() => open(c.name)}
-                  >Open</button
-                >
+                {#if hidden}
+                  <button type="button" class="btn" aria-label="Unhide {name}" onclick={() => unhide(c.name)}>Unhide</button>
+                {:else}
+                  <button type="button" class="btn" disabled={c.current} aria-label="Open {name}" onclick={() => open(c.name)}
+                    >Open</button
+                  >
+                {/if}
                 <button
                   type="button"
                   class="btn more"
                   aria-label="More actions for {name}"
-                  title="New window, check, settings, remove"
+                  title="New window, check, settings, hide, remove"
                   aria-haspopup="menu"
                   aria-expanded={menu?.context === c.name}
                   onclick={(e) => showMenu(e, c, name)}>⋯</button
@@ -286,6 +311,12 @@
         {/each}
       </tbody>
     </table>
+  {/if}
+
+  {#if app.contexts.length > 0 && rows.length === 0 && !query && !showHidden}
+    <p class="muted empty" data-testid="catalog-all-hidden">
+      Every cluster is hidden. Check Show hidden to list them and unhide one.
+    </p>
   {/if}
 
   {#if menu}
@@ -342,6 +373,17 @@
   }
   .filter {
     width: 260px;
+  }
+  .show-hidden {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  tr.hidden-row td {
+    opacity: 0.7;
   }
   .message,
   .note,

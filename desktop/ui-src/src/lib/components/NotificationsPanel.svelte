@@ -5,6 +5,7 @@
   import { kindOfResource } from "../stores/actions.svelte";
   import { clearNotifications, closeNotifications, notifications } from "../stores/notifications.svelte";
   import { settings } from "../stores/settings.svelte";
+  import ClusterLabel from "./ClusterLabel.svelte";
 
   /** The notification history of this window (#326), newest first. */
   const LEVELS = { success: "Done", info: "Info", warning: "Warning", error: "Error" } as const;
@@ -54,7 +55,7 @@
             <span class="level">{LEVELS[e.level]}</span>
             <time datetime={new Date(e.at).toISOString()}>{notificationTime(e.at, Date.now(), settings.current.time_zone)}</time>
             {#if e.count > 1}<span class="count" title="Shown {e.count} times in a row">×{e.count}</span>{/if}
-            {#if e.context}<span class="context" title="Context">{e.context}</span>{/if}
+            {#if e.context}<span class="context"><ClusterLabel id={e.context} title={`On ${e.context}`} /></span>{/if}
           </div>
           <p class="message">{e.message}</p>
           {#if e.target}
@@ -160,6 +161,7 @@
     color: var(--green);
   }
   .context {
+    display: inline-flex;
     margin-left: auto;
     overflow: hidden;
     text-overflow: ellipsis;

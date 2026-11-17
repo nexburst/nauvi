@@ -180,20 +180,22 @@ export async function showNode(id: string, view?: string) {
   if (view) setView(view);
 }
 
-/** Disconnect cluster `id` (not the one shown): everything it runs stops. */
-export async function disconnectNode(id: string) {
-  if (id === currentContextName()) return;
+/** Disconnect cluster `id` (not the one shown): everything it runs stops.
+ *  Resolves to whether it did. */
+export async function disconnectNode(id: string): Promise<boolean> {
+  if (id === currentContextName()) return false;
   try {
     await api(id).cmdClusterDisconnect();
   } catch (e) {
     showError(String(e));
-    return;
+    return false;
   }
   closeDockTabsOf(id);
   const next = new Map(tree.nodes);
   next.delete(id);
   tree.nodes = next;
   setExpanded(id, false);
+  return true;
 }
 
 /**

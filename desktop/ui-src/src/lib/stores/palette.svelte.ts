@@ -30,6 +30,7 @@ import { openLocalShell } from "./localShell";
 import { whenDiscarded } from "./unsaved.svelte";
 import { checkForUpdates } from "./updates.svelte";
 import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
+import { shownContexts } from "../hidden";
 import { openClusterSettings } from "./catalog.svelte";
 import { contextSettings, settings } from "./settings.svelte";
 
@@ -47,7 +48,9 @@ export function rememberPick(id: string) {
 export function paletteItems(): PaletteItem[] {
   const current = app.contexts.find((c) => c.current)?.name ?? "";
   const label = (id: string) => displayName({ name: id }, contextSettings(id));
-  const { pinned } = orderContexts(app.contexts, settings.current.favourites);
+  // Hidden ones are left out (ADR 0007), except the one shown.
+  const listed = shownContexts(app.contexts, settings.current.hidden_contexts, [current]);
+  const { pinned } = orderContexts(listed, settings.current.favourites);
   const items: PaletteItem[] = [
     // The hotbar (#78): pinned clusters first, a pick switches to them.
     ...pinned.map(
@@ -224,7 +227,7 @@ export function paletteItems(): PaletteItem[] {
     });
   }
 
-  for (const c of app.contexts) {
+  for (const c of listed) {
     const name = label(c.name);
     items.push({
       id: `ctx:${c.name}`,

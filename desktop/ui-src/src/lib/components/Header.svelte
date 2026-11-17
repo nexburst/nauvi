@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app, openContextWindow, refresh, setView, switchContext } from "../stores/app.svelte";
   import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
+  import { shownContexts } from "../hidden";
   import { contextSettings, settings } from "../stores/settings.svelte";
   import { live } from "../stores/live.svelte";
   import { openSettings } from "../stores/keyboard.svelte";
@@ -30,7 +31,9 @@
 
   const current = $derived(app.contexts.find((c) => c.current)?.name ?? "");
   // Pinned contexts first (#78), by their display names.
-  const ordered = $derived(orderContexts(app.contexts, settings.current.favourites));
+  // Hidden ones are left out (ADR 0007), except the one shown.
+  const listed = $derived(shownContexts(app.contexts, settings.current.hidden_contexts, [current]));
+  const ordered = $derived(orderContexts(listed, settings.current.favourites));
   const label = (id: string) => displayName({ name: id }, contextSettings(id));
   const color = $derived(contextSettings(current).color);
   const mode = $derived(contextMode(current));
@@ -78,7 +81,7 @@
   {/if}
   <select
     class="select"
-    class:invisible={app.contexts.length <= 1}
+    class:invisible={listed.length <= 1}
     aria-label="Cluster context"
     value={current}
     onchange={(e) => onContextChange(e.currentTarget)}
@@ -95,7 +98,7 @@
         {/each}
       </optgroup>
     {:else}
-      {#each app.contexts as ctx (ctx.name)}
+      {#each listed as ctx (ctx.name)}
         <option value={ctx.name}>{label(ctx.name)}</option>
       {/each}
     {/if}
