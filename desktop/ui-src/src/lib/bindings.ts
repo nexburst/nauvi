@@ -730,6 +730,8 @@ export type Capacity = {
 export type Category = "workloads" | "network" | "config" | "storage" | "cluster" | 
 /**  RBAC: ServiceAccounts, Roles, ClusterRoles and their bindings. */
 "access" | 
+/**  Dynamic Resource Allocation: DeviceClasses, ResourceClaims, ... */
+"devices" | 
 /**  CRDs, grouped by API group; the CRDs themselves are "Definitions". */
 "custom" | 
 /**  Anything else the server serves (apiservices, flowschemas, ...). */
