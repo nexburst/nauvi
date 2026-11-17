@@ -174,6 +174,24 @@ describe("TermWriter", () => {
   });
 });
 
+describe("TermWriter.discard", () => {
+  it("acknowledges stale output at once and notes it with the next write", () => {
+    const acked: number[] = [];
+    const writes: string[] = [];
+    const frames: (() => void)[] = [];
+    const w = new TermWriter((d, done) => (writes.push(new TextDecoder().decode(d)), done()), {
+      raf: (cb) => frames.push(cb),
+      cancelRaf: () => {},
+      onConsumed: (n) => acked.push(n),
+    });
+    w.discard(2048);
+    expect(acked).toEqual([2048]);
+    w.push("$ ", true);
+    frames.splice(0).forEach((f) => f());
+    expect(writes).toEqual([skippedNotice(2048) + "$ "]);
+  });
+});
+
 describe("isOutput", () => {
   it("tells raw output from events", () => {
     expect(isOutput(new ArrayBuffer(1))).toBe(true);

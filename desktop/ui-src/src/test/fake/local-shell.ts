@@ -1,7 +1,7 @@
 // The local shell at the selected context (`commands/local_shell.rs`).
 
 import { fakeKubectl } from "./kubectl";
-import { startTerm } from "./state";
+import { interrupted, startTerm } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
 
 export function localShellHandlers(s: FakeState) {
@@ -17,7 +17,7 @@ export function localShellHandlers(s: FakeState) {
       };
     },
     cmdLocalShellAck: () => null,
-    cmdLocalShellInput: () => null,
+    cmdLocalShellInput: (session, data) => interrupted(s, session, data),
     cmdLocalShellResize: () => null,
     cmdLocalShellClose: () => null,
   } satisfies AreaHandlers;

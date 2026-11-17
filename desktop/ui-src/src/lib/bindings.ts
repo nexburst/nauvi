@@ -2701,7 +2701,12 @@ export type TaggedLine = {
 /**  A message about a terminal session, other than its output. */
 export type TermEvent = 
 /**  The shell exited, or the session was closed or detached. */
-{ type: "closed" };
+{ type: "closed" } | 
+/**
+ *  After Ctrl-C: the output still waiting was dropped; output sent
+ *  before this message is stale and the tab drops it too.
+ */
+{ type: "cleared" };
 
 /**
  *  A message on a terminal channel as the UI sees it: output

@@ -1,6 +1,6 @@
 // Exec and attach sessions (`commands/exec.rs`).
 
-import { sendTerm, startTerm } from "./state";
+import { interrupted, sendTerm, startTerm } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
 
 export function execHandlers(s: FakeState) {
@@ -20,7 +20,8 @@ export function execHandlers(s: FakeState) {
       return session;
     },
     cmdExecAck: () => null,
-    cmdExecInput: () => null,
+    // Ctrl-C drops the output waiting, then says so, like the backend.
+    cmdExecInput: (session, data) => interrupted(s, session, data),
     cmdExecResize: () => null,
     cmdExecClose: () => null,
   } satisfies AreaHandlers;

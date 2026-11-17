@@ -32,7 +32,7 @@ const BATCH_WAIT: Duration = Duration::from_millis(8);
 /// The most a batch holds.
 const BATCH_MAX: usize = 256 * 1024;
 /// The most bytes sent to the tab and not acknowledged yet.
-const WINDOW: usize = 2 * 1024 * 1024;
+const WINDOW: usize = 8 * 1024 * 1024;
 /// The most output kept while waiting for credit.
 const QUEUE_MAX: usize = 8 * 1024 * 1024;
 
@@ -132,6 +132,7 @@ impl Pending {
         self.skipped += self.bytes;
         self.bytes = 0;
         self.frames.retain(|f| matches!(f, TermFrame::Event(_)));
+        self.frames.push_back(TermFrame::Event(TermEvent::Cleared));
     }
 
     fn front_is_data(&self) -> bool {
@@ -248,7 +249,8 @@ mod tests {
         let task = tokio::spawn(run(rx, move |f| {
             sink_got.lock().unwrap().push(match f {
                 TermFrame::Data(b) => String::from_utf8_lossy(&b).into_owned(),
-                TermFrame::Event(_) => "<closed>".into(),
+                TermFrame::Event(TermEvent::Closed) => "<closed>".into(),
+                TermFrame::Event(TermEvent::Cleared) => "<cleared>".into(),
             });
         }));
         Harness {
@@ -365,7 +367,9 @@ mod tests {
         h.settle().await;
         h.out.ack(WINDOW);
         let all = h.finish().await.concat();
-        assert!(all.contains("[… 2.0 MB of output skipped]"));
+        // The marker first (it needs no credit), then the notice with the next output.
+        let marker = all.find("<cleared>").unwrap();
+        assert!(all[marker..].contains("[… 2.0 MB of output skipped]"));
         assert!(all.ends_with("^C\r\n$ <closed>"));
     }
 

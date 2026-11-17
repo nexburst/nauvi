@@ -181,6 +181,13 @@ export function sendTerm(s: FakeState, session: string, data: string | Uint8Arra
   s.termChannels.get(session)?.onmessage(bytes.slice().buffer);
 }
 
+/** Input into terminal session `session`: Ctrl-C clears what waits, which
+ *  the backend tells the tab with `cleared`. */
+export function interrupted(s: FakeState, session: string, data: string) {
+  if (data.includes("\x03")) s.termChannels.get(session)?.onmessage({ type: "cleared" });
+  return null;
+}
+
 export function saveSettings(s: FakeState, next: FakeCluster["settings"]) {
   s.cluster.settings = next;
   sessionStorage.setItem(SETTINGS_KEY, JSON.stringify(s.cluster.settings));

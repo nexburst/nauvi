@@ -104,6 +104,9 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { webLink } from "../terminalLinks";
   import { INTERRUPT, TermWriter, termChannel } from "../termOutput";
+
+  /** Bytes written before they are acknowledged in one call (#115). */
+  const ACK_EVERY = 256 * 1024;
   import { settings } from "../stores/settings.svelte";
   import KubectlOffer from "./KubectlOffer.svelte";
 
@@ -213,21 +216,35 @@
     // frame, a bounded amount at a time, so a flood never keeps the page
     // from drawing or taking keys.
     // What was written (or dropped) is acknowledged, so the backend sends at
-    // most a window ahead; before `start` resolves it is owed.
-    let owed = 0;
+    // most a window ahead: in steps of ACK_EVERY, or when nothing waits
+    // (fewer calls under a flood). Before `start` resolves it is owed.
+    let unacked = 0;
+    const ack = () => {
+      if (!session || unacked === 0) return;
+      b.ack(session, unacked).catch(() => {});
+      unacked = 0;
+    };
     const w = new TermWriter((data, done) => (term ? term.write(data, done) : done()), {
       onConsumed: (n) => {
-        if (session) b.ack(session, n).catch(() => {});
-        else owed += n;
+        unacked += n;
+        if (unacked >= ACK_EVERY || w.pending === 0) ack();
       },
     });
     writer = w;
     // A local shell's intro (from `start`'s answer) goes before its prompt.
     if (target.kind === "local") w.pause();
+    // After Ctrl-C, what was already on its way is stale: dropped (and
+    // acknowledged) until the backend's `cleared` says the rest is new.
+    let stale = false;
+    let staleTimer: ReturnType<typeof setTimeout> | undefined;
     const out = termChannel({
-      output: (bytes) => w.push(bytes, true),
+      output: (bytes) => (stale ? w.discard(bytes.length) : w.push(bytes, true)),
       event: (e) => {
         if (e.type === "closed") w.push(closedNote);
+        else if (e.type === "cleared") {
+          stale = false;
+          clearTimeout(staleTimer);
+        }
       },
     });
 
@@ -239,7 +256,7 @@
         return;
       }
       session = id;
-      if (owed) b.ack(id, owed).catch(() => {});
+      ack();
       if (target.kind === "local") localKubectl = kubectl ?? "";
       if (intro) t.write(intro);
       w.resume();
@@ -247,8 +264,14 @@
       // In order: concurrent input calls can overtake each other.
       const send = orderedInput((data: string) => b.input(id, data));
       t.onData((data) => {
-        // Ctrl-C drops the backlog here; the backend drops its own.
-        if (data.includes(INTERRUPT)) w.clear();
+        // Ctrl-C drops the backlog here; the backend drops its own. Should
+        // its `cleared` never come (the session ended), stop dropping anyway.
+        if (data.includes(INTERRUPT)) {
+          w.clear();
+          stale = true;
+          clearTimeout(staleTimer);
+          staleTimer = setTimeout(() => (stale = false), 3000);
+        }
         send(data);
       });
       if (active) t.focus();

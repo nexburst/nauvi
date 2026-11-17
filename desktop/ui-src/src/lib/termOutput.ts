@@ -138,6 +138,15 @@ export class TermWriter {
     this.schedule();
   }
 
+  /** Drop `bytes` of the session's output unseen (stale after Ctrl-C):
+   *  acknowledged and counted in the notice. */
+  discard(bytes: number) {
+    if (this.disposed || bytes === 0) return;
+    this.skipped += bytes;
+    this.o.onConsumed(bytes);
+    this.schedule();
+  }
+
   /** Count a dropped chunk; returns its acknowledged bytes. */
   private drop(c: Chunk): number {
     this.queued -= c.data.length;

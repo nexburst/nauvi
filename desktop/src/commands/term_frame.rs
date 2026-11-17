@@ -15,6 +15,9 @@ use tauri::ipc::{Channel, InvokeResponseBody, IpcResponse};
 pub(crate) enum TermEvent {
     /// The shell exited, or the session was closed or detached.
     Closed,
+    /// After Ctrl-C: the output still waiting was dropped; output sent
+    /// before this message is stale and the tab drops it too.
+    Cleared,
 }
 
 /// One message on a terminal channel: bytes for the screen (UTF-8, cut at
