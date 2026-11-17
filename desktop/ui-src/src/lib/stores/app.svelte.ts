@@ -1,4 +1,5 @@
 import { api, setVisibleCluster, visibleCluster } from "../cluster";
+import { commands } from "../bindings";
 import type { ContextInfo, NamespaceInfo, ResourceKind } from "../bindings";
 import { joinNames, normalizeNamespaces, sameNamespaces } from "../namespaces";
 import { clampHeight } from "../dock";
@@ -404,7 +405,7 @@ export async function switchContext(name: string) {
  */
 export async function openContextWindow(name: string) {
   try {
-    await api(visibleCluster()).cmdOpenWindow(name);
+    await commands.cmdOpenWindow(name);
   } catch (e) {
     // The backend says what failed.
     showError(String(e));
