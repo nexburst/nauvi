@@ -5,7 +5,7 @@ use super::jsonpath::{
     ratio, Seg,
 };
 use super::*;
-use super::{rbac, related_crd};
+use super::{dra, rbac, related_crd};
 use crate::created_secs;
 use kube::api::DynamicObject;
 use serde_json::Value;
@@ -95,7 +95,7 @@ pub(super) struct KindSpec {
     columns: &'static [Col],
 }
 
-use Category::{Access, Cluster, Config, Custom, Network, Storage, Workloads};
+use Category::{Access, Cluster, Config, Custom, Devices, Network, Storage, Workloads};
 
 /// The column registry. Order here is the sidebar order. To add columns for
 /// another built-in kind, add one entry (a path into the object, or a small
@@ -451,6 +451,51 @@ pub(super) const KINDS: &[KindSpec] = &[
         columns: &[NAME, func("webhooks", "Webhooks", webhook_names), AGE],
     },
     KindSpec {
+        group: "admissionregistration.k8s.io",
+        kind: "ValidatingAdmissionPolicy",
+        label: "Validating Admission Policies",
+        category: Config,
+        columns: &[
+            NAME,
+            func("validations", "Validations", |v| {
+                count_at(v, ".spec.validations")
+            }),
+            text("failure", "Failure Policy", ".spec.failurePolicy"),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "admissionregistration.k8s.io",
+        kind: "ValidatingAdmissionPolicyBinding",
+        label: "Validating Admission Policy Bindings",
+        category: Config,
+        columns: &[
+            NAME,
+            text("policy", "Policy", ".spec.policyName"),
+            text("actions", "Actions", ".spec.validationActions"),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "admissionregistration.k8s.io",
+        kind: "MutatingAdmissionPolicy",
+        label: "Mutating Admission Policies",
+        category: Config,
+        columns: &[
+            NAME,
+            func("mutations", "Mutations", |v| count_at(v, ".spec.mutations")),
+            text("failure", "Failure Policy", ".spec.failurePolicy"),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "admissionregistration.k8s.io",
+        kind: "MutatingAdmissionPolicyBinding",
+        label: "Mutating Admission Policy Bindings",
+        category: Config,
+        columns: &[NAME, text("policy", "Policy", ".spec.policyName"), AGE],
+    },
+    KindSpec {
         group: "",
         kind: "PersistentVolumeClaim",
         label: "Persistent Volume Claims",
@@ -609,6 +654,59 @@ pub(super) const KINDS: &[KindSpec] = &[
             func("subjects", "Subjects", rbac::subjects),
             AGE,
         ],
+    },
+    KindSpec {
+        group: "resource.k8s.io",
+        kind: "DeviceClass",
+        label: "Device Classes",
+        category: Devices,
+        columns: &[NAME, func("selectors", "Selectors", dra::selectors), AGE],
+    },
+    KindSpec {
+        group: "resource.k8s.io",
+        kind: "ResourceClaim",
+        label: "Resource Claims",
+        category: Devices,
+        columns: &[
+            NAME,
+            NAMESPACE,
+            status("state", "State", dra::claim_state),
+            func("reserved", "Reserved For", dra::reserved_for),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "resource.k8s.io",
+        kind: "ResourceClaimTemplate",
+        label: "Resource Claim Templates",
+        category: Devices,
+        columns: &[
+            NAME,
+            NAMESPACE,
+            func("requests", "Requests", dra::template_requests),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "resource.k8s.io",
+        kind: "ResourceSlice",
+        label: "Resource Slices",
+        category: Devices,
+        columns: &[
+            NAME,
+            text("node", "Node", ".spec.nodeName"),
+            text("driver", "Driver", ".spec.driver"),
+            text("pool", "Pool", ".spec.pool.name"),
+            func("devices", "Devices", |v| count_at(v, ".spec.devices")),
+            AGE,
+        ],
+    },
+    KindSpec {
+        group: "resource.k8s.io",
+        kind: "DeviceTaintRule",
+        label: "Device Taint Rules",
+        category: Devices,
+        columns: &[NAME, text("effect", "Effect", ".spec.taint.effect"), AGE],
     },
     KindSpec {
         group: "apiextensions.k8s.io",
@@ -1005,7 +1103,7 @@ mod tests {
         for k in KINDS {
             assert!(seen.insert((k.group, k.kind)), "duplicate {}", k.kind);
         }
-        assert_eq!(KINDS.len(), 36);
+        assert_eq!(KINDS.len(), 45);
     }
 
     /// The cells of `obj` (an object of `group`/`kind`) by column key.
@@ -1189,5 +1287,51 @@ mod tests {
         assert_eq!(node(Some(true), Some("False")), "False,SchedulingDisabled");
         // No Ready condition yet (a node that just registered).
         assert_eq!(node(None, None), "Unknown");
+    }
+
+    #[test]
+    fn admission_policy_and_device_kinds_have_their_columns() {
+        let ar = "admissionregistration.k8s.io";
+        let vap = cells(
+            ar,
+            "ValidatingAdmissionPolicy",
+            false,
+            json!({"metadata": {"name": "p"}, "spec": {"failurePolicy": "Fail",
+                "validations": [{"expression": "true"}, {"expression": "1 < 2"}]}}),
+        );
+        assert_eq!(vap[1], ("validations".into(), "2".into()));
+        assert_eq!(vap[2], ("failure".into(), "Fail".into()));
+        let binding = cells(
+            ar,
+            "ValidatingAdmissionPolicyBinding",
+            false,
+            json!({"metadata": {"name": "b"}, "spec": {"policyName": "p",
+                "validationActions": ["Deny", "Audit"]}}),
+        );
+        assert_eq!(binding[1], ("policy".into(), "p".into()));
+        assert_eq!(binding[2], ("actions".into(), "Deny,Audit".into()));
+        let slice = cells(
+            "resource.k8s.io",
+            "ResourceSlice",
+            false,
+            json!({"metadata": {"name": "s"}, "spec": {"nodeName": "n1", "driver": "gpu.example.com",
+                "pool": {"name": "n1"}, "devices": [{"name": "gpu-0"}, {"name": "gpu-1"}]}}),
+        );
+        assert_eq!(
+            slice[1..5],
+            [
+                ("node".into(), "n1".into()),
+                ("driver".into(), "gpu.example.com".into()),
+                ("pool".into(), "n1".into()),
+                ("devices".into(), "2".into()),
+            ]
+        );
+        let claim = cells(
+            "resource.k8s.io",
+            "ResourceClaim",
+            true,
+            json!({"metadata": {"name": "c", "namespace": "n"}}),
+        );
+        assert_eq!(claim[2], ("state".into(), "Pending".into()));
     }
 }

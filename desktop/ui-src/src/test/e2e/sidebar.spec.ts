@@ -12,6 +12,7 @@ test("the sidebar is built from discovery", async ({ page }) => {
     "Storage",
     "Cluster",
     "Access Control",
+    "Device Resources",
     "Helm",
     "Custom Resources",
     "Other",

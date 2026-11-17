@@ -11,6 +11,7 @@
   import { untrack } from "svelte";
   import { badgeTitle } from "../problems";
   import { problems } from "../stores/problems.svelte";
+  import { absentTitle, missingKinds } from "../sidebarExpected";
 
   // The count beside Port Forwards: refreshed on start, on Refresh and on a
   // context switch (which stops every forward).
@@ -26,6 +27,7 @@
     { category: "storage", title: "Storage" },
     { category: "cluster", title: "Cluster" },
     { category: "access", title: "Access Control" },
+    { category: "devices", title: "Device Resources" },
   ];
 
   const byCategory = $derived.by(() => {
@@ -110,7 +112,8 @@
 
   {#each SECTIONS as section (section.category)}
     {@const list = byCategory.get(section.category) ?? []}
-    {#if list.length > 0 || (section.category === "network" && forwards.list.length > 0)}
+    {@const absent = kinds.loaded && kinds.all.length > 0 ? missingKinds(section.category, kinds.all) : []}
+    {#if list.length > 0 || absent.length > 0 || (section.category === "network" && forwards.list.length > 0)}
       <h4>{section.title}</h4>
       {#if section.category === "workloads"}
         <!-- Not a kind: counts of every workload kind (#79). -->
@@ -129,6 +132,12 @@
       {/if}
       {#each list as kind (kind.id)}
         {@render item(kind)}
+      {/each}
+      <!-- Expected kinds this cluster does not serve, greyed out (#332). -->
+      {#each absent as e (e.kind)}
+        <button type="button" class="kind absent" aria-disabled="true" title={absentTitle(e)}
+          ><span class="label">{e.label}</span></button
+        >
       {/each}
       {#if section.category === "network"}
         <!-- Not a cluster kind: the forwards this app runs. -->
@@ -262,10 +271,12 @@
     box-shadow: inset 0 0 0 1px var(--red);
     opacity: 0.7;
   }
+  button.absent,
   button.denied {
     opacity: 0.4;
     cursor: not-allowed;
   }
+  button.absent:hover,
   button.denied:hover {
     background: transparent;
     color: var(--text-muted);

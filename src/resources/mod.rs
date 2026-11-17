@@ -20,6 +20,7 @@
 //! - `problems`: which rows need attention (row highlights, sidebar badges)
 //! - `rbac`: what Roles, bindings and ServiceAccounts say (cells, rules,
 //!   which bindings point at a role or an account)
+//! - `dra`: cells of the Dynamic Resource Allocation kinds (claims, slices)
 //! - `status`: the status of a workload object (overview counts, filters)
 //! - `table`: `kubectl get`-style table output for the CLI
 
@@ -29,6 +30,7 @@ mod data;
 mod detail;
 mod detail_watch;
 mod discovery;
+mod dra;
 mod jsonpath;
 mod manifests;
 mod ops;
@@ -134,6 +136,8 @@ pub enum Category {
     Cluster,
     /// RBAC: ServiceAccounts, Roles, ClusterRoles and their bindings.
     Access,
+    /// Dynamic Resource Allocation: DeviceClasses, ResourceClaims, ...
+    Devices,
     /// CRDs, grouped by API group; the CRDs themselves are "Definitions".
     Custom,
     /// Anything else the server serves (apiservices, flowschemas, ...).
