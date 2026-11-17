@@ -484,7 +484,6 @@ pub async fn client_with_exec(mut config: Config) -> Result<Client, kube::Error>
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::{Path, PathBuf};
 
     /// A stand-in plugin that appends a line to `count` each time it runs
@@ -505,14 +504,18 @@ mod tests {
             ),
         )
         .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         (script, count)
     }
 
+    /// Runs `script` as `/bin/sh <script>`, never by executing the file
+    /// itself: tests write scripts while other test threads fork, and a
+    /// forked child still holding the write fd makes `execve` of that file
+    /// fail with ETXTBSY (#343). `sh` only reads it.
     fn exec_for(script: &Path, tag: &str) -> ExecConfig {
         serde_json::from_value(serde_json::json!({
             "apiVersion": "client.authentication.k8s.io/v1",
-            "command": script,
+            "command": "/bin/sh",
+            "args": [script],
             "env": [{"name": "KL_TAG", "value": tag}],
             "interactiveMode": "Never",
         }))
@@ -600,7 +603,6 @@ mod tests {
             ),
         )
         .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         let exec = exec_for(&script, "fail-s3cret-env");
         let err = credential(&exec).await.unwrap_err();
         assert!(matches!(err, AuthError::AuthExecRun { .. }), "{err:?}");
@@ -609,7 +611,7 @@ mod tests {
                 String::from_utf8_lossy(&out.stderr).trim(),
                 "Run aws sso login"
             );
-            assert_eq!(cmd, &script.display().to_string());
+            assert_eq!(cmd, &format!("/bin/sh {}", script.display()));
         }
         // Neither the env value nor the plugin's stdout reaches a message.
         let wrapped = kube::Error::Auth(err);
@@ -619,7 +621,12 @@ mod tests {
         credential(&exec).await.unwrap_err();
         assert_eq!(runs(&count), 2);
 
-        let missing = exec_for(&dir.join("nope"), "x");
+        let missing: ExecConfig = serde_json::from_value(serde_json::json!({
+            "apiVersion": "client.authentication.k8s.io/v1",
+            "command": dir.join("nope"),
+            "interactiveMode": "Never",
+        }))
+        .unwrap();
         let err = credential(&missing).await.unwrap_err();
         assert!(
             matches!(err, AuthError::AuthExecStart(ref io) if io.kind() == std::io::ErrorKind::NotFound)
@@ -682,7 +689,6 @@ mod tests {
             ),
         )
         .unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         let exec = exec_for(&script, "slow");
         let started = std::time::Instant::now();
         let err = run_plugin_within(&exec, Duration::from_millis(700)).unwrap_err();
