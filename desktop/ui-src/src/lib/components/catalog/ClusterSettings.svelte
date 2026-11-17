@@ -5,6 +5,7 @@
   import { app } from "../../stores/app.svelte";
   import { closeClusterSettings, isPinned, togglePin } from "../../stores/catalog.svelte";
   import { contextSettings, updateContext } from "../../stores/settings.svelte";
+  import ClusterProxy from "./ClusterProxy.svelte";
 
   /** One cluster's settings page (#78): its name and colour in nauvi,
    *  namespaces, Prometheus and local shell folder. Each field is saved when
@@ -180,6 +181,8 @@
       </label>
       <p class="muted hint">Where new local terminals for this cluster start. ~ is your home directory.</p>
     </fieldset>
+
+    <ClusterProxy {id} />
   </div>
 </div>
 

@@ -126,6 +126,8 @@ export interface FakeCluster {
   saveDialogCancels: number;
   /** Whether the OS starts the app at login (#330); off by default. */
   autostart: boolean;
+  /** The kubeconfig's own proxy-url by context id, as `cmd_get_cluster_proxy` masks it (#329); none by default. */
+  kubeconfigProxies?: Record<string, string>;
 }
 
 /** Unix seconds, a fixed distance in the past so ages are stable. */

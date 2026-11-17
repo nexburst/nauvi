@@ -384,6 +384,14 @@ export const commands = {
 	 *  there is none. `redetect` looks again instead of using the cached answer.
 	 */
 	cmdPrometheusStatus: (cluster: string, redetect: boolean, options?: InvokeOptions) => __TAURI_INVOKE<PrometheusStatus>("cmd_prometheus_status", { cluster, redetect }, options),
+	/**  The proxy of the cluster of context `id`. */
+	cmdGetClusterProxy: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<ClusterProxyInfo>("cmd_get_cluster_proxy", { id }, options),
+	/**
+	 *  Set the proxy of the cluster of context `id`: `url` a proxy URL (http://
+	 *  or socks5://), `""` to remove it, or left out to keep the saved
+	 *  one and change only `local`.
+	 */
+	cmdSetClusterProxy: (id: string, url: string | null, local: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ClusterProxyInfo>("cmd_set_cluster_proxy", { id, url, local }, options),
 	/**
 	 *  Create or update the objects of a (multi-document) YAML manifest. The
 	 *  batch is validated with a dry run first; unless `dry_run`, it is applied
@@ -781,6 +789,25 @@ export type Category = "workloads" | "network" | "config" | "storage" | "cluster
 "custom" | 
 /**  Anything else the server serves (apiservices, flowschemas, ...). */
 "other";
+
+/**
+ *  A cluster's proxy, for its settings page and diagnostics. No field
+ *  holds a password.
+ */
+export type ClusterProxyInfo = {
+	/**  The proxy set in the app, its user and password masked (`""`: none). */
+	url: string,
+	/**  Whether that URL has a user and password. */
+	has_credentials: boolean,
+	/**  Use the proxy for a cluster on this machine too. */
+	local: boolean,
+	/**  The kubeconfig's own proxy-url for the cluster, masked (`""`: none). */
+	kubeconfig_proxy: string,
+	/**  The API server is on this machine (localhost, 127.0.0.1, ::1). */
+	server_local: boolean,
+	/**  How the cluster's next connection goes, in a sentence. */
+	route: string,
+};
 
 export type ClusterState = "connected" | 
 /**  Disconnected because it was idle; the next command connects again. */
