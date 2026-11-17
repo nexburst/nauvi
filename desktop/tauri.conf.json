@@ -59,7 +59,7 @@
     "publisher": "kubeloupe",
     "copyright": "Copyright (c) 2026 the kubeloupe contributors",
     "license": "MIT",
-    "licenseFile": "../LICENSE",
+    "licenseFile": "bundle/license.txt",
     "createUpdaterArtifacts": true,
     "linux": {
       "deb": {
