@@ -11,16 +11,18 @@
 // (a TEST-NET address), against 1 context. The tree must show within
 // TREE_MS of the app's start, and at most SLOWER_MS later than with 1
 // context. That time is taken in two parts, because under WebKitWebDriver
-// the page only starts loading once the driver has attached (steps of
-// about 500 ms locally, about 30 s on the CI runner), which says nothing
-// about the app:
+// the page only starts loading once the driver has attached (about 30 s
+// on the CI runner), which says nothing about the app:
 //   1. until the page starts loading: the app binary run directly (as a
 //      click on its icon would, on a private session bus), until it logs
-//      "page load started";
+//      "page load started"; LOAD_STARTS starts, alternating 1 and 50;
 //   2. from there until the tree shows: the `nauvi:cluster-tree` mark
 //      ClusterTree sets when it first lists contexts, read through the
-//      driver (this part does not depend on it).
-// Each part is the median of STARTS starts.
+//      driver (this part does not depend on it); median of STARTS starts.
+// On X11 some starts load the page about 500 ms late whatever the
+// kubeconfig (#369). The total (TREE_MS) takes the median of part 1, so it
+// includes that stall; the slowdown (SLOWER_MS) takes the fastest start of
+// each, so it measures what the contexts cost and not the stall.
 //
 // A release build (QA_RELEASE_APP, which qa.yml builds for this scenario)
 // is measured when there is one; otherwise the debug build, and the report
@@ -50,6 +52,7 @@ const MB_PER_CLUSTER = 15;
 const TREE_MS = 1500;
 const SLOWER_MS = 200;
 const STARTS = 3;
+const LOAD_STARTS = 5;
 
 const CLUSTERS = 6;
 const IDLE_MS = Number(process.env.IDLE_SECONDS || 20) * 1000;
@@ -222,7 +225,7 @@ describe("multi-cluster budgets", { skip, timeout: 30 * 60_000 }, () => {
       const fiftyKc = [kubeconfig("a.yaml", 1, 16, "a"), kubeconfig("b.yaml", 0, 17, "b"), kubeconfig("c.yaml", 0, 16, "c")].join(":");
       const load = { one: [], fifty: [] };
       // Alternated, so a busy moment of the machine hits both.
-      for (let i = 0; i < STARTS; i++) {
+      for (let i = 0; i < LOAD_STARTS; i++) {
         load.one.push(await untilPageLoads(oneKc));
         load.fifty.push(await untilPageLoads(fiftyKc));
       }
@@ -231,29 +234,30 @@ describe("multi-cluster budgets", { skip, timeout: 30 * 60_000 }, () => {
         fifty: await pageTimes("multicluster-start-50", fiftyKc, "a-1"),
       };
       const total = (k) => median(load[k]) + median(page[k]);
-      const one = total("one");
+      const best = (k) => Math.min(...load[k]) + median(page[k]);
       const fifty = total("fifty");
-      report.startup = { load, page, one, fifty };
+      const slower = best("fifty") - best("one");
+      report.startup = { load, page, total: { one: total("one"), fifty }, slower };
       const row = (label, k) =>
         `| ${label} | **${total(k)} ms** | ${median(load[k])} ms (${load[k].join(", ")}) | ${median(page[k])} ms (${page[k].join(", ")}) |`;
       summary(
         [
           `### Start-up with 50 contexts (ADR 0007, ${report.build} build)`,
           "",
-          `Until the cluster tree shows; medians of ${STARTS} starts. 50 contexts: 3 files, 49 unreachable.`,
+          `Until the cluster tree shows. 50 contexts: 3 files, 49 unreachable. Medians; the slowdown compares the fastest start until the page loads (#369).`,
           "",
           "| Contexts | Total | App start until the page loads (no driver) | Page start until the tree shows |",
           "| ---: | ---: | ---: | ---: |",
           row("1", "one"),
           row("50", "fifty"),
           "",
-          `Slower with 50: **${fifty - one} ms** (budget ${SLOWER_MS} ms); 50 contexts: **${fifty} ms** (budget ${TREE_MS} ms).`,
+          `Slower with 50: **${slower} ms** (budget ${SLOWER_MS} ms); 50 contexts: **${fifty} ms** (budget ${TREE_MS} ms).`,
           "",
         ].join("\n"),
       );
       if (ENFORCE) {
         assert.ok(fifty <= TREE_MS, `the tree showed after ${fifty} ms > ${TREE_MS} ms`);
-        assert.ok(fifty - one <= SLOWER_MS, `${fifty - one} ms slower than with 1 context > ${SLOWER_MS} ms`);
+        assert.ok(slower <= SLOWER_MS, `${slower} ms slower than with 1 context > ${SLOWER_MS} ms`);
       }
     });
   });
