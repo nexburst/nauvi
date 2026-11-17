@@ -4,6 +4,7 @@
   import type { ClusterApi } from "../cluster";
   import type { PodRef } from "../stores/detail.svelte";
   import { orderedInput } from "../orderedInput";
+  import { kubectlIntro } from "../kubectlMatch";
 
   /** A shell in a pod, one on this machine pointed at `namespace`, an
    *  ephemeral debug container, or a root shell on a node. */
@@ -22,7 +23,7 @@
    *  `exec-output` and `exec-closed` events. */
   interface Backend {
     /** The session id, and a note to show before the shell's output. */
-    start(cols: number, rows: number): Promise<{ id: string; intro: string }>;
+    start(cols: number, rows: number): Promise<{ id: string; intro: string; kubectl?: string }>;
     input(id: string, data: string): Promise<unknown>;
     resize(id: string, cols: number, rows: number): Promise<unknown>;
     close(id: string): Promise<unknown>;
@@ -72,7 +73,9 @@
           id: s.session,
           intro:
             `\x1b[90mLocal shell: kubectl uses context ${s.context}, namespace ${s.namespace}.\r\n` +
-            "Changing the app's namespace or context does not change this shell.\x1b[0m\r\n",
+            "Changing the app's namespace or context does not change this shell.\x1b[0m\r\n" +
+            kubectlIntro(s.kubectl),
+          kubectl: s.kubectl,
         };
       },
       input: c.cmdLocalShellInput,
@@ -96,6 +99,7 @@
   import { events } from "../bindings";
   import { thisWindow } from "../window";
   import { settings } from "../stores/settings.svelte";
+  import KubectlOffer from "./KubectlOffer.svelte";
 
   interface Props {
     target: TerminalTarget;
@@ -126,6 +130,8 @@
   let early = new Map<string, string[]>();
   let closedEarly = new Set<string>();
   let lastSize = "";
+  /** A local shell, once started: the downloaded kubectl it uses (#331). */
+  let localKubectl = $state<string | null>(null);
 
   function sendResize() {
     // A hidden tab has no size; refit when it is shown again.
@@ -224,12 +230,13 @@
 
     try {
       lastSize = `${t.cols}x${t.rows}`;
-      const { id, intro } = await b.start(t.cols, t.rows);
+      const { id, intro, kubectl } = await b.start(t.cols, t.rows);
       if (destroyed) {
         b.close(id).catch(() => {});
         return;
       }
       session = id;
+      if (target.kind === "local") localKubectl = kubectl ?? "";
       if (intro) t.write(intro);
       for (const data of early.get(id) ?? []) t.write(data);
       if (closedEarly.has(id)) t.write(closedNote);
@@ -265,6 +272,9 @@
 <div class="terminal" data-testid="terminal" bind:this={box}>
   {#if search}
     <TerminalSearch bind:this={searchBar} {search} onclose={() => term?.focus()} />
+  {/if}
+  {#if localKubectl !== null}
+    <KubectlOffer used={localKubectl} />
   {/if}
   <div class="screen" bind:this={host}></div>
 </div>

@@ -235,3 +235,54 @@ test("open in new window still opens a window for the cluster", async ({ page })
   // It asks prod nothing in this window.
   expect(await fake.calls("cmdClusterConnect")).toEqual([]);
 });
+
+/** Open the logs of web-1 on the cluster shown; resolves once it streams. */
+async function openWebLogs(page: Page, fake: { activeLogStreams(): Promise<number[]> }) {
+  await openKind(page, "Pods");
+  await row(page, "web-1").click({ button: "right" });
+  await page.getByRole("menu").getByRole("menuitem", { name: "Logs" }).click();
+  await expect(page.getByTestId("dock").getByRole("tab", { name: "Logs: web-1" })).toBeVisible();
+  await expect.poll(() => fake.activeLogStreams()).toHaveLength(1);
+}
+
+test("showing the cluster shown again restarts nothing", async ({ page }) => {
+  const fake = await openApp(page, threeClusters);
+  await openWebLogs(page, fake);
+  const watches = (await fake.calls("cmdWatchStart")).length;
+  // The palette's entry of the current cluster.
+  await page.keyboard.press("Control+k");
+  await page.getByLabel("Search kinds, objects, namespaces, contexts and actions").fill("kind-dev");
+  await page.getByRole("option", { name: /^kind-dev\s*current$/ }).first().click();
+  // Its node's name.
+  await select(page, "kind-dev").click();
+  expect(await fake.calls("cmdSetContext")).toEqual([]);
+  expect(await fake.calls("cmdClusterReconnect")).toEqual([]);
+  expect(await fake.calls("cmdStopLogs")).toEqual([]);
+  expect(await fake.activeLogStreams()).toHaveLength(1);
+  await expect(page.getByTestId("dock").getByRole("tab", { name: "Logs: web-1" })).toBeVisible();
+  expect((await fake.calls("cmdWatchStart")).length).toBe(watches);
+  expect(fake.errors).toEqual([]);
+});
+
+test("Reconnect now starts the cluster over and closes its dock tabs with a notice", async ({ page }) => {
+  const fake = await openApp(page, threeClusters);
+  await openWebLogs(page, fake);
+  await page.getByRole("button", { name: "Cluster catalog" }).click();
+  await page.getByRole("button", { name: "More actions for kind-dev", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Settings…" }).click();
+  const proxy = page.getByRole("dialog", { name: "Cluster settings" }).getByTestId("cluster-proxy");
+  await proxy.getByRole("textbox", { name: "Proxy URL" }).fill("http://proxy.example:3128");
+  await proxy.getByRole("button", { name: "Save proxy" }).click();
+  await proxy.getByRole("button", { name: "Reconnect now" }).click();
+  await expect.poll(() => clustersOf(page, "cmdClusterReconnect")).toEqual(["kind-dev"]);
+  expect(await fake.calls("cmdSetContext")).toEqual([]);
+  // Its tab is gone (its stream ended), and the bell says why.
+  await expect(page.getByTestId("dock")).toHaveCount(0);
+  await page.getByRole("button", { name: /Notifications/ }).click();
+  await expect(page.getByText(/Reconnected to kind-dev\. Its dock tab was closed/)).toBeVisible();
+  // The cluster shown starts over, still kind-dev.
+  await expect(node(page, "kind-dev")).toHaveAttribute("data-state", "visible");
+  await openKind(page, "Pods");
+  await expect(row(page, "web-1")).toBeVisible();
+  expect(fake.errors).toEqual([]);
+});

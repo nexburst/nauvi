@@ -2,7 +2,7 @@
 
 use crate::commands::usage;
 use crate::settings::SettingsStore;
-use crate::state::{spawn_closes, Cluster, ClusterSession};
+use crate::state::{Cluster, ClusterSession};
 use crate::windows;
 use nauvi::resources::{self, AccessResult, ResourceKind, ResourceRef};
 use nauvi::{
@@ -157,7 +157,8 @@ pub(crate) async fn cmd_list_contexts(
 /// calling window: its own session, opened unless the window is connected
 /// to it already (ADR 0007). The cluster it showed stays connected: its
 /// watches stop, its log streams, terminals and forwards run on. Showing
-/// the cluster shown starts it over. Other windows are not affected.
+/// the cluster shown changes nothing (`cmd_cluster_reconnect` starts it
+/// over). Other windows are not affected.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_set_context(
@@ -165,7 +166,7 @@ pub(crate) async fn cmd_set_context(
     state: tauri::State<'_, crate::state::AppState>,
     name: Option<String>,
 ) -> Result<(), String> {
-    spawn_closes(state.switch(cluster.label(), name.clone()));
+    state.switch(cluster.label(), name.clone());
     windows::context_changed(cluster.app(), cluster.label(), name.as_deref());
     Ok(())
 }

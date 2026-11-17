@@ -8,6 +8,7 @@ use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::SettingsStore;
 use crate::state::{next_session, Cluster};
 use nauvi::catalog::expand_home;
+use nauvi::kubectl_download::path_with_first;
 use nauvi::{
     flat_shell_kubeconfig, shell_kubeconfig, shell_kubeconfig_env_for, ShellKubeconfig,
     TempKubeconfig,
@@ -25,6 +26,9 @@ pub(crate) struct LocalShellStarted {
     session: String,
     context: String,
     namespace: String,
+    /// The release of the downloaded kubectl first on `PATH` in this shell
+    /// (#331), `""`: none, the user's own kubectl is used.
+    kubectl: String,
 }
 
 /// Start the user's shell on this machine with `KUBECONFIG` pointing at a
@@ -43,8 +47,8 @@ pub(crate) async fn cmd_local_shell_start(
 ) -> Result<LocalShellStarted, String> {
     let approved = cluster.target()?;
     let target = &approved.target;
-    let cwd = settings
-        .get()
+    let current = settings.get();
+    let cwd = current
         .contexts
         .get(&target.id)
         .map(|c| c.shell_cwd.trim().to_string())
@@ -63,6 +67,13 @@ pub(crate) async fn cmd_local_shell_start(
     }
     let (generated, temp, env) = shell_kubeconfig_for(&approved, namespace.as_deref())?;
     spec.env.push(("KUBECONFIG".into(), env));
+    // A kubectl matching the cluster, downloaded before (#331): first on
+    // PATH in this shell's environment only.
+    let matched = crate::commands::kubectl::terminal_kubectl(&cluster, current.kubectl_match).await;
+    if let Some((_, dir)) = &matched {
+        let path = path_with_first(dir, std::env::var_os("PATH").as_deref());
+        spec.env.push(("PATH".into(), path));
+    }
 
     let session = next_session("local");
     let (out_app, out_session) = (cluster.emitter(), session.clone());
@@ -84,6 +95,7 @@ pub(crate) async fn cmd_local_shell_start(
         session,
         context: generated.context,
         namespace: generated.namespace,
+        kubectl: matched.map(|(v, _)| v.tag()).unwrap_or_default(),
     })
 }
 

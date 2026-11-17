@@ -124,7 +124,8 @@ export const commands = {
 	 *  calling window: its own session, opened unless the window is connected
 	 *  to it already (ADR 0007). The cluster it showed stays connected: its
 	 *  watches stop, its log streams, terminals and forwards run on. Showing
-	 *  the cluster shown starts it over. Other windows are not affected.
+	 *  the cluster shown changes nothing (`cmd_cluster_reconnect` starts it
+	 *  over). Other windows are not affected.
 	 */
 	cmdSetContext: (cluster: string, name: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_set_context", { cluster, name }, options),
 	/**
@@ -142,6 +143,13 @@ export const commands = {
 	 *  not connected to does nothing.
 	 */
 	cmdClusterDisconnect: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cluster_disconnect", { cluster }, options),
+	/**
+	 *  Start `cluster` over in the calling window, as asked (e.g. after its
+	 *  proxy changed): a fresh session with a new client, shown or not as
+	 *  before. Everything the old one ran (log streams, terminals, forwards,
+	 *  watches) stops; running drains finish. Not connected: nothing happens.
+	 */
+	cmdClusterReconnect: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cluster_reconnect", { cluster }, options),
 	/**
 	 *  Add an ephemeral debug container to a pod, targeting `target` (empty: the
 	 *  first container), and attach to it, as terminal session `session` (an id
@@ -257,6 +265,19 @@ export const commands = {
 	 *  caught (`boundary`, `error`, `rejection`).
 	 */
 	cmdLogUiError: (source: string, message: string, stack: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_log_ui_error", { source, message, stack }, options),
+	/**
+	 *  Download the kubectl of the cluster's version from dl.k8s.io, check its
+	 *  SHA-256 against the published one and save it in the app's data dir.
+	 *  Only from the user's click; refused with the setting off. Goes through
+	 *  the cluster's proxy setting if one is set.
+	 */
+	cmdKubectlDownload: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<KubectlMatch>("cmd_kubectl_download", { cluster }, options),
+	/**
+	 *  What the local terminal can offer for this cluster's kubectl. Nothing
+	 *  is downloaded. With the setting off: `enabled: false` and nothing else
+	 *  (no call to the cluster or kubectl).
+	 */
+	cmdKubectlMatch: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<KubectlMatch>("cmd_kubectl_match", { cluster }, options),
 	/**
 	 *  The link to an object of this window's context. Reads the kubeconfig
 	 *  files; no login.
@@ -1565,6 +1586,30 @@ export type KubeconfigsChanged = {
 	generation: number,
 };
 
+/**  What the local terminal can offer for the cluster's kubectl. */
+export type KubectlMatch = {
+	/**  The setting is on: without it the terminal offers nothing. */
+	enabled: boolean,
+	/**  The API server's release, `v1.31.2` (`""`: unknown). */
+	server: string,
+	/**  The release of the kubectl on the app's `PATH` (`""`: none found). */
+	installed: string,
+	/**
+	 *  That kubectl is more than one minor version from the server (or
+	 *  missing): offer the matching one.
+	 */
+	skew: boolean,
+	/**
+	 *  The matching kubectl was downloaded before, and new local terminals
+	 *  use it.
+	 */
+	downloaded: boolean,
+	/**  Where the matching kubectl comes from (`""`: none to offer). */
+	url: string,
+	/**  Why there is nothing to offer (`""`: no problem). */
+	note: string,
+};
+
 /**  A window has a [`LinkRequest`] waiting: take it with `cmd_take_link`. */
 export type LinkPending = Record<string, never>;
 
@@ -1583,6 +1628,11 @@ export type LocalShellStarted = {
 	session: string,
 	context: string,
 	namespace: string,
+	/**
+	 *  The release of the downloaded kubectl first on `PATH` in this shell
+	 *  (#331), `""`: none, the user's own kubectl is used.
+	 */
+	kubectl: string,
 };
 
 /**  A container (regular or init) whose logs can be read. */
@@ -2308,6 +2358,7 @@ export type SettingsPatch_Deserialize = {
 	idle_disconnect_minutes?: number | null,
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Deserialize | null,
+	kubectl_match?: boolean | null,
 };
 
 /**
@@ -2334,6 +2385,7 @@ export type SettingsPatch_Serialize = {
 	idle_disconnect_minutes?: number | null,
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Serialize | null,
+	kubectl_match?: boolean | null,
 };
 
 export type Settings_Deserialize = {
@@ -2399,6 +2451,12 @@ export type Settings_Deserialize = {
 	 *  A bad entry is skipped on load, keeping the others.
 	 */
 	searches?: SearchHistory_Deserialize,
+	/**
+	 *  Offer a kubectl matching the cluster's version in the local
+	 *  terminal when the installed one is too far from it (#331). Off by
+	 *  default; nothing is downloaded without a click.
+	 */
+	kubectl_match?: boolean,
 };
 
 export type Settings_Serialize = {
@@ -2464,6 +2522,12 @@ export type Settings_Serialize = {
 	 *  A bad entry is skipped on load, keeping the others.
 	 */
 	searches: SearchHistory_Serialize,
+	/**
+	 *  Offer a kubectl matching the cluster's version in the local
+	 *  terminal when the installed one is too far from it (#331). Off by
+	 *  default; nothing is downloaded without a click.
+	 */
+	kubectl_match: boolean,
 };
 
 /**  One source of contexts, for the catalog's list of sources. */

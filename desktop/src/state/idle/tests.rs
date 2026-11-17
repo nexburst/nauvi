@@ -271,7 +271,7 @@ fn a_left_session_whose_drain_panicked_is_forgotten() {
     let (task, go) = panicking_drain();
     a.add_drain("d1".into(), task);
     // Starting the cluster over leaves the session, kept for its drain.
-    state.switch(MAIN_WINDOW, Some("a".into()));
+    state.reconnect(MAIN_WINDOW, "a");
     assert_eq!(state.all_sessions("").len(), 2);
     assert!(a.has_live_drain());
     go.send(()).unwrap();
@@ -301,12 +301,12 @@ fn a_drain_that_ended_before_it_was_added_pins_nothing() {
     );
     assert_eq!(state.live_sessions(), 0);
 
-    // The same in a left session: switching away does not keep it.
+    // The same in a left session: starting over does not keep it.
     let a = state.session(MAIN_WINDOW);
     let task = tauri::async_runtime::spawn(async {});
     wait_finished(&task);
     a.add_drain("d2".into(), task);
-    state.switch(MAIN_WINDOW, Some("a".into()));
+    state.reconnect(MAIN_WINDOW, "a");
     assert_eq!(state.all_sessions("").len(), 2, "b, and the new a");
     assert!(state.all_sessions("").iter().all(|s| !Arc::ptr_eq(s, &a)));
 }

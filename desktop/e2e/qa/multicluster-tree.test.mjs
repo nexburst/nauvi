@@ -193,6 +193,14 @@ describe("the cluster tree", { timeout: 15 * 60_000 }, () => {
     assert.equal(await nodeState(app, SECOND), "connected");
     // The log tab is on the cluster shown again: no label needed.
     assert.deepEqual(await dockTabClusters(app), []);
+    // Selecting the cluster shown again restarts nothing: the tab streams on.
+    const lines = (await logLines(app, logId)).length;
+    await selectCluster(app, CONTEXT);
+    assert.equal((await dockTabs(app)).length, 1);
+    await app.waitFor(async () => (await logLines(app, logId)).length > lines, {
+      timeout: 30_000,
+      message: "the log tab still streams after selecting the shown cluster",
+    });
   });
 
   it("an added kubeconfig's login asks inside its node and runs only once allowed", T, async () => {

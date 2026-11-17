@@ -14,7 +14,7 @@ import { isMainWindow } from "../window";
 import { closeDetail, detail, openDetail } from "./detail.svelte";
 import { checkLeftovers } from "./debug.svelte";
 import { contextSettings, loadSettings, settings, updateContext, updateSettings } from "./settings.svelte";
-import { dock } from "./dock.svelte";
+import { closeDockTabsOf, dock } from "./dock.svelte";
 import { autoStartForwards } from "./forwards.svelte";
 import { clearProblems } from "./problems.svelte";
 import { whenDiscarded } from "./unsaved.svelte";
@@ -399,6 +399,9 @@ export function refresh() {
 }
 
 export async function switchContext(name: string) {
+  // Showing the cluster shown already changes nothing: its streams,
+  // terminals and forwards run on (a fresh session is `reconnectCluster`).
+  if (name && name === currentContextName()) return;
   try {
     await api(visibleCluster()).cmdSetContext(name || null);
   } catch (e) {
@@ -407,11 +410,17 @@ export async function switchContext(name: string) {
   }
   // The window shows another cluster now, in a session of its own (ADR
   // 0007); `""` (the current-context) names the one shown until the
-  // contexts are loaded again below.
+  // contexts are loaded again below. The old cluster stays connected: its
+  // log streams, terminals and forwards run on (the dock tabs name their
+  // cluster), its watches have stopped.
   setVisibleCluster(name);
-  // The old cluster stays connected: its log streams, terminals and
-  // forwards run on (the dock tabs name their cluster), its watches have
-  // stopped. Nothing the window showed of it stays.
+  // The other windows' contexts are remembered by the backend.
+  if (isMainWindow()) updateSettings({ last_context: name });
+  await showFresh();
+}
+
+/** Show the visible cluster from nothing: nothing the window showed before stays. */
+async function showFresh() {
   clusterSwitched();
   clearProblems();
   // Places in the old context mean nothing in the new one.
@@ -420,13 +429,36 @@ export async function switchContext(name: string) {
   app.selectedNamespaces = [];
   app.view = "overview";
   app.statusFilter = "";
-  // The other windows' contexts are remembered by the backend.
-  if (isMainWindow()) updateSettings({ last_context: name });
   await loadContexts();
   await loadNamespaces();
   await restoreScope();
   refresh();
   void checkLeftovers();
+}
+
+/**
+ * Start cluster `id` over, as asked (Reconnect now after a proxy change): a
+ * fresh session and client. Its log streams, terminals and forwards end, so
+ * its dock tabs close, with a notice; the cluster shown starts over as on a
+ * switch.
+ */
+export async function reconnectCluster(id: string) {
+  try {
+    await api(id).cmdClusterReconnect();
+  } catch (e) {
+    showError(`Could not reconnect ${id}: ${e}`);
+    return;
+  }
+  const closed = dock.tabs.filter((t) => t.cluster === id).length;
+  closeDockTabsOf(id);
+  notify(
+    "info",
+    closed
+      ? `Reconnected to ${id}. Its ${closed === 1 ? "dock tab was" : `${closed} dock tabs were`} closed: their logs and terminals ended.`
+      : `Reconnected to ${id}.`,
+    id,
+  );
+  if (id === currentContextName()) await showFresh();
 }
 
 /**

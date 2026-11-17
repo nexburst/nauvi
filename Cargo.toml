@@ -27,6 +27,8 @@ kube = { version = "5", features = ["runtime", "http-proxy", "socks5", "ws", "oi
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
+# The SHA-256 of a downloaded kubectl (#331).
+sha2 = "0.10"
 specta = { version = "=2.0.0-rc.28", features = ["derive"], optional = true }
 tokio = { version = "1", features = ["full"] }
 # The port-forward WebSocket, with pings (#304); the version kube uses.

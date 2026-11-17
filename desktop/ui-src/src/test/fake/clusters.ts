@@ -25,6 +25,13 @@ export function clustersHandlers(s: FakeState) {
       s.connected.add(id);
       return null;
     },
+    cmdClusterReconnect: () => {
+      // Like the backend: a fresh session; what the old one ran stops (the
+      // fake keeps one list of streams and forwards for every cluster).
+      s.logStreams.clear();
+      cluster.forwards = [];
+      return null;
+    },
     cmdClusterDisconnect: () => {
       s.connected.delete(s.target);
       return null;
