@@ -3,7 +3,9 @@ import { thisWindow } from "../window";
 import type { ActionDef, BulkItemResult, DrainSummary, ResourceKind, ResourceRef } from "../bindings";
 import { drainLine, needsDialog, sameResource, targetLabel } from "../actions";
 import type { ActionTarget } from "../actions";
-import { kinds } from "./app.svelte";
+import { currentContextName, kinds } from "./app.svelte";
+import { notify } from "./notifications.svelte";
+import type { NotificationLevel, NotificationTarget } from "../notifications";
 import { closeDetail, detail } from "./detail.svelte";
 import { forwardKindOf } from "../forwards";
 import { openForwardDialog } from "./forwards.svelte";
@@ -51,7 +53,17 @@ export const actionUi = $state({
 
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
-export function setNotice(ok: boolean, text: string) {
+/**
+ * Show the result banner, and keep it in the notification history (#326),
+ * with the object it is about if there is one. `level` defaults to success
+ * or error.
+ */
+export function setNotice(
+  ok: boolean,
+  text: string,
+  opts: { target?: NotificationTarget; level?: NotificationLevel } = {},
+) {
+  notify(opts.level ?? (ok ? "success" : "error"), text, currentContextName(), opts.target ?? null);
   if (noticeTimer) clearTimeout(noticeTimer);
   actionUi.notice = { ok, text };
   // Failures stay until dismissed.
@@ -160,15 +172,20 @@ async function execute(req: ActionRequest, inDialog: boolean) {
     }
     const t = targets[0];
     const msg = await commands.cmdRunAction(resource, t.namespace, t.name, action.id, replicas);
-    if (action.id === "delete" || action.id === "forceDelete" || action.id === "evict") closeDetailIf(kind, t);
+    const gone = action.id === "delete" || action.id === "forceDelete" || action.id === "evict";
+    if (gone) closeDetailIf(kind, t);
     actionUi.request = null;
     actionUi.busy = false;
-    setNotice(true, msg);
+    // No link to an object that is gone.
+    setNotice(true, msg, gone ? {} : { target: { resource, namespace: t.namespace, name: t.name } });
   } catch (e) {
     const text = String(e);
     actionUi.busy = false;
     if (inDialog) actionUi.error = text;
-    else setNotice(false, `${action.label.replace("…", "")} ${targetLabel(targets[0])}: ${text}`);
+    else
+      setNotice(false, `${action.label.replace("…", "")} ${targetLabel(targets[0])}: ${text}`, {
+        target: { resource, namespace: targets[0].namespace, name: targets[0].name },
+      });
   }
 }
 

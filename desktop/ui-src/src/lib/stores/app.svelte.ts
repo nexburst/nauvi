@@ -20,6 +20,7 @@ import { whenDiscarded } from "./unsaved.svelte";
 import { history } from "./history.svelte";
 import { filterKeeps } from "./tableFilter.svelte";
 import { startupLinkContext } from "./links.svelte";
+import { notify } from "./notifications.svelte";
 
 /** `"overview"`, or the id of a discovered kind (`apps/v1/deployments`). */
 export type View = string;
@@ -195,6 +196,8 @@ export function setStatus(ok: boolean | null, text: string) {
 }
 
 export function showError(message: string) {
+  // The history (#326) gets each new error once, not every repeat of it.
+  if (message && message !== app.error) notify("error", message, currentContextName());
   app.error = message;
 }
 

@@ -27,6 +27,7 @@ import { charts } from "./stores/helmCharts.svelte";
 import { keyboard, listenMouseButtons } from "./stores/keyboard.svelte";
 import { live } from "./stores/live.svelte";
 import { metricsInstall } from "./stores/metricsInstall.svelte";
+import { notifications } from "./stores/notifications.svelte";
 import { trackHistory } from "./stores/navigation.svelte";
 import { listenUpdates, startupCheck } from "./stores/updates.svelte";
 import ActionDialog from "./components/ActionDialog.svelte";
@@ -46,6 +47,7 @@ import HelmDetail from "./components/helm/HelmDetail.svelte";
 import HelmView from "./components/helm/HelmView.svelte";
 import MetricsInstallDialog from "./components/helm/MetricsInstallDialog.svelte";
 import NodeShellLeftovers from "./components/NodeShellLeftovers.svelte";
+import NotificationsPanel from "./components/NotificationsPanel.svelte";
 import Overview from "./components/Overview.svelte";
 import PortForwards from "./components/PortForwards.svelte";
 import SettingsDialog from "./components/SettingsDialog.svelte";
@@ -121,6 +123,8 @@ export const SIDE_PANELS: Slot[] = [
     key: () => apps.selected,
     props: () => ({ target: apps.current! }),
   }),
+  // The notification history (#326), opened from the bell.
+  slot(NotificationsPanel, { when: () => notifications.open }),
 ];
 
 /** Dialogs and overlays, after the dock and the footer. */

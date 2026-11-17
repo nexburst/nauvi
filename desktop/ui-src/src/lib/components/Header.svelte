@@ -7,6 +7,7 @@
   import { confirmDiscard } from "../stores/unsaved.svelte";
   import { isMacPlatform, shortcutHint } from "../keys";
   import HelpMenu from "./HelpMenu.svelte";
+  import NotificationBell from "./NotificationBell.svelte";
   import { history } from "../stores/history.svelte";
   import { goBack, goForward } from "../stores/navigation.svelte";
 
@@ -126,6 +127,7 @@
     </button>
   {/if}
   <button class="refresh" type="button" title={`Refresh (${REFRESH_SHORTCUT})`} onclick={refresh}>Refresh</button>
+  <NotificationBell />
   <HelpMenu />
   <button class="gear" type="button" aria-label="Settings" title="Settings" onclick={openSettings}>
     <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
