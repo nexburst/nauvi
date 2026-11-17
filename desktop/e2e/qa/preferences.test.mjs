@@ -122,7 +122,13 @@ describe("preferences", { timeout: 15 * 60_000 }, () => {
       async () => / UTC$/.test(await app.js(`return document.querySelector("footer")?.innerText.trim() ?? ""`)),
       { timeout: 60_000, message: "Updated … UTC in the footer" },
     );
+    // Back to Pods for the screenshot: compact rows, the UTC footer.
     await app.nav("Pods");
+    await app.waitFor(async () => Math.round(await rowHeight(app)) === 22, { message: "22 px rows again" });
+    await app.waitFor(
+      async () => / UTC$/.test(await app.js(`return document.querySelector("footer")?.innerText.trim() ?? ""`)),
+      { timeout: 60_000, message: "the Pods footer in UTC" },
+    );
   });
 
   it("the YAML editor uses the font size (light)", T, async () => {
