@@ -92,7 +92,7 @@ impl Approvals {
 
 /// Write `bytes` to `path` atomically (a temp file renamed over it), readable
 /// only by the user.
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(super) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;

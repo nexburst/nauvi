@@ -199,6 +199,14 @@ pub fn is_local_server(uri: &http::Uri) -> bool {
     })
 }
 
+/// [`is_local_server`] of a server URL as a kubeconfig has it (`false` if
+/// it does not parse).
+pub fn is_local_server_url(server: &str) -> bool {
+    server
+        .parse::<http::Uri>()
+        .is_ok_and(|u| is_local_server(&u))
+}
+
 /// Set `config.proxy_url` for the cluster: the setting's proxy (unless the
 /// cluster is on this machine and the setting does not ask for it there),
 /// else the kubeconfig's own proxy-url if it has one, else none.

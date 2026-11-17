@@ -6,6 +6,7 @@
 mod approvals;
 #[cfg(test)]
 mod gate_tests;
+mod proxies;
 
 pub(crate) use approvals::ExecAnswer;
 
@@ -16,7 +17,9 @@ use nauvi::catalog::{
     flatten_context, load_catalog, sources_fingerprint, Catalog, CatalogInput,
 };
 use nauvi::errors::kubeconfig_error_text;
-use nauvi::{client_for_target, client_from_kubeconfig, ContextTarget};
+use nauvi::proxy::ClusterProxy;
+use nauvi::{client_for_target_via, client_from_kubeconfig_via, ContextTarget};
+use proxies::ProxyStore;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -35,6 +38,9 @@ pub(crate) struct KubeconfigSources {
     /// The answers about added kubeconfigs' login commands (#201), read
     /// from the config directory on first use.
     approvals: Mutex<Option<Approvals>>,
+    /// The proxies set per cluster (#329), read from the config directory
+    /// on first use.
+    proxies: Mutex<Option<ProxyStore>>,
 }
 
 /// A login command of an added source, and the contexts that run it.
@@ -81,17 +87,40 @@ impl KubeconfigSources {
             .unwrap_or_default()
     }
 
+    /// The config directory: the pasted files' folder is
+    /// `<config>/kubeconfigs`.
+    fn config_dir(&self) -> Option<PathBuf> {
+        self.pasted_dir()
+            .and_then(|d| d.parent().map(PathBuf::from))
+    }
+
     /// Run `f` on the approvals, loading them first.
     fn with_approvals<T>(&self, f: impl FnOnce(&mut Approvals) -> T) -> T {
         let mut slot = self.approvals.lock().unwrap();
         let approvals = slot.get_or_insert_with(|| {
-            // The pasted files' folder is `<config>/kubeconfigs`.
-            let config = self
-                .pasted_dir()
-                .and_then(|d| d.parent().map(PathBuf::from));
-            Approvals::load(config.map(|c| c.join("exec-approvals.json")))
+            Approvals::load(self.config_dir().map(|c| c.join("exec-approvals.json")))
         });
         f(approvals)
+    }
+
+    /// Run `f` on the proxies (#329), loading them first.
+    fn with_proxies<T>(&self, f: impl FnOnce(&mut ProxyStore) -> T) -> T {
+        let mut slot = self.proxies.lock().unwrap();
+        let store = slot.get_or_insert_with(|| {
+            ProxyStore::load(self.config_dir().map(|c| c.join("proxies.json")))
+        });
+        f(store)
+    }
+
+    /// The proxy set for the cluster of context `id` (#329).
+    pub(crate) fn proxy(&self, id: &str) -> Option<ClusterProxy> {
+        self.with_proxies(|p| p.get(id))
+    }
+
+    /// Set (`Some`) or remove (`None`) the proxy of context `id`. Clients
+    /// built from now on use it.
+    pub(crate) fn set_proxy(&self, id: &str, proxy: Option<ClusterProxy>) -> Result<(), String> {
+        self.with_proxies(|p| p.set(id, proxy))
     }
 
     /// The login commands of the added source `source` (as listed in the
@@ -144,10 +173,12 @@ impl KubeconfigSources {
         let target = catalog
             .resolve(id)
             .map_err(|e| GateError::Invalid(e.to_string()))?;
+        let proxy = self.proxy(&target.id);
         let Some(file) = target.kubeconfig.clone() else {
             return Ok(Approved {
                 target,
                 kubeconfig: None,
+                proxy,
             });
         };
         let source = catalog
@@ -170,6 +201,7 @@ impl KubeconfigSources {
         Ok(Approved {
             target,
             kubeconfig: Some(kubeconfig),
+            proxy,
         })
     }
 
@@ -188,15 +220,21 @@ pub(crate) struct Approved {
     /// The added file as it was read for the check (`None`: the default
     /// kubeconfig, which has no check).
     pub(crate) kubeconfig: Option<Kubeconfig>,
+    /// The proxy set for the cluster in the app (#329), which its client
+    /// connects through.
+    pub(crate) proxy: Option<ClusterProxy>,
 }
 
 impl Approved {
-    /// The client of the context, from the checked kubeconfig. Never
-    /// prompts.
+    /// The client of the context, from the checked kubeconfig, through
+    /// the cluster's proxy if one is set. Never prompts.
     pub(crate) async fn client(self) -> anyhow::Result<kube::Client> {
+        let proxy = self.proxy.as_ref();
         match self.kubeconfig {
-            Some(kc) => client_from_kubeconfig(kc, Some(&self.target.context), false).await,
-            None => client_for_target(&self.target, false).await,
+            Some(kc) => {
+                client_from_kubeconfig_via(kc, Some(&self.target.context), false, proxy).await
+            }
+            None => client_for_target_via(&self.target, false, proxy).await,
         }
     }
 
