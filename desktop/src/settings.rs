@@ -104,6 +104,9 @@ pub(crate) struct ContextSettings {
     /// `cmd_set_context_mode`: a settings patch keeps it, so a window with
     /// an older copy of the settings cannot turn the protection off.
     pub(crate) mode: nauvi::context_mode::ContextMode,
+    /// The kubeconfig file and context the mode was set for, which
+    /// `nauvi mcp` matches the mode by (#338). Kept with the mode.
+    pub(crate) mode_source: nauvi::context_mode::ModeSource,
 }
 
 impl Settings {
@@ -454,7 +457,9 @@ impl Settings {
         }
         for (id, mut ctx) in patch.contexts.unwrap_or_default() {
             // The mode has its own command (#338).
-            ctx.mode = self.context_mode(&id);
+            let old = self.contexts.get(&id).cloned().unwrap_or_default();
+            ctx.mode = old.mode;
+            ctx.mode_source = old.mode_source;
             self.contexts.insert(id, ctx);
         }
         self.kinds.extend(patch.kinds.unwrap_or_default());
@@ -577,13 +582,29 @@ impl SettingsStore {
         self.current.lock().unwrap().context_mode(id)
     }
 
-    /// Set the mode of the context `id` (#338).
+    /// Set the mode of the context `id` (#338), with the file and context
+    /// it was read from (empty when the catalog has no such context).
+    pub(crate) fn set_context_mode_from(
+        self: &Arc<Self>,
+        id: &str,
+        mode: nauvi::context_mode::ContextMode,
+        source: nauvi::context_mode::ModeSource,
+    ) -> Settings {
+        self.modify(|s| {
+            let ctx = s.contexts.entry(id.to_string()).or_default();
+            ctx.mode = mode;
+            ctx.mode_source = source;
+        })
+    }
+
+    /// [`Self::set_context_mode_from`] without a source, for tests.
+    #[cfg(test)]
     pub(crate) fn set_context_mode(
         self: &Arc<Self>,
         id: &str,
         mode: nauvi::context_mode::ContextMode,
     ) -> Settings {
-        self.modify(|s| s.contexts.entry(id.to_string()).or_default().mode = mode)
+        self.set_context_mode_from(id, mode, Default::default())
     }
 
     /// Apply `patch` now; the file follows after `WRITE_DELAY` without
@@ -663,7 +684,7 @@ mod tests {
     fn a_settings_patch_keeps_the_context_mode() {
         use nauvi::context_mode::ContextMode;
         let mut s =
-            parse(r#"{"contexts":{"prod":{"mode":"protected","view":"v1/pods"}}}"#).unwrap();
+            parse(r#"{"contexts":{"prod":{"mode":"protected","view":"v1/pods","mode_source":{"file":"/k/work.yaml","given":"/k/w.yaml","context":"prod"}}}}"#).unwrap();
         assert_eq!(s.context_mode("prod"), ContextMode::Protected);
         assert_eq!(s.context_mode("dev"), ContextMode::Normal);
         // A window with an older copy writes the entry back without it.
@@ -681,6 +702,8 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(s.context_mode("prod"), ContextMode::Protected);
+        assert_eq!(s.contexts["prod"].mode_source.file, "/k/work.yaml");
+        assert_eq!(s.contexts["prod"].mode_source.given, "/k/w.yaml");
         assert_eq!(s.contexts["prod"].view, "");
         assert_eq!(s.context_mode("dev"), ContextMode::Normal);
         // A mode this version does not know is read-only, and costs no other field.
@@ -766,6 +789,7 @@ mod tests {
                     last_used: 1_700_000_000_000,
                     hide_metrics: true,
                     mode: Default::default(),
+                    mode_source: Default::default(),
                 },
             )])),
             favourites: Some(vec!["kind".into(), "prod (work.yaml)".into()]),

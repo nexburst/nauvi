@@ -148,155 +148,111 @@ pub enum CliMode {
     Unknown(String),
 }
 
-/// Every catalog id the app may give `context` from `kubeconfig` (`None`:
-/// the default kubeconfig): the ids of the contexts of that name whose file
-/// is that file, in catalogs built from the app's added `sources` exactly as
-/// the app builds them ([`crate::catalog::load_catalog`]). The id is the
-/// context's name unless an earlier source has one of that name, e.g.
-/// `prod (work.yaml)`, and which one comes first depends on the app's own
-/// default kubeconfig, which the CLI cannot see (its `KUBECONFIG` may be an
-/// added file, which the catalog then reads as the default one). So the
-/// catalog is built with the CLI's default kubeconfig, with
-/// `~/.kube/config`, and with none, and every match counts.
-pub fn app_context_ids(
-    sources: &[PathBuf],
-    pasted_dir: Option<PathBuf>,
-    kubeconfig: Option<&Path>,
-    context: &str,
-) -> Vec<String> {
-    let (inputs, files) = cli_catalogs(sources, pasted_dir, kubeconfig);
-    ids_in_catalogs(&inputs, &files, context)
+/// Where a mode was set: the kubeconfig file the context came from and its
+/// name in that file (#338). The app stores it with the mode, so the CLI
+/// matches a mode by (file, context) instead of by the app's context id,
+/// whose form depends on the app's own kubeconfig.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(default)]
+pub struct ModeSource {
+    /// The file, canonical (symlinks resolved).
+    pub file: String,
+    /// The file as the app's catalog names it.
+    pub given: String,
+    /// The context's name in that file.
+    pub context: String,
 }
 
-/// The catalogs the CLI builds to find a context's ids (see
-/// [`app_context_ids`]), and the files the CLI reads the context from.
-fn cli_catalogs(
-    sources: &[PathBuf],
-    pasted_dir: Option<PathBuf>,
-    kubeconfig: Option<&Path>,
-) -> (Vec<crate::catalog::CatalogInput>, Vec<PathBuf>) {
-    use crate::catalog::{default_kubeconfig_paths, CatalogInput};
-    let cli_defaults = default_kubeconfig_paths();
-    let files = match kubeconfig {
-        Some(p) => vec![p.to_path_buf()],
-        None => cli_defaults.clone(),
-    };
-    let input = |default_paths: Vec<PathBuf>| CatalogInput {
-        default_paths,
-        extra: sources.to_vec(),
-        pasted_dir: pasted_dir.clone(),
-    };
-    let mut inputs = vec![input(cli_defaults), input(Vec::new())];
-    if let Some(home) = home::home_dir() {
-        inputs.push(input(vec![home.join(".kube").join("config")]));
+impl ModeSource {
+    /// The source of `context` read from `file`.
+    pub fn new(file: &Path, context: &str) -> Self {
+        Self {
+            file: canonical(file).display().to_string(),
+            given: file.display().to_string(),
+            context: context.to_string(),
+        }
     }
-    (inputs, files)
+}
+
+/// The files the CLI reads `context` from (`--kubeconfig`, else the default
+/// kubeconfig's files), canonical.
+fn cli_files(kubeconfig: Option<&Path>) -> Vec<PathBuf> {
+    match kubeconfig {
+        Some(p) => vec![canonical(p)],
+        None => crate::catalog::default_kubeconfig_paths()
+            .iter()
+            .map(|p| canonical(p))
+            .collect(),
+    }
 }
 
 fn canonical(p: &Path) -> PathBuf {
     std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
-/// Every (context name, canonical file) the catalogs of `inputs` have.
-fn known_contexts(inputs: &[crate::catalog::CatalogInput]) -> Vec<(String, PathBuf)> {
-    let mut out: Vec<(String, PathBuf)> = Vec::new();
-    for input in inputs {
-        for c in crate::catalog::load_catalog(input).contexts {
-            let entry = (c.context, canonical(Path::new(&c.file)));
-            if !out.contains(&entry) {
-                out.push(entry);
-            }
-        }
-    }
-    out
-}
-
-/// Whether the stored context id `id` may name `context` from one of
-/// `files` (canonical), read by meaning rather than by string: the app
-/// names a context `name`, `name (file name)`, `name (path)` or
-/// `name (path) #n` ([`crate::catalog::unique_id`]), and which one it
-/// gets depends on the app's own default kubeconfig. `known` is every
-/// (context, canonical file) the CLI can see. An id that cannot be
-/// resolved to a file counts as a match: when in doubt, be strict.
-fn id_may_name(id: &str, context: &str, files: &[PathBuf], known: &[(String, PathBuf)]) -> bool {
-    // The files that have a context of that name, filtered by `keep`;
-    // none at all means the id cannot be resolved.
-    let resolve = |keep: &dyn Fn(&Path) -> bool| {
-        let found: Vec<&PathBuf> = known
-            .iter()
-            .filter(|(c, f)| c == context && keep(f))
-            .map(|(_, f)| f)
-            .collect();
-        found.is_empty() || found.iter().any(|f| files.contains(f))
-    };
-    if id == context {
-        // The first file with that context in the app's order: unknown.
-        return resolve(&|_| true);
-    }
-    let Some(rest) = id.strip_prefix(&format!("{context} (")) else {
-        return false;
-    };
-    // `X)` or `X) #n`.
-    let inner = match rest.rsplit_once(") #") {
-        Some((x, n)) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => x,
-        _ => match rest.strip_suffix(')') {
-            Some(x) => x,
-            None => return false,
-        },
-    };
-    let path = Path::new(inner);
-    if path.is_absolute() || inner.contains('/') || inner.contains('\\') {
-        return match std::fs::canonicalize(path) {
-            Ok(c) => files.contains(&c),
-            Err(_) => true,
-        };
-    }
-    resolve(&|f: &Path| f.file_name().is_some_and(|n| n.to_string_lossy() == inner))
-}
-
-/// The modes of the stored entries that may name `context` from `files`
-/// ([`id_may_name`]).
-fn stored_modes(
-    text: &str,
-    context: &str,
+/// Whether the app's catalog has `context` from one of `files`: a catalog
+/// built from the app's added `sources` as the app builds it, with the
+/// CLI's default kubeconfig, with `~/.kube/config` and with none (the
+/// CLI cannot see the app's own default kubeconfig).
+fn app_has(
+    sources: &[PathBuf],
+    pasted_dir: Option<PathBuf>,
     files: &[PathBuf],
-    known: &[(String, PathBuf)],
-) -> Vec<ContextMode> {
+    context: &str,
+) -> bool {
+    use crate::catalog::{default_kubeconfig_paths, load_catalog, CatalogInput};
+    let input = |default_paths: Vec<PathBuf>| CatalogInput {
+        default_paths,
+        extra: sources.to_vec(),
+        pasted_dir: pasted_dir.clone(),
+    };
+    let mut inputs = vec![input(default_kubeconfig_paths()), input(Vec::new())];
+    if let Some(home) = home::home_dir() {
+        inputs.push(input(vec![home.join(".kube").join("config")]));
+    }
+    inputs.iter().any(|i| {
+        load_catalog(i)
+            .contexts
+            .iter()
+            .any(|c| c.context == context && files.contains(&canonical(Path::new(&c.file))))
+    })
+}
+
+/// The modes stored for `context` from one of `files` (canonical): every
+/// entry whose [`ModeSource`] has that context name and that file
+/// (canonical, or its given path resolved now). An entry without a source
+/// (none should exist) counts for every context of its name: its id is
+/// the name, or the name followed by ` (`.
+fn stored_modes(text: &str, context: &str, files: &[PathBuf]) -> Vec<ContextMode> {
     let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
         return vec![ContextMode::ReadOnly];
     };
-    let Some(contexts) = v.get("contexts").and_then(|c| c.as_object()) else {
+    let Some(entries) = v.get("contexts").and_then(|c| c.as_object()) else {
         return Vec::new();
     };
-    let files: Vec<PathBuf> = files.iter().map(|f| canonical(f)).collect();
-    contexts
-        .iter()
-        .filter(|(id, _)| id_may_name(id, context, &files, known))
-        .map(|(id, _)| mode_in_settings_text(text, id))
-        .collect()
-}
-
-/// [`app_context_ids`] over the catalogs of `inputs`, for `files`.
-fn ids_in_catalogs(
-    inputs: &[crate::catalog::CatalogInput],
-    files: &[PathBuf],
-    context: &str,
-) -> Vec<String> {
-    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
-    let wanted: Vec<PathBuf> = files.iter().map(|f| canon(f)).collect();
-    let mut ids: Vec<String> = Vec::new();
-    for input in inputs {
-        let catalog = crate::catalog::load_catalog(input);
-        for c in &catalog.contexts {
-            if c.context == context
-                && wanted.contains(&canon(Path::new(&c.file)))
-                && !ids.contains(&c.name)
-            {
-                ids.push(c.name.clone());
-            }
+    let mut out = Vec::new();
+    for (id, entry) in entries {
+        let Some(m) = entry.get("mode") else { continue };
+        let mode = serde_json::from_value(m.clone()).unwrap_or(ContextMode::ReadOnly);
+        let source: ModeSource = entry
+            .get("mode_source")
+            .and_then(|s| serde_json::from_value(s.clone()).ok())
+            .unwrap_or_default();
+        let matches = if source.file.is_empty() && source.given.is_empty() {
+            id == context || id.starts_with(&format!("{context} ("))
+        } else {
+            source.context == context
+                && [&source.file, &source.given]
+                    .iter()
+                    .filter(|f| !f.is_empty())
+                    .any(|f| files.contains(&canonical(Path::new(f.as_str()))))
+        };
+        if matches {
+            out.push(mode);
         }
     }
-    ids
+    out
 }
 
 /// The strictest of `modes`: read-only, then protected, then normal.
@@ -313,10 +269,10 @@ pub fn strictest(modes: impl IntoIterator<Item = ContextMode>) -> ContextMode {
 }
 
 /// The mode of `context` from `kubeconfig` in the app's settings at
-/// `settings_path`, keyed by the context's catalog ids ([`app_context_ids`]):
-/// the strictest of their modes.
-/// No settings file: normal (the app never marked anything). A file that
-/// cannot be read: read-only. A context the app's catalog does not have:
+/// `settings_path`: the strictest of the modes stored for that context of
+/// that file ([`stored_modes`]). No settings file: normal (the app never
+/// marked anything). A file that cannot be read: read-only. No stored
+/// mode and a context the app's catalog does not have:
 /// [`CliMode::Unknown`], which `nauvi mcp` treats as refusing writes.
 pub fn mode_for_cli(settings_path: &Path, kubeconfig: Option<&Path>, context: &str) -> CliMode {
     let text = match std::fs::read_to_string(settings_path) {
@@ -329,6 +285,11 @@ pub fn mode_for_cli(settings_path: &Path, kubeconfig: Option<&Path>, context: &s
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
         return CliMode::Known(ContextMode::ReadOnly);
     };
+    let files = cli_files(kubeconfig);
+    let stored = stored_modes(&text, context, &files);
+    if !stored.is_empty() {
+        return CliMode::Known(strictest(stored));
+    }
     let sources: Vec<PathBuf> = v
         .get("kubeconfig_sources")
         .and_then(|s| s.as_array())
@@ -341,44 +302,16 @@ pub fn mode_for_cli(settings_path: &Path, kubeconfig: Option<&Path>, context: &s
         .unwrap_or_default();
     // Where the app keeps pasted kubeconfigs: `<config dir>/kubeconfigs`.
     let pasted = settings_path.parent().map(|d| d.join("kubeconfigs"));
-    let (inputs, files) = cli_catalogs(&sources, pasted, kubeconfig);
-    let ids = ids_in_catalogs(&inputs, &files, context);
-    let known = known_contexts(&inputs);
-    mode_by_meaning(&text, &ids, kubeconfig, context, &files, &known)
-}
-
-/// [`mode_of_ids`] of the ids the CLI's catalogs give the context, made
-/// stricter by every stored entry that may name it ([`stored_modes`]).
-fn mode_by_meaning(
-    text: &str,
-    ids: &[String],
-    kubeconfig: Option<&Path>,
-    context: &str,
-    files: &[PathBuf],
-    known: &[(String, PathBuf)],
-) -> CliMode {
-    let stored = stored_modes(text, context, files, known);
-    match mode_of_ids(text, ids, kubeconfig, context) {
-        CliMode::Known(m) => CliMode::Known(strictest(std::iter::once(m).chain(stored))),
-        CliMode::Unknown(_) if !stored.is_empty() => CliMode::Known(strictest(stored)),
-        unknown => unknown,
-    }
-}
-
-/// The strictest mode among `ids` in the settings `text`, or why there is
-/// none to check.
-fn mode_of_ids(text: &str, ids: &[String], kubeconfig: Option<&Path>, context: &str) -> CliMode {
-    match ids {
-        [] => CliMode::Unknown(format!(
+    if app_has(&sources, pasted, &files, context) {
+        CliMode::Known(ContextMode::Normal)
+    } else {
+        CliMode::Unknown(format!(
             "context {context}{} is not in nauvi's cluster catalog, so its read-only or \
              protected setting cannot be checked",
             kubeconfig
                 .map(|p| format!(" of {}", p.display()))
                 .unwrap_or_default()
-        )),
-        ids => CliMode::Known(strictest(
-            ids.iter().map(|id| mode_in_settings_text(text, id)),
-        )),
+        ))
     }
 }
 
@@ -491,149 +424,126 @@ mod tests {
         );
     }
 
-    #[test]
-    fn the_cli_finds_every_id_the_app_may_give_a_context() {
-        use crate::catalog::CatalogInput;
-        let dir = std::env::temp_dir().join(format!("nauvi-338-ids-{}", std::process::id()));
+    /// A settings file with these `(id, mode, source file, context)` entries.
+    fn settings(entries: &[(&str, &str, Option<&Path>, &str)]) -> String {
+        let mut contexts = serde_json::Map::new();
+        for (id, mode, file, ctx) in entries {
+            let mut e = serde_json::json!({ "mode": mode });
+            if let Some(f) = file {
+                e["mode_source"] = serde_json::to_value(ModeSource::new(f, ctx)).unwrap();
+            }
+            contexts.insert(id.to_string(), e);
+        }
+        serde_json::json!({ "contexts": contexts }).to_string()
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("nauvi-338-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        let kc = |ctx: &str| {
-            format!(
-                "apiVersion: v1\nkind: Config\ncurrent-context: {ctx}\nclusters:\n- name: c\n  cluster: {{server: 'https://127.0.0.1:1'}}\nusers:\n- name: u\n  user: {{token: t}}\ncontexts:\n- name: {ctx}\n  context: {{cluster: c, user: u}}\n"
-            )
-        };
-        let default = dir.join("config");
+        dir
+    }
+
+    /// Modes are matched by (canonical file, context name), whatever id the
+    /// app gave the context (security re-check of #338).
+    #[test]
+    fn stored_modes_are_matched_by_file_and_context() {
+        let dir = temp_dir("modes");
         let work = dir.join("work.yaml");
         let other = dir.join("other.yaml");
-        for f in [&default, &work, &other] {
-            std::fs::write(f, kc("prod")).unwrap();
-        }
-        let input = |defaults: Vec<PathBuf>| CatalogInput {
-            default_paths: defaults,
-            extra: vec![work.clone()],
-            pasted_dir: None,
-        };
-        // The app's catalog: its default kubeconfig first, then work.yaml.
-        let app = [input(vec![default.clone()])];
+        std::fs::write(&work, "x").unwrap();
+        std::fs::write(&other, "x").unwrap();
+        let canon = |p: &Path| canonical(p);
+        let files = [canon(&work)];
+        // The app ran with its own KUBECONFIG, so it called work.yaml's
+        // `prod` "prod (work.yaml)"; the CLI only knows it as `prod`.
+        let text = settings(&[
+            ("prod", "normal", Some(&other), "prod"),
+            ("prod (work.yaml)", "protected", Some(&work), "prod"),
+        ]);
         assert_eq!(
-            ids_in_catalogs(&app, std::slice::from_ref(&default), "prod"),
-            ["prod"]
-        );
-        let work_ids = ids_in_catalogs(&app, std::slice::from_ref(&work), "prod");
-        assert_eq!(work_ids.len(), 1);
-        assert_ne!(
-            work_ids[0], "prod",
-            "the added file's context has its own id"
-        );
-        // The same file through another path.
-        let dotted = dir.join(".").join("work.yaml");
-        assert_eq!(ids_in_catalogs(&app, &[dotted], "prod"), work_ids);
-        // KUBECONFIG = the added file: the CLI's catalog reads it as the
-        // default one ("prod"), the app's as "prod (work.yaml)". Both count.
-        let cli = [input(vec![work.clone()]), input(vec![default.clone()])];
-        let both = ids_in_catalogs(&cli, std::slice::from_ref(&work), "prod");
-        assert_eq!(both, ["prod".to_string(), work_ids[0].clone()]);
-        let text = format!(
-            r#"{{"contexts":{{"prod":{{"mode":"normal"}},"{}":{{"mode":"protected"}}}}}}"#,
-            work_ids[0]
+            stored_modes(&text, "prod", &files),
+            [ContextMode::Protected]
         );
         assert_eq!(
-            mode_of_ids(&text, &both, Some(&work), "prod"),
-            CliMode::Known(ContextMode::Protected)
+            strictest(stored_modes(&text, "prod", &[canon(&other)])),
+            ContextMode::Normal
         );
-        // A file or context the app does not have.
-        assert!(ids_in_catalogs(&app, &[other], "prod").is_empty());
-        assert!(ids_in_catalogs(&app, std::slice::from_ref(&default), "dev").is_empty());
-        assert!(matches!(
-            mode_of_ids(&text, &[], None, "dev"),
-            CliMode::Unknown(_)
-        ));
+        // `name (path) #n`: the id does not matter.
+        let id = format!("prod ({}) #3", work.display());
+        let text = settings(&[(&id, "readOnly", Some(&work), "prod")]);
+        assert_eq!(stored_modes(&text, "prod", &files), [ContextMode::ReadOnly]);
+        // Context names with " (" and "#" are compared whole.
+        let odd = "prod (eu) #2";
+        let text = settings(&[(odd, "readOnly", Some(&work), odd)]);
+        assert_eq!(stored_modes(&text, odd, &files), [ContextMode::ReadOnly]);
+        assert!(stored_modes(&text, "prod", &files).is_empty());
+        assert!(stored_modes(&text, "prod (eu)", &files).is_empty());
+        // Another context of the same file does not count.
+        assert!(stored_modes(&text, "dev", &files).is_empty());
+        // The strictest of several entries for the same file and context.
+        let text = settings(&[
+            ("prod", "protected", Some(&work), "prod"),
+            ("prod (work.yaml)", "readOnly", Some(&work), "prod"),
+        ]);
+        assert_eq!(
+            strictest(stored_modes(&text, "prod", &files)),
+            ContextMode::ReadOnly
+        );
+        // An entry without a source counts for every context of its name.
+        let text = settings(&[("prod (somewhere)", "protected", None, "")]);
+        assert_eq!(
+            stored_modes(&text, "prod", &files),
+            [ContextMode::Protected]
+        );
+        assert!(stored_modes(&text, "dev", &files).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Stored modes are matched by what their ids mean (#338 re-check): the
-    /// app may name a file's context differently from the CLI.
     #[test]
-    fn stored_modes_are_matched_by_file_and_context() {
-        use crate::catalog::CatalogInput;
-        let dir = std::env::temp_dir().join(format!("nauvi-338-meaning-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let kc = |ctx: &str| {
-            format!(
-                "apiVersion: v1\nkind: Config\ncurrent-context: {ctx}\nclusters:\n- name: c\n  cluster: {{server: 'https://127.0.0.1:1'}}\nusers:\n- name: u\n  user: {{token: t}}\ncontexts:\n- name: {ctx}\n  context: {{cluster: c, user: u}}\n"
-            )
-        };
-        // The app runs with its own KUBECONFIG, a.yaml, which the CLI
-        // never sees; work.yaml is added in the app.
-        let a = dir.join("a.yaml");
-        let work = dir.join("work.yaml");
-        let other = dir.join("other.yaml");
-        for f in [&a, &work, &other] {
-            std::fs::write(f, kc("prod")).unwrap();
+    fn two_files_with_the_same_name_are_told_apart() {
+        let dir = temp_dir("samename");
+        let a = dir.join("a").join("work.yaml");
+        let b = dir.join("b").join("work.yaml");
+        for f in [&a, &b] {
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, "x").unwrap();
         }
-        let app = crate::catalog::load_catalog(&CatalogInput {
-            default_paths: vec![a.clone()],
-            extra: vec![work.clone(), other.clone()],
-            pasted_dir: None,
-        });
-        let work_id = app
-            .contexts
-            .iter()
-            .find(|c| Path::new(&c.file) == work)
-            .unwrap()
-            .name
-            .clone();
-        assert_eq!(work_id, "prod (work.yaml)");
-        // What the CLI sees: the added files, not a.yaml.
-        let cli = [CatalogInput {
-            default_paths: vec![],
-            extra: vec![work.clone(), other.clone()],
-            pasted_dir: None,
-        }];
-        let known = known_contexts(&cli);
-        let files = [work.clone()];
-        let ids = ids_in_catalogs(&cli, &files, "prod");
-        assert_eq!(ids, ["prod"], "the CLI names it differently");
-        let mode = |text: &str| mode_by_meaning(text, &ids, Some(&work), "prod", &files, &known);
-        let protected =
-            r#"{"contexts":{"prod":{"mode":"normal"},"prod (work.yaml)":{"mode":"protected"}}}"#;
-        assert_eq!(mode(protected), CliMode::Known(ContextMode::Protected));
-        // `name (path)` and `name (path) #n`.
-        let path_id = format!("prod ({})", work.display());
-        let numbered = format!("prod ({}) #3", work.display());
-        for id in [&path_id, &numbered] {
-            let text = serde_json::json!({ "contexts": { id.as_str(): { "mode": "readOnly" } } })
-                .to_string();
-            assert_eq!(mode(&text), CliMode::Known(ContextMode::ReadOnly), "{id}");
-        }
-        // Another file's entry does not count; an unresolvable one does.
-        let other_id = format!("prod ({}) #2", other.display());
-        let text = serde_json::json!({ "contexts": {
-            "prod (other.yaml)": { "mode": "readOnly" },
-            other_id.as_str(): { "mode": "readOnly" },
-            "dev": { "mode": "readOnly" },
-        } })
-        .to_string();
-        assert_eq!(mode(&text), CliMode::Known(ContextMode::Normal));
-        let gone = r#"{"contexts":{"prod (gone.yaml)":{"mode":"protected"},"prod (/nowhere/x.yaml) #2":{"mode":"readOnly"}}}"#;
-        assert_eq!(mode(gone), CliMode::Known(ContextMode::ReadOnly));
-        // A file the CLI's catalogs lack: unknown, unless a stored entry
-        // may name it.
-        let stray = dir.join("stray.yaml");
-        std::fs::write(&stray, kc("prod")).unwrap();
-        let sf = [stray.clone()];
-        let none = ids_in_catalogs(&cli, &sf, "prod");
-        assert!(none.is_empty());
-        let stray_mode =
-            |text: &str| mode_by_meaning(text, &none, Some(&stray), "prod", &sf, &known);
-        assert!(matches!(
-            stray_mode(r#"{"contexts":{}}"#),
-            CliMode::Unknown(_)
-        ));
-        let stray_id = format!("prod ({})", stray.display());
-        let text =
-            serde_json::json!({ "contexts": { stray_id.as_str(): { "mode": "protected" } } })
-                .to_string();
-        assert_eq!(stray_mode(&text), CliMode::Known(ContextMode::Protected));
+        let text = settings(&[("prod (work.yaml)", "readOnly", Some(&a), "prod")]);
+        assert_eq!(
+            stored_modes(&text, "prod", &[canonical(&a)]),
+            [ContextMode::ReadOnly]
+        );
+        assert!(stored_modes(&text, "prod", &[canonical(&b)]).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_kubeconfig_matches_its_target() {
+        let dir = temp_dir("symlink");
+        let target = dir.join("cfg.yaml");
+        let link = dir.join("kc").join("work.yaml");
+        std::fs::write(&target, "x").unwrap();
+        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        // The app added the link; the CLI reads the link, or the target.
+        let text = settings(&[("prod (work.yaml)", "protected", Some(&link), "prod")]);
+        assert_eq!(cli_files(Some(&link)), [canonical(&target)]);
+        assert_eq!(
+            stored_modes(&text, "prod", &cli_files(Some(&link))),
+            [ContextMode::Protected]
+        );
+        assert_eq!(
+            stored_modes(&text, "prod", &cli_files(Some(&target))),
+            [ContextMode::Protected]
+        );
+        // Saved with the target, read through the link.
+        let text = settings(&[("prod", "readOnly", Some(&target), "prod")]);
+        assert_eq!(
+            stored_modes(&text, "prod", &cli_files(Some(&link))),
+            [ContextMode::ReadOnly]
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -498,11 +498,10 @@ async fn mcp_write_tools_follow_the_context_mode() -> Result<()> {
     result
 }
 
-/// With `--kubeconfig`, the mode is the one of the context's id in the app's
-/// catalog, e.g. `kind-nauvi-test (work.yaml)` when the default kubeconfig
-/// has a context of that name too (security review of #338): marking only
-/// the bare name normal does not let writes through. A file the app's
-/// catalog does not have refuses writes. Linux only (`XDG_CONFIG_HOME`).
+/// With `--kubeconfig` or `KUBECONFIG`, the mode is matched by the source
+/// the app stored with it (file and context), not by the app's id for the
+/// context (security review of #338). A file the app's catalog does not
+/// have, with no stored mode, refuses writes. Linux only (`XDG_CONFIG_HOME`).
 #[tokio::test]
 #[ignore]
 async fn mcp_mode_of_a_non_default_kubeconfig() -> Result<()> {
@@ -524,23 +523,14 @@ async fn mcp_mode_of_a_non_default_kubeconfig() -> Result<()> {
         std::fs::write(&work, serde_yaml::to_string(&kc)?)?;
         std::fs::write(&stray, serde_yaml::to_string(&kc)?)?;
         let work_str = work.display().to_string();
-        let ids = nauvi::context_mode::app_context_ids(
-            std::slice::from_ref(&work),
-            None,
-            Some(&work),
-            &ctx,
-        );
-        // The copy's own id when the default kubeconfig has `ctx` too.
-        let id = ids
-            .iter()
-            .find(|i| **i != ctx)
-            .or(ids.first())
-            .cloned()
-            .context("the copy is in the catalog")?;
-        // The bare name stays normal (when it is another context's id).
+        // The mode is stored with its source (file and context), under
+        // whatever id the app gave it: the CLI matches the source.
+        let source = nauvi::context_mode::ModeSource::new(&work, &ctx);
         let mut contexts = serde_json::Map::new();
-        contexts.insert(ctx.clone(), json!({ "mode": "normal" }));
-        contexts.insert(id.clone(), json!({ "mode": "readOnly" }));
+        contexts.insert(
+            format!("{ctx} (work.yaml)"),
+            json!({ "mode": "readOnly", "mode_source": source }),
+        );
         let settings = json!({ "kubeconfig_sources": [work_str], "contexts": contexts });
         std::fs::write(app.join("settings.json"), settings.to_string())?;
         let manifest =
@@ -564,12 +554,11 @@ async fn mcp_mode_of_a_non_default_kubeconfig() -> Result<()> {
             );
             s.initialize();
             let (err, text) = s.call("apply", json!({ "manifest": manifest, "namespace": ns }));
-            assert!(err && text.contains(words), "{file} ({id}): {text}");
+            assert!(err && text.contains(words), "{file}: {text}");
             s.ok("list", json!({ "kind": "configmaps", "namespace": ns }));
         }
-        // KUBECONFIG = the added file: the CLI reads it as its default
-        // kubeconfig, so its own catalog calls the context `ctx`; the app
-        // calls it by the added file's id. The strictest mode counts.
+        // KUBECONFIG = the added file: the CLI calls the context `ctx`, the
+        // app by the added file's id; the stored source matches.
         let mut s = Server::start_with_env(
             &["--context", &ctx, "mcp", "--allow-writes"],
             &config,
@@ -579,7 +568,7 @@ async fn mcp_mode_of_a_non_default_kubeconfig() -> Result<()> {
         let (err, text) = s.call("apply", json!({ "manifest": manifest, "namespace": ns }));
         assert!(
             err && text.contains("is read-only"),
-            "KUBECONFIG={work_str} ({id}): {text}"
+            "KUBECONFIG={work_str}: {text}"
         );
         let cms: Api<k8s_openapi::api::core::v1::ConfigMap> = Api::namespaced(client.clone(), &ns);
         assert!(

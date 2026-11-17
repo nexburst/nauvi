@@ -14,7 +14,15 @@ export function settingsHandlers(s: FakeState) {
       const next = applyPatch(s.cluster.settings, patch as SettingsPatch);
       // A patch keeps each context's mode, which has its own command (#338).
       for (const id of Object.keys((patch as SettingsPatch).contexts ?? {})) {
-        next.contexts[id] = { ...next.contexts[id], mode: before[id]?.mode ?? "normal" };
+        next.contexts[id] = {
+          ...next.contexts[id],
+          mode: before[id]?.mode ?? "normal",
+          mode_source: before[id]?.mode_source ?? {
+            file: "",
+            given: "",
+            context: "",
+          },
+        };
       }
       saveSettings(s, next);
       return copy(s.cluster.settings);
@@ -24,7 +32,19 @@ export function settingsHandlers(s: FakeState) {
       const contexts = s.cluster.settings.contexts;
       saveSettings(s, {
         ...s.cluster.settings,
-        contexts: { ...contexts, [id]: { ...EMPTY_CONTEXT, ...contexts[id], mode } },
+        contexts: {
+          ...contexts,
+          [id]: {
+            ...EMPTY_CONTEXT,
+            ...contexts[id],
+            mode,
+            mode_source: {
+              file: "/fake/kubeconfig",
+              given: "/fake/kubeconfig",
+              context: id,
+            },
+          },
+        },
       });
       return copy(s.cluster.settings);
     },

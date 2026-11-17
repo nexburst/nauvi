@@ -32,6 +32,7 @@ const readOnlyDev = (cluster: FakeCluster) => {
     last_used: 0,
     hide_metrics: false,
     mode: "readOnly",
+    mode_source: { file: "", given: "", context: "" },
   };
 };
 const protectedDev = (cluster: FakeCluster) => {
@@ -47,6 +48,7 @@ const protectedDev = (cluster: FakeCluster) => {
     last_used: 0,
     hide_metrics: false,
     mode: "protected",
+    mode_source: { file: "", given: "", context: "" },
   };
 };
 
@@ -66,6 +68,7 @@ test("a read-only context shows its badge and greys out every change", async ({
       last_used: 0,
       hide_metrics: false,
       mode: "readOnly",
+      mode_source: { file: "", given: "", context: "" },
     };
     // RBAC refuses the shell too: read-only is the reason shown.
     cluster.deniedActions = {

@@ -1083,6 +1083,11 @@ export type ContextSettings_Deserialize = {
 	 *  an older copy of the settings cannot turn the protection off.
 	 */
 	mode?: ContextMode,
+	/**
+	 *  The kubeconfig file and context the mode was set for, which
+	 *  `nauvi mcp` matches the mode by (#338). Kept with the mode.
+	 */
+	mode_source?: ModeSource_Deserialize,
 };
 
 /**
@@ -1126,6 +1131,11 @@ export type ContextSettings_Serialize = {
 	 *  an older copy of the settings cannot turn the protection off.
 	 */
 	mode: ContextMode,
+	/**
+	 *  The kubeconfig file and context the mode was set for, which
+	 *  `nauvi mcp` matches the mode by (#338). Kept with the mode.
+	 */
+	mode_source: ModeSource_Serialize,
 };
 
 export type ContextState = "connected" | 
@@ -1758,6 +1768,44 @@ export type MetricsSnapshot = {
 	sparks: { [key in string]: Spark },
 	/**  Epoch ms of their oldest recorded sample (0 = none yet). */
 	since: number,
+};
+
+/**
+ *  Where a mode was set: the kubeconfig file the context came from and its
+ *  name in that file (#338). The app stores it with the mode, so the CLI
+ *  matches a mode by (file, context) instead of by the app's context id,
+ *  whose form depends on the app's own kubeconfig.
+ */
+export type ModeSource = ModeSource_Serialize | ModeSource_Deserialize;
+
+/**
+ *  Where a mode was set: the kubeconfig file the context came from and its
+ *  name in that file (#338). The app stores it with the mode, so the CLI
+ *  matches a mode by (file, context) instead of by the app's context id,
+ *  whose form depends on the app's own kubeconfig.
+ */
+export type ModeSource_Deserialize = {
+	/**  The file, canonical (symlinks resolved). */
+	file?: string,
+	/**  The file as the app's catalog names it. */
+	given?: string,
+	/**  The context's name in that file. */
+	context?: string,
+};
+
+/**
+ *  Where a mode was set: the kubeconfig file the context came from and its
+ *  name in that file (#338). The app stores it with the mode, so the CLI
+ *  matches a mode by (file, context) instead of by the app's context id,
+ *  whose form depends on the app's own kubeconfig.
+ */
+export type ModeSource_Serialize = {
+	/**  The file, canonical (symlinks resolved). */
+	file: string,
+	/**  The file as the app's catalog names it. */
+	given: string,
+	/**  The context's name in that file. */
+	context: string,
 };
 
 export type MountInfo = {

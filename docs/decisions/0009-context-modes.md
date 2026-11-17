@@ -53,19 +53,17 @@ their own clusters.
   the existing greying-out shows it.
 - **`nauvi mcp`** reads the app's `settings.json` and refuses its write
   tools on a read-only or protected context (a model cannot type the
-  confirmation for the person). It finds the context's mode by its catalog
-  id, built exactly as the app builds it (`load_catalog` over the default
-  kubeconfig and the app's added sources), so `--kubeconfig work.yaml
-  --context prod` gets the mode of `prod (work.yaml)`. Which id a file gets
-  depends on the app's own default kubeconfig, which the CLI can't see (its
-  `KUBECONFIG` may be an added file), so the catalog is built several ways
-  and the strictest mode of every matching id applies. Stored modes are
-  also matched by meaning: each stored id is read back as `name`,
-  `name (file name)`, `name (path)` or `name (path) #n` and resolved
-  to a file, and every entry for the context whose file is the CLI's file,
-  or that cannot be resolved to any file, counts. A context the app's
-  catalog does not have is refused writes; with no app settings at all,
-  nothing is marked and writes follow `--allow-writes`.
+  confirmation for the person). The app stores each mode with its source:
+  the kubeconfig file the context comes from (canonical, and as given) and
+  the context's name in it (`mode_source`). The CLI canonicalises the files
+  it reads the context from (`--kubeconfig`, else its `KUBECONFIG`) and
+  applies the strictest mode among the entries with that file and context
+  name, whatever id the app gave the context (that id depends on the app's
+  own default kubeconfig, which the CLI can't see). Ids are never parsed.
+  An entry without a source (none should exist) counts for every context
+  of its name. With no stored mode, a context the app's catalog does not
+  have is refused writes; with no app settings at all, nothing is marked
+  and writes follow `--allow-writes`.
 
 ## Consequences
 The gate protects against mistakes and UI bugs, not against a compromised

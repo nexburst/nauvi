@@ -24,6 +24,7 @@ const hideDev = (cluster: FakeCluster) => {
     last_used: 0,
     hide_metrics: true,
     mode: "normal",
+    mode_source: { file: "", given: "", context: "" },
   };
 };
 

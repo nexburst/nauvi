@@ -3,7 +3,7 @@
 use crate::commands::exec::{emit_note, ExecClosed};
 use crate::settings::{Settings, SettingsPatch, SettingsStore};
 use crate::state::{AppState, WindowEmitter};
-use nauvi::context_mode::ContextMode;
+use nauvi::context_mode::{ContextMode, ModeSource};
 use std::sync::Arc;
 use tauri::State;
 
@@ -41,7 +41,15 @@ pub(crate) fn cmd_set_context_mode(
         return Err("No context is selected".into());
     }
     tracing::info!("context {id} is now {}", mode.label());
-    let settings = store.set_context_mode(&id, mode);
+    // Where the context comes from, so `nauvi mcp` finds the mode by file
+    // and context name whatever id it gives the context.
+    let source = state
+        .sources
+        .catalog()
+        .find(&id)
+        .map(|c| ModeSource::new(std::path::Path::new(&c.file), &c.context))
+        .unwrap_or_default();
+    let settings = store.set_context_mode_from(&id, mode, source);
     if mode == ContextMode::ReadOnly {
         close_terminals(&app, &state, &id);
     }
