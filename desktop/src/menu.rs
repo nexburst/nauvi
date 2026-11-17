@@ -5,6 +5,8 @@
 //! Linux and Windows get no native menu bar, which would take a row in
 //! every window to repeat the header.
 
+use std::path::{Path, PathBuf};
+
 use serde::Deserialize;
 use specta::Type;
 use tauri::{AppHandle, Runtime};
@@ -37,10 +39,42 @@ pub(crate) fn open<R: Runtime>(app: &AppHandle<R>, item: HelpItem) -> Result<(),
             let dir = crate::logging::dir().ok_or(
                 "kubeloupe has no log folder on this system; its log goes to stderr only.",
             )?;
-            opener
-                .open_path(dir.display().to_string(), None::<&str>)
-                .map_err(|e| format!("Could not open the log folder {}: {e}", dir.display()))
+            let file = dir.join(crate::logging::LOG_FILE);
+            match log_folder_action(dir, file.is_file(), cfg!(target_os = "macos")) {
+                LogFolderAction::Reveal(path) => opener
+                    .reveal_item_in_dir(&path)
+                    .map_err(|e| format!("Could not show {} in Finder: {e}", path.display())),
+                LogFolderAction::Open(path) => opener
+                    .open_path(path.display().to_string(), None::<&str>)
+                    .map_err(|e| format!("Could not open the log folder {}: {e}", path.display())),
+            }
         }
+    }
+}
+
+/// How Open log folder shows the folder.
+#[derive(Debug, PartialEq, Eq)]
+enum LogFolderAction {
+    /// Select this path in Finder (macOS).
+    Reveal(PathBuf),
+    /// Open this folder in the file manager (Linux, Windows).
+    Open(PathBuf),
+}
+
+/// On macOS the log folder is `~/Library/Logs/com.kubeloupe.app`, named
+/// after the bundle id. Launch Services takes a folder ending in `.app` for
+/// an application bundle and refuses to open it ("its executable is
+/// missing", #321), so there the log is revealed (selected) in Finder
+/// instead, or the folder itself if the log is not there yet. Elsewhere the
+/// folder is opened as it is.
+fn log_folder_action(dir: &Path, file_exists: bool, macos: bool) -> LogFolderAction {
+    if !macos {
+        return LogFolderAction::Open(dir.to_path_buf());
+    }
+    if file_exists {
+        LogFolderAction::Reveal(dir.join(crate::logging::LOG_FILE))
+    } else {
+        LogFolderAction::Reveal(dir.to_path_buf())
     }
 }
 
@@ -87,3 +121,37 @@ pub(crate) fn install<R: Runtime>(app: &AppHandle<R>) {
 /// Linux and Windows: no menu bar (the header has the Help menu).
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn install<R: Runtime>(_app: &AppHandle<R>) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DIR: &str = "/Users/me/Library/Logs/com.kubeloupe.app";
+
+    #[test]
+    fn macos_reveals_the_log_rather_than_opening_the_app_named_folder() {
+        assert_eq!(
+            log_folder_action(Path::new(DIR), true, true),
+            LogFolderAction::Reveal(Path::new(DIR).join("kubeloupe.log"))
+        );
+    }
+
+    #[test]
+    fn macos_reveals_the_folder_when_there_is_no_log_yet() {
+        assert_eq!(
+            log_folder_action(Path::new(DIR), false, true),
+            LogFolderAction::Reveal(PathBuf::from(DIR))
+        );
+    }
+
+    #[test]
+    fn linux_and_windows_open_the_folder() {
+        let dir = Path::new("/home/me/.local/share/com.kubeloupe.app/logs");
+        for exists in [true, false] {
+            assert_eq!(
+                log_folder_action(dir, exists, false),
+                LogFolderAction::Open(dir.to_path_buf())
+            );
+        }
+    }
+}
