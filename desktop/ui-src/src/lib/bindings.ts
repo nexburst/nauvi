@@ -20,8 +20,8 @@ export const commands = {
 	 *  Which of `ids` (action ids, plus "logs", "shell" and "edit") the user
 	 *  may run on one object, for greying out the detail panel's actions, the
 	 *  row menu and the bulk bar. A check that cannot be made counts as
-	 *  allowed. Answers are cached per session (verb, kind, namespace) and
-	 *  dropped on a context switch.
+	 *  allowed. Answers are cached per session (verb, kind, namespace), so
+	 *  per cluster.
 	 */
 	cmdCheckActions: (cluster: string, resource: ResourceRef, namespace: string, ids: string[], options?: InvokeOptions) => __TAURI_INVOKE<ActionAccess[]>("cmd_check_actions", { cluster, resource, namespace, ids }, options),
 	/**
@@ -105,7 +105,8 @@ export const commands = {
 	/**
 	 *  Every context of the catalog (#78): the default kubeconfig's, then those
 	 *  of the added files and folders, each with a unique id (`name`). The
-	 *  calling window's context is `current`.
+	 *  cluster the calling window shows is `current`: its `name` is the id the
+	 *  window names that cluster by.
 	 */
 	cmdListContexts: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<ContextInfo_Serialize[]>("cmd_list_contexts", { cluster }, options),
 	/**
@@ -114,11 +115,27 @@ export const commands = {
 	 */
 	cmdListNamespaces: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<NamespaceInfo[] | null>("cmd_list_namespaces", { cluster }, options),
 	/**
-	 *  Switch the calling window to context `name` (`null`: the kubeconfig's
-	 *  current-context). Everything that window started is stopped first;
-	 *  other windows are not affected.
+	 *  Show context `name` (`null`: the kubeconfig's current-context) in the
+	 *  calling window: its own session, opened unless the window is connected
+	 *  to it already (ADR 0007). The window leaves the cluster it showed, which
+	 *  stops everything it started there; other windows are not affected.
 	 */
 	cmdSetContext: (cluster: string, name: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_set_context", { cluster, name }, options),
+	/**
+	 *  Connect the calling window to `cluster` (a context id from
+	 *  `cmd_list_contexts`) without showing it: open its session, unless the
+	 *  window has it already, and build its client. Its commands then reach
+	 *  it as `api(cluster)`. An unreachable cluster still connects: the client
+	 *  only talks to the API server on the first request.
+	 */
+	cmdClusterConnect: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cluster_connect", { cluster }, options),
+	/**
+	 *  Disconnect the calling window from `cluster`: stop everything it
+	 *  started there (streams, terminals, forwards, watches, drains) and drop
+	 *  the client. Not the cluster the window shows. Disconnecting one it is
+	 *  not connected to does nothing.
+	 */
+	cmdClusterDisconnect: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cluster_disconnect", { cluster }, options),
 	/**
 	 *  Add an ephemeral debug container to a pod, targeting `target` (empty: the
 	 *  first container), and attach to it, as terminal session `session` (an id

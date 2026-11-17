@@ -79,7 +79,6 @@ pub(crate) async fn cmd_get_metrics(
             since: 0,
         });
     }
-    let ctx = cluster.selected_context();
     let client = cluster.client().await?;
     let (pods, nodes) = match what {
         MetricsKind::Pods => (get_pod_metrics(&client, namespace.as_deref()).await, None),
@@ -92,7 +91,7 @@ pub(crate) async fn cmd_get_metrics(
         .flatten();
     let available = pods.is_some() || nodes.is_some();
     let (pods, nodes) = (pods.unwrap_or_default(), nodes.unwrap_or_default());
-    let (sparks, since) = usage::record(&cluster, &ctx, &pods, &nodes);
+    let (sparks, since) = usage::record(&cluster, &pods, &nodes);
     Ok(MetricsSnapshot {
         available,
         pods,
@@ -136,7 +135,8 @@ pub(crate) async fn cmd_check_access(
 
 /// Every context of the catalog (#78): the default kubeconfig's, then those
 /// of the added files and folders, each with a unique id (`name`). The
-/// calling window's context is `current`.
+/// cluster the calling window shows is `current`: its `name` is the id the
+/// window names that cluster by.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_list_contexts(
@@ -144,21 +144,27 @@ pub(crate) async fn cmd_list_contexts(
     state: tauri::State<'_, crate::state::AppState>,
 ) -> Result<Vec<ContextInfo>, String> {
     let mut contexts = state.sources.catalog().contexts;
-    if let Some(selected) = cluster.selected_context() {
+    let visible = state.visible_id(cluster.label());
+    if !visible.is_empty() {
         for ctx in &mut contexts {
-            ctx.current = ctx.name == selected;
+            ctx.current = ctx.name == visible;
         }
     }
     Ok(contexts)
 }
 
-/// Switch the calling window to context `name` (`null`: the kubeconfig's
-/// current-context). Everything that window started is stopped first;
-/// other windows are not affected.
+/// Show context `name` (`null`: the kubeconfig's current-context) in the
+/// calling window: its own session, opened unless the window is connected
+/// to it already (ADR 0007). The window leaves the cluster it showed, which
+/// stops everything it started there; other windows are not affected.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_set_context(cluster: Cluster, name: Option<String>) -> Result<(), String> {
-    spawn_closes(cluster.set_context(name.clone()).await);
+pub(crate) async fn cmd_set_context(
+    cluster: Cluster,
+    state: tauri::State<'_, crate::state::AppState>,
+    name: Option<String>,
+) -> Result<(), String> {
+    spawn_closes(state.switch(cluster.label(), name.clone()));
     windows::context_changed(cluster.app(), cluster.label(), name.as_deref());
     Ok(())
 }
@@ -186,7 +192,10 @@ mod tests {
         .unwrap();
         let sources = Arc::new(KubeconfigSources::default());
         sources.set_extra(&[file.display().to_string()]);
-        (ClusterSession::new(Some(id.into()), sources), dir)
+        (
+            ClusterSession::new(id.into(), Some(id.into()), sources),
+            dir,
+        )
     }
 
     /// The commands' guard (#327): `cmd_get_metrics`, `cmd_usage_history`,

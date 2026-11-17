@@ -1,8 +1,10 @@
-//! What the commands share. Each window is connected to one cluster and has
-//! its own [`ClusterSession`]: the selected context, its client, and the
-//! streams, terminals, forwards and watches started from that window.
-//! [`AppState`] holds the sessions by window label; commands get the
-//! calling window's session through the [`Cluster`] argument.
+//! What the commands share (ADR 0007). A window holds one
+//! [`ClusterSession`] per cluster it is connected to ([`WindowClusters`]),
+//! one of them visible. A session's context never changes: it has its
+//! client, and the streams, terminals, forwards and watches started for
+//! that cluster from that window. Switching context opens another session.
+//! [`AppState`] holds the windows by label; commands get the session of the
+//! cluster they name through the [`Cluster`] argument.
 
 use crate::catalog::{Approved, KubeconfigSources};
 use crate::local_shell::LocalShell;
@@ -21,8 +23,9 @@ use tauri::async_runtime::JoinHandle;
 use tauri::ipc::{CommandArg, CommandItem, InvokeError};
 use tauri::{AppHandle, EventTarget, Manager};
 
-/// Why something started for a context is dropped: the window left it.
-pub(crate) const SWITCHED: &str = "the window switched to another context meanwhile";
+/// Why something started for a cluster is dropped: the window left it
+/// (switched to another context, disconnected it, closed or reloaded).
+pub(crate) const SWITCHED: &str = "the window is no longer connected to this cluster";
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 
@@ -87,16 +90,19 @@ pub(crate) struct ForwardSession {
     pub(crate) https: bool,
 }
 
-/// One window's connection to a cluster, and everything started from it.
+/// One window's connection to one cluster, and everything started from it
+/// for that cluster. Its context never changes.
 #[derive(Default)]
 pub(crate) struct ClusterSession {
-    /// Selected context id (`None` = the kubeconfig's current-context).
-    pub(crate) context: Mutex<Option<String>>,
+    /// The cluster's id: its context's catalog id, which the UI names it
+    /// by (`""` when there is none, e.g. without a kubeconfig).
+    id: String,
+    /// Its context (`None` = the kubeconfig's current-context).
+    context: Option<String>,
     /// Where context ids are looked up (shared by all windows).
     sources: Arc<KubeconfigSources>,
-    /// Client for the selected context, built lazily and dropped when the
-    /// context changes, with the liveness prober all its watches share
-    /// (#90). Both are cheap to clone.
+    /// Client for the context, built lazily, with the liveness prober all
+    /// its watches share (#90). Both are cheap to clone.
     client: tokio::sync::Mutex<Option<(Client, Prober)>>,
     /// Running log streams (pod and workload), by stream id.
     pub(crate) log_streams: LogStreams,
@@ -113,34 +119,38 @@ pub(crate) struct ClusterSession {
     pub(crate) kinds: Mutex<Vec<ResourceKind>>,
     /// Running node drains, by drain id.
     pub(crate) drains: Mutex<HashMap<String, JoinHandle<()>>>,
-    /// Usage history of the selected context (#47), cleared when it changes.
+    /// Usage history of the cluster (#47).
     pub(crate) usage: Mutex<UsageHistory>,
-    /// The Prometheus found for the selected context (#47), cleared when it
-    /// changes.
+    /// The Prometheus found for the cluster (#47).
     pub(crate) prometheus: Mutex<Option<crate::commands::prometheus::PromCache>>,
-    /// Answers of the action access checks (#340), cleared when the
-    /// context changes.
+    /// Answers of the action access checks (#340).
     pub(crate) access: nauvi::action_access::AccessCache,
-    /// Set once the window is gone: whatever a command still in flight
-    /// adds afterwards is stopped right away instead of leaking.
+    /// Set once the window left the cluster (switched, disconnected, closed
+    /// or reloaded): whatever a command still in flight adds afterwards is
+    /// stopped right away instead of leaking, and no client is built.
     closed: AtomicBool,
-    /// The window's page has started loading once (#205): any later load
-    /// is a reload, which gets a fresh session.
-    page_loaded: AtomicBool,
 }
 
 impl ClusterSession {
-    pub(crate) fn new(context: Option<String>, sources: Arc<KubeconfigSources>) -> Self {
+    /// A session on `context`, named `id` (see [`AppState::key_of`]).
+    pub(crate) fn new(
+        id: String,
+        context: Option<String>,
+        sources: Arc<KubeconfigSources>,
+    ) -> Self {
         Self {
-            context: Mutex::new(context),
+            id,
+            context,
             sources,
             ..Default::default()
         }
     }
 
-    /// A session that is already closed (for a window that is gone).
-    fn closed() -> Self {
-        let s = Self::default();
+    /// A session that is already closed: for a window that is gone, or a
+    /// cluster the window is not connected to (a late call after a switch).
+    fn closed(id: &str, sources: Arc<KubeconfigSources>) -> Self {
+        let context = Some(id.to_string()).filter(|c| !c.is_empty());
+        let s = Self::new(id.to_string(), context, sources);
         s.closed.store(true, Ordering::SeqCst);
         s.log_streams.close();
         s
@@ -150,14 +160,19 @@ impl ClusterSession {
         self.closed.load(Ordering::SeqCst)
     }
 
-    pub(crate) fn selected_context(&self) -> Option<String> {
-        self.context.lock().unwrap().clone()
+    /// The id the UI names this cluster by.
+    pub(crate) fn id(&self) -> &str {
+        &self.id
     }
 
-    /// The catalog id of the selected context, which per-context settings
-    /// are keyed by. Reads the kubeconfig files; no login.
+    pub(crate) fn selected_context(&self) -> Option<String> {
+        self.context.clone()
+    }
+
+    /// The catalog id of the context, which per-context settings are keyed
+    /// by. Reads the kubeconfig files; no login.
     pub(crate) fn context_id(&self) -> Result<String, String> {
-        self.context_id_of(self.selected_context().as_deref())
+        self.context_id_of(self.context.as_deref())
     }
 
     /// [`Self::context_id`] of `selected` (`None`: the kubeconfig's
@@ -170,18 +185,17 @@ impl ClusterSession {
             .map_err(|e| e.to_string())
     }
 
-    /// The selected context and its client, read together: `Err` if the
-    /// context changed while the client was built (#217).
+    /// The context and its client: `Err` if the window left the cluster
+    /// while the client was built (#217).
     pub(crate) async fn context_client(&self) -> Result<(Option<String>, Client), String> {
-        let ctx = self.selected_context();
         let client = self.client().await?;
-        if self.selected_context() != ctx {
+        if self.is_closed() {
             return Err(SWITCHED.into());
         }
-        Ok((ctx, client))
+        Ok((self.selected_context(), client))
     }
 
-    /// The cached client for the selected context, building it on first use.
+    /// The cached client for the context, building it on first use.
     pub(crate) async fn client(&self) -> Result<Client, String> {
         Ok(self.watch_client().await?.0)
     }
@@ -190,13 +204,17 @@ impl ClusterSession {
     /// is probed about once per 10 s however many watches are open.
     pub(crate) async fn watch_client(&self) -> Result<(Client, Prober), String> {
         let mut slot = self.client.lock().await;
+        // A session the window left builds no client: a late call must not
+        // log in again (or reach another cluster).
+        if self.is_closed() {
+            return Err(SWITCHED.into());
+        }
         if let Some(c) = slot.as_ref() {
             return Ok(c.clone());
         }
         // A GUI can't answer an exec plugin's prompts.
-        // Read once: the client and the URL in messages are of one context.
-        let selected = self.selected_context();
-        let c = match selected.as_deref() {
+        let selected = self.context.as_deref();
+        let c = match selected {
             // The default kubeconfig's current-context, or in-cluster config.
             None => client_for_context_with(None, false).await,
             // An added kubeconfig's login command runs once allowed (#201),
@@ -204,43 +222,21 @@ impl ClusterSession {
             Some(id) => self.sources.approved(Some(id))?.client().await,
         }
         .map_err(|e| nauvi::error_text(&e))?;
-        let server = self.sources.server(selected.as_deref());
+        let server = self.sources.server(selected);
         let c = (c.clone(), Prober::for_server(c, &server));
         *slot = Some(c.clone());
         Ok(c)
     }
 
-    /// The selected context, for what runs outside the client (helm,
-    /// local shells), so it reaches the same cluster as the app.
+    /// The context, for what runs outside the client (helm, local shells),
+    /// so it reaches the same cluster as the app.
     ///
     /// Helm and kubectl in a local shell run the exec plugin themselves, so
     /// an added kubeconfig's login command must be allowed first (#201),
     /// as for the client, and they get [`Approved::flat`], the context as
     /// it was read for that check, never the added file itself (#242).
     pub(crate) fn target(&self) -> Result<Approved, String> {
-        Ok(self.sources.approved(self.selected_context().as_deref())?)
-    }
-
-    /// Switch to `context`: stop everything of the old one and forget its
-    /// client, kinds, usage history and Prometheus. Returns the terminal
-    /// sessions still to close.
-    pub(crate) async fn set_context(&self, context: Option<String>) -> Vec<ExecSession> {
-        // The context and the client together, under the client's lock: a
-        // client lookup never pairs the new context with the old client
-        // (`context_client`). Then the rest: what is added for the old
-        // context afterwards is refused (`add_forward_on`), what was added
-        // before is stopped here.
-        {
-            let mut client = self.client.lock().await;
-            *self.context.lock().unwrap() = context;
-            *client = None;
-        }
-        let sessions = self.stop_all();
-        self.kinds.lock().unwrap().clear();
-        self.usage.lock().unwrap().clear();
-        *self.prometheus.lock().unwrap() = None;
-        self.access.clear();
-        sessions
+        Ok(self.sources.approved(self.context.as_deref())?)
     }
 
     /// Stop every stream, local shell, forward and watch. Returns the
@@ -259,15 +255,28 @@ impl ClusterSession {
         sessions
     }
 
-    /// Mark the session closed and stop everything in it for good, drains
-    /// included (they outlive a context switch, not their window).
-    pub(crate) fn close(&self) -> Vec<ExecSession> {
+    /// The window switched away from this cluster: refuse what is added
+    /// from now on and stop everything but the drains, which outlive a
+    /// context switch (not their window). Returns the terminal sessions
+    /// still to close.
+    pub(crate) fn leave(&self) -> Vec<ExecSession> {
         self.closed.store(true, Ordering::SeqCst);
         self.log_streams.close();
+        // Its client goes with it once the last command holding it ends.
+        if let Ok(mut slot) = self.client.try_lock() {
+            *slot = None;
+        }
+        self.stop_all()
+    }
+
+    /// Mark the session closed and stop everything in it for good, drains
+    /// included.
+    pub(crate) fn close(&self) -> Vec<ExecSession> {
+        let sessions = self.leave();
         for task in take_all(&self.drains).into_values() {
             task.abort();
         }
-        self.stop_all()
+        sessions
     }
 
     /// `(namespace, pod)` of the node shells this session has open.
@@ -278,6 +287,16 @@ impl ClusterSession {
             .values()
             .filter_map(|s| s.cleanup.as_ref())
             .map(|c| (c.namespace.clone(), c.pod.clone()))
+            .collect()
+    }
+
+    /// The saved ids of the forwards running in this session.
+    fn saved_forwards(&self) -> Vec<String> {
+        self.forwards
+            .lock()
+            .unwrap()
+            .values()
+            .map(|f| f.saved_id.clone())
             .collect()
     }
 
@@ -293,34 +312,15 @@ impl ClusterSession {
         }
     }
 
-    /// Add a forward started for context `ctx`, unless the window switched
-    /// away from it (or closed) meanwhile: then it is dropped, which stops
-    /// it (#217). Returns whether it was added.
-    pub(crate) fn add_forward_on(
-        &self,
-        ctx: &Option<String>,
-        id: String,
-        forward: ForwardSession,
-    ) -> bool {
-        self.insert_on(&self.forwards, ctx, id, forward).is_ok()
-    }
-
-    /// Insert into `map` if the selected context is still `ctx`. Checked
-    /// under the map's lock: `set_context` changes the context before it
-    /// drains the maps, so nothing of the old context slips in after.
-    fn insert_on<T>(
-        &self,
-        map: &Mutex<HashMap<String, T>>,
-        ctx: &Option<String>,
-        id: String,
-        value: T,
-    ) -> Result<(), T> {
-        let mut map = map.lock().unwrap();
-        if self.is_closed() || self.selected_context() != *ctx {
-            return Err(value);
+    /// Add a forward, unless the window left the cluster meanwhile: then
+    /// it is dropped, which stops it (#217). Returns whether it was added.
+    pub(crate) fn add_forward(&self, id: String, forward: ForwardSession) -> bool {
+        let mut map = self.forwards.lock().unwrap();
+        if self.is_closed() {
+            return false;
         }
-        drop(map.insert(id, value));
-        Ok(())
+        drop(map.insert(id, forward));
+        true
     }
 
     pub(crate) fn add_local_shell(&self, id: String, shell: LocalShell) {
@@ -338,7 +338,7 @@ impl ClusterSession {
     /// the session is closed.
     fn insert<T>(&self, map: &Mutex<HashMap<String, T>>, id: String, value: T) -> Option<T> {
         let mut map = map.lock().unwrap();
-        // Checked under the lock: `close` sets the flag before it drains
+        // Checked under the lock: `leave` sets the flag before it drains
         // the maps, so nothing slips in after the drain.
         if self.is_closed() {
             return Some(value);
@@ -354,12 +354,49 @@ fn take_all<T>(map: &Mutex<HashMap<String, T>>) -> HashMap<String, T> {
 /// The window opened from `tauri.conf.json`.
 pub(crate) const MAIN_WINDOW: &str = "main";
 
-/// The sessions of the open windows, by window label.
+/// The clusters one window is connected to, by id, and the one it shows.
+/// The visible one is always in `clusters`.
+pub(crate) struct WindowClusters {
+    clusters: HashMap<String, Arc<ClusterSession>>,
+    visible: String,
+    /// The window's page has started loading once (#205): any later load
+    /// is a reload, which starts the window over.
+    page_loaded: bool,
+}
+
+impl WindowClusters {
+    fn new(session: ClusterSession) -> Self {
+        let visible = session.id.clone();
+        Self {
+            clusters: HashMap::from([(visible.clone(), Arc::new(session))]),
+            visible,
+            page_loaded: false,
+        }
+    }
+
+    fn visible(&self) -> Arc<ClusterSession> {
+        self.clusters[&self.visible].clone()
+    }
+
+    /// The session of cluster `id` (`""`: the visible one).
+    fn get(&self, id: &str) -> Option<Arc<ClusterSession>> {
+        if id.is_empty() {
+            return Some(self.visible());
+        }
+        self.clusters.get(id).cloned()
+    }
+
+    fn sessions(&self) -> impl Iterator<Item = &Arc<ClusterSession>> {
+        self.clusters.values()
+    }
+}
+
+/// The open windows and their clusters, by window label.
 #[derive(Default)]
 pub(crate) struct AppState {
     /// The kubeconfig sources every session looks its context up in.
     pub(crate) sources: Arc<KubeconfigSources>,
-    sessions: Mutex<HashMap<String, Arc<ClusterSession>>>,
+    windows: Mutex<HashMap<String, WindowClusters>>,
     /// Labels of windows that were closed. Labels are never reused, so a
     /// late command from one gets a closed session, not a new live one.
     gone: Mutex<HashSet<String>>,
@@ -383,25 +420,130 @@ impl Drop for AutostartClaim {
 }
 
 impl AppState {
-    /// The session of window `label`, created on its first command.
-    pub(crate) fn session(&self, label: &str) -> Arc<ClusterSession> {
-        if self.gone.lock().unwrap().contains(label) {
-            return Arc::new(ClusterSession::closed());
+    /// The id of the cluster of `context`: its catalog id, as the UI names
+    /// it (`None`: the kubeconfig's current-context, `""` if there is none).
+    /// Reads the kubeconfig files; call it without holding `windows`.
+    fn key_of(&self, context: Option<&str>) -> String {
+        match context {
+            Some(c) => c.to_string(),
+            None => self
+                .sources
+                .catalog()
+                .resolve(None)
+                .map(|t| t.id)
+                .unwrap_or_default(),
         }
-        self.sessions
-            .lock()
-            .unwrap()
-            .entry(label.to_string())
-            .or_insert_with(|| Arc::new(ClusterSession::new(None, self.sources.clone())))
-            .clone()
     }
 
-    /// Create the session of a new window, connected to `context`.
+    fn new_session(&self, context: Option<String>) -> ClusterSession {
+        ClusterSession::new(
+            self.key_of(context.as_deref()),
+            context,
+            self.sources.clone(),
+        )
+    }
+
+    /// Run `f` on window `label`'s clusters, creating them (on the
+    /// kubeconfig's current-context) on its first command. `None` if the
+    /// window is gone.
+    fn with_window<T>(&self, label: &str, f: impl FnOnce(&mut WindowClusters) -> T) -> Option<T> {
+        if self.gone.lock().unwrap().contains(label) {
+            return None;
+        }
+        let fresh = (!self.windows.lock().unwrap().contains_key(label))
+            .then(|| WindowClusters::new(self.new_session(None)));
+        let mut windows = self.windows.lock().unwrap();
+        let window = match fresh {
+            Some(w) => windows.entry(label.to_string()).or_insert(w),
+            None => windows.get_mut(label)?,
+        };
+        Some(f(window))
+    }
+
+    /// The visible session of window `label`, created on its first command.
+    pub(crate) fn session(&self, label: &str) -> Arc<ClusterSession> {
+        self.with_window(label, |w| w.visible())
+            .unwrap_or_else(|| Arc::new(ClusterSession::closed("", self.sources.clone())))
+    }
+
+    /// The session of cluster `id` in window `label` (`""`: the visible
+    /// one). A cluster the window is not connected to (a call still in
+    /// flight from before a switch), or a window that is gone, gets a
+    /// closed session: it adds nothing and builds no client.
+    pub(crate) fn cluster(&self, label: &str, id: &str) -> Arc<ClusterSession> {
+        self.with_window(label, |w| w.get(id))
+            .flatten()
+            .unwrap_or_else(|| Arc::new(ClusterSession::closed(id, self.sources.clone())))
+    }
+
+    /// The id of the cluster window `label` shows.
+    pub(crate) fn visible_id(&self, label: &str) -> String {
+        self.session(label).id().to_string()
+    }
+
+    /// Connect window `label` to the cluster of `context` without showing
+    /// it: its session, opened unless the window has it already.
+    pub(crate) fn connect(&self, label: &str, context: Option<String>) -> Arc<ClusterSession> {
+        let id = self.key_of(context.as_deref());
+        let session = || {
+            Arc::new(ClusterSession::new(
+                id.clone(),
+                context.clone(),
+                self.sources.clone(),
+            ))
+        };
+        self.with_window(label, |w| {
+            w.clusters.entry(id.clone()).or_insert_with(session).clone()
+        })
+        .unwrap_or_else(|| Arc::new(ClusterSession::closed(&id, self.sources.clone())))
+    }
+
+    /// Disconnect window `label` from cluster `id`: close its session.
+    /// Not the visible one, which the window needs. Returns the terminal
+    /// sessions still to close.
+    pub(crate) fn disconnect(&self, label: &str, id: &str) -> Result<Vec<ExecSession>, String> {
+        let removed = self.with_window(label, |w| {
+            if id.is_empty() || id == w.visible {
+                return Err(format!(
+                    "{} is the cluster this window shows; switch to another one first",
+                    if id.is_empty() { "This" } else { id }
+                ));
+            }
+            Ok(w.clusters.remove(id))
+        });
+        match removed {
+            Some(Ok(Some(s))) => Ok(s.close()),
+            Some(Err(e)) => Err(e),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    /// Show the cluster of `context` in window `label`: its session
+    /// (reused if the window is connected to it already, else opened)
+    /// becomes the visible one, and the window leaves the one it showed
+    /// (one visible cluster per window; switching to the same context
+    /// starts it over). Returns the terminal sessions still to close.
+    pub(crate) fn switch(&self, label: &str, context: Option<String>) -> Vec<ExecSession> {
+        let next = self.new_session(context);
+        let left = self.with_window(label, |w| {
+            let old = w.clusters.remove(&w.visible);
+            let id = next.id.clone();
+            w.clusters
+                .entry(id.clone())
+                .or_insert_with(|| Arc::new(next));
+            w.visible = id;
+            old
+        });
+        left.flatten().map(|s| s.leave()).unwrap_or_default()
+    }
+
+    /// Create the clusters of a new window, showing `context`.
     pub(crate) fn open(&self, label: &str, context: Option<String>) {
-        self.sessions.lock().unwrap().insert(
-            label.to_string(),
-            Arc::new(ClusterSession::new(context, self.sources.clone())),
-        );
+        let window = WindowClusters::new(self.new_session(context));
+        self.windows
+            .lock()
+            .unwrap()
+            .insert(label.to_string(), window);
     }
 
     /// A window opens again under a label that was closed (macOS: the main
@@ -413,62 +555,64 @@ impl AppState {
         self.open(label, None);
     }
 
-    /// The window `label` is gone: close its session. Returns the terminal
-    /// sessions still to close.
+    /// The window `label` is gone: close all its sessions. Returns the
+    /// terminal sessions still to close.
     pub(crate) fn close(&self, label: &str) -> Vec<ExecSession> {
         self.gone.lock().unwrap().insert(label.to_string());
-        let session = self.sessions.lock().unwrap().remove(label);
-        session.map(|s| s.close()).unwrap_or_default()
+        let window = self.windows.lock().unwrap().remove(label);
+        window.map(close_window).unwrap_or_default()
     }
 
     /// A page load started in window `label` (#205). The first one is the
     /// window opening. A later one is a reload: the page that started the
-    /// streams and shells is gone, so the window gets a fresh session on
-    /// the same context and the old one is closed. Returns, for a reload,
-    /// the old session's terminal sessions, still to close.
+    /// streams and shells is gone, so the window starts over with a fresh
+    /// session on the cluster it showed, and all its old sessions are
+    /// closed. Returns, for a reload, their terminal sessions, still to
+    /// close.
     pub(crate) fn page_load(&self, label: &str) -> Option<Vec<ExecSession>> {
-        if self.gone.lock().unwrap().contains(label) {
-            return None;
-        }
-        let old = {
-            let mut sessions = self.sessions.lock().unwrap();
-            let current = sessions
-                .entry(label.to_string())
-                .or_insert_with(|| Arc::new(ClusterSession::new(None, self.sources.clone())));
-            if !current.page_loaded.swap(true, Ordering::SeqCst) {
-                return None;
-            }
-            let fresh = ClusterSession::new(current.selected_context(), self.sources.clone());
-            fresh.page_loaded.store(true, Ordering::SeqCst);
-            std::mem::replace(current, Arc::new(fresh))
-        };
-        Some(old.close())
+        let visible = self.with_window(label, |w| {
+            let first = !std::mem::replace(&mut w.page_loaded, true);
+            (!first).then(|| w.visible().selected_context())
+        })??;
+        let mut fresh = WindowClusters::new(self.new_session(visible));
+        fresh.page_loaded = true;
+        let old = self.with_window(label, |w| std::mem::replace(w, fresh))?;
+        Some(close_window(old))
     }
 
-    /// Close every session (the app is quitting).
+    /// Close every window's sessions (the app is quitting).
     pub(crate) fn close_all(&self) -> Vec<ExecSession> {
-        let labels: Vec<String> = self.sessions.lock().unwrap().keys().cloned().collect();
+        let labels: Vec<String> = self.windows.lock().unwrap().keys().cloned().collect();
         labels.iter().flat_map(|l| self.close(l)).collect()
     }
 
-    /// `(namespace, pod)` of the node shells open in any window.
-    pub(crate) fn node_shell_pods(&self) -> Vec<(String, String)> {
-        let sessions: Vec<Arc<ClusterSession>> =
-            self.sessions.lock().unwrap().values().cloned().collect();
-        sessions.iter().flat_map(|s| s.node_shell_pods()).collect()
+    /// Every session of every window (`except` one window), taken out of
+    /// the lock: their own maps are locked after it, never under it.
+    fn all_sessions(&self, except: &str) -> Vec<Arc<ClusterSession>> {
+        self.windows
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(label, _)| label.as_str() != except)
+            .flat_map(|(_, w)| w.sessions().cloned())
+            .collect()
     }
 
-    /// Whether any window runs the saved forward `saved_id` (#217).
+    /// `(namespace, pod)` of the node shells open in any window, for any
+    /// cluster.
+    pub(crate) fn node_shell_pods(&self) -> Vec<(String, String)> {
+        self.all_sessions("")
+            .iter()
+            .flat_map(|s| s.node_shell_pods())
+            .collect()
+    }
+
+    /// Whether any window runs the saved forward `saved_id` (#217), for any
+    /// cluster.
     pub(crate) fn runs_forward(&self, saved_id: &str) -> bool {
-        let sessions: Vec<Arc<ClusterSession>> =
-            self.sessions.lock().unwrap().values().cloned().collect();
-        sessions.iter().any(|s| {
-            s.forwards
-                .lock()
-                .unwrap()
-                .values()
-                .any(|f| f.saved_id == saved_id)
-        })
+        self.all_sessions("")
+            .iter()
+            .any(|s| s.saved_forwards().iter().any(|id| id == saved_id))
     }
 
     /// Claim the auto-start of the saved forward `saved_id` (#292): none
@@ -486,43 +630,34 @@ impl AppState {
     }
 
     /// The saved ids of the forwards running in windows other than
-    /// `except` (#292).
+    /// `except` (#292), for any of their clusters.
     pub(crate) fn forwards_elsewhere(&self, except: &str) -> Vec<String> {
-        let sessions: Vec<Arc<ClusterSession>> = self
-            .sessions
-            .lock()
-            .unwrap()
+        let mut out: Vec<String> = self
+            .all_sessions(except)
             .iter()
-            .filter(|(label, _)| label.as_str() != except)
-            .map(|(_, s)| s.clone())
-            .collect();
-        let mut out: Vec<String> = sessions
-            .iter()
-            .flat_map(|s| {
-                s.forwards
-                    .lock()
-                    .unwrap()
-                    .values()
-                    .map(|f| f.saved_id.clone())
-                    .collect::<Vec<_>>()
-            })
+            .flat_map(|s| s.saved_forwards())
             .collect();
         out.sort();
         out.dedup();
         out
     }
 
-    /// The context of every open window other than `except`, by label.
+    /// The context every open window other than `except` shows, by label.
     pub(crate) fn contexts(&self, except: &str) -> Vec<(String, Option<String>)> {
-        let sessions = self.sessions.lock().unwrap();
-        let mut out: Vec<(String, Option<String>)> = sessions
+        let windows = self.windows.lock().unwrap();
+        let mut out: Vec<(String, Option<String>)> = windows
             .iter()
             .filter(|(label, _)| label.as_str() != except)
-            .map(|(label, s)| (label.clone(), s.selected_context()))
+            .map(|(label, w)| (label.clone(), w.visible().selected_context()))
             .collect();
         out.sort();
         out
     }
+}
+
+/// Close every session of a window. Returns their terminal sessions.
+fn close_window(window: WindowClusters) -> Vec<ExecSession> {
+    window.sessions().flat_map(|s| s.close()).collect()
 }
 
 /// Close terminal sessions in the background.
@@ -564,8 +699,8 @@ impl WindowEmitter {
 ///
 /// The call names its cluster: the invoke payload carries a `cluster` key,
 /// the first parameter of every cluster-scoped command in `bindings.ts`
-/// (ADR 0007). There is still one session per window, so for now the value
-/// is only required, not used to pick the session.
+/// (ADR 0007), and gets that cluster's session in the calling window
+/// ([`AppState::cluster`]).
 pub(crate) struct Cluster {
     session: Arc<ClusterSession>,
     label: String,
@@ -602,14 +737,14 @@ impl<'de> CommandArg<'de, tauri::Wry> for Cluster {
     fn from_command(command: CommandItem<'de, tauri::Wry>) -> Result<Self, InvokeError> {
         // The cluster the UI meant (`api(id)` in `lib/cluster.ts`). Required,
         // so a call that leaves it out fails loudly.
-        let _cluster = String::from_command(CommandItem {
+        let cluster = String::from_command(CommandItem {
             key: CLUSTER_KEY,
             ..command
         })?;
         let webview = command.message.webview();
         let label = webview.label().to_string();
         let app = webview.app_handle().clone();
-        let session = app.state::<AppState>().session(&label);
+        let session = app.state::<AppState>().cluster(&label, &cluster);
         Ok(Cluster {
             session,
             label,
@@ -637,6 +772,25 @@ mod tests {
         tauri::async_runtime::spawn(std::future::pending())
     }
 
+    fn session(id: &str) -> ClusterSession {
+        ClusterSession::new(id.into(), Some(id.into()), Arc::default())
+    }
+
+    /// A running forward of the saved forward `saved_id`.
+    fn forward(saved_id: &str) -> ForwardSession {
+        let target = nauvi::ForwardTarget::parse("svc/web", "demo").unwrap();
+        let remote = nauvi::RemotePort::parse("80").unwrap();
+        let forward = tauri::async_runtime::block_on(async {
+            nauvi::PortForward::idle(target, remote, 8080)
+        });
+        ForwardSession {
+            forward,
+            started_at: 0,
+            saved_id: saved_id.into(),
+            https: false,
+        }
+    }
+
     #[test]
     fn only_one_window_claims_an_autostart_at_a_time() {
         let state = AppState::default();
@@ -651,46 +805,151 @@ mod tests {
     }
 
     #[test]
-    fn the_context_changes_only_together_with_the_client() {
-        tauri::async_runtime::block_on(async {
-            let s = Arc::new(ClusterSession::new(Some("a".into()), Arc::default()));
-            // A client lookup for "a" in flight holds the client slot.
-            let slot = s.client.lock().await;
-            let switch = {
-                let s = s.clone();
-                tauri::async_runtime::spawn(async move { s.set_context(Some("b".into())).await })
-            };
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            assert_eq!(
-                s.selected_context().as_deref(),
-                Some("a"),
-                "not switched under a lookup"
-            );
-            drop(slot);
-            switch.await.unwrap();
-            assert_eq!(s.selected_context().as_deref(), Some("b"));
-            assert!(
-                s.client.lock().await.is_none(),
-                "the old client is gone with the old context"
-            );
-        });
+    fn a_session_the_window_left_builds_no_client() {
+        let s = session("a");
+        s.leave();
+        let err = tauri::async_runtime::block_on(s.client()).err().unwrap();
+        assert_eq!(err, SWITCHED);
     }
 
     #[test]
-    fn what_was_started_for_an_old_context_is_refused() {
-        let s = ClusterSession::new(Some("a".into()), Arc::default());
-        let a = Some("a".to_string());
-        assert!(s.insert_on(&s.watches, &a, "w1".into(), forever()).is_ok());
-        tauri::async_runtime::block_on(s.set_context(Some("b".into())));
-        // Stopped by the switch.
-        assert!(s.watches.lock().unwrap().is_empty());
-        // Still in flight for "a" when the window switched: handed back.
-        let late = s.insert_on(&s.watches, &a, "w2".into(), forever());
-        late.unwrap_err().abort();
-        assert!(s.watches.lock().unwrap().is_empty());
-        let b = Some("b".to_string());
-        assert!(s.insert_on(&s.watches, &b, "w3".into(), forever()).is_ok());
-        assert_eq!(s.watches.lock().unwrap().len(), 1);
+    fn switching_opens_another_session_and_leaves_the_old_one() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let a = state.cluster("cluster-1", "a");
+        a.add_watch("w1".into(), forever());
+        a.add_drain("d1".into(), forever());
+        assert!(state.switch("cluster-1", Some("b".into())).is_empty());
+        // The old session is left, not changed: its watches are stopped,
+        // its drain runs on, and what is still added to it is refused.
+        assert_eq!(a.selected_context().as_deref(), Some("a"));
+        assert!(a.is_closed());
+        assert!(a.watches.lock().unwrap().is_empty());
+        assert_eq!(a.drains.lock().unwrap().len(), 1);
+        a.add_watch("w2".into(), forever());
+        assert!(a.watches.lock().unwrap().is_empty());
+        assert!(!a.add_forward("pf-1".into(), forward("fwd-1")));
+        // The new one is visible and live.
+        let b = state.cluster("cluster-1", "b");
+        assert!(!b.is_closed());
+        assert_eq!(b.selected_context().as_deref(), Some("b"));
+        assert_eq!(state.visible_id("cluster-1"), "b");
+        assert!(Arc::ptr_eq(&b, &state.cluster("cluster-1", "")));
+        assert!(Arc::ptr_eq(&b, &state.session("cluster-1")));
+        // A late call for "a" gets a closed session of "a".
+        let late = state.cluster("cluster-1", "a");
+        assert!(late.is_closed());
+        assert_eq!(late.selected_context().as_deref(), Some("a"));
+        assert!(!Arc::ptr_eq(&late, &a));
+    }
+
+    #[test]
+    fn switching_reuses_a_connected_cluster() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let b = state.connect("cluster-1", Some("b".into()));
+        assert!(Arc::ptr_eq(
+            &b,
+            &state.connect("cluster-1", Some("b".into()))
+        ));
+        // Connected, not shown.
+        assert_eq!(state.visible_id("cluster-1"), "a");
+        assert_eq!(
+            state.contexts(""),
+            vec![("cluster-1".to_string(), Some("a".to_string()))]
+        );
+        state.switch("cluster-1", Some("b".into()));
+        assert!(Arc::ptr_eq(&b, &state.session("cluster-1")));
+        assert!(!b.is_closed());
+        // Switching to the cluster shown starts it over.
+        state.switch("cluster-1", Some("b".into()));
+        assert!(b.is_closed());
+        assert!(!Arc::ptr_eq(&b, &state.session("cluster-1")));
+    }
+
+    #[test]
+    fn disconnecting_closes_only_that_cluster() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let b = state.connect("cluster-1", Some("b".into()));
+        b.add_drain("d1".into(), forever());
+        let (s, _typed) = shell(true);
+        assert!(b.add_exec("exec-1".into(), s).is_none());
+        let a = state.session("cluster-1");
+        a.add_watch("w".into(), forever());
+
+        assert!(
+            state.disconnect("cluster-1", "a").is_err(),
+            "the visible one"
+        );
+        assert!(
+            state.disconnect("cluster-1", "").is_err(),
+            "the visible one"
+        );
+        let to_close = state.disconnect("cluster-1", "b").unwrap();
+        assert_eq!(to_close.len(), 1);
+        assert!(b.is_closed());
+        assert!(b.drains.lock().unwrap().is_empty());
+        assert!(state.cluster("cluster-1", "b").is_closed());
+        assert!(!a.is_closed());
+        assert_eq!(a.watches.lock().unwrap().len(), 1);
+        // Not connected (any more): nothing to do.
+        assert!(state.disconnect("cluster-1", "b").unwrap().is_empty());
+        assert!(state.disconnect("gone-window", "b").unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_port_forward_helpers_see_every_cluster_of_every_window() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        state.open("cluster-2", Some("c".into()));
+        // A forward in a cluster window 1 is connected to but not showing.
+        let b = state.connect("cluster-1", Some("b".into()));
+        assert!(b.add_forward("pf-1".into(), forward("fwd-b")));
+        assert!(state
+            .session("cluster-1")
+            .add_forward("pf-2".into(), forward("fwd-a")));
+        assert!(state
+            .session("cluster-2")
+            .add_forward("pf-3".into(), forward("fwd-a")));
+
+        assert!(state.runs_forward("fwd-b"));
+        assert!(state.runs_forward("fwd-a"));
+        assert!(!state.runs_forward("fwd-x"));
+        assert!(state.claim_autostart("fwd-b").is_none(), "runs already");
+        assert_eq!(
+            state.forwards_elsewhere("cluster-2"),
+            vec!["fwd-a", "fwd-b"]
+        );
+        assert_eq!(state.forwards_elsewhere("cluster-1"), vec!["fwd-a"]);
+        assert_eq!(state.forwards_elsewhere(""), vec!["fwd-a", "fwd-b"]);
+
+        state.disconnect("cluster-1", "b").unwrap();
+        assert!(!state.runs_forward("fwd-b"));
+        assert!(state.claim_autostart("fwd-b").is_some());
+        state.close("cluster-2");
+        assert_eq!(state.forwards_elsewhere("cluster-1"), Vec::<String>::new());
+        assert_eq!(state.forwards_elsewhere(""), vec!["fwd-a"]);
+    }
+
+    #[test]
+    fn node_shells_are_found_in_every_cluster() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let b = state.connect("cluster-1", Some("b".into()));
+        let (mut s, _typed) = shell(false);
+        s.cleanup = Some(SessionCleanup {
+            client: tauri::async_runtime::block_on(async {
+                Client::try_from(kube::Config::new("http://127.0.0.1:1".parse().unwrap())).unwrap()
+            }),
+            namespace: "kube-system".into(),
+            pod: "node-shell-1".into(),
+        });
+        assert!(b.add_exec("exec-1".into(), s).is_none());
+        assert_eq!(
+            state.node_shell_pods(),
+            vec![("kube-system".to_string(), "node-shell-1".to_string())]
+        );
     }
 
     #[test]
@@ -702,7 +961,10 @@ mod tests {
         let other = state.session("cluster-1");
         assert!(!Arc::ptr_eq(&main, &other));
         assert_eq!(other.selected_context().as_deref(), Some("staging"));
+        assert_eq!(other.id(), "staging");
         assert_eq!(main.selected_context(), None);
+        // A cluster another window shows is not this window's.
+        assert!(state.cluster(MAIN_WINDOW, "staging").is_closed());
         assert_eq!(
             state.contexts(MAIN_WINDOW),
             vec![("cluster-1".to_string(), Some("staging".to_string()))]
@@ -714,13 +976,16 @@ mod tests {
         let state = AppState::default();
         state.open("cluster-1", Some("staging".into()));
         let first = state.session("cluster-1");
+        let other = state.connect("cluster-1", Some("prod".into()));
         // The window opening: nothing changes.
         assert!(state.page_load("cluster-1").is_none());
         assert!(Arc::ptr_eq(&first, &state.session("cluster-1")));
         assert!(!first.is_closed());
-        // A reload: the old session is closed, the new one is live.
+        // A reload: the old sessions are closed, the new one is live.
         assert!(state.page_load("cluster-1").is_some());
         assert!(first.is_closed());
+        assert!(other.is_closed());
+        assert!(state.cluster("cluster-1", "prod").is_closed());
         let second = state.session("cluster-1");
         assert!(!Arc::ptr_eq(&first, &second));
         assert!(!second.is_closed());
@@ -761,20 +1026,24 @@ mod tests {
     }
 
     #[test]
-    fn closing_a_window_stops_only_its_session() {
+    fn closing_a_window_stops_all_its_sessions_and_only_those() {
         let state = AppState::default();
         let a = state.session(MAIN_WINDOW);
         state.open("cluster-1", None);
         let b = state.session("cluster-1");
+        let c = state.connect("cluster-1", Some("other".into()));
         let (wa, wb) = (forever(), forever());
         a.add_watch("w1".into(), wa);
         b.add_watch("w2".into(), wb);
         b.add_drain("d1".into(), forever());
         b.log_streams.start(1, forever).unwrap();
+        c.add_watch("w3".into(), forever());
 
         state.close("cluster-1");
         assert!(b.is_closed());
+        assert!(c.is_closed());
         assert!(b.watches.lock().unwrap().is_empty());
+        assert!(c.watches.lock().unwrap().is_empty());
         assert!(b.drains.lock().unwrap().is_empty());
         assert_eq!(b.log_streams.running(), 0);
         assert_eq!(a.watches.lock().unwrap().len(), 1);
@@ -789,6 +1058,9 @@ mod tests {
         state.close("cluster-2");
         let late = state.session("cluster-2");
         assert!(late.is_closed());
+        assert!(state.cluster("cluster-2", "x").is_closed());
+        assert!(state.connect("cluster-2", Some("x".into())).is_closed());
+        assert!(state.switch("cluster-2", Some("x".into())).is_empty());
         // What a command still in flight adds is stopped, not kept.
         late.add_watch("w".into(), forever());
         assert!(late.watches.lock().unwrap().is_empty());
@@ -840,11 +1112,14 @@ mod tests {
 
     #[test]
     fn switching_context_hands_back_the_terminals_to_close() {
-        let session = ClusterSession::new(Some("a".into()), Default::default());
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
         let (s, typed) = shell(true);
-        assert!(session.add_exec("exec-1".into(), s).is_none());
-        let stopped = tauri::async_runtime::block_on(session.set_context(None));
-        assert!(session.exec_sessions.lock().unwrap().is_empty());
+        assert!(state
+            .session("cluster-1")
+            .add_exec("exec-1".into(), s)
+            .is_none());
+        let stopped = state.switch("cluster-1", None);
         assert_eq!(stopped.len(), 1);
         tauri::async_runtime::block_on(async {
             for s in stopped {
@@ -855,10 +1130,12 @@ mod tests {
     }
 
     #[test]
-    fn switching_context_stops_everything_and_forgets_the_cluster() {
-        let session = ClusterSession::new(Some("a".into()), Default::default());
-        session.add_watch("w".into(), forever());
-        session.access.put(
+    fn switching_context_starts_the_new_cluster_from_nothing() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let a = state.session("cluster-1");
+        a.add_watch("w".into(), forever());
+        a.access.put(
             nauvi::action_access::Permission {
                 verb: "delete",
                 group: "apps".into(),
@@ -868,15 +1145,14 @@ mod tests {
             },
             false,
         );
-        tauri::async_runtime::block_on(session.set_context(Some("b".into())));
-        assert!(
-            session.access.is_empty(),
-            "access answers are of the old context"
-        );
-        assert!(session.watches.lock().unwrap().is_empty());
-        assert!(session.usage.lock().unwrap().is_empty());
-        assert!(session.kinds.lock().unwrap().is_empty());
-        assert_eq!(session.selected_context().as_deref(), Some("b"));
-        assert!(!session.is_closed());
+        state.switch("cluster-1", Some("b".into()));
+        let b = state.session("cluster-1");
+        assert!(b.access.is_empty(), "access answers are of the old context");
+        assert!(b.watches.lock().unwrap().is_empty());
+        assert!(b.usage.lock().unwrap().is_empty());
+        assert!(b.kinds.lock().unwrap().is_empty());
+        assert_eq!(b.selected_context().as_deref(), Some("b"));
+        assert!(!b.is_closed());
+        assert!(a.watches.lock().unwrap().is_empty());
     }
 }

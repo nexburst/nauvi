@@ -24,20 +24,16 @@ pub(crate) fn now_ms() -> u64 {
 }
 
 /// Record what a metrics poll returned and give back the sparklines of those
-/// pods or nodes, with when their history starts (0 = none). `ctx` is the
-/// context they were fetched from: if it changed meanwhile, nothing is
-/// recorded, so one cluster's pods never land in another's history.
+/// pods or nodes, with when their history starts (0 = none). A session's
+/// context never changes, so one cluster's pods never land in another's
+/// history.
 pub(crate) fn record(
     state: &ClusterSession,
-    ctx: &Option<String>,
     pods: &[PodUsage],
     nodes: &[NodeUsage],
 ) -> (HashMap<String, Spark>, u64) {
     let now = now_ms();
     let mut history = state.usage.lock().unwrap();
-    if *state.context.lock().unwrap() != *ctx {
-        return (HashMap::new(), 0);
-    }
     if !pods.is_empty() {
         history.record_pods(now, pods);
         let keys: Vec<String> = pods
@@ -117,7 +113,6 @@ pub(crate) async fn cmd_usage_history(
         // Hidden for this cluster (#327): nothing is sampled or asked.
         return Ok(UsageHistoryView::hidden());
     }
-    let ctx = cluster.selected_context();
     let client = cluster.client().await?;
     let pod = matches!(what, MetricsKind::Pods);
     let ns = if pod { namespace.as_deref() } else { None };
@@ -134,12 +129,12 @@ pub(crate) async fn cmd_usage_history(
         match ns {
             Some(ns) => {
                 if let Ok(Some(u)) = get_one_pod_metrics(&client, ns, &name).await {
-                    record(&cluster, &ctx, &[u], &[]);
+                    record(&cluster, &[u], &[]);
                 }
             }
             None => {
                 if let Ok(Some(u)) = get_one_node_metrics(&client, &name).await {
-                    record(&cluster, &ctx, &[], &[u]);
+                    record(&cluster, &[], &[u]);
                 }
             }
         }

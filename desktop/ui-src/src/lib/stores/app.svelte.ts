@@ -336,6 +336,8 @@ export async function startApp() {
   if (remembered) {
     try {
       await api(visibleCluster()).cmdSetContext(remembered);
+      // The window shows another cluster now (ADR 0007): ask that one.
+      setVisibleCluster(remembered);
       await loadContexts();
     } catch {
       // Stay on the kubeconfig's current-context.
@@ -380,6 +382,10 @@ export async function switchContext(name: string) {
     showError("Could not switch context: " + e);
     return;
   }
+  // The window shows another cluster now, in a session of its own (ADR
+  // 0007); `""` (the current-context) names the one shown until the
+  // contexts are loaded again below.
+  setVisibleCluster(name);
   // The backend has stopped every stream and session this window started
   // in the old context; other windows keep theirs.
   closeAllDockTabs();
