@@ -1,4 +1,5 @@
-import { commands, events } from "../bindings";
+import { events } from "../bindings";
+import { api, visibleCluster } from "../cluster";
 import { thisWindow } from "../window";
 import type { WatchBatch, WatchStateChanged } from "../bindings";
 import type { MetricsKind, MetricsSnapshot, ResourceKind } from "../bindings";
@@ -164,7 +165,7 @@ export class LiveTable {
     this.#watches.set(key, w);
     let id: string;
     try {
-      id = await commands.cmdWatchStart(kind.resource, namespace);
+      id = await api(visibleCluster()).cmdWatchStart(kind.resource, namespace);
     } catch (e) {
       if (this.#watches.get(key) !== w) return;
       w.starting = false;
@@ -181,7 +182,7 @@ export class LiveTable {
     }
     if (this.#watches.get(key) !== w) {
       // Stopped (or the table restarted) while starting.
-      commands.cmdWatchStop(id).catch(() => {});
+      api(visibleCluster()).cmdWatchStop(id).catch(() => {});
       if (!this.#anyStarting()) this.#pending = [];
       return;
     }
@@ -199,7 +200,7 @@ export class LiveTable {
     if (this.#watches.get(w.key) === w) this.#watches.delete(w.key);
     if (w.id) {
       this.#byId.delete(w.id);
-      commands.cmdWatchStop(w.id).catch(() => {});
+      api(visibleCluster()).cmdWatchStop(w.id).catch(() => {});
     }
   }
 
@@ -235,7 +236,7 @@ export class LiveTable {
     // Nodes' root filesystems from Prometheus (#225), for the Disk column:
     // merged when they arrive, so a slow Prometheus never holds up CPU and memory.
     if (what === "nodes") void this.#loadDisks(token);
-    const results = await Promise.allSettled(scopes.map((ns) => commands.cmdGetMetrics(ns, what)));
+    const results = await Promise.allSettled(scopes.map((ns) => api(visibleCluster()).cmdGetMetrics(ns, what)));
     if (token !== this.#token) return;
     // Metrics are best effort; the tables show "—" without them.
     const snaps = results
@@ -253,7 +254,7 @@ export class LiveTable {
   }
 
   async #loadDisks(token: number) {
-    const view = await commands.cmdNodeDiskUsage().catch(() => null);
+    const view = await api(visibleCluster()).cmdNodeDiskUsage().catch(() => null);
     if (token !== this.#token) return;
     this.metrics = { ...this.metrics, disks: new Map((view?.nodes ?? []).map((d) => [d.name, d] as const)) };
   }

@@ -13,7 +13,7 @@
 
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { commands } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import type { DataEncoding, DataEntry, RevealedValue } from "../bindings";
   import { changesOf, draftId, isBase64, keyError, sizeText, summaryOf, withValue } from "../dataEdit";
   import { currentContextName } from "../stores/app.svelte";
@@ -77,7 +77,7 @@
   async function load() {
     loadError = "";
     try {
-      const d = await commands.cmdGetDataEntries(target.resource, target.namespace, target.name);
+      const d = await api(visibleCluster()).cmdGetDataEntries(target.resource, target.namespace, target.name);
       entries = d.entries;
       resourceVersion = d.resource_version;
       immutable = d.immutable;
@@ -110,7 +110,7 @@
     const known = shown(e);
     if (known) return known;
     try {
-      return await commands.cmdRevealDataValue(target.resource, target.namespace, target.name, e.key);
+      return await api(visibleCluster()).cmdRevealDataValue(target.resource, target.namespace, target.name, e.key);
     } catch (err) {
       error = `Could not read "${e.key}": ${err}`;
       // The list may be stale (the key removed meanwhile): refresh it.
@@ -231,7 +231,7 @@
     status = "Saving…";
     const changes = changesOf(edits);
     try {
-      const res = await commands.cmdPatchData(target.resource, target.namespace, target.name, changes, rv);
+      const res = await api(visibleCluster()).cmdPatchData(target.resource, target.namespace, target.name, changes, rv);
       if (res.outcome === "conflict") {
         status = "";
         conflict = true;
@@ -280,7 +280,7 @@
       if (d) resourceVersion = d.resourceVersion;
     });
     let live = true;
-    commands
+    api(visibleCluster())
       .cmdCheckActions(target.resource, target.namespace, ["edit"])
       .then((list) => {
         const a = list.find((x) => x.id === "edit");

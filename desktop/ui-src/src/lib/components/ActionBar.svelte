@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import ActionIcon from "./ActionIcon.svelte";
-  import { commands } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import type { ActionAccess } from "../bindings";
   import { panelActions } from "../actions";
   import type { PanelAction } from "../actions";
@@ -38,7 +38,7 @@
     prefetchLink(target.resource, target.namespace, target.name);
     let live = true;
     const ids = items.map((a) => a.id).filter((id) => id !== "link");
-    commands
+    api(visibleCluster())
       .cmdCheckActions(target.resource, target.namespace, ids)
       .then((list) => {
         if (live) access = new Map(list.map((a) => [a.id, a]));

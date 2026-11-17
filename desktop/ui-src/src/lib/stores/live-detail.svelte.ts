@@ -1,4 +1,5 @@
-import { commands, events } from "../bindings";
+import { events } from "../bindings";
+import { api, visibleCluster } from "../cluster";
 import { thisWindow } from "../window";
 import type { DetailWatchEvent, ResourceDetail } from "../bindings";
 import type { Target } from "./detail.svelte";
@@ -40,12 +41,12 @@ export class LiveDetail {
     this.#unlisten = un;
 
     const [detail, watch] = await Promise.allSettled([
-      commands.cmdGetResourceDetail(t.resource, t.namespace, t.name),
-      commands.cmdDetailWatch(t.resource, t.namespace, t.name),
+      api(visibleCluster()).cmdGetResourceDetail(t.resource, t.namespace, t.name),
+      api(visibleCluster()).cmdDetailWatch(t.resource, t.namespace, t.name),
     ]);
     if (watch.status === "fulfilled") {
       if (this.#stopped) {
-        commands.cmdWatchStop(watch.value).catch(() => {});
+        api(visibleCluster()).cmdWatchStop(watch.value).catch(() => {});
       } else {
         this.#watchId = watch.value;
       }
@@ -92,7 +93,7 @@ export class LiveDetail {
     this.#buffer = [];
     this.#unlisten?.();
     this.#unlisten = null;
-    if (this.#watchId) commands.cmdWatchStop(this.#watchId).catch(() => {});
+    if (this.#watchId) api(visibleCluster()).cmdWatchStop(this.#watchId).catch(() => {});
     this.#watchId = null;
   }
 }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import CodeEditor from "./editor/CodeEditor.svelte";
-  import { commands } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import type { ApplyResult } from "../bindings";
   import { createUi, closeCreate } from "../stores/create.svelte";
   import { kindOf, loadKinds, openObject } from "../stores/app.svelte";
@@ -54,7 +54,7 @@
     markAt = null;
     status = dryRun ? "Validating…" : "Creating…";
     try {
-      const res = await commands.cmdApplyManifests(text, createUi.namespace, dryRun, skipInvalid);
+      const res = await api(visibleCluster()).cmdApplyManifests(text, createUi.namespace, dryRun, skipInvalid);
       results = res;
       resultsDryRun = dryRun;
       summary = summarize(res, dryRun);

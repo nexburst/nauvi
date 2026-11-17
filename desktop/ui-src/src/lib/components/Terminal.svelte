@@ -1,5 +1,6 @@
 <script module lang="ts">
   import { commands } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import type { PodRef } from "../stores/detail.svelte";
   import { orderedInput } from "../orderedInput";
 
@@ -42,30 +43,30 @@
         start: async (cols, rows) => ({
           id:
             t.kind === "debug"
-              ? await commands.cmdDebugStart(pending, t.pod.namespace, t.pod.name, t.target, t.image, cols, rows)
-              : await commands.cmdNodeShellStart(pending, t.node, t.namespace, cols, rows),
+              ? await api(visibleCluster()).cmdDebugStart(pending, t.pod.namespace, t.pod.name, t.target, t.image, cols, rows)
+              : await api(visibleCluster()).cmdNodeShellStart(pending, t.node, t.namespace, cols, rows),
           intro: "",
         }),
-        input: commands.cmdExecInput,
-        resize: commands.cmdExecResize,
-        close: commands.cmdExecClose,
+        input: api(visibleCluster()).cmdExecInput,
+        resize: api(visibleCluster()).cmdExecResize,
+        close: api(visibleCluster()).cmdExecClose,
       };
     }
     if (t.kind === "pod" || t.kind === "attach") {
-      const start = t.kind === "pod" ? commands.cmdExecStart : commands.cmdAttachStart;
+      const start = t.kind === "pod" ? api(visibleCluster()).cmdExecStart : api(visibleCluster()).cmdAttachStart;
       return {
         start: async (cols, rows) => ({
           id: await start(t.pod.namespace, t.pod.name, t.container, cols, rows),
           intro: "",
         }),
-        input: commands.cmdExecInput,
-        resize: commands.cmdExecResize,
-        close: commands.cmdExecClose,
+        input: api(visibleCluster()).cmdExecInput,
+        resize: api(visibleCluster()).cmdExecResize,
+        close: api(visibleCluster()).cmdExecClose,
       };
     }
     return {
       start: async (cols, rows) => {
-        const s = await commands.cmdLocalShellStart(t.namespace, cols, rows);
+        const s = await api(visibleCluster()).cmdLocalShellStart(t.namespace, cols, rows);
         return {
           id: s.session,
           intro:
@@ -73,9 +74,9 @@
             "Changing the app's namespace or context does not change this shell.\x1b[0m\r\n",
         };
       },
-      input: commands.cmdLocalShellInput,
-      resize: commands.cmdLocalShellResize,
-      close: commands.cmdLocalShellClose,
+      input: api(visibleCluster()).cmdLocalShellInput,
+      resize: api(visibleCluster()).cmdLocalShellResize,
+      close: api(visibleCluster()).cmdLocalShellClose,
     };
   }
 </script>

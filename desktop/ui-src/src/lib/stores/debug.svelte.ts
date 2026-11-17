@@ -2,7 +2,7 @@
 // container in a dock tab), node shells, and the start-up offer to delete
 // node shell pods left behind.
 
-import { commands } from "../bindings";
+import { api, visibleCluster } from "../cluster";
 import type { NodeShellPod } from "../bindings";
 import { DEFAULT_DEBUG_IMAGE, NODE_SHELL_NAMESPACE, debugTargets, validImage } from "../debug";
 import type { PodTabRef } from "../dock";
@@ -29,7 +29,7 @@ export function openDebugDialog(pod: PodTabRef) {
   debugDialog.target = "";
   debugDialog.image = DEFAULT_DEBUG_IMAGE;
   debugDialog.loading = true;
-  commands
+  api(visibleCluster())
     .cmdGetResourceDetail(pod.resource, pod.namespace, pod.name)
     .then((d) => {
       if (seq !== opened || !debugDialog.pod) return;
@@ -74,7 +74,7 @@ export const leftovers = $state({ pods: [] as NodeShellPod[], busy: false });
 
 export async function checkLeftovers() {
   try {
-    leftovers.pods = await commands.cmdNodeShellLeftovers();
+    leftovers.pods = await api(visibleCluster()).cmdNodeShellLeftovers();
   } catch {
     leftovers.pods = [];
   }
@@ -83,7 +83,7 @@ export async function checkLeftovers() {
 export async function cleanUpLeftovers() {
   leftovers.busy = true;
   try {
-    const n = await commands.cmdNodeShellCleanup();
+    const n = await api(visibleCluster()).cmdNodeShellCleanup();
     setNotice(true, n === 1 ? "Deleted 1 node shell pod" : `Deleted ${n} node shell pods`);
   } catch (e) {
     setNotice(false, `Could not delete the node shell pods: ${e}`);

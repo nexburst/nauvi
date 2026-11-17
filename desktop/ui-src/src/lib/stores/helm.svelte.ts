@@ -2,6 +2,8 @@
 // (decoded lazily), the selected release and the rollback/uninstall dialog.
 
 import { commands } from "../bindings";
+
+import { api, visibleCluster } from "../cluster";
 import type { HelmChartInfo, HelmReleaseRow, HelmStorage } from "../bindings";
 import { chartKeys, releaseKey } from "../helm";
 import { setNotice } from "./actions.svelte";
@@ -54,7 +56,7 @@ export async function loadReleases(namespaces: readonly string[]) {
   const gen = ++generation;
   let list;
   try {
-    list = await commands.cmdHelmList([...namespaces]);
+    list = await api(visibleCluster()).cmdHelmList([...namespaces]);
   } catch (e) {
     if (gen !== generation) return;
     helm.error = String(e);
@@ -79,7 +81,7 @@ async function loadCharts(gen: number) {
   if (missing.length === 0) return;
   let charts: HelmChartInfo[];
   try {
-    charts = await commands.cmdHelmCharts(chartKeys(missing));
+    charts = await api(visibleCluster()).cmdHelmCharts(chartKeys(missing));
   } catch {
     // The columns stay empty; the detail shows the chart anyway.
     return;
@@ -140,8 +142,8 @@ export async function confirmHelmAction(namespaces: readonly string[]) {
   try {
     const msg =
       req.action === "rollback"
-        ? await commands.cmdHelmRollback(req.namespace, req.name, req.revision, req.storage)
-        : await commands.cmdHelmUninstall(req.namespace, req.name, req.storage);
+        ? await api(visibleCluster()).cmdHelmRollback(req.namespace, req.name, req.revision, req.storage)
+        : await api(visibleCluster()).cmdHelmUninstall(req.namespace, req.name, req.storage);
     helm.busy = false;
     helm.request = null;
     if (req.action === "uninstall" && helm.selected && releaseKey(helm.selected) === releaseKey(req)) {

@@ -6,6 +6,7 @@
 
 import { untrack } from "svelte";
 import { commands, events } from "../bindings";
+import { api, visibleCluster } from "../cluster";
 import type { LinkRequest, ObjectLink, ResourceRef } from "../bindings";
 import { linkKind, linkProblem } from "../links";
 import { thisWindow } from "../window";
@@ -34,7 +35,7 @@ const linkKey = (resource: ResourceRef, namespace: string, name: string) =>
 export function prefetchLink(resource: ResourceRef, namespace: string, name: string) {
   const key = linkKey(resource, namespace, name);
   if (known.has(key)) return;
-  commands
+  api(visibleCluster())
     .cmdObjectLink(resource, namespace, name)
     .then((url) => {
       if (known.size >= KNOWN_MAX) known.delete(known.keys().next().value!);
@@ -48,7 +49,7 @@ export async function copyLink(resource: ResourceRef, namespace: string, name: s
   let url = known.get(linkKey(resource, namespace, name));
   if (url === undefined) {
     try {
-      url = await commands.cmdObjectLink(resource, namespace, name);
+      url = await api(visibleCluster()).cmdObjectLink(resource, namespace, name);
     } catch (e) {
       setNotice(false, String(e));
       return;

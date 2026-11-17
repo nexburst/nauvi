@@ -556,7 +556,12 @@ impl WindowEmitter {
 
 /// The calling window's session, injected into commands like `State`. It
 /// derefs to the [`ClusterSession`]; [`Cluster::emitter`] sends events back
-/// to that window only. Not part of the TypeScript signatures.
+/// to that window only.
+///
+/// The call names its cluster: the invoke payload carries a `cluster` key,
+/// the first parameter of every cluster-scoped command in `bindings.ts`
+/// (ADR 0007). There is still one session per window, so for now the value
+/// is only required, not used to pick the session.
 pub(crate) struct Cluster {
     session: Arc<ClusterSession>,
     label: String,
@@ -591,6 +596,12 @@ impl Deref for Cluster {
 
 impl<'de> CommandArg<'de, tauri::Wry> for Cluster {
     fn from_command(command: CommandItem<'de, tauri::Wry>) -> Result<Self, InvokeError> {
+        // The cluster the UI meant (`api(id)` in `lib/cluster.ts`). Required,
+        // so a call that leaves it out fails loudly.
+        let _cluster = String::from_command(CommandItem {
+            key: CLUSTER_KEY,
+            ..command
+        })?;
         let webview = command.message.webview();
         let label = webview.label().to_string();
         let app = webview.app_handle().clone();
@@ -603,10 +614,14 @@ impl<'de> CommandArg<'de, tauri::Wry> for Cluster {
     }
 }
 
-/// Injected, like `State`: leave it out of the generated bindings.
+/// The payload key that names the cluster of a call.
+const CLUSTER_KEY: &str = "cluster";
+
+/// In the bindings as the `cluster: string` parameter. Every command names
+/// it `cluster` and takes it first; `lib/cluster.test.ts` checks both.
 impl specta::function::FunctionArg for Cluster {
-    fn to_datatype(_: &mut specta::Types) -> Option<specta::datatype::DataType> {
-        None
+    fn to_datatype(types: &mut specta::Types) -> Option<specta::datatype::DataType> {
+        Some(<String as specta::Type>::definition(types))
     }
 }
 

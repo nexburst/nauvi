@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { commands } from "../../bindings";
+  import { api, visibleCluster } from "../../cluster";
   import type { ActionAccess, MetricsAddonId } from "../../bindings";
   import { loadAddons, openMetricsInstall } from "../../stores/metricsInstall.svelte";
 
@@ -23,7 +23,7 @@
     void (async () => {
       try {
         const a = (await loadAddons()).find((x) => x.id === addon);
-        if (a) access = await commands.cmdMetricsAddonAccess(addon, a.namespace);
+        if (a) access = await api(visibleCluster()).cmdMetricsAddonAccess(addon, a.namespace);
       } catch {
         // Unknown: the dialog checks again, and the dry run asks the API server.
       }

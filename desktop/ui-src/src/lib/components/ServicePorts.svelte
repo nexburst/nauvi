@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { commands } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import type { ForwardTarget, ServicePortInfo } from "../bindings";
   import { sameTarget } from "../forwards";
   import { forwards, openForward, pollForwards, startForward } from "../stores/forwards.svelte";
@@ -20,7 +20,7 @@
 
   onMount(async () => {
     try {
-      ports = await commands.cmdServicePorts(namespace, name);
+      ports = await api(visibleCluster()).cmdServicePorts(namespace, name);
     } catch (e) {
       error = String(e);
     }

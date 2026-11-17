@@ -111,6 +111,26 @@ function waitForPort(port, timeoutMs) {
   });
 }
 
+/** Resolves once nothing accepts connections on `port` (or after `timeoutMs`). */
+function waitForPortFree(port, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolvePromise) => {
+    const attempt = () => {
+      const sock = connect(port, "127.0.0.1");
+      sock.once("connect", () => {
+        sock.destroy();
+        if (Date.now() > deadline) resolvePromise();
+        else setTimeout(attempt, 200);
+      });
+      sock.once("error", () => {
+        sock.destroy();
+        resolvePromise();
+      });
+    };
+    attempt();
+  });
+}
+
 /**
  * Start tauri-driver and open a session, which launches the app. `name`
  * prefixes the log and screenshot files.
@@ -191,8 +211,13 @@ async function startSession(name, opts) {
     driverProc.stderr.destroy();
     log.end();
     if (kubeconfig) rmSync(kubeconfig.dir, { recursive: true, force: true });
-    // Let the ports go before a restart binds them again.
+    // Let the ports go before a restart binds them again. On Windows taskkill
+    // returns before the old msedgedriver has let go of the native port: the
+    // new one then fails to bind it while the old one still answers, and the
+    // session ends in ECONNRESET.
     await sleep(300);
+    await waitForPortFree(port + 1, 10_000);
+    await waitForPortFree(port, 10_000);
   };
 
   try {

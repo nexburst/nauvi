@@ -7,12 +7,20 @@
 import type { commands } from "../../lib/bindings";
 import { events } from "../../lib/bindings";
 import type { LinkRequest, ResourceKind, ResourceRef, ResourceRow } from "../../lib/bindings";
+import type { ClusterCommand } from "../../lib/cluster";
 import type { FakeCluster } from "../fixtures/cluster";
 
 type Commands = typeof commands;
 export type CommandName = keyof Commands;
 type Result<K extends CommandName> = Awaited<ReturnType<Commands[K]>>;
-type Handler<K extends CommandName> = (...args: Parameters<Commands[K]>) => Result<K> | Promise<Result<K>>;
+/** A command's parameters without its `cluster` (ADR 0007): the fake has one
+ *  cluster, and `fake-backend.ts` checks that the value is there. */
+type Args<K extends CommandName> = K extends ClusterCommand
+  ? Parameters<Commands[K]> extends [string, ...infer A]
+    ? A
+    : never
+  : Parameters<Commands[K]>;
+type Handler<K extends CommandName> = (...args: Args<K>) => Result<K> | Promise<Result<K>>;
 /** Every command must have a handler: a new command breaks `npm run check` in `index.ts`. */
 export type Handlers = { [K in CommandName]: Handler<K> };
 /** The handlers of one area (`satisfies AreaHandlers` types their arguments). */

@@ -5,7 +5,8 @@
 
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import { commands, events } from "../bindings";
+  import { events } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import { thisWindow } from "../window";
   import type { EventInfo, Overview_Serialize, OverviewStateChanged } from "../bindings";
   import { app, kinds, openObject, primaryNamespace, setStatus, showError, stamp } from "../stores/app.svelte";
@@ -76,7 +77,7 @@
     retry = null;
     const id = feed;
     feed = 0;
-    if (id) commands.cmdOverviewStop(id).catch(() => {});
+    if (id) api(visibleCluster()).cmdOverviewStop(id).catch(() => {});
   }
 
   async function start(namespace: string) {
@@ -90,7 +91,7 @@
     if (feed !== id) return;
     try {
       // Parts the user may not see cluster-wide fall back to this namespace.
-      await commands.cmdOverviewStart(id, namespace || null);
+      await api(visibleCluster()).cmdOverviewStart(id, namespace || null);
     } catch (e) {
       if (feed !== id) return;
       const err = clusterError(e);

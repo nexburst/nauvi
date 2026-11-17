@@ -6,6 +6,7 @@
   import { onDestroy, onMount, tick } from "svelte";
   import VirtualList from "./VirtualList.svelte";
   import { commands, events } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import { thisWindow } from "../window";
   import type { LogContainer, WorkloadNotice } from "../bindings";
   import {
@@ -491,7 +492,7 @@
     const old = streaming ? streamId : null;
     streamId = ++streamCounter;
     streaming = true;
-    if (old !== null) await commands.cmdStopLogs(old).catch(() => {});
+    if (old !== null) await api(visibleCluster()).cmdStopLogs(old).catch(() => {});
     podStates = {};
     containersByPod.clear();
     tagInfoCache = new Map();
@@ -499,7 +500,7 @@
     truncatedNote = "";
     try {
       if (workload) {
-        await commands.cmdStreamWorkloadLogs(
+        await api(visibleCluster()).cmdStreamWorkloadLogs(
           workload.kind,
           workload.namespace,
           workload.name,
@@ -517,7 +518,7 @@
       if (container === ALL_CONTAINERS) {
         // Merged by the workload tracker; previous logs are per container.
         previous = false;
-        await commands.cmdStreamPodAllLogs(
+        await api(visibleCluster()).cmdStreamPodAllLogs(
           pod.namespace,
           pod.name,
           {
@@ -530,7 +531,7 @@
         );
         return;
       }
-      await commands.cmdStreamPodLogs(
+      await api(visibleCluster()).cmdStreamPodLogs(
         pod.namespace,
         pod.name,
         container || null,
@@ -747,7 +748,7 @@
     const ownStream = streamId;
     streamId = ++streamCounter;
     // Stops this tab's stream only; the other tabs keep theirs.
-    if (streaming) commands.cmdStopLogs(ownStream).catch(() => {});
+    if (streaming) api(visibleCluster()).cmdStopLogs(ownStream).catch(() => {});
   });
 
   // A tab that is shown again renders what arrived while it was hidden.

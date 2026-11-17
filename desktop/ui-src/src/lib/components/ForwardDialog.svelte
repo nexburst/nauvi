@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { commands } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import type { ServicePortInfo } from "../bindings";
   import { forwardLabel } from "../forwards";
   import { closeForwardDialog, confirmForwardDialog, forwardDialog } from "../stores/forwards.svelte";
@@ -15,7 +15,7 @@
     const t = target;
     servicePorts = [];
     if (!t || t.kind !== "service") return;
-    commands
+    api(visibleCluster())
       .cmdServicePorts(t.namespace, t.name)
       .then((ports) => {
         if (forwardDialog.target !== t) return;
