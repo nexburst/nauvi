@@ -57,7 +57,7 @@ async fn server_version(cluster: &Cluster, secs: u64) -> Result<KubeVersion, Str
         client.apiserver_version().await.map_err(|e| {
             format!(
                 "cannot read the API server's version: {}",
-                nauvi::error_text(&e)
+                nauvi::errors::chain_text(&e)
             )
         })
     };
@@ -199,7 +199,13 @@ mod tests {
     #[test]
     fn offers_the_servers_version_when_the_skew_is_too_large() {
         let linux = Platform::of("linux", "x86_64");
-        let m = offer(Ok(v("v1.31.2+k3s1")), Some(v("v1.28.0")), linux.clone(), false, url);
+        let m = offer(
+            Ok(v("v1.31.2+k3s1")),
+            Some(v("v1.28.0")),
+            linux.clone(),
+            false,
+            url,
+        );
         assert!(m.enabled && m.skew && !m.downloaded);
         assert_eq!(m.server, "v1.31.2");
         assert_eq!(m.installed, "v1.28.0");
@@ -209,7 +215,13 @@ mod tests {
         );
         assert_eq!(m.note, "");
 
-        let m = offer(Ok(v("v1.31.2")), Some(v("v1.30.0")), linux.clone(), false, url);
+        let m = offer(
+            Ok(v("v1.31.2")),
+            Some(v("v1.30.0")),
+            linux.clone(),
+            false,
+            url,
+        );
         assert!(!m.skew);
         let m = offer(Ok(v("v1.31.2")), None, linux, true, url);
         assert!(m.skew && m.downloaded && m.installed.is_empty());

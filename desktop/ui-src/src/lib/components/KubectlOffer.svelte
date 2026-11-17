@@ -11,7 +11,7 @@
   /** The downloaded kubectl this shell uses (`""`: the user's own). */
   let { used }: { used: string } = $props();
 
-  let state = $state.raw<OfferState>({ kind: "none" });
+  let offer = $state.raw<OfferState>({ kind: "none" });
   let busy = $state(false);
   let error = $state("");
   let done = $state("");
@@ -20,9 +20,9 @@
   onMount(async () => {
     if (!settings.current.kubectl_match) return;
     try {
-      state = offerState(await api(visibleCluster()).cmdKubectlMatch(), used);
+      offer = offerState(await api(visibleCluster()).cmdKubectlMatch(), used);
     } catch (e) {
-      state = { kind: "note", text: `No matching kubectl to offer: ${e}` };
+      offer = { kind: "note", text: `No matching kubectl to offer: ${e}` };
     }
   });
 
@@ -40,26 +40,26 @@
   }
 </script>
 
-{#if state.kind !== "none" && !dismissed}
+{#if offer.kind !== "none" && !dismissed}
   <div class="offer" class:fail={!!error} data-testid="kubectl-offer" role={error ? "alert" : "status"}>
     <span class="text">
       {#if done}
         {done}
       {:else if busy}
-        Downloading kubectl {state.kind === "offer" ? state.version : ""} from dl.k8s.io and checking its SHA-256…
+        Downloading kubectl {offer.kind === "offer" ? offer.version : ""} from dl.k8s.io and checking its SHA-256…
       {:else if error}
         {error}
       {:else}
-        {state.text}
-        {#if state.kind === "offer"}<span class="url" title={state.url}>{state.url}</span>{/if}
+        {offer.text}
+        {#if offer.kind === "offer"}<span class="url" title={offer.url}>{offer.url}</span>{/if}
       {/if}
     </span>
     <span class="buttons">
-      {#if done || state.kind === "ready"}
+      {#if done || offer.kind === "ready"}
         <button type="button" class="btn" onclick={() => openLocalShell()}>Open a new local terminal</button>
-      {:else if state.kind === "offer"}
+      {:else if offer.kind === "offer"}
         <button type="button" class="btn primary" disabled={busy} onclick={download}>
-          {error ? "Try again" : `Download kubectl ${state.version}`}
+          {error ? "Try again" : `Download kubectl ${offer.version}`}
         </button>
       {/if}
       <button type="button" class="x" aria-label="Dismiss" onclick={() => (dismissed = true)}>✕</button>

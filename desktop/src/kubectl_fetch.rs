@@ -43,9 +43,10 @@ fn base_from(
     };
     let base = DownloadBase::parse(&base).map_err(|e| format!("{BASE_ENV}: {e}"))?;
     let ca = match ca.filter(|c| !c.is_empty()) {
-        Some(path) => Some(std::fs::read(&path).map_err(|e| {
-            format!("{CA_ENV}: cannot read {}: {e}", path.to_string_lossy())
-        })?),
+        Some(path) => Some(
+            std::fs::read(&path)
+                .map_err(|e| format!("{CA_ENV}: cannot read {}: {e}", path.to_string_lossy()))?,
+        ),
         None => None,
     };
     Ok((base, ca))
@@ -76,16 +77,16 @@ impl HttpsFetch {
         let redirects = reqwest::redirect::Policy::custom(move |attempt| {
             let url = attempt.url();
             let ok = url.scheme() == "https"
-                && url.host_str().is_some_and(|h| allowed.iter().any(|a| a == h));
+                && url
+                    .host_str()
+                    .is_some_and(|h| allowed.iter().any(|a| a == h));
+            let shown = redact_credentials(url.as_str());
             if attempt.previous().len() >= 5 {
                 attempt.error("too many redirects")
             } else if ok {
                 attempt.follow()
             } else {
-                attempt.error(format!(
-                    "refused a redirect to {}",
-                    redact_credentials(url.as_str())
-                ))
+                attempt.error(format!("refused a redirect to {shown}"))
             }
         });
         let mut builder = reqwest::Client::builder()
@@ -127,15 +128,21 @@ impl Fetch for HttpsFetch {
         let mut resp = self.client.get(url).send().await.map_err(fail)?;
         let status = resp.status();
         if !status.is_success() {
-            return Err(format!("Could not download {url}: the server answered {status}."));
+            return Err(format!(
+                "Could not download {url}: the server answered {status}."
+            ));
         }
         if resp.content_length().is_some_and(|n| n > max) {
-            return Err(format!("{url} is larger than expected; it was not downloaded."));
+            return Err(format!(
+                "{url} is larger than expected; it was not downloaded."
+            ));
         }
         let mut body = Vec::new();
         while let Some(chunk) = resp.chunk().await.map_err(fail)? {
             if (body.len() + chunk.len()) as u64 > max {
-                return Err(format!("{url} is larger than expected; it was not downloaded."));
+                return Err(format!(
+                    "{url} is larger than expected; it was not downloaded."
+                ));
             }
             body.extend_from_slice(&chunk);
         }
@@ -181,10 +188,16 @@ mod tests {
         let fetch = HttpsFetch::new(&DownloadBase::official(), None, None).unwrap();
         // Refused before connecting: nothing listens there.
         let e = fetch
-            .get("http://127.0.0.1:9/release/v1.31.2/bin/linux/amd64/kubectl", 10)
+            .get(
+                "http://127.0.0.1:9/release/v1.31.2/bin/linux/amd64/kubectl",
+                10,
+            )
             .await
             .unwrap_err();
         assert!(e.contains("Could not download"), "{e}");
-        assert!(e.to_lowercase().contains("https") || e.contains("scheme"), "{e}");
+        assert!(
+            e.to_lowercase().contains("https") || e.contains("scheme"),
+            "{e}"
+        );
     }
 }

@@ -150,7 +150,11 @@ impl Platform {
         let arch = match arch {
             "x86_64" => "amd64",
             "aarch64" => "arm64",
-            other => return Err(format!("kubectl downloads are not offered for {other} CPUs.")),
+            other => {
+                return Err(format!(
+                    "kubectl downloads are not offered for {other} CPUs."
+                ))
+            }
         };
         Ok(Platform { os, arch })
     }
@@ -192,7 +196,9 @@ impl DownloadBase {
     pub fn parse(text: &str) -> Result<Self, String> {
         let text = text.trim().trim_end_matches('/');
         let Some(rest) = text.strip_prefix("https://") else {
-            return Err(format!("A kubectl download address must be https://, not {text:?}."));
+            return Err(format!(
+                "A kubectl download address must be https://, not {text:?}."
+            ));
         };
         let authority: http::uri::Authority = rest
             .parse()
@@ -306,12 +312,8 @@ pub async fn download(
         .await?;
     verify_sha256(&binary, &expected)?;
     let dir = version_dir(data_dir, version);
-    install(&dir, platform.binary_name(), &binary).map_err(|e| {
-        format!(
-            "Could not save kubectl {version} in {}: {e}",
-            dir.display()
-        )
-    })
+    install(&dir, platform.binary_name(), &binary)
+        .map_err(|e| format!("Could not save kubectl {version} in {}: {e}", dir.display()))
 }
 
 /// Write `bytes` to `dir/name` atomically: a new private temp file in
@@ -507,7 +509,13 @@ mod tests {
         assert!(verify_sha256(body, &sum).is_ok());
         let e = verify_sha256(b"kubectl, tampered", &sum).unwrap_err();
         assert!(e.contains("does not match"), "{e}");
-        for bad in ["", "abc", &"g".repeat(64), "<html>404</html>", &"a".repeat(65)] {
+        for bad in [
+            "",
+            "abc",
+            &"g".repeat(64),
+            "<html>404</html>",
+            &"a".repeat(65),
+        ] {
             assert!(parse_sha256(bad).is_err(), "{bad:?}");
         }
     }
@@ -518,11 +526,11 @@ mod tests {
         let joined = path_with_first(Path::new("/data/kubectl/v1.31.2"), Some(&path));
         let dirs: Vec<PathBuf> = std::env::split_paths(&joined).collect();
         assert_eq!(dirs[0], Path::new("/data/kubectl/v1.31.2"));
-        assert_eq!(dirs[1..], [PathBuf::from("/usr/bin"), PathBuf::from("/bin")]);
         assert_eq!(
-            path_with_first(Path::new("/d"), None),
-            OsString::from("/d")
+            dirs[1..],
+            [PathBuf::from("/usr/bin"), PathBuf::from("/bin")]
         );
+        assert_eq!(path_with_first(Path::new("/d"), None), OsString::from("/d"));
     }
 
     /// Serves fixed bodies by URL and records what was asked.
