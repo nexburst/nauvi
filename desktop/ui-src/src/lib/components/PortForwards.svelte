@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { forwardLabel, forwardRows, forwardState, plannedUrl, portsLabel, savedPortsLabel } from "../forwards";
+  import { forwardLabel, forwardRows, forwardsCount, forwardState, plannedUrl, portsLabel, savedPortsLabel } from "../forwards";
   import { app } from "../stores/app.svelte";
   import {
     copyForwardUrl,
@@ -23,10 +23,12 @@
   let starting = $state.raw<string[]>([]);
   const ELSEWHERE_HINT = "Running in another window: stop it there to start it here";
 
+  // Reads app.count too: clicking Port Forwards while it is shown clears it
+  // (setView) without remounting this view, and the next poll may be late
+  // in a background window (#320).
   $effect(() => {
-    const running = forwards.list.length;
-    const n = rows.length;
-    app.count = `${n === 1 ? "1 forward" : `${n} forwards`}, ${running} running`;
+    const text = forwardsCount(rows, forwards.elsewhere);
+    if (app.count !== text) app.count = text;
   });
 
   async function start(id: string) {
@@ -80,8 +82,8 @@
                 </div>
               {/if}
             </td>
-            <td class="mono">{f ? portsLabel(f) : s ? savedPortsLabel(s) : ""}</td>
-            <td class="mono">{url || "—"}</td>
+            <td class="mono nowrap" data-testid="forward-ports">{f ? portsLabel(f) : s ? savedPortsLabel(s) : ""}</td>
+            <td class="mono nowrap" data-testid="forward-url">{url || "—"}</td>
             <td class="mono">{f?.status.pod || "—"}</td>
             {#if f}
               {@const st = forwardState(f)}
@@ -179,6 +181,12 @@
   .mono {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     font-size: 12px;
+  }
+  /* Ports and URLs are short and must not break mid-number (#320); the
+     target and pod names take the wrapping instead. */
+  .nowrap {
+    white-space: nowrap;
+    word-break: normal;
   }
   .ok {
     color: var(--green);

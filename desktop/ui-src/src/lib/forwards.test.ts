@@ -4,6 +4,7 @@ import {
   forwardKindOf,
   forwardLabel,
   forwardRows,
+  forwardsCount,
   forwardState,
   isLocalUrl,
   parseLocalPort,
@@ -22,7 +23,10 @@ const ref = (group: string, kind: string): ResourceRef => ({
   namespaced: true,
 });
 
-function info(over: Partial<ForwardInfo> = {}, status: Partial<ForwardInfo["status"]> = {}): ForwardInfo {
+function info(
+  over: Partial<ForwardInfo> = {},
+  status: Partial<ForwardInfo["status"]> = {},
+): ForwardInfo {
   return {
     id: "pf-1",
     saved_id: "fwd-1",
@@ -33,7 +37,13 @@ function info(over: Partial<ForwardInfo> = {}, status: Partial<ForwardInfo["stat
     url: "http://127.0.0.1:40080",
     started_at: 0,
     ...over,
-    status: { pod: "api-1", connections: 0, total_connections: 0, last_error: "", ...status },
+    status: {
+      pod: "api-1",
+      connections: 0,
+      total_connections: 0,
+      last_error: "",
+      ...status,
+    },
   };
 }
 
@@ -68,8 +78,19 @@ describe("port fields", () => {
   it("parses the remote port as a number or a name", () => {
     expect(parseRemotePort("80")).toEqual({ ok: true, value: "80" });
     expect(parseRemotePort("http")).toEqual({ ok: true, value: "http" });
-    expect(parseRemotePort("http-alt")).toEqual({ ok: true, value: "http-alt" });
-    for (const bad of ["", "0", "70000", "HTTP", "-a", "a--b", "averyveryverylongname"]) {
+    expect(parseRemotePort("http-alt")).toEqual({
+      ok: true,
+      value: "http-alt",
+    });
+    for (const bad of [
+      "",
+      "0",
+      "70000",
+      "HTTP",
+      "-a",
+      "a--b",
+      "averyveryverylongname",
+    ]) {
       expect(parseRemotePort(bad).ok, bad).toBe(false);
     }
   });
@@ -87,8 +108,15 @@ describe("urls and status", () => {
 
   it("describes the status", () => {
     expect(forwardState(info())).toEqual({ text: "Listening", tone: "ok" });
-    expect(forwardState(info({}, { connections: 2 }))).toEqual({ text: "Active, 2 connections", tone: "ok" });
-    expect(forwardState(info({}, { last_error: "no ready pod backs service demo/api" }))).toEqual({
+    expect(forwardState(info({}, { connections: 2 }))).toEqual({
+      text: "Active, 2 connections",
+      tone: "ok",
+    });
+    expect(
+      forwardState(
+        info({}, { last_error: "no ready pod backs service demo/api" }),
+      ),
+    ).toEqual({
       text: "no ready pod backs service demo/api",
       tone: "error",
     });
@@ -101,7 +129,11 @@ describe("urls and status", () => {
 });
 
 describe("saved forwards (#217)", () => {
-  const saved = (id: string, local_port: string, https = false): SavedForward => ({
+  const saved = (
+    id: string,
+    local_port: string,
+    https = false,
+  ): SavedForward => ({
     id,
     target: { kind: "service", namespace: "demo", name: "web" },
     remote: "80",
@@ -111,15 +143,41 @@ describe("saved forwards (#217)", () => {
     auto_start: false,
   });
   const running = (id: string, saved_id: string) =>
-    ({ id, saved_id, target: { kind: "pod", namespace: "demo", name: "p" } }) as unknown as ForwardInfo;
+    ({
+      id,
+      saved_id,
+      target: { kind: "pod", namespace: "demo", name: "p" },
+    }) as unknown as ForwardInfo;
 
   it("pairs each saved forward with its run, and keeps runs without one", () => {
-    const rows = forwardRows([saved("a", ""), saved("b", "8080")], [running("pf-2", "b"), running("pf-3", "gone")]);
-    expect(rows.map((r) => [r.key, r.saved?.id ?? null, r.running?.id ?? null])).toEqual([
+    const rows = forwardRows(
+      [saved("a", ""), saved("b", "8080")],
+      [running("pf-2", "b"), running("pf-3", "gone")],
+    );
+    expect(
+      rows.map((r) => [r.key, r.saved?.id ?? null, r.running?.id ?? null]),
+    ).toEqual([
       ["a", "a", null],
       ["b", "b", "pf-2"],
       ["pf-3", null, "pf-3"],
     ]);
+  });
+
+  it("counts the forwards another window runs in the status bar (#320)", () => {
+    const rows = forwardRows(
+      [saved("a", ""), saved("b", "8080"), saved("c", "")],
+      [running("pf-2", "b")],
+    );
+    expect(forwardsCount(rows, [])).toBe("3 forwards, 1 running");
+    expect(forwardsCount(rows, ["a", "gone"])).toBe(
+      "3 forwards, 1 running, 1 in another window",
+    );
+    // A run here wins over a stale "elsewhere" for the same id.
+    expect(forwardsCount(rows, ["b"])).toBe("3 forwards, 1 running");
+    expect(forwardsCount(forwardRows([saved("a", "")], []), ["a"])).toBe(
+      "1 forward, 0 running, 1 in another window",
+    );
+    expect(forwardsCount([], [])).toBe("0 forwards, 0 running");
   });
 
   it("shows the URL of a stopped forward only when its port is fixed", () => {

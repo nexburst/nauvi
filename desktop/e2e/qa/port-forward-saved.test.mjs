@@ -214,6 +214,28 @@ describe("saved port-forwards (#217)", { timeout: 15 * 60_000 }, () => {
     const tip = await start.getAttribute("title");
     console.log(`Start in the other window: disabled, title "${tip}"`);
     assert.match(tip, /another window: stop it there/);
+    // #320: the status bar agrees with the row.
+    const footerText = () => app.js(`return document.querySelector("footer")?.innerText ?? ""`);
+    console.log(`status bar of the other window: "${await footerText()}"`);
+    await app.waitFor(async () => /1 forward, 0 running, 1 in another window/.test(await footerText()), {
+      timeout: 5_000,
+      message: 'the status bar says "1 forward, 0 running, 1 in another window"',
+    });
+    await switchTo(app, main);
+    // #320: Ports and Local URL stay on one line each in the running window.
+    const lines = await app.js(`
+      const out = {};
+      for (const id of ["forward-ports", "forward-url"]) {
+        const el = document.querySelector('[data-testid="forward-row"] [data-testid="' + id + '"]');
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        out[id] = [el.innerText, new Set([...range.getClientRects()].map((x) => Math.round(x.top))).size];
+      }
+      return out;`);
+    console.log(`cell lines in the running window: ${JSON.stringify(lines)}`);
+    for (const [id, [text, n]] of Object.entries(lines)) assert.equal(n, 1, `${id} "${text}" is on one line`);
+    await app.shot("running-window-one-line");
+    await switchTo(app, second);
     await app.shot("second-window-elsewhere");
     await setTheme(app, "dark");
     await app.shot("second-window-elsewhere-dark");
