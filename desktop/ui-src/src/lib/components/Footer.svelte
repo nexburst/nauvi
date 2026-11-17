@@ -38,8 +38,8 @@
     <span class="here" data-testid="status-cluster"><ClusterLabel id={visible} title={`Shown: ${contextLabel(visible)}`} /></span>
   {/if}
   <span>{app.count}</span>
-  <span>{app.updatedAt ? `Updated ${hhmmss(app.updatedAt, zone)}${zoneSuffix(zone)}` : ""}</span>
-  {#if others.length}
+  <span>{app.updatedAt ? `Updated ${hhmmss(app.updatedAt, zone)}${zoneSuffix(zone)}` : ""}</span
+  >{#if others.length}
     <span class="others" data-testid="status-background">
       <span class="muted-label">Also running:</span>
       {#each others as [id, r] (id)}
@@ -49,8 +49,8 @@
         </span>
       {/each}
     </span>
-  {/if}
-</footer>
+  {/if}</footer
+>
 
 <style>
   footer {
