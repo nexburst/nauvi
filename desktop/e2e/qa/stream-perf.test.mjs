@@ -61,11 +61,15 @@ const LOG_BUDGET = RELEASE
  * Release on a qa.yml runner (#115): pod p95 28 ms, 13.5% frame time lost,
  * core 0.4 s, web 1.3 s CPU; local p95 15 ms, 1% lost (the old global
  * events: p95 40-125 ms, 27-75% lost). The limits leave room for slow
- * runners but fail what the old path did on one (59% lost).
+ * runners but fail what the old path did on one (59% lost). A pod's flood
+ * goes at the cluster's pace (4.5 s where `kubectl logs` took 2.9 s), and
+ * the page's CPU grows with the time drawn, so the pod case has no web CPU
+ * limit; the local shell's has.
  */
 const TERM_BUDGET = RELEASE
   ? { p95Frame: 100, blockedPct: 40, coreCpuS: 2, webCpuS: 4 }
   : { p95Frame: 300, blockedPct: 80, coreCpuS: 12, webCpuS: 15 };
+const { webCpuS: _, ...POD_TERM_BUDGET } = TERM_BUDGET;
 
 /**
  * `yes` in a local shell for YES_MS, then Ctrl-C: output never stops
@@ -262,7 +266,7 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     results.terminal = r;
     console.log("pod terminal", JSON.stringify(r));
     await app.shot("terminal-10mb-shown");
-    assert.deepEqual(overBudget(r, TERM_BUDGET), [], `10 MB in a pod terminal (${BUILD}) is over its budget`);
+    assert.deepEqual(overBudget(r, POD_TERM_BUDGET), [], `10 MB in a pod terminal (${BUILD}) is over its budget`);
   });
 
   it("shows 10 MB printed in a local shell", T, async () => {
