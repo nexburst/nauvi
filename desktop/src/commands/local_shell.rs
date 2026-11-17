@@ -139,18 +139,20 @@ pub(crate) fn shell_kubeconfig_for(
     Ok((generated, temp, env))
 }
 
+/// Type `data` into the shell (`clear`: see `cmd_exec_input`).
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_local_shell_input(
     cluster: Cluster,
     session: String,
     data: String,
+    clear: bool,
 ) -> Result<(), String> {
     let shells = cluster.local_shells.lock().unwrap();
     let shell = shells
         .get(&session)
         .ok_or_else(|| "local shell not found".to_string())?;
-    if data.contains(crate::commands::exec::INTERRUPT) {
+    if clear {
         shell.out.clear();
     }
     shell.shell.write(data.into_bytes())

@@ -189,7 +189,12 @@ export const commands = {
 	 */
 	cmdExecAck: (cluster: string, session: string, bytes: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_ack", { cluster, session, bytes }, options),
 	cmdExecClose: (cluster: string, session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_close", { cluster, session }, options),
-	cmdExecInput: (cluster: string, session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_input", { cluster, session, data }, options),
+	/**
+	 *  Type `data` into the session. `clear`: it is a Ctrl-C the tab wants to
+	 *  cut the backlog with (a lone keystroke at a shell, not in a full-screen
+	 *  app): the output still waiting is dropped first (#115).
+	 */
+	cmdExecInput: (cluster: string, session: string, data: string, clear: boolean, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_input", { cluster, session, data, clear }, options),
 	cmdExecResize: (cluster: string, session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_resize", { cluster, session, cols, rows }, options),
 	/**
 	 *  Open an interactive shell in a pod. Returns the session id; the output
@@ -302,7 +307,8 @@ export const commands = {
 	cmdLocalShellAck: (cluster: string, session: string, bytes: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_ack", { cluster, session, bytes }, options),
 	/**  Kill the shell and delete its temp kubeconfig. */
 	cmdLocalShellClose: (cluster: string, session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_close", { cluster, session }, options),
-	cmdLocalShellInput: (cluster: string, session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_input", { cluster, session, data }, options),
+	/**  Type `data` into the shell (`clear`: see `cmd_exec_input`). */
+	cmdLocalShellInput: (cluster: string, session: string, data: string, clear: boolean, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_input", { cluster, session, data, clear }, options),
 	cmdLocalShellResize: (cluster: string, session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_local_shell_resize", { cluster, session, cols, rows }, options),
 	/**
 	 *  Start the user's shell on this machine with `KUBECONFIG` pointing at a

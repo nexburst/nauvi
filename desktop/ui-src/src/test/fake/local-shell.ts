@@ -17,7 +17,7 @@ export function localShellHandlers(s: FakeState) {
       };
     },
     cmdLocalShellAck: () => null,
-    cmdLocalShellInput: (session, data) => interrupted(s, session, data),
+    cmdLocalShellInput: (session, _data, clear) => interrupted(s, session, clear),
     cmdLocalShellResize: () => null,
     cmdLocalShellClose: () => null,
   } satisfies AreaHandlers;

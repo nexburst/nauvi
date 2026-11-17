@@ -158,17 +158,40 @@ describe("TermWriter", () => {
     expect(text(t.writes[0])).toBe(skippedNotice(6) + "bbbbbb");
   });
 
+  it("never drops the rest of a chunk it started writing", () => {
+    const t = setup({ startBytes: 4, minBytes: 4, maxBytes: 4, maxPending: 8 });
+    // "€" is 3 bytes: the first write ends inside it.
+    t.w.push("ab€\x1b[1mcd", true);
+    t.frame();
+    expect(t.writes.map((b) => b.length)).toEqual([4]);
+    t.w.clear();
+    // Overflow drops the newer whole chunk "xyz…", not the started one.
+    t.w.push("x".repeat(8), true);
+    t.w.push("END", true);
+    for (let i = 0; i < 6; i++) {
+      t.finish();
+      t.frame();
+    }
+    const all = new TextDecoder().decode(new Uint8Array(t.writes.flatMap((b) => [...b])));
+    expect(all.startsWith("ab€\x1b[1mcd")).toBe(true);
+    expect(all).toContain("[… 1 KB of output skipped]");
+    expect(all.endsWith("END")).toBe(true);
+    expect(all).not.toContain("x");
+  });
+
   it("Ctrl-C's clear drops what waits, with one notice, and acknowledges it", () => {
     const acked: number[] = [];
     const t = setup({ startBytes: 4, minBytes: 4, maxBytes: 4, onConsumed: (n) => acked.push(n) });
-    t.w.push("0123456789", true);
+    t.w.push("0123", true);
+    t.w.push("456789", true);
     t.frame();
     t.w.clear();
     expect(acked).toEqual([6]);
     t.w.push("^C\r\n$ ", true);
     t.finish();
     t.frame();
-    expect(text(t.writes[1])).toBe(skippedNotice(6) + "^C\r\n");
+    expect(text(t.writes[1])).toBe(skippedNotice(6, true) + "^C\r\n");
+    expect(skippedNotice(6, true)).toContain("[… 1 KB of output skipped at Ctrl-C]");
     expect(skippedNotice(6)).toContain("[… 1 KB of output skipped]");
     expect(skippedNotice(3 * 1024 * 1024)).toContain("[… 3.0 MB of output skipped]");
   });
@@ -188,7 +211,7 @@ describe("TermWriter.discard", () => {
     expect(acked).toEqual([2048]);
     w.push("$ ", true);
     frames.splice(0).forEach((f) => f());
-    expect(writes).toEqual([skippedNotice(2048) + "$ "]);
+    expect(writes).toEqual([skippedNotice(2048, true) + "$ "]);
   });
 });
 

@@ -87,14 +87,17 @@ pub(crate) fn send_closed(out: &TermOut) {
     let _ = out.0.send(Msg::Frame(TermFrame::Event(TermEvent::Closed)));
 }
 
-/// "[… 12.3 MB of output skipped]" as a line of its own.
-pub(crate) fn skipped_notice(bytes: usize) -> Vec<u8> {
+/// "[… 12.3 MB of output skipped]" (`at_interrupt`: "… skipped at Ctrl-C") as
+/// a line of its own. It starts with CAN, which makes xterm drop an escape
+/// sequence the skipped output may have cut in half.
+pub(crate) fn skipped_notice(bytes: usize, at_interrupt: bool) -> Vec<u8> {
     let size = if bytes >= 1024 * 1024 {
         format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
     } else {
         format!("{} KB", bytes.div_ceil(1024))
     };
-    format!("\r\n\x1b[0m\x1b[90m[… {size} of output skipped]\x1b[0m\r\n").into_bytes()
+    let why = if at_interrupt { " at Ctrl-C" } else { "" };
+    format!("\x18\r\n\x1b[0m\x1b[90m[… {size} of output skipped{why}]\x1b[0m\r\n").into_bytes()
 }
 
 /// What waits for credit.
@@ -105,6 +108,8 @@ struct Pending {
     bytes: usize,
     /// Bytes dropped since the last batch went out.
     skipped: usize,
+    /// Some of them by Ctrl-C.
+    interrupted: bool,
 }
 
 impl Pending {
@@ -129,6 +134,7 @@ impl Pending {
     }
 
     fn clear(&mut self) {
+        self.interrupted |= self.bytes > 0;
         self.skipped += self.bytes;
         self.bytes = 0;
         self.frames.retain(|f| matches!(f, TermFrame::Event(_)));
@@ -143,7 +149,10 @@ impl Pending {
     /// after a notice of what was skipped.
     fn take_batch(&mut self) -> Vec<u8> {
         let mut out = if self.skipped > 0 {
-            skipped_notice(std::mem::take(&mut self.skipped))
+            skipped_notice(
+                std::mem::take(&mut self.skipped),
+                std::mem::take(&mut self.interrupted),
+            )
         } else {
             Vec::new()
         };
@@ -369,14 +378,17 @@ mod tests {
         let all = h.finish().await.concat();
         // The marker first (it needs no credit), then the notice with the next output.
         let marker = all.find("<cleared>").unwrap();
-        assert!(all[marker..].contains("[… 2.0 MB of output skipped]"));
+        assert!(all[marker..].contains("[… 2.0 MB of output skipped at Ctrl-C]"));
         assert!(all.ends_with("^C\r\n$ <closed>"));
     }
 
     #[test]
     fn notices_say_how_much() {
-        let n = |b| String::from_utf8(skipped_notice(b)).unwrap();
+        let n = |b| String::from_utf8(skipped_notice(b, false)).unwrap();
         assert!(n(500).contains("[… 1 KB of output skipped]"));
         assert!(n(3 * 1024 * 1024 + 1).contains("[… 3.0 MB of output skipped]"));
+        assert!(n(500).starts_with("\x18"), "cancels a cut escape sequence");
+        let at = String::from_utf8(skipped_notice(2048, true)).unwrap();
+        assert!(at.contains("[… 2 KB of output skipped at Ctrl-C]"));
     }
 }

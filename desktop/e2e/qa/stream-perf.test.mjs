@@ -63,18 +63,19 @@ const LOG_BUDGET = RELEASE
  * events: p95 40-125 ms, 27-75% lost). The limits leave room for slow
  * runners but fail what the old path did on one (59% lost). A pod's flood
  * goes at the cluster's pace (4.5 s where `kubectl logs` took 2.9 s), and
- * the page's CPU grows with the time drawn, so the pod case has no web CPU
- * limit; the local shell's has.
+ * the page's CPU grows with the time drawn: its web CPU limit is higher
+ * (4.4 s seen on that slow runner).
  */
 const TERM_BUDGET = RELEASE
   ? { p95Frame: 100, blockedPct: 40, coreCpuS: 2, webCpuS: 4 }
   : { p95Frame: 300, blockedPct: 80, coreCpuS: 12, webCpuS: 15 };
-const { webCpuS: _, ...POD_TERM_BUDGET } = TERM_BUDGET;
+const POD_TERM_BUDGET = { ...TERM_BUDGET, webCpuS: RELEASE ? 6 : 20 };
 
 /**
- * `yes` in a local shell for YES_MS, then Ctrl-C: output never stops
- * coming, so memory must stay bounded (the backend sends a window ahead and
- * drops past its queue), and Ctrl-C drops the backlog, so the next command's
+ * `yes` in a local shell, faster than the screen can draw: past the
+ * backend's window and queue the oldest output is dropped and
+ * "[… N MB of output skipped]" shows; memory stays bounded. After YES_MS,
+ * Ctrl-C drops the backlog ("… skipped at Ctrl-C") and the next command's
  * output shows within about a second.
  */
 const YES_MS = 5000;
@@ -167,7 +168,7 @@ function report() {
     results.yesInterrupt
       ? `\`yes\` for ${YES_MS / 1000} s in a local shell, then Ctrl-C: the next command's output after ${results.yesInterrupt.promptMs} ms; ` +
         `peak RSS core / web ${results.yesInterrupt.coreRssMb} / ${results.yesInterrupt.webRssMb} MB; ` +
-        `skipped notice shown: ${results.yesInterrupt.skippedNotice}.`
+        `notices: skipped ${results.yesInterrupt.skippedNotice}, at Ctrl-C ${results.yesInterrupt.clearedNotice}.`
       : "",
     "",
     results.kubectlLogsMs ? `\`kubectl logs\` of the same pod (whole log, no follow): ${(results.kubectlLogsMs / 1000).toFixed(2)} s.` : "",
@@ -286,34 +287,47 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     assert.deepEqual(overBudget(r, TERM_BUDGET), [], `10 MB in a local shell (${BUILD}) is over its budget`);
   });
 
-  it("keeps memory bounded under `yes` and shows the prompt soon after Ctrl-C", T, async () => {
+  it("drops what it cannot show under `yes`, with a notice, and Ctrl-C clears the backlog", T, async () => {
     const { app } = s;
     const pid = appPid(app.profile.home);
     const term = terminal(app);
+    // Each line draws on the top row and puts the cursor back where it was
+    // (save, home, digits, restore, up; the PTY's newline comes back down),
+    // so the flood never scrolls: the notices, written at the cursor, stay
+    // on the screen.
+    const script = join(app.profile.home, "yes.sh");
+    writeFileSync(script, "yes \"$(printf '\\0337\\033[H%080d\\0338\\033[A' 0)\"\n");
     const mem = peakMemory(pid);
-    let r;
+    const skipped = /\[… [\d.]+ [KM]B of output skipped\]/;
+    const atCtrlC = /\[… [\d.]+ [KM]B of output skipped at Ctrl-C\]/;
+    let r = {};
     try {
       // The keys pressed during the last flood are still on the line.
       await term.interrupt();
       await term.waitFor(/\$\s*$/, { message: "an empty prompt" });
-      await term.type("yes");
-      await term.waitFor(/^y\ny\ny$/m, { message: "`yes` running" });
-      await new Promise((done) => setTimeout(done, YES_MS));
-      await app.shot("yes-flooding");
       const t0 = performance.now();
+      await term.type(`bash ${script}`);
+      await term.waitFor(skipped, { timeout: 60_000, message: "a notice of skipped output" });
+      r.skippedAfterMs = Math.round(performance.now() - t0);
+      await new Promise((done) => setTimeout(done, YES_MS));
+      await app.shot("yes-skipped-notice");
+      const t1 = performance.now();
       await term.interrupt();
       // Typed ahead: the shell runs it once `yes` has stopped.
       await term.type("echo YES$((40+2))DONE");
       await term.waitFor("YES42DONE", { timeout: 60_000, message: "the command typed after Ctrl-C" });
-      r = { promptMs: Math.round(performance.now() - t0) };
+      r.promptMs = Math.round(performance.now() - t1);
     } finally {
       r = { ...r, ...mem.stop() };
     }
     const screen = await term.screen();
-    r.skippedNotice = /\[… [\d.]+ [KM]B of output skipped\]/.test(screen);
+    r.skippedNotice = skipped.test(screen);
+    r.clearedNotice = atCtrlC.test(screen);
     results.yesInterrupt = r;
     console.log("yes then Ctrl-C", JSON.stringify(r));
     await app.shot("yes-interrupted");
+    assert.ok(r.skippedNotice, "the flood's output was dropped, with a notice");
+    assert.ok(r.clearedNotice, "Ctrl-C dropped the backlog, with a notice");
     assert.deepEqual(overBudget(r, YES_BUDGET), [], `\`yes\` then Ctrl-C (${BUILD}) is over its budget`);
   });
 

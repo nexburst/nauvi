@@ -30,7 +30,8 @@
       rows: number,
       out: Channel<TermMessage>,
     ): Promise<{ id: string; intro: string; kubectl?: string }>;
-    input(id: string, data: string): Promise<unknown>;
+    /** `clear`: drop the output still waiting first (a Ctrl-C at a shell). */
+    input(id: string, data: string, clear: boolean): Promise<unknown>;
     /** The tab wrote (or dropped) `bytes` of the output: the backend may send that much more. */
     ack(id: string, bytes: number): Promise<unknown>;
     resize(id: string, cols: number, rows: number): Promise<unknown>;
@@ -262,11 +263,22 @@
       w.resume();
       sendResize();
       // In order: concurrent input calls can overtake each other.
-      const send = orderedInput((data: string) => b.input(id, data));
+      // `clear` rides with the next call, so the backend drops its backlog
+      // before the keys reach the shell (and not the output they cause).
+      let clearNext = false;
+      const send = orderedInput((data: string) => {
+        const clear = clearNext;
+        clearNext = false;
+        return b.input(id, data, clear);
+      });
       t.onData((data) => {
-        // Ctrl-C drops the backlog here; the backend drops its own. Should
-        // its `cleared` never come (the session ended), stop dropping anyway.
-        if (data.includes(INTERRUPT)) {
+        // A lone Ctrl-C at a shell drops the backlog here and in the
+        // backend. Not a paste that holds one, and not in a full-screen app
+        // (vim, less +F), whose screen the dropped output would leave half
+        // drawn. Should `cleared` never come (the session ended), stop
+        // dropping anyway.
+        if (data === INTERRUPT && t.buffer.active.type === "normal") {
+          clearNext = true;
           w.clear();
           stale = true;
           clearTimeout(staleTimer);

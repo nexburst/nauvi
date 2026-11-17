@@ -14,10 +14,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 /// fill up, so the tab gets fewer, bigger messages (#115).
 const READ_BUF: usize = 64 * 1024;
 
-/// Ctrl-C: typing it drops the session's output still waiting to be sent,
-/// so the prompt shows at once instead of after the backlog (#115).
-pub(crate) const INTERRUPT: char = '\x03';
-
 /// Open an interactive shell in a pod. Returns the session id; the output
 /// arrives on `on_output` (this session's own channel, #115), then `closed`
 /// when the shell exits.
@@ -210,19 +206,23 @@ pub(crate) async fn start_session(
     }
 }
 
+/// Type `data` into the session. `clear`: it is a Ctrl-C the tab wants to
+/// cut the backlog with (a lone keystroke at a shell, not in a full-screen
+/// app): the output still waiting is dropped first (#115).
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_exec_input(
     cluster: Cluster,
     session: String,
     data: String,
+    clear: bool,
 ) -> Result<(), String> {
     // Clone the sender under the lock, then await outside it: holding a
     // std MutexGuard across an await would make this future non-Send.
     let tx = {
         let sessions = cluster.exec_sessions.lock().unwrap();
         let entry = sessions.get(&session);
-        if let Some(e) = entry.filter(|_| data.contains(INTERRUPT)) {
+        if let Some(e) = entry.filter(|_| clear) {
             e.out.clear();
         }
         entry.map(|e| e.stdin_tx.clone())

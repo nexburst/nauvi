@@ -33,10 +33,13 @@ export function termChannel(h: TermHandlers): Channel<TermMessage> {
 /** Ctrl-C as xterm sends it: typing it drops the output still waiting. */
 export const INTERRUPT = "\x03";
 
-/** "[… 12.3 MB of output skipped]" on a line of its own, like the backend's. */
-export function skippedNotice(bytes: number): string {
+/** "[… 12.3 MB of output skipped]" (`atInterrupt`: "… skipped at Ctrl-C") on
+ *  a line of its own, like the backend's. CAN first: xterm drops an escape
+ *  sequence the skipped output may have cut in half. */
+export function skippedNotice(bytes: number, atInterrupt = false): string {
   const size = bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1)} MB` : `${Math.ceil(bytes / 1024)} KB`;
-  return `\r\n\x1b[0m\x1b[90m[… ${size} of output skipped]\x1b[0m\r\n`;
+  const why = atInterrupt ? " at Ctrl-C" : "";
+  return `\x18\r\n\x1b[0m\x1b[90m[… ${size} of output skipped${why}]\x1b[0m\r\n`;
 }
 
 /** Where `TermWriter` writes: xterm's `write`, which calls `done` once it
@@ -67,6 +70,9 @@ interface Chunk {
   data: Uint8Array;
   /** From the session (acknowledged), not written by the tab itself. */
   remote: boolean;
+  /** Its start was written already: the rest is never dropped, so no
+   *  character or escape sequence is cut. */
+  started?: boolean;
 }
 
 /**
@@ -79,6 +85,8 @@ export class TermWriter {
   private queued = 0;
   /** Bytes dropped and not noted on the screen yet. */
   private skipped = 0;
+  /** Some of them by Ctrl-C. */
+  private interrupted = false;
   private paused = false;
   private inFlight = false;
   private frame: number | null = null;
@@ -120,21 +128,27 @@ export class TermWriter {
     if (bytes.length === 0) return;
     this.queue.push({ data: bytes, remote });
     this.queued += bytes.length;
+    // The oldest whole chunks go, never a started one nor the newest.
     let dropped = 0;
-    while (this.queued > this.o.maxPending && this.queue.length > 1) {
-      dropped += this.drop(this.queue.shift()!);
+    const first = this.queue[0].started ? 1 : 0;
+    while (this.queued > this.o.maxPending && this.queue.length > first + 1) {
+      dropped += this.drop(this.queue.splice(first, 1)[0]);
     }
     if (dropped) this.o.onConsumed(dropped);
     this.schedule();
   }
 
-  /** Drop what waits (Ctrl-C), noting how much on the screen. */
+  /** Drop what waits (Ctrl-C), but the rest of a started chunk, noting how
+   *  much on the screen. */
   clear() {
     if (this.disposed) return;
+    const keep = this.queue[0]?.started ? 1 : 0;
     let dropped = 0;
-    for (const c of this.queue) dropped += this.drop(c);
-    this.queue = [];
-    if (dropped) this.o.onConsumed(dropped);
+    for (const c of this.queue.splice(keep)) dropped += this.drop(c);
+    if (dropped) {
+      this.interrupted = true;
+      this.o.onConsumed(dropped);
+    }
     this.schedule();
   }
 
@@ -143,6 +157,7 @@ export class TermWriter {
   discard(bytes: number) {
     if (this.disposed || bytes === 0) return;
     this.skipped += bytes;
+    this.interrupted = true;
     this.o.onConsumed(bytes);
     this.schedule();
   }
@@ -192,11 +207,19 @@ export class TermWriter {
   }
 
   /** Take up to `budget` bytes off the queue, after a notice of what was
-   *  skipped; with the acknowledged bytes among them. */
+   *  skipped; with the acknowledged bytes among them. The rest of a started
+   *  chunk goes alone first: the notice never lands inside a chunk. */
   private take(): { piece: Uint8Array; remote: number } {
-    const notice = this.skipped ? encoder.encode(skippedNotice(this.skipped)) : new Uint8Array(0);
-    this.skipped = 0;
-    const want = Math.min(this.budget, this.queued);
+    const finishing = this.queue[0]?.started === true;
+    const withNotice = this.skipped > 0 && !finishing;
+    const notice = withNotice ? encoder.encode(skippedNotice(this.skipped, this.interrupted)) : new Uint8Array(0);
+    if (withNotice) {
+      this.skipped = 0;
+      this.interrupted = false;
+    }
+    // With a notice due, stop at the end of the started chunk.
+    const upTo = finishing && this.skipped > 0 ? this.queue[0].data.length : this.queued;
+    const want = Math.min(this.budget, upTo);
     const out = new Uint8Array(notice.length + want);
     out.set(notice, 0);
     let n = 0;
@@ -208,7 +231,7 @@ export class TermWriter {
       n += k;
       if (head.remote) remote += k;
       if (k === head.data.length) this.queue.shift();
-      else this.queue[0] = { data: head.data.subarray(k), remote: head.remote };
+      else this.queue[0] = { data: head.data.subarray(k), remote: head.remote, started: true };
     }
     this.queued -= want;
     return { piece: out, remote };

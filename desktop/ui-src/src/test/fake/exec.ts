@@ -21,7 +21,7 @@ export function execHandlers(s: FakeState) {
     },
     cmdExecAck: () => null,
     // Ctrl-C drops the output waiting, then says so, like the backend.
-    cmdExecInput: (session, data) => interrupted(s, session, data),
+    cmdExecInput: (session, _data, clear) => interrupted(s, session, clear),
     cmdExecResize: () => null,
     cmdExecClose: () => null,
   } satisfies AreaHandlers;

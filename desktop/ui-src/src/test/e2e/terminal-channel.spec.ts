@@ -63,14 +63,36 @@ test("written output is acknowledged; Ctrl-C drops the backlog with a notice", a
     for (let i = 0; i < 80; i++) await window.__fake.emitExecOutput("exec-1", chunk);
   });
   await page.locator(".xterm-helper-textarea").press("Control+c");
-  await expect.poll(async () => (await fake.calls("cmdExecInput")).map((c) => c.data)).toContain("\x03");
+  await expect
+    .poll(async () => (await fake.calls("cmdExecInput")).map((c) => [c.data, c.clear]))
+    .toContainEqual(["\x03", true]);
   await page.evaluate(() => window.__fake.emitExecOutput("exec-1", "^C\r\nREADY$ "));
-  await expect(rows(page)).toContainText(/\[… [\d.]+ MB of output skipped\]/);
+  await expect(rows(page)).toContainText(/\[… [\d.]+ MB of output skipped at Ctrl-C\]/);
   await expect(rows(page)).toContainText("READY$");
   // Everything received is acknowledged, written or dropped.
   await expect
     .poll(async () => (await fake.calls("cmdExecAck")).reduce((n, c) => n + (c.bytes as number), 0))
     .toBe(7 + 80 * 100_000 + 11);
+});
+
+test("Ctrl-C in a full-screen app, or inside a paste, drops nothing", async ({ page }) => {
+  const fake = await openShell(page);
+  const ta = page.locator(".xterm-helper-textarea");
+  // A paste that holds a Ctrl-C.
+  await ta.evaluate((el) => {
+    const ev = new Event("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(ev, "clipboardData", { value: { getData: () => "a\x03b" } });
+    el.dispatchEvent(ev);
+  });
+  // A full-screen app (the alternate screen), then Ctrl-C in it.
+  await page.evaluate(() => window.__fake.emitExecOutput("exec-1", "\x1b[?1049hIN-VIM"));
+  await expect(rows(page)).toContainText("IN-VIM");
+  await ta.press("Control+c");
+  await expect.poll(async () => (await fake.calls("cmdExecInput")).length).toBeGreaterThanOrEqual(2);
+  const calls = await fake.calls("cmdExecInput");
+  expect(calls.map((c) => c.data).join("")).toContain("\x03");
+  expect(calls.every((c) => c.clear === false)).toBe(true);
+  await expect(rows(page)).not.toContainText("skipped");
 });
 
 test("the end of the session is noted after its last output", async ({ page }) => {
