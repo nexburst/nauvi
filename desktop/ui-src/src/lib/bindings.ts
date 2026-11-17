@@ -13,7 +13,8 @@ export const commands = {
 	cmdBulkDelete: (cluster: string, resource: ResourceRef, items: ObjectId[], options?: InvokeOptions) => __TAURI_INVOKE<BulkItemResult[]>("cmd_bulk_delete", { cluster, resource, items }, options),
 	/**
 	 *  Stop following a drain. Pods already evicted stay evicted and the node
-	 *  stays cordoned.
+	 *  stays cordoned. `cluster` is the drain's own cluster: it is found even
+	 *  after the window switched to another one.
 	 */
 	cmdCancelDrain: (cluster: string, drainId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cancel_drain", { cluster, drainId }, options),
 	/**

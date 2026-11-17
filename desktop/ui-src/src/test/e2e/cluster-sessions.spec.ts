@@ -85,3 +85,24 @@ test("the cluster commands have fake handlers", async ({ page }) => {
   expect(await fake.calls("cmdClusterConnect")).toEqual([{}]);
   expect(await fake.calls("cmdClusterDisconnect")).toEqual([{}]);
 });
+
+test("a running drain is cancelled on the cluster it started on", async ({ page }) => {
+  await openApp(page);
+  await openKind(page, "Nodes");
+  // A drain that never finishes (the fake's ends at once).
+  await page.evaluate(() => {
+    const internals = (window as unknown as Internals).__TAURI_INTERNALS__;
+    const invoke = internals.invoke;
+    internals.invoke = (cmd: unknown, ...rest: unknown[]) =>
+      cmd === "cmd_drain_node" ? Promise.resolve("drain-slow") : invoke(cmd, ...rest);
+  });
+  await recordClusters(page);
+  await row(page, "node-2").click({ button: "right" });
+  await page.getByRole("menu").getByRole("menuitem", { name: "Drain…" }).click();
+  const dialog = page.getByRole("alertdialog");
+  await dialog.getByRole("button", { name: "Drain" }).click();
+  await dialog.getByRole("button", { name: "Stop watching" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(() => clustersOf(page, "cmd_cancel_drain")).toEqual(["kind-dev"]);
+  expect(await clustersOf(page, "cmd_drain_node")).toEqual(["kind-dev"]);
+});

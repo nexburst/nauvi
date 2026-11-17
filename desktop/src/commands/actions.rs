@@ -7,6 +7,7 @@ use nauvi::resources::ResourceRef;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::time::Duration;
+use tauri::Manager;
 use tauri_specta::Event;
 
 /// Run one action (everything except drain) on one object. Returns a short
@@ -105,6 +106,7 @@ pub(crate) async fn cmd_drain_node(
     let id = drain_id.clone();
     let out = cluster.emitter();
     let session = cluster.session();
+    let (app, label) = (cluster.app().clone(), cluster.label().to_string());
     let handle = tauri::async_runtime::spawn(async move {
         let emitter = out.clone();
         let progress_id = id.clone();
@@ -125,6 +127,8 @@ pub(crate) async fn cmd_drain_node(
             Err(e) => (DrainSummary::default(), actions::describe_error(&e)),
         };
         session.drains.lock().unwrap().remove(&id);
+        // A session the window left is kept only while it has drains.
+        app.state::<crate::state::AppState>().drain_ended(&label);
         out.emit(DrainFinished {
             drain_id: id,
             summary,
@@ -136,12 +140,15 @@ pub(crate) async fn cmd_drain_node(
 }
 
 /// Stop following a drain. Pods already evicted stay evicted and the node
-/// stays cordoned.
+/// stays cordoned. `cluster` is the drain's own cluster: it is found even
+/// after the window switched to another one.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_cancel_drain(cluster: Cluster, drain_id: String) -> Result<(), String> {
-    if let Some(h) = cluster.drains.lock().unwrap().remove(&drain_id) {
-        h.abort();
-    }
+pub(crate) async fn cmd_cancel_drain(
+    cluster: Cluster,
+    state: tauri::State<'_, crate::state::AppState>,
+    drain_id: String,
+) -> Result<(), String> {
+    state.cancel_drain(cluster.label(), cluster.id(), &drain_id);
     Ok(())
 }

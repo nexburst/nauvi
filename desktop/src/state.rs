@@ -359,6 +359,11 @@ pub(crate) const MAIN_WINDOW: &str = "main";
 pub(crate) struct WindowClusters {
     clusters: HashMap<String, Arc<ClusterSession>>,
     visible: String,
+    /// Sessions the window switched away from while they had drains
+    /// running: closed, not visible, kept until their last drain ends so
+    /// it can still be cancelled, and aborted with the window. Apart from
+    /// `clusters`, since the window may connect to that cluster again.
+    left: Vec<Arc<ClusterSession>>,
     /// The window's page has started loading once (#205): any later load
     /// is a reload, which starts the window over.
     page_loaded: bool,
@@ -370,6 +375,7 @@ impl WindowClusters {
         Self {
             clusters: HashMap::from([(visible.clone(), Arc::new(session))]),
             visible,
+            left: Vec::new(),
             page_loaded: false,
         }
     }
@@ -386,8 +392,14 @@ impl WindowClusters {
         self.clusters.get(id).cloned()
     }
 
+    /// Every session, the left ones included.
     fn sessions(&self) -> impl Iterator<Item = &Arc<ClusterSession>> {
-        self.clusters.values()
+        self.clusters.values().chain(self.left.iter())
+    }
+
+    /// Forget the left sessions whose drains have all ended.
+    fn prune_left(&mut self) {
+        self.left.retain(|s| !s.drains.lock().unwrap().is_empty());
     }
 }
 
@@ -525,16 +537,49 @@ impl AppState {
     /// starts it over). Returns the terminal sessions still to close.
     pub(crate) fn switch(&self, label: &str, context: Option<String>) -> Vec<ExecSession> {
         let next = self.new_session(context);
-        let left = self.with_window(label, |w| {
+        self.with_window(label, |w| {
             let old = w.clusters.remove(&w.visible);
             let id = next.id.clone();
             w.clusters
                 .entry(id.clone())
                 .or_insert_with(|| Arc::new(next));
             w.visible = id;
-            old
+            let to_close = old.as_ref().map(|s| s.leave()).unwrap_or_default();
+            // Its drains run on (they outlive a switch): keep it, closed,
+            // until they end.
+            w.left.extend(old);
+            w.prune_left();
+            to_close
+        })
+        .unwrap_or_default()
+    }
+
+    /// Cancel drain `drain_id` of cluster `id` in window `label`, in the
+    /// session the window has for that cluster or one it switched away
+    /// from. Returns whether it was running.
+    pub(crate) fn cancel_drain(&self, label: &str, id: &str, drain_id: &str) -> bool {
+        let sessions: Vec<Arc<ClusterSession>> = self
+            .with_window(label, |w| {
+                let live = w.get(id);
+                let left = w.left.iter().filter(|s| s.id == id).cloned();
+                live.into_iter().chain(left).collect()
+            })
+            .unwrap_or_default();
+        let found = sessions
+            .iter()
+            .find_map(|s| s.drains.lock().unwrap().remove(drain_id));
+        let running = found.is_some_and(|h| {
+            h.abort();
+            true
         });
-        left.flatten().map(|s| s.leave()).unwrap_or_default()
+        self.drain_ended(label);
+        running
+    }
+
+    /// A drain of window `label` ended: forget the sessions it switched
+    /// away from that have no drain left.
+    pub(crate) fn drain_ended(&self, label: &str) {
+        self.with_window(label, |w| w.prune_left());
     }
 
     /// Create the clusters of a new window, showing `context`.
@@ -841,6 +886,93 @@ mod tests {
         assert!(late.is_closed());
         assert_eq!(late.selected_context().as_deref(), Some("a"));
         assert!(!Arc::ptr_eq(&late, &a));
+    }
+
+    /// A drain task that runs until aborted; the receiver errs then.
+    fn drain_task() -> (JoinHandle<()>, tokio::sync::oneshot::Receiver<()>) {
+        let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+        let task = tauri::async_runtime::spawn(async move {
+            std::future::pending::<()>().await;
+            drop(tx);
+        });
+        (task, rx)
+    }
+
+    fn aborted(mut rx: tokio::sync::oneshot::Receiver<()>) -> bool {
+        tauri::async_runtime::block_on(async {
+            tokio::time::timeout(std::time::Duration::from_secs(2), &mut rx)
+                .await
+                .is_ok_and(|r| r.is_err())
+        })
+    }
+
+    #[test]
+    fn a_drain_is_cancelled_on_its_own_cluster_after_a_switch() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let (task, rx) = drain_task();
+        state.session("cluster-1").add_drain("d1".into(), task);
+        state.switch("cluster-1", Some("b".into()));
+        // Kept, left, while its drain runs.
+        assert_eq!(state.all_sessions("").len(), 2);
+        // Not by the cluster shown now.
+        assert!(!state.cancel_drain("cluster-1", "b", "d1"));
+        assert!(state.cancel_drain("cluster-1", "a", "d1"));
+        assert!(aborted(rx));
+        // Nothing left to keep it for.
+        assert_eq!(state.all_sessions("").len(), 1);
+        assert!(!state.cancel_drain("cluster-1", "a", "d1"));
+    }
+
+    #[test]
+    fn a_drain_left_by_a_switch_is_found_after_switching_back() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let (task, rx) = drain_task();
+        let old = state.session("cluster-1");
+        old.add_drain("d1".into(), task);
+        state.switch("cluster-1", Some("b".into()));
+        state.switch("cluster-1", Some("a".into()));
+        let again = state.session("cluster-1");
+        assert!(!Arc::ptr_eq(&old, &again), "a new session for a");
+        assert!(!again.is_closed());
+        assert!(state.cancel_drain("cluster-1", "a", "d1"));
+        assert!(aborted(rx));
+    }
+
+    #[test]
+    fn closing_the_window_aborts_a_drain_left_by_a_switch() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let (task, rx) = drain_task();
+        let a = state.session("cluster-1");
+        a.add_drain("d1".into(), task);
+        state.switch("cluster-1", Some("b".into()));
+        state.close("cluster-1");
+        assert!(aborted(rx));
+        assert!(a.drains.lock().unwrap().is_empty());
+        assert!(state.all_sessions("").is_empty());
+    }
+
+    #[test]
+    fn a_left_session_is_dropped_once_its_drain_ends() {
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        let a = state.session("cluster-1");
+        a.add_drain("d1".into(), forever());
+        state.switch("cluster-1", Some("b".into()));
+        assert_eq!(state.all_sessions("").len(), 2);
+        // What the drain task does when it ends.
+        a.drains.lock().unwrap().remove("d1");
+        state.drain_ended("cluster-1");
+        assert_eq!(state.all_sessions("").len(), 1);
+        drop(state);
+        assert_eq!(Arc::strong_count(&a), 1, "nothing holds the left session");
+        // Without a drain, a switch keeps nothing.
+        let state = AppState::default();
+        state.open("cluster-1", Some("a".into()));
+        state.switch("cluster-1", Some("b".into()));
+        assert_eq!(state.all_sessions("").len(), 1);
     }
 
     #[test]
