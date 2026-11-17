@@ -191,7 +191,8 @@ describe("multi-cluster budgets", { skip, timeout: 30 * 60_000 }, () => {
       return { runs, app: Math.min(...runs.map((r) => r.app)), page: median(runs.map((r) => r.page)) };
     }
 
-    it(`the tree shows within ${TREE_MS} ms, at most ${SLOWER_MS} ms slower than with 1 context`, T, async () => {
+    // A start under WebKitWebDriver takes about 30 s on the CI runner (start, attach, quit).
+    it(`the tree shows within ${TREE_MS} ms, at most ${SLOWER_MS} ms slower than with 1 context`, { timeout: 15 * 60_000 }, async () => {
       const one = await treeTimes("multicluster-start-1", kubeconfig("one", 1), "budget-1");
       const fifty = [kubeconfig("a.yaml", 1, 16, "a"), kubeconfig("b.yaml", 0, 17, "b"), kubeconfig("c.yaml", 0, 16, "c")];
       const many = await treeTimes("multicluster-start-50", fifty.join(":"), "a-1");
