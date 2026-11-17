@@ -27,6 +27,8 @@
   import { isMacPlatform, shortcutHint } from "../keys";
   import { clampTerminalFont, DEFAULT_ZOOM, MAX_TERMINAL_FONT, MIN_TERMINAL_FONT, ZOOM_STEPS } from "../zoom";
   import { clampEditorFont, MAX_EDITOR_FONT, MIN_EDITOR_FONT, ROW_HEIGHTS, TAB_SIZES } from "../preferences";
+  import { clusterStateText, IDLE_CHOICES, idleChoiceLabel } from "../idle";
+  import { backgroundClusters } from "../stores/clusterStates.svelte";
 
   const mac = isMacPlatform();
   const zoomHint = `${shortcutHint("zoomIn", mac)}, ${shortcutHint("zoomOut", mac)} and ${shortcutHint("zoomReset", mac)} zoom this window; other windows take the zoom when they open`;
@@ -290,6 +292,38 @@
       </p>
     </fieldset>
 
+    <fieldset data-testid="idle-settings">
+      <legend>Background clusters</legend>
+      <label class="row">
+        <span>Disconnect when idle for</span>
+        <select
+          class="select"
+          aria-label="Disconnect idle clusters after"
+          value={String(current.idle_disconnect_minutes)}
+          onchange={(e) => updateSettings({ idle_disconnect_minutes: Number(e.currentTarget.value) })}
+        >
+          {#each IDLE_CHOICES.includes(current.idle_disconnect_minutes) ? IDLE_CHOICES : [current.idle_disconnect_minutes, ...IDLE_CHOICES] as n (n)}
+            <option value={String(n)}>{idleChoiceLabel(n)}</option>
+          {/each}
+        </select>
+      </label>
+      {#if backgroundClusters(context).length}
+        <ul class="background" data-testid="background-clusters">
+          {#each backgroundClusters(context) as c (c.cluster)}
+            <li>
+              <span class="name">{contextLabel(c.cluster)}</span>
+              <span class="muted">{clusterStateText(c)}</span>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      <p class="muted hint">
+        A cluster this window is connected to but does not show is disconnected after this long untouched, unless a
+        port-forward, terminal, log stream or drain runs there. Using it connects it again. Clusters whose login opens
+        a browser stay connected.
+      </p>
+    </fieldset>
+
     {#if context}
       <fieldset>
         <legend>This cluster</legend>
@@ -524,5 +558,26 @@
   }
   .status {
     font-size: 12px;
+  }
+  .background {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+  }
+  .background li {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+  }
+  .background .name {
+    flex: none;
+    max-width: 45%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 </style>

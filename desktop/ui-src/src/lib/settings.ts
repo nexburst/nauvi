@@ -12,6 +12,7 @@ import type {
   TimeZone,
 } from "./bindings";
 import { clampEditorFont, clampTabSize, DEFAULT_EDITOR_FONT, DEFAULT_TAB_SIZE } from "./preferences";
+import { clampIdleMinutes, DEFAULT_IDLE_MINUTES } from "./idle";
 import { normalizeHistory } from "./searchHistory";
 import type { SearchHistory } from "./searchHistory";
 import type { Sort } from "./view";
@@ -51,6 +52,8 @@ export interface SettingsPatch {
   time_zone?: TimeZone;
   /** Table row height (#330). */
   row_height?: RowHeight;
+  /** Disconnect idle background clusters after this many minutes, 0 never (#333). */
+  idle_disconnect_minutes?: number;
   /** The table filter's whole search history (#219). */
   searches?: SearchHistory;
 }
@@ -76,6 +79,7 @@ export function defaultSettings(): Settings {
     editor_tab_size: DEFAULT_TAB_SIZE,
     time_zone: "local",
     row_height: "normal",
+    idle_disconnect_minutes: DEFAULT_IDLE_MINUTES,
     forwards: {},
     searches: { recent: [], starred: [] },
   };
@@ -131,6 +135,8 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.editor_tab_size != null) next.editor_tab_size = clampTabSize(patch.editor_tab_size);
   if (patch.time_zone != null) next.time_zone = patch.time_zone;
   if (patch.row_height != null) next.row_height = patch.row_height;
+  if (patch.idle_disconnect_minutes != null)
+    next.idle_disconnect_minutes = clampIdleMinutes(patch.idle_disconnect_minutes);
   if (patch.searches != null) next.searches = normalizeHistory(patch.searches);
   return next;
 }

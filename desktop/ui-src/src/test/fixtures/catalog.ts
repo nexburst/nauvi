@@ -19,6 +19,7 @@ export function fullContext(ctx: FakeContext): ContextInfo_Serialize {
     source: "",
     login_command: "",
     login_plugin: false,
+    browser_login: false,
     local_files: [],
     ...ctx,
   };
