@@ -44,6 +44,8 @@ mcp = ["dep:rmcp"]
 # `specta::Type` derives on the IPC structs, used by the desktop app to
 # generate TypeScript bindings. The CLI does not enable it.
 specta = ["dep:specta"]
+# Helpers for the desktop app's unit tests (`PortForward::idle`).
+test-util = []
 
 [[bin]]
 name = "nauvi"

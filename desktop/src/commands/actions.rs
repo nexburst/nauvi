@@ -7,6 +7,7 @@ use nauvi::resources::ResourceRef;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::time::Duration;
+use tauri::Manager;
 use tauri_specta::Event;
 
 /// Run one action (everything except drain) on one object. Returns a short
@@ -31,8 +32,8 @@ pub(crate) async fn cmd_run_action(
 /// Which of `ids` (action ids, plus "logs", "shell" and "edit") the user
 /// may run on one object, for greying out the detail panel's actions, the
 /// row menu and the bulk bar. A check that cannot be made counts as
-/// allowed. Answers are cached per session (verb, kind, namespace) and
-/// dropped on a context switch.
+/// allowed. Answers are cached per session (verb, kind, namespace), so
+/// per cluster.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_check_actions(
@@ -41,13 +42,11 @@ pub(crate) async fn cmd_check_actions(
     namespace: String,
     ids: Vec<String>,
 ) -> Result<Vec<ActionAccess>, String> {
-    let (ctx, client) = cluster.context_client().await?;
+    let client = cluster.client().await?;
     let out =
         action_access::check_actions(&client, &cluster.access, &resource, &namespace, &ids).await;
-    // Answers of the old context may have landed in the cache after a
-    // switch cleared it: drop them, and this reply.
-    if cluster.selected_context() != ctx {
-        cluster.access.clear();
+    // The window left the cluster meanwhile: drop this reply.
+    if cluster.is_closed() {
         return Err(crate::state::SWITCHED.into());
     }
     Ok(out)
@@ -107,6 +106,7 @@ pub(crate) async fn cmd_drain_node(
     let id = drain_id.clone();
     let out = cluster.emitter();
     let session = cluster.session();
+    let (app, label) = (cluster.app().clone(), cluster.label().to_string());
     let handle = tauri::async_runtime::spawn(async move {
         let emitter = out.clone();
         let progress_id = id.clone();
@@ -127,6 +127,8 @@ pub(crate) async fn cmd_drain_node(
             Err(e) => (DrainSummary::default(), actions::describe_error(&e)),
         };
         session.drains.lock().unwrap().remove(&id);
+        // A session the window left is kept only while it has drains.
+        app.state::<crate::state::AppState>().drain_ended(&label);
         out.emit(DrainFinished {
             drain_id: id,
             summary,
@@ -138,12 +140,15 @@ pub(crate) async fn cmd_drain_node(
 }
 
 /// Stop following a drain. Pods already evicted stay evicted and the node
-/// stays cordoned.
+/// stays cordoned. `cluster` is the drain's own cluster: it is found even
+/// after the window switched to another one.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_cancel_drain(cluster: Cluster, drain_id: String) -> Result<(), String> {
-    if let Some(h) = cluster.drains.lock().unwrap().remove(&drain_id) {
-        h.abort();
-    }
+pub(crate) async fn cmd_cancel_drain(
+    cluster: Cluster,
+    state: tauri::State<'_, crate::state::AppState>,
+    drain_id: String,
+) -> Result<(), String> {
+    state.cancel_drain(cluster.label(), cluster.id(), &drain_id);
     Ok(())
 }

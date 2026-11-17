@@ -102,7 +102,7 @@ fn helm_and_local_shells_get_the_file_only_once_allowed() {
     let added = Added::new("target");
     added.write(id, "/usr/bin:/bin");
     let sources = added.sources();
-    let session = ClusterSession::new(Some(id.to_string()), sources.clone());
+    let session = ClusterSession::new(id.to_string(), Some(id.to_string()), sources.clone());
     // `target()` is what helm and local shells run with.
     let err = session.target().unwrap_err();
     assert!(
@@ -190,7 +190,7 @@ async fn the_client_runs_the_command_that_was_checked() {
     // Asked again, the swapped file is not allowed, and nothing runs.
     let err = gate(&sources, id).unwrap_err();
     assert!(err.contains("swapped"), "{err}");
-    let session = ClusterSession::new(Some(id.to_string()), sources.clone());
+    let session = ClusterSession::new(id.to_string(), Some(id.to_string()), sources.clone());
     assert!(session.client().await.is_err());
     assert_eq!(ran(&added), "allowed\n");
 }
@@ -202,7 +202,7 @@ fn helm_gets_a_copy_of_the_checked_context() {
     write_plugin(&added, id, "allowed");
     let sources = added.sources();
     let command = allow(&added, &sources);
-    let session = ClusterSession::new(Some(id.to_string()), sources.clone());
+    let session = ClusterSession::new(id.to_string(), Some(id.to_string()), sources.clone());
     let run = crate::commands::helm::target(&session).unwrap();
     write_plugin(&added, id, "swapped");
     let path = run.kubeconfig.clone().unwrap();
@@ -230,7 +230,7 @@ fn a_local_shell_gets_only_a_copy_of_the_checked_context() {
     write_plugin(&added, id, "allowed");
     let sources = added.sources();
     let command = allow(&added, &sources);
-    let session = ClusterSession::new(Some(id.to_string()), sources.clone());
+    let session = ClusterSession::new(id.to_string(), Some(id.to_string()), sources.clone());
     let approved = session.target().unwrap();
     let (shell, temp, env) =
         crate::commands::local_shell::shell_kubeconfig_for(&approved, Some("team-a")).unwrap();

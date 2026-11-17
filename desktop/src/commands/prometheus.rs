@@ -73,8 +73,8 @@ pub(crate) async fn prometheus_for(
         }
     }
     let detection = resolve_prometheus(client, &setting).await;
-    // Not cached if the context changed while detecting.
-    if state.selected_context() == ctx {
+    // Not cached if the window left the cluster while detecting.
+    if !state.is_closed() {
         *state.prometheus.lock().unwrap() = Some(PromCache {
             ctx,
             setting,

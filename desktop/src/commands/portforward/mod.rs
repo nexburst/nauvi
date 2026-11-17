@@ -57,12 +57,11 @@ fn info(id: &str, s: &ForwardSession) -> ForwardInfo {
 }
 
 /// Start `saved` in this window with `client`, the client of context
-/// `ctx`, stopping the run of it that is already going first (so an edited
-/// forward can take its old local port again). If the window switched away
-/// from `ctx` meanwhile, the new forward is dropped.
+/// the cluster, stopping the run of it that is already going first (so an
+/// edited forward can take its old local port again). If the window left
+/// the cluster meanwhile, the new forward is dropped.
 async fn run_saved(
     cluster: &Cluster,
-    ctx: &Option<String>,
     client: &Client,
     saved: &SavedForward,
 ) -> Result<ForwardInfo, String> {
@@ -82,7 +81,7 @@ async fn run_saved(
     }
     let remote = RemotePort::parse(&saved.remote).map_err(|e| e.to_string())?;
     let local = parse_local(&saved.local_port)?;
-    if cluster.selected_context() != *ctx {
+    if cluster.is_closed() {
         return Err(SWITCHED.into());
     }
     let forward = PortForward::start(
@@ -102,7 +101,7 @@ async fn run_saved(
     };
     let out = info(&id, &session);
     // Dropping a refused forward stops it.
-    if !cluster.add_forward_on(ctx, id, session) {
+    if !cluster.add_forward(id, session) {
         return Err(SWITCHED.into());
     }
     Ok(out)
@@ -154,7 +153,7 @@ pub(crate) async fn cmd_portforward_start(
     let remote_text = remote_port.trim().to_string();
     let known = saved::list(&settings.get(), &ctx);
     if let Some(s) = saved::matching(&known, &target, &remote_text, local_port) {
-        return run_saved(&cluster, &selected, &client, s).await;
+        return run_saved(&cluster, &client, s).await;
     }
     let new = saved::normalize(SavedForward {
         id: String::new(),
@@ -169,7 +168,7 @@ pub(crate) async fn cmd_portforward_start(
     let mut stored = Err(String::new());
     settings.modify(|s| stored = saved::upsert(s, &ctx, new.clone()));
     let stored = stored?;
-    match run_saved(&cluster, &selected, &client, &stored).await {
+    match run_saved(&cluster, &client, &stored).await {
         Ok(info) => Ok(info),
         Err(e) => {
             settings.modify(|s| saved::remove(s, &ctx, &stored.id));
@@ -237,7 +236,7 @@ pub(crate) async fn cmd_portforward_start_saved(
     let ctx = cluster.context_id_of(selected.as_deref())?;
     let saved = saved::find(&settings.get(), &ctx, &id)
         .ok_or("this port-forward was deleted in the meantime")?;
-    run_saved(&cluster, &selected, &client, &saved).await
+    run_saved(&cluster, &client, &saved).await
 }
 
 /// Stop the saved forward `id` and forget it. Deleting one that is gone is
@@ -272,10 +271,9 @@ pub(crate) async fn cmd_portforward_autostart(
     state: State<'_, AppState>,
     settings: State<'_, Arc<SettingsStore>>,
 ) -> Result<Vec<AutoStartError>, String> {
-    // One context and its client for the whole run: a window that
-    // switches meanwhile gets none of the old context's forwards.
-    let selected = cluster.selected_context();
-    let ctx = cluster.context_id_of(selected.as_deref())?;
+    // A window that leaves the cluster meanwhile gets none of its
+    // forwards.
+    let ctx = cluster.context_id()?;
     let wanted: Vec<SavedForward> = saved::list(&settings.get(), &ctx)
         .into_iter()
         .filter(|f| f.auto_start)
@@ -283,10 +281,7 @@ pub(crate) async fn cmd_portforward_autostart(
     if wanted.is_empty() {
         return Ok(Vec::new());
     }
-    let (now, client) = cluster.context_client().await?;
-    if now != selected {
-        return Err(SWITCHED.into());
-    }
+    let (_, client) = cluster.context_client().await?;
     let mut failed = Vec::new();
     for f in wanted {
         // Held until the forward runs (or failed), so a second window
@@ -295,10 +290,10 @@ pub(crate) async fn cmd_portforward_autostart(
         let Some(_claim) = state.claim_autostart(&f.id) else {
             continue;
         };
-        if cluster.selected_context() != selected {
+        if cluster.is_closed() {
             break;
         }
-        if let Err(error) = run_saved(&cluster, &selected, &client, &f).await {
+        if let Err(error) = run_saved(&cluster, &client, &f).await {
             failed.push(AutoStartError {
                 saved_id: f.id.clone(),
                 error,

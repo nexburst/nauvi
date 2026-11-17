@@ -30,6 +30,8 @@ export interface ActionRequest {
 export interface DrainView {
   /** `null` until the backend has answered. */
   id: string | null;
+  /** The cluster it runs on (ADR 0007): cancelled there, even after a switch. */
+  cluster: string;
   node: string;
   lines: string[];
   finished: boolean;
@@ -122,7 +124,7 @@ export function requestAction(kind: ResourceKind, targets: ActionTarget[], actio
 
 export function closeDialog() {
   const d = actionUi.drain;
-  if (d && !d.finished && d.id) void api(visibleCluster()).cmdCancelDrain(d.id);
+  if (d && !d.finished && d.id) void api(d.cluster).cmdCancelDrain(d.id);
   actionUi.request = null;
   actionUi.drain = null;
   actionUi.error = "";
@@ -198,9 +200,10 @@ function closeDetailIf(kind: ResourceKind, t: ActionTarget) {
 }
 
 async function startDrain(node: string) {
-  actionUi.drain = { id: null, node, lines: [], finished: false, error: "", summary: null };
+  const cluster = visibleCluster();
+  actionUi.drain = { id: null, cluster, node, lines: [], finished: false, error: "", summary: null };
   try {
-    const id = await api(visibleCluster()).cmdDrainNode(node, DRAIN_TIMEOUT_SECS);
+    const id = await api(cluster).cmdDrainNode(node, DRAIN_TIMEOUT_SECS);
     if (actionUi.drain && actionUi.drain.id === null) actionUi.drain.id = id;
   } catch (e) {
     actionUi.drain = null;

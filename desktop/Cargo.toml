@@ -35,6 +35,10 @@ specta = { version = "=2.0.0-rc.28", features = ["derive"] }
 specta-typescript = "=0.0.15"
 tauri-specta = { version = "=2.0.0-rc.29", features = ["derive", "typescript"] }
 
+[dev-dependencies]
+# `PortForward::idle`, for the tests of the session maps.
+nauvi = { path = "..", default-features = false, features = ["specta", "test-util"] }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 # Quit confirmation (#173): answers `applicationShouldTerminate:`. The same
 # version tao uses.

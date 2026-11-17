@@ -9,6 +9,7 @@ import { actionsHandlers } from "./actions";
 import { applicationsHandlers } from "./applications";
 import { catalogHandlers } from "./catalog";
 import { clusterHandlers } from "./cluster";
+import { clustersHandlers } from "./clusters";
 import { debugHandlers } from "./debug";
 import { execHandlers } from "./exec";
 import { filesHandlers } from "./files";
@@ -39,6 +40,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...applicationsHandlers(s),
     ...catalogHandlers(s),
     ...clusterHandlers(s),
+    ...clustersHandlers(s),
     ...debugHandlers(s),
     ...execHandlers(s),
     ...filesHandlers(s),

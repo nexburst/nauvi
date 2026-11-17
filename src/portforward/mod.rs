@@ -146,6 +146,21 @@ impl PortForward {
         })
     }
 
+    /// A forward that serves nothing, for tests of what holds forwards.
+    /// Needs a Tokio runtime.
+    #[cfg(feature = "test-util")]
+    #[doc(hidden)]
+    pub fn idle(target: ForwardTarget, remote: RemotePort, local_port: u16) -> Self {
+        Self {
+            target,
+            remote,
+            remote_port: 0,
+            local_port,
+            shared: Arc::new(Shared::default()),
+            task: tokio::spawn(async {}),
+        }
+    }
+
     /// `http://127.0.0.1:<port>`.
     pub fn url(&self) -> String {
         format!("http://127.0.0.1:{}", self.local_port)

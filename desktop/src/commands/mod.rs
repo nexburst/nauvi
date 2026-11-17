@@ -10,6 +10,7 @@ pub(crate) mod actions;
 pub(crate) mod applications;
 pub(crate) mod catalog;
 pub(crate) mod cluster;
+pub(crate) mod clusters;
 pub(crate) mod debug;
 pub(crate) mod exec;
 pub(crate) mod files;
@@ -60,6 +61,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             cluster::cmd_list_contexts,
             cluster::cmd_list_namespaces,
             cluster::cmd_set_context,
+            clusters::cmd_cluster_connect,
+            clusters::cmd_cluster_disconnect,
             debug::cmd_debug_start,
             debug::cmd_node_shell_cleanup,
             debug::cmd_node_shell_leftovers,
