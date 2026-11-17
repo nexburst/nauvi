@@ -29,8 +29,10 @@ pub(crate) async fn cmd_run_action(
 }
 
 /// Which of `ids` (action ids, plus "logs", "shell" and "edit") the user
-/// may run on one object, for greying out the detail panel's actions. A
-/// check that cannot be made counts as allowed.
+/// may run on one object, for greying out the detail panel's actions, the
+/// row menu and the bulk bar. A check that cannot be made counts as
+/// allowed. Answers are cached per session (verb, kind, namespace) and
+/// dropped on a context switch.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_check_actions(
@@ -39,8 +41,16 @@ pub(crate) async fn cmd_check_actions(
     namespace: String,
     ids: Vec<String>,
 ) -> Result<Vec<ActionAccess>, String> {
-    let client = cluster.client().await?;
-    Ok(action_access::check_actions(&client, &resource, &namespace, &ids).await)
+    let (ctx, client) = cluster.context_client().await?;
+    let out =
+        action_access::check_actions(&client, &cluster.access, &resource, &namespace, &ids).await;
+    // Answers of the old context may have landed in the cache after a
+    // switch cleared it: drop them, and this reply.
+    if cluster.selected_context() != ctx {
+        cluster.access.clear();
+        return Err(crate::state::SWITCHED.into());
+    }
+    Ok(out)
 }
 
 /// One object of a bulk delete.

@@ -55,7 +55,7 @@ pub use data::{
 };
 pub use detail::{detail_of, get_resource_detail, summarize_events};
 pub use detail_watch::{run_detail_watch, DetailState, DETAIL_FLUSH};
-pub use discovery::{can_i, can_list, check_access, discover, resolve_kind};
+pub use discovery::{can_i, can_i_answer, can_list, check_access, discover, resolve_kind};
 pub use ops::{
     apply_resource_yaml, apply_resource_yaml_with, delete_resource, dyn_api, get_resource,
     get_resource_yaml, list_resources, object_value, to_yaml, ApplyOptions, ApplyOutcome,

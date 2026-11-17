@@ -7,6 +7,8 @@
     danger?: boolean;
     /** Shown but not offered (e.g. while it is already running). */
     disabled?: boolean;
+    /** Not offered because RBAC would refuse it (#340): says which permission is missing. */
+    reason?: string;
     run: () => void;
   }
 
@@ -44,8 +46,10 @@
     };
   });
 
+  const off = (i: MenuItem) => !!i.disabled || !!i.reason;
+
   function pick(item: MenuItem | undefined) {
-    if (!item || item.disabled) return;
+    if (!item || off(item)) return;
     onclose();
     item.run();
   }
@@ -64,7 +68,7 @@
     // (its keypress) as input (#207).
     if ((e.key === "Enter" || e.key === " ") && at >= 0) {
       e.preventDefault();
-      pick(items.filter((i) => !i.disabled)[at]);
+      pick(items.filter((i) => !off(i))[at]);
       return;
     }
     const go = ({ ArrowDown: at + 1, ArrowUp: at - 1, Home: 0, End: all.length - 1 } as Record<string, number>)[
@@ -82,15 +86,21 @@
 <div class="shield" onclick={onclose} oncontextmenu={(e) => (e.preventDefault(), onclose())}></div>
 <div class="menu" role="menu" data-testid="context-menu" bind:this={el} style:left="{left}px" style:top="{top}px">
   <div class="title" title={title}>{title}</div>
-  {#each items as item (item.label)}
+  {#each items as item, i (item.label)}
     <button
       type="button"
       role="menuitem"
       tabindex="-1"
       class:danger={item.danger}
-      disabled={item.disabled}
+      class:denied={!!item.reason}
+      disabled={off(item)}
+      title={item.reason || undefined}
+      aria-describedby={item.reason ? `menu-deny-${i}` : undefined}
       onclick={() => pick(item)}>{item.label}</button
     >
+    {#if item.reason}
+      <div class="reason" role="none" id="menu-deny-{i}" data-testid="menu-reason">{item.reason}</div>
+    {/if}
   {/each}
 </div>
 
@@ -145,5 +155,17 @@
   }
   button.danger {
     color: var(--error-text);
+  }
+  button.denied {
+    color: var(--text-muted);
+    opacity: 0.6;
+    cursor: not-allowed;
+    padding-bottom: 0;
+  }
+  .reason {
+    padding: 0 10px 6px;
+    font-size: 11px;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
   }
 </style>

@@ -82,7 +82,8 @@ export interface FakeCluster {
   bulkErrors: Record<string, string>;
   /** `cmd_run_action` refuses to evict these pod row keys, with the given reason (a PDB block, #300). */
   evictErrors: Record<string, string>;
-  /** `cmd_check_actions` refuses these action ids ("logs", "shell", "edit" or an ActionId), with the given reason. */
+  /** `cmd_check_actions` refuses these action ids ("logs", "shell", "edit" or an ActionId), with the given reason;
+   *  a key `<namespace>/<id>` refuses the action in that namespace only. */
   deniedActions: Record<string, string>;
   /** What `cmd_get_related` returns, by `kindId|rowKey` (default: nothing related). */
   related: Record<string, Related>;

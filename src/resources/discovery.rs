@@ -280,6 +280,21 @@ pub async fn can_i(
     subresource: &str,
     namespace: Option<&str>,
 ) -> bool {
+    can_i_answer(client, verb, group, resource, subresource, namespace)
+        .await
+        .unwrap_or(true)
+}
+
+/// [`can_i`], with `None` when the check could not be made (so callers that
+/// cache answers keep only real ones).
+pub async fn can_i_answer(
+    client: &Client,
+    verb: &str,
+    group: &str,
+    resource: &str,
+    subresource: &str,
+    namespace: Option<&str>,
+) -> Option<bool> {
     let api: Api<SelfSubjectAccessReview> = Api::all(client.clone());
     let review = SelfSubjectAccessReview {
         spec: SelfSubjectAccessReviewSpec {
@@ -296,8 +311,8 @@ pub async fn can_i(
         ..Default::default()
     };
     match api.create(&Default::default(), &review).await {
-        Ok(res) => res.status.map(|s| s.allowed).unwrap_or(true),
-        Err(_) => true,
+        Ok(res) => res.status.map(|s| s.allowed),
+        Err(_) => None,
     }
 }
 

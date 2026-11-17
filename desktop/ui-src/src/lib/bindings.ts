@@ -18,8 +18,10 @@ export const commands = {
 	cmdCancelDrain: (cluster: string, drainId: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cancel_drain", { cluster, drainId }, options),
 	/**
 	 *  Which of `ids` (action ids, plus "logs", "shell" and "edit") the user
-	 *  may run on one object, for greying out the detail panel's actions. A
-	 *  check that cannot be made counts as allowed.
+	 *  may run on one object, for greying out the detail panel's actions, the
+	 *  row menu and the bulk bar. A check that cannot be made counts as
+	 *  allowed. Answers are cached per session (verb, kind, namespace) and
+	 *  dropped on a context switch.
 	 */
 	cmdCheckActions: (cluster: string, resource: ResourceRef, namespace: string, ids: string[], options?: InvokeOptions) => __TAURI_INVOKE<ActionAccess[]>("cmd_check_actions", { cluster, resource, namespace, ids }, options),
 	/**
