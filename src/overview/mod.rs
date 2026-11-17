@@ -95,15 +95,19 @@ pub struct NodeCounts {
     pub ready: usize,
 }
 
-/// Requests and usage against what the nodes can allocate, like Lens.
+/// Requests, limits and usage against what the nodes can allocate, like
+/// Lens. Limits sum the limits that are set: a container without one adds
+/// nothing, so they can be lower than the requests.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct Capacity {
     pub cpu_requests_millicores: u64,
+    pub cpu_limits_millicores: u64,
     pub cpu_allocatable_millicores: u64,
     /// 0 unless `metrics`.
     pub cpu_usage_millicores: u64,
     pub memory_requests_bytes: u64,
+    pub memory_limits_bytes: u64,
     pub memory_allocatable_bytes: u64,
     /// 0 unless `metrics`.
     pub memory_usage_bytes: u64,

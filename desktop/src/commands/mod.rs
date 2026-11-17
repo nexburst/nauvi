@@ -104,6 +104,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             metrics_addons::cmd_metrics_addons,
             overview::cmd_overview_start,
             overview::cmd_overview_stop,
+            overview::cmd_overview_usage,
             portforward::cmd_portforward_autostart,
             portforward::cmd_portforward_delete,
             portforward::cmd_portforward_elsewhere,

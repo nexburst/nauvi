@@ -300,6 +300,13 @@ export const commands = {
 	cmdOverviewStart: (cluster: string, id: number, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_start", { cluster, id, namespace }, options),
 	cmdOverviewStop: (cluster: string, id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_stop", { cluster, id }, options),
 	/**
+	 *  The last hour of the cluster's CPU and memory use from the context's
+	 *  Prometheus. Without one (or when it fails, with a `note`) there are no
+	 *  samples and the source is metrics-server. Nothing is asked while
+	 *  metrics are hidden for the cluster (#327).
+	 */
+	cmdOverviewUsage: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<OverviewUsageView>("cmd_overview_usage", { cluster }, options),
+	/**
 	 *  Start the saved forwards of the selected context marked "Start
 	 *  automatically", except those another window runs already. Called when
 	 *  a window connects to a context. Returns the ones that failed.
@@ -711,13 +718,19 @@ export type BulkItemResult = {
 	error: string,
 };
 
-/**  Requests and usage against what the nodes can allocate, like Lens. */
+/**
+ *  Requests, limits and usage against what the nodes can allocate, like
+ *  Lens. Limits sum the limits that are set: a container without one adds
+ *  nothing, so they can be lower than the requests.
+ */
 export type Capacity = {
 	cpu_requests_millicores: number,
+	cpu_limits_millicores: number,
 	cpu_allocatable_millicores: number,
 	/**  0 unless `metrics`. */
 	cpu_usage_millicores: number,
 	memory_requests_bytes: number,
+	memory_limits_bytes: number,
 	memory_allocatable_bytes: number,
 	/**  0 unless `metrics`. */
 	memory_usage_bytes: number,
@@ -1692,6 +1705,24 @@ export type OverviewChanged_Serialize = {
 export type OverviewStateChanged = {
 	id: number,
 } & WatchState;
+
+/**  The cluster's CPU and memory use for the overview's chart (#328). */
+export type OverviewUsageView = {
+	/**  Oldest first; empty unless `source` is Prometheus. */
+	samples: UsageSample[],
+	/**
+	 *  `metrics_server`: the UI charts what it samples from the overview's
+	 *  usage while the window is open.
+	 */
+	source: UsageSource,
+	/**  The Prometheus of this context (`namespace/service:port`), or "". */
+	prometheus: string,
+	/**
+	 *  Why Prometheus was not used although there is one, or that metrics
+	 *  are hidden ("" otherwise).
+	 */
+	note: string,
+};
 
 /**
  *  The overview. Each part is computed on its own: a part the user may not
