@@ -2,6 +2,8 @@
 // them, the selected chart, and the install/upgrade dialog.
 
 import { commands } from "../bindings";
+
+import { api, visibleCluster } from "../cluster";
 import type { HelmChartVersion, HelmDeployRequest, HelmDeployResult, HelmRepo, HelmStorage } from "../bindings";
 import { setNotice } from "./actions.svelte";
 
@@ -137,5 +139,5 @@ export function closeDeploy() {
 
 /** Run an install or upgrade (or its dry run). */
 export function runDeploy(mode: "install" | "upgrade", request: HelmDeployRequest): Promise<HelmDeployResult> {
-  return mode === "install" ? commands.cmdHelmInstall(request) : commands.cmdHelmUpgrade(request);
+  return mode === "install" ? api(visibleCluster()).cmdHelmInstall(request) : api(visibleCluster()).cmdHelmUpgrade(request);
 }

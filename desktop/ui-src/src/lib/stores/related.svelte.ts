@@ -1,4 +1,4 @@
-import { commands } from "../bindings";
+import { api, visibleCluster } from "../cluster";
 import type { Related, ResourceDetail } from "../bindings";
 import type { Target } from "./detail.svelte";
 
@@ -40,7 +40,7 @@ export class LiveRelated {
     this.loading = true;
     const t = this.#target;
     try {
-      const data = await commands.cmdGetRelated(t.resource, t.namespace, t.name);
+      const data = await api(visibleCluster()).cmdGetRelated(t.resource, t.namespace, t.name);
       if (!this.#stopped) {
         this.data = data;
         this.error = "";

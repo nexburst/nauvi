@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { commands } from "../bindings";
+import { api, visibleCluster } from "../cluster";
 import type { ForwardInfo, ForwardTarget, SavedForward } from "../bindings";
 import { forwardLabel, isLocalUrl, parseLocalPort, parseRemotePort } from "../forwards";
 import { setNotice } from "./actions.svelte";
@@ -23,7 +23,7 @@ export const forwards = new Forwards();
 
 export async function refreshForwards() {
   try {
-    const [list, elsewhere] = await Promise.all([commands.cmdPortforwardList(), commands.cmdPortforwardElsewhere()]);
+    const [list, elsewhere] = await Promise.all([api(visibleCluster()).cmdPortforwardList(), api(visibleCluster()).cmdPortforwardElsewhere()]);
     forwards.list = list;
     forwards.elsewhere = elsewhere;
   } catch {
@@ -33,7 +33,7 @@ export async function refreshForwards() {
 
 export async function refreshSaved() {
   try {
-    forwards.saved = await commands.cmdPortforwardSaved();
+    forwards.saved = await api(visibleCluster()).cmdPortforwardSaved();
   } catch {
     // No context (yet): nothing saved to show.
     forwards.saved = [];
@@ -68,7 +68,7 @@ export function pollForwards(): () => void {
 
 /** Start a forward (or get the one already running). Throws the backend's message. */
 export async function startForward(target: ForwardTarget, remote: string, local: number | null): Promise<ForwardInfo> {
-  const f = await commands.cmdPortforwardStart(target, remote, local);
+  const f = await api(visibleCluster()).cmdPortforwardStart(target, remote, local);
   await Promise.all([refreshForwards(), refreshSaved()]);
   return f;
 }
@@ -77,7 +77,7 @@ export async function startForward(target: ForwardTarget, remote: string, local:
  *  to its row. Returns whether it started. */
 export async function startSaved(f: SavedForward): Promise<ForwardInfo | null> {
   try {
-    const info = await commands.cmdPortforwardStartSaved(f.id);
+    const info = await api(visibleCluster()).cmdPortforwardStartSaved(f.id);
     setError(f.id, "");
     if (f.open_in_browser) void openForward(info);
     return info;
@@ -92,7 +92,7 @@ export async function startSaved(f: SavedForward): Promise<ForwardInfo | null> {
 /** Stop a saved forward's run and forget it. */
 export async function deleteSaved(f: SavedForward) {
   try {
-    await commands.cmdPortforwardDelete(f.id);
+    await api(visibleCluster()).cmdPortforwardDelete(f.id);
     setError(f.id, "");
     setNotice(true, `Deleted the port-forward to ${forwardLabel(f.target)}:${f.remote}`);
   } catch (e) {
@@ -107,7 +107,7 @@ export async function deleteSaved(f: SavedForward) {
 export async function autoStartForwards() {
   forwards.errors = {};
   try {
-    const failed = await commands.cmdPortforwardAutostart();
+    const failed = await api(visibleCluster()).cmdPortforwardAutostart();
     for (const f of failed) setError(f.saved_id, f.error);
     if (failed.length > 0) {
       setNotice(false, failed.length === 1 ? "A saved port-forward did not start: see Network → Port Forwards." : `${failed.length} saved port-forwards did not start: see Network → Port Forwards.`);
@@ -120,7 +120,7 @@ export async function autoStartForwards() {
 
 export async function stopForward(id: string) {
   try {
-    await commands.cmdPortforwardStop(id);
+    await api(visibleCluster()).cmdPortforwardStop(id);
   } finally {
     await refreshForwards();
   }
@@ -204,7 +204,7 @@ export async function confirmForwardDialog() {
   forwardDialog.busy = true;
   forwardDialog.error = "";
   try {
-    const saved = await commands.cmdPortforwardSave({
+    const saved = await api(visibleCluster()).cmdPortforwardSave({
       id: forwardDialog.editId,
       target,
       remote: remote.value,
@@ -217,10 +217,10 @@ export async function confirmForwardDialog() {
     if (restart) {
       let f: ForwardInfo;
       try {
-        f = await commands.cmdPortforwardStartSaved(saved.id);
+        f = await api(visibleCluster()).cmdPortforwardStartSaved(saved.id);
       } catch (e) {
         // A new forward that never started is not kept; an edit is.
-        if (!editing) await commands.cmdPortforwardDelete(saved.id).catch(() => {});
+        if (!editing) await api(visibleCluster()).cmdPortforwardDelete(saved.id).catch(() => {});
         await Promise.all([refreshForwards(), refreshSaved()]);
         throw e;
       }

@@ -33,6 +33,10 @@
  * 3. Write the test in `src/test/e2e/`; `fake.failNext("cmdYourCommand", "...")`
  *    and `fake.calls("cmdYourCommand")` work for every command.
  *
+ * Cluster-scoped commands (all but `GLOBAL_COMMANDS` in `lib/cluster.ts`)
+ * arrive with a `cluster` argument: the fake checks that it is there and
+ * gives the handler the other arguments.
+ *
  * ## Adding an event
  *
  * Emit it with `events.<name>.emit(payload)` from `bindings.ts` (typed), and
@@ -41,6 +45,7 @@
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { events } from "../lib/bindings";
+import { isClusterCommand } from "../lib/cluster";
 import type { DetailState, LinkRequest, Overview_Serialize, TaggedLine, WatchBatch, WatchState } from "../lib/bindings";
 import { defaultCluster } from "./fixtures/cluster";
 import type { FakeCluster } from "./fixtures/cluster";
@@ -154,11 +159,17 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     if (!list) calls.set(name, (list = []));
     // A JSON copy, like real IPC (and app state may hold Svelte proxies, which
     // structuredClone rejects).
-    list.push(JSON.parse(JSON.stringify(args ?? {})) as CallArgs);
+    // Cluster-scoped commands name their cluster first (ADR 0007); the
+    // handlers and `calls` leave it out.
+    const { cluster: target, ...rest } = args ?? {};
+    if (isClusterCommand(name) !== (typeof target === "string")) {
+      throw new Error(`fake backend: ${cmd} ${isClusterCommand(name) ? "needs" : "takes no"} cluster (lib/cluster.ts)`);
+    }
+    list.push(JSON.parse(JSON.stringify(rest)) as CallArgs);
     const fail = failures.get(name)?.shift();
     if (fail !== undefined) throw fail;
     // `bindings.ts` builds the argument object in parameter order.
-    return handler(...Object.values(args ?? {}));
+    return handler(...Object.values(rest));
   }
 
   mockIPC((cmd, args) => handle(cmd, args as CallArgs | undefined), { shouldMockEvents: true });

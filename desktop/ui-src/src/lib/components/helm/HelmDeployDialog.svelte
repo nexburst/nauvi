@@ -3,6 +3,7 @@
   import CodeEditor from "../editor/CodeEditor.svelte";
   import DiffView from "../editor/DiffView.svelte";
   import { commands } from "../../bindings";
+  import { api, visibleCluster } from "../../cluster";
   import type { HelmChartVersion, HelmDeployRequest, HelmDeployResult } from "../../bindings";
   import { app, setView } from "../../stores/app.svelte";
   import { setNotice } from "../../stores/actions.svelte";
@@ -134,7 +135,7 @@
     try {
       const [dry, current] = await Promise.all([
         runDeploy(mode, req),
-        upgrade ? commands.cmdHelmGet(namespace, name, 0, reveal) : Promise.resolve(null),
+        upgrade ? api(visibleCluster()).cmdHelmGet(namespace, name, 0, reveal) : Promise.resolve(null),
       ]);
       preview = dry;
       previewed = req;

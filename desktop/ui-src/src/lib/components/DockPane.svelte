@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import LogViewer from "./LogViewer.svelte";
   import Terminal from "./Terminal.svelte";
-  import { commands } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import type { LogContainer } from "../bindings";
   import type { DockTab } from "../dock";
 
@@ -32,7 +32,7 @@
       return;
     }
     try {
-      const d = await commands.cmdGetResourceDetail(tab.pod.resource, tab.pod.namespace, tab.pod.name);
+      const d = await api(visibleCluster()).cmdGetResourceDetail(tab.pod.resource, tab.pod.namespace, tab.pod.name);
       containers = d.pod.log_containers;
       shell = d.pod.containers.find((c) => c.kind === "regular")?.name ?? null;
     } catch {

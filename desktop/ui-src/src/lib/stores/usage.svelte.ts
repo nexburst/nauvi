@@ -1,4 +1,4 @@
-import { commands } from "../bindings";
+import { api, visibleCluster } from "../cluster";
 import type { MetricsKind, UsageHistoryView, UsageRange } from "../bindings";
 
 /** Same pace as the table's metrics poll (stores/live.svelte.ts). */
@@ -12,8 +12,8 @@ export type UsageTarget =
 /** The history of `t` over `range`. */
 function fetchUsage(t: UsageTarget, range: UsageRange): Promise<UsageHistoryView> {
   return "workload" in t
-    ? commands.cmdWorkloadUsageHistory(t.workload, t.namespace, t.name, range)
-    : commands.cmdUsageHistory(t.what, t.namespace, t.name, range);
+    ? api(visibleCluster()).cmdWorkloadUsageHistory(t.workload, t.namespace, t.name, range)
+    : api(visibleCluster()).cmdUsageHistory(t.what, t.namespace, t.name, range);
 }
 
 /**

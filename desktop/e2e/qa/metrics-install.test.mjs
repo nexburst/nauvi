@@ -269,7 +269,7 @@ describe("one-click metrics", { timeout: 30 * 60_000, skip }, () => {
       const view = await app.driver
         .executeAsyncScript(
           `const done = arguments[arguments.length - 1];
-           window.__TAURI_INTERNALS__.invoke("cmd_node_disk_usage").then((v) => done(JSON.stringify(v)), (e) => done("error: " + e));`,
+           window.__TAURI_INTERNALS__.invoke("cmd_node_disk_usage", { cluster: "" }).then((v) => done(JSON.stringify(v)), (e) => done("error: " + e));`,
         )
         .catch((e) => `js failed: ${e}`);
       console.log(`cmd_node_disk_usage: ${view}`);

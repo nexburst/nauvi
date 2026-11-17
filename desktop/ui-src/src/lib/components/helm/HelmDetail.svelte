@@ -2,7 +2,7 @@
   import { onMount, untrack } from "svelte";
   import CodeEditor from "../editor/CodeEditor.svelte";
   import HelmHistory from "./HelmHistory.svelte";
-  import { commands } from "../../bindings";
+  import { api, visibleCluster } from "../../cluster";
   import type { HelmRelease, HelmResource } from "../../bindings";
   import { chartLabel, rollbackTargets, statusClass } from "../../helm";
   import { kindOf, openObject } from "../../stores/app.svelte";
@@ -35,7 +35,7 @@
     const n = ++seq;
     loading = true;
     try {
-      const r = await commands.cmdHelmGet(target.namespace, target.name, revision, reveal);
+      const r = await api(visibleCluster()).cmdHelmGet(target.namespace, target.name, revision, reveal);
       if (n !== seq) return;
       release = r;
       loadError = "";
@@ -87,7 +87,7 @@
     let current = release;
     if (!isNewest) {
       try {
-        current = await commands.cmdHelmGet(release.namespace, release.name, 0, false);
+        current = await api(visibleCluster()).cmdHelmGet(release.namespace, release.name, 0, false);
       } catch (e) {
         loadError = String(e);
         return;

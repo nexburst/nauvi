@@ -1,4 +1,4 @@
-import { commands } from "../bindings";
+import { api, setVisibleCluster, visibleCluster } from "../cluster";
 import type { ContextInfo, NamespaceInfo, ResourceKind } from "../bindings";
 import { joinNames, normalizeNamespaces, sameNamespaces } from "../namespaces";
 import { clampHeight } from "../dock";
@@ -96,7 +96,7 @@ export function kindOf(apiVersion: string, kind: string): ResourceKind | undefin
 export async function loadKinds() {
   let found: ResourceKind[];
   try {
-    found = await commands.cmdDiscover();
+    found = await api(visibleCluster()).cmdDiscover();
   } catch (e) {
     kinds.all = [];
     kinds.loaded = true;
@@ -149,7 +149,7 @@ export async function checkAccess() {
   try {
     const resources = found.map((k) => k.resource);
     const answers = await Promise.all(
-      (scope.length ? scope : [null]).map((ns) => commands.cmdCheckAccess(resources, ns)),
+      (scope.length ? scope : [null]).map((ns) => api(visibleCluster()).cmdCheckAccess(resources, ns)),
     );
     // Ignore the answer if discovery or the namespaces changed meanwhile.
     if (kinds.all === found && sameNamespaces(app.selectedNamespaces, scope)) {
@@ -207,11 +207,12 @@ export function stamp() {
 
 export async function loadContexts() {
   try {
-    app.contexts = await commands.cmdListContexts();
+    app.contexts = await api(visibleCluster()).cmdListContexts();
   } catch {
     // No kubeconfig contexts (e.g. in-cluster): the selector stays hidden.
     app.contexts = [];
   }
+  setVisibleCluster(currentContextName());
 }
 
 export function currentContextName(): string {
@@ -230,7 +231,7 @@ export function rememberNamespace(ns: string) {
 export async function loadNamespaces() {
   let listed: NamespaceInfo[] | null;
   try {
-    listed = await commands.cmdListNamespaces();
+    listed = await api(visibleCluster()).cmdListNamespaces();
   } catch {
     // Namespaces failing usually means the cluster is unreachable;
     // the main view load will surface the error.
@@ -259,7 +260,7 @@ export async function reloadNamespaces(): Promise<boolean> {
   const ctx = currentContextName();
   let listed: NamespaceInfo[] | null;
   try {
-    listed = await commands.cmdListNamespaces();
+    listed = await api(visibleCluster()).cmdListNamespaces();
   } catch {
     return false;
   }
@@ -279,7 +280,7 @@ export async function reloadNamespaces(): Promise<boolean> {
 export async function initScope() {
   let ns: string | null = null;
   try {
-    ns = await commands.cmdDefaultNamespace();
+    ns = await api(visibleCluster()).cmdDefaultNamespace();
   } catch {
     // Unreachable cluster: stay on all namespaces; the views report it.
   }
@@ -333,7 +334,7 @@ export async function startApp() {
   const remembered = isMainWindow() ? (linked ?? contextToRestore(settings.current.last_context, app.contexts)) : null;
   if (remembered) {
     try {
-      await commands.cmdSetContext(remembered);
+      await api(visibleCluster()).cmdSetContext(remembered);
       await loadContexts();
     } catch {
       // Stay on the kubeconfig's current-context.
@@ -373,7 +374,7 @@ export function refresh() {
 
 export async function switchContext(name: string) {
   try {
-    await commands.cmdSetContext(name || null);
+    await api(visibleCluster()).cmdSetContext(name || null);
   } catch (e) {
     showError("Could not switch context: " + e);
     return;
@@ -403,7 +404,7 @@ export async function switchContext(name: string) {
  */
 export async function openContextWindow(name: string) {
   try {
-    await commands.cmdOpenWindow(name);
+    await api(visibleCluster()).cmdOpenWindow(name);
   } catch (e) {
     // The backend says what failed.
     showError(String(e));

@@ -5,7 +5,8 @@
 
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
-  import { commands, events } from "../bindings";
+  import { events } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import { thisWindow } from "../window";
   import type { EventInfo, KindCounts, ProblemWorkload, WorkloadsOverview, WorkloadsStateChanged } from "../bindings";
   import { app, kinds, openObject, openWithStatus, setStatus, setView, showError, stamp } from "../stores/app.svelte";
@@ -72,7 +73,7 @@
     retry = null;
     const id = feed;
     feed = 0;
-    if (id) commands.cmdWorkloadsStop(id).catch(() => {});
+    if (id) api(visibleCluster()).cmdWorkloadsStop(id).catch(() => {});
   }
 
   async function start(namespaces: string[]) {
@@ -86,7 +87,7 @@
     await listening;
     if (feed !== id) return;
     try {
-      await commands.cmdWorkloadsStart(id, namespaces);
+      await api(visibleCluster()).cmdWorkloadsStart(id, namespaces);
     } catch (e) {
       if (feed !== id) return;
       const err = clusterError(e);

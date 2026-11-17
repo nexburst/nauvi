@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import DiffView from "../editor/DiffView.svelte";
-  import { commands } from "../../bindings";
+  import { api, visibleCluster } from "../../cluster";
   import type { HelmRelease } from "../../bindings";
   import { ageOf, defaultDiffPair, statusClass } from "../../helm";
 
@@ -36,7 +36,7 @@
     const key = `${rev}|${reveal}`;
     let p = cache.get(key);
     if (!p) {
-      p = commands.cmdHelmGet(release.namespace, release.name, rev, reveal);
+      p = api(visibleCluster()).cmdHelmGet(release.namespace, release.name, rev, reveal);
       p.catch(() => cache.delete(key));
       cache.set(key, p);
     }

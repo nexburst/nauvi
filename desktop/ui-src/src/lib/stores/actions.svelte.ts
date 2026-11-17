@@ -1,4 +1,5 @@
-import { commands, events } from "../bindings";
+import { events } from "../bindings";
+import { api, visibleCluster } from "../cluster";
 import { thisWindow } from "../window";
 import type { ActionDef, BulkItemResult, DrainSummary, ResourceKind, ResourceRef } from "../bindings";
 import { drainLine, needsDialog, sameResource, targetLabel } from "../actions";
@@ -121,7 +122,7 @@ export function requestAction(kind: ResourceKind, targets: ActionTarget[], actio
 
 export function closeDialog() {
   const d = actionUi.drain;
-  if (d && !d.finished && d.id) void commands.cmdCancelDrain(d.id);
+  if (d && !d.finished && d.id) void api(visibleCluster()).cmdCancelDrain(d.id);
   actionUi.request = null;
   actionUi.drain = null;
   actionUi.error = "";
@@ -155,7 +156,7 @@ async function execute(req: ActionRequest, inDialog: boolean) {
       return;
     }
     if (targets.length > 1) {
-      const results = await commands.cmdBulkDelete(
+      const results = await api(visibleCluster()).cmdBulkDelete(
         resource,
         targets.map((t) => ({ namespace: t.namespace, name: t.name })),
       );
@@ -171,7 +172,7 @@ async function execute(req: ActionRequest, inDialog: boolean) {
       return;
     }
     const t = targets[0];
-    const msg = await commands.cmdRunAction(resource, t.namespace, t.name, action.id, replicas);
+    const msg = await api(visibleCluster()).cmdRunAction(resource, t.namespace, t.name, action.id, replicas);
     const gone = action.id === "delete" || action.id === "forceDelete" || action.id === "evict";
     if (gone) closeDetailIf(kind, t);
     actionUi.request = null;
@@ -199,7 +200,7 @@ function closeDetailIf(kind: ResourceKind, t: ActionTarget) {
 async function startDrain(node: string) {
   actionUi.drain = { id: null, node, lines: [], finished: false, error: "", summary: null };
   try {
-    const id = await commands.cmdDrainNode(node, DRAIN_TIMEOUT_SECS);
+    const id = await api(visibleCluster()).cmdDrainNode(node, DRAIN_TIMEOUT_SECS);
     if (actionUi.drain && actionUi.drain.id === null) actionUi.drain.id = id;
   } catch (e) {
     actionUi.drain = null;

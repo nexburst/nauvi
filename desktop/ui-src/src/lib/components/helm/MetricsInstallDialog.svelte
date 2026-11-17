@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from "svelte";
   import CodeEditor from "../editor/CodeEditor.svelte";
-  import { commands } from "../../bindings";
+  import { api, visibleCluster } from "../../cluster";
   import type { ActionAccess, HelmDeployResult, MetricsAddon, MetricsAddonId, MetricsAddonRequest } from "../../bindings";
   import { app, currentContextName, setView } from "../../stores/app.svelte";
   import { setNotice } from "../../stores/actions.svelte";
@@ -81,7 +81,7 @@
       if (accessTimer) clearTimeout(accessTimer);
       const n = ++accessSeq;
       accessTimer = setTimeout(() => {
-        commands.cmdMetricsAddonAccess(id, ns).then(
+        api(visibleCluster()).cmdMetricsAddonAccess(id, ns).then(
           (a) => n === accessSeq && (access = a),
           () => n === accessSeq && (access = null),
         );
@@ -106,7 +106,7 @@
     error = "";
     const req = { ...request };
     try {
-      preview = await commands.cmdMetricsAddonInstall(req);
+      preview = await api(visibleCluster()).cmdMetricsAddonInstall(req);
       previewed = req;
       step = "preview";
     } catch (e) {
@@ -121,14 +121,14 @@
     busy = true;
     error = "";
     try {
-      result = await commands.cmdMetricsAddonInstall({ ...previewed, dry_run: false });
+      result = await api(visibleCluster()).cmdMetricsAddonInstall({ ...previewed, dry_run: false });
       step = "done";
       setNotice(true, result.summary);
       markInstalled();
       helm.nonce += 1;
       void loadReleases(app.selectedNamespaces);
       // Look for the new Prometheus now rather than when the cache expires.
-      if (id === "prometheus") void commands.cmdPrometheusStatus(true).catch(() => {});
+      if (id === "prometheus") void api(visibleCluster()).cmdPrometheusStatus(true).catch(() => {});
     } catch (e) {
       error = String(e);
     } finally {

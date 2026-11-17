@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { commands } from "../bindings";
+  import { api, visibleCluster } from "../cluster";
   import type { PrometheusStatus, Theme } from "../bindings";
   import { DEFAULT_DETAIL_WIDTH, prometheusSettingError, TAIL_OPTIONS } from "../settings";
   import type { LogDefaults } from "../settings";
@@ -67,7 +67,7 @@
   async function checkPrometheus(redetect: boolean) {
     promChecking = true;
     try {
-      promStatus = await commands.cmdPrometheusStatus(redetect);
+      promStatus = await api(visibleCluster()).cmdPrometheusStatus(redetect);
       promStatusError = "";
     } catch (e) {
       promStatusError = String(e);
