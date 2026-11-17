@@ -7,6 +7,7 @@ import type {
   ColumnKind,
   DataField,
   FieldTakeover,
+  ClusterForward,
   ForwardInfo,
   MetricsSnapshot,
   NamespaceInfo,
@@ -99,6 +100,8 @@ export interface FakeCluster {
   forwards: ForwardInfo[];
   /** Saved ids of forwards another window runs (`cmd_portforward_elsewhere`). */
   forwardsElsewhere: string[];
+  /** Forwards running on the window's other clusters (`cmd_portforward_list_all`). */
+  backgroundForwards: ClusterForward[];
   /** `cmd_service_ports`, by `namespace/name`. */
   servicePorts: Record<string, ServicePortInfo[]>;
   /** `cmd_debug_start` fails with this after its first progress line. */
@@ -440,6 +443,7 @@ export function defaultCluster(): FakeCluster {
     applyErrors: {},
     forwards: [],
     forwardsElsewhere: [],
+    backgroundForwards: [],
     debugError: "",
     attachError: "",
     nodeShellError: "",

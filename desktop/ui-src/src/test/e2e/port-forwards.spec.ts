@@ -33,7 +33,7 @@ test("a pod forward outlives its panel and is listed, opened and stopped from Po
   expect(await fake.calls("cmdPortforwardStop")).toEqual([]);
 
   await openForwardsView(page);
-  await expect(page.getByText("Forwards are saved for this cluster.")).toBeVisible();
+  await expect(page.getByText("Forwards are saved per cluster.")).toBeVisible();
   await expect(forwardRows(page)).toHaveCount(1);
   const r = forwardRows(page).first();
   await expect(r).toContainText("pod/demo/web-1");

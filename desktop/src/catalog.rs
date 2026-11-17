@@ -6,6 +6,8 @@
 mod approvals;
 #[cfg(test)]
 mod gate_tests;
+#[cfg(test)]
+mod hide_gate_tests;
 mod proxies;
 
 pub(crate) use approvals::ExecAnswer;

@@ -117,7 +117,7 @@ test("the status message is clamped to two lines, the row actions fit in one lin
   expect(overflow).toBeLessThanOrEqual(0);
 });
 
-test("More actions offers New window, Check, Settings and Remove", async ({ page }) => {
+test("More actions offers New window, Check, Settings, Hide and Remove", async ({ page }) => {
   const fake = await openCatalog(page);
   const more = catalogRow(page, "dead").getByRole("button", { name: "More actions for dead" });
   await more.click();
@@ -126,6 +126,7 @@ test("More actions offers New window, Check, Settings and Remove", async ({ page
     "Open in new window",
     "Check connection",
     "Settings…",
+    "Hide…",
     "Remove source…",
   ]);
   await page.keyboard.press("Escape");
@@ -133,12 +134,14 @@ test("More actions offers New window, Check, Settings and Remove", async ({ page
   // Focus goes back to the ⋯ button, even where a click does not focus it (WebKit on macOS).
   await expect(more).toBeFocused();
 
-  // The current context's file is the default kubeconfig: nothing to remove.
+  // The current context's file is the default kubeconfig: nothing to remove,
+  // and the window shows it: not hidden from here.
   await catalogRow(page, "kind-nauvi-test").getByRole("button", { name: "More actions for kind-nauvi-test" }).click();
   await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText([
     "Open in new window",
     "Check connection",
     "Settings…",
+    "Hide… (shown here)",
   ]);
   await page.getByRole("menuitem", { name: "Settings…" }).click();
   await expect(page.getByRole("dialog", { name: "Cluster settings" })).toBeVisible();

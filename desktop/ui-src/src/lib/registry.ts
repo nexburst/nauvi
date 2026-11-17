@@ -24,6 +24,7 @@ import { listenClusterStates } from "./stores/clusterStates.svelte";
 import { createUi } from "./stores/create.svelte";
 import { checkLeftovers } from "./stores/debug.svelte";
 import { helm } from "./stores/helm.svelte";
+import { hideDialog } from "./stores/hidden.svelte";
 import { charts } from "./stores/helmCharts.svelte";
 import { keyboard, listenMouseButtons } from "./stores/keyboard.svelte";
 import { live } from "./stores/live.svelte";
@@ -46,6 +47,7 @@ import HelmChartsView from "./components/helm/HelmChartsView.svelte";
 import HelmConfirm from "./components/helm/HelmConfirm.svelte";
 import HelmDeployDialog from "./components/helm/HelmDeployDialog.svelte";
 import HelmDetail from "./components/helm/HelmDetail.svelte";
+import HideClusterDialog from "./components/HideClusterDialog.svelte";
 import HelmView from "./components/helm/HelmView.svelte";
 import MetricsInstallDialog from "./components/helm/MetricsInstallDialog.svelte";
 import NodeShellLeftovers from "./components/NodeShellLeftovers.svelte";
@@ -152,6 +154,8 @@ export const DIALOGS: Slot[] = [
   }),
   // The typed confirmation of a change to a protected cluster (#338).
   slot(ProtectedConfirm, { when: () => protect.queue.length > 0 }),
+  // "Remove = hide" (ADR 0007, #333).
+  slot(HideClusterDialog, { when: () => hideDialog.id !== "" }),
 ];
 
 /** Event subscriptions, made before the first watch starts; each returns its unlisten. */

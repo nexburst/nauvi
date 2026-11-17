@@ -48,6 +48,7 @@ export const GLOBAL_COMMANDS = [
   "cmdMetricsAddons",
   "cmdOpenWindow",
   "cmdPasteKubeconfig",
+  "cmdPortforwardListAll",
   "cmdRemoveKubeconfigSource",
   "cmdSaveCsv",
   "cmdSaveLogs",

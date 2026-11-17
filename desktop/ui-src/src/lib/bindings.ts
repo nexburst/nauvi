@@ -370,6 +370,12 @@ export const commands = {
 	/**  Every running forward, oldest first. */
 	cmdPortforwardList: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<ForwardInfo[]>("cmd_portforward_list", { cluster }, options),
 	/**
+	 *  The running forwards of every cluster the calling window is connected
+	 *  to, by cluster id, then oldest first. Asking does not count as using a
+	 *  cluster: it does not keep an idle one connected.
+	 */
+	cmdPortforwardListAll: (options?: InvokeOptions) => __TAURI_INVOKE<ClusterForward[]>("cmd_portforward_list_all", undefined, options),
+	/**
 	 *  Save `forward` for the selected context: a new one (id `""`) or an
 	 *  edit. A running forward keeps its old settings until it is started
 	 *  again (`cmd_portforward_start_saved`).
@@ -817,6 +823,13 @@ export type Category = "workloads" | "network" | "config" | "storage" | "cluster
 "custom" | 
 /**  Anything else the server serves (apiservices, flowschemas, ...). */
 "other";
+
+/**  A running forward and the cluster it runs on (ADR 0007). */
+export type ClusterForward = {
+	/**  The cluster's id (its context id). */
+	cluster: string,
+	forward: ForwardInfo,
+};
 
 /**
  *  A cluster's proxy, for its settings page and diagnostics. No field
@@ -2434,6 +2447,8 @@ export type SettingsPatch_Deserialize = {
 	kinds?: { [key in string]: KindSettings_Deserialize } | null,
 	windows?: string[] | null,
 	favourites?: string[] | null,
+	/**  The whole list of hidden context ids. */
+	hidden_contexts?: string[] | null,
 	zoom?: number | null,
 	terminal_font_size?: number | null,
 	editor_font_size?: number | null,
@@ -2461,6 +2476,8 @@ export type SettingsPatch_Serialize = {
 	kinds?: { [key in string]: KindSettings_Serialize } | null,
 	windows?: string[] | null,
 	favourites?: string[] | null,
+	/**  The whole list of hidden context ids. */
+	hidden_contexts?: string[] | null,
 	zoom?: number | null,
 	terminal_font_size?: number | null,
 	editor_font_size?: number | null,
@@ -2503,6 +2520,13 @@ export type Settings_Deserialize = {
 	 *  palette.
 	 */
 	favourites?: string[],
+	/**
+	 *  Context ids hidden from the cluster tree, the context selector and
+	 *  the palette (ADR 0007, "remove = hide"). Only nauvi's own list: the
+	 *  kubeconfig files are never changed. The catalog shows them again
+	 *  with Show hidden, and Unhide takes one off the list.
+	 */
+	hidden_contexts?: string[],
 	/**  The page zoom in percent (#207), within `ZOOM_RANGE`. */
 	zoom?: number,
 	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */
@@ -2574,6 +2598,13 @@ export type Settings_Serialize = {
 	 *  palette.
 	 */
 	favourites: string[],
+	/**
+	 *  Context ids hidden from the cluster tree, the context selector and
+	 *  the palette (ADR 0007, "remove = hide"). Only nauvi's own list: the
+	 *  kubeconfig files are never changed. The catalog shows them again
+	 *  with Show hidden, and Unhide takes one off the list.
+	 */
+	hidden_contexts: string[],
 	/**  The page zoom in percent (#207), within `ZOOM_RANGE`. */
 	zoom: number,
 	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */

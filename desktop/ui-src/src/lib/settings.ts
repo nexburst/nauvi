@@ -40,6 +40,8 @@ export interface SettingsPatch {
   windows?: string[];
   /** Pinned context ids, in order (#78). */
   favourites?: string[];
+  /** Context ids hidden in nauvi (ADR 0007), the whole list. */
+  hidden_contexts?: string[];
   /** Page zoom in percent (#207). */
   zoom?: number;
   /** Terminal font size in pixels (#207). */
@@ -75,6 +77,7 @@ export function defaultSettings(): Settings {
     windows: [],
     kubeconfig_sources: [],
     favourites: [],
+    hidden_contexts: [],
     zoom: DEFAULT_ZOOM,
     terminal_font_size: DEFAULT_TERMINAL_FONT,
     editor_font_size: DEFAULT_EDITOR_FONT,
@@ -134,6 +137,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.kinds != null) next.kinds = { ...settings.kinds, ...patch.kinds };
   if (patch.windows != null) next.windows = patch.windows;
   if (patch.favourites != null) next.favourites = patch.favourites;
+  if (patch.hidden_contexts != null) next.hidden_contexts = [...new Set(patch.hidden_contexts.filter(Boolean))];
   if (patch.zoom != null) next.zoom = clampZoom(patch.zoom);
   if (patch.terminal_font_size != null) next.terminal_font_size = clampTerminalFont(patch.terminal_font_size);
   if (patch.editor_font_size != null) next.editor_font_size = clampEditorFont(patch.editor_font_size);

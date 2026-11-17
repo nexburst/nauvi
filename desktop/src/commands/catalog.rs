@@ -65,22 +65,30 @@ pub(crate) fn cmd_remove_kubeconfig_source(
     store: State<'_, Arc<SettingsStore>>,
     path: String,
 ) -> Result<Vec<SourceInfo>, String> {
+    remove_source(&state.sources, &store, &path)?;
+    announce(&app);
+    Ok(state.sources.catalog().sources)
+}
+
+/// [`cmd_remove_kubeconfig_source`] without telling the windows.
+pub(crate) fn remove_source(
+    sources: &KubeconfigSources,
+    store: &Arc<SettingsStore>,
+    path: &str,
+) -> Result<(), String> {
     let saved = store.get().kubeconfig_sources;
-    if !saved.iter().any(|p| p == &path) {
+    if !saved.iter().any(|p| p == path) {
         return Err(format!(
             "{path} was not added in nauvi, so it cannot be removed here. \
              The default kubeconfig comes from KUBECONFIG or ~/.kube/config."
         ));
     }
-    let file = expand_home(&path);
+    let file = expand_home(path);
     // Added again later, its commands are asked about again.
-    if let Err(e) = state
-        .sources
-        .forget_exec_answers(&file.display().to_string())
-    {
+    if let Err(e) = sources.forget_exec_answers(&file.display().to_string()) {
         tracing::warn!("{e}");
     }
-    if is_pasted(&state.sources, &file) {
+    if is_pasted(sources, &file) {
         if let Err(e) = std::fs::remove_file(&file) {
             if e.kind() != std::io::ErrorKind::NotFound {
                 return Err(format!(
@@ -89,10 +97,9 @@ pub(crate) fn cmd_remove_kubeconfig_source(
             }
         }
     }
-    set_sources(&app, &state.sources, &store, |list| {
-        list.retain(|p| p != &path)
-    });
-    Ok(state.sources.catalog().sources)
+    let next = store.modify(|s| s.kubeconfig_sources.retain(|p| p != path));
+    sources.set_extra(&next.kubeconfig_sources);
+    Ok(())
 }
 
 /// Save a pasted kubeconfig in the app's config directory (readable only by

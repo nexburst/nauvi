@@ -4,7 +4,7 @@
   import { groupContexts, sectionsOf, stateText } from "../clusterTree";
   import { app, currentContextName, openContextWindow } from "../stores/app.svelte";
   import { contextLabel } from "../stores/catalog.svelte";
-  import { contextSettings } from "../stores/settings.svelte";
+  import { contextSettings, settings } from "../stores/settings.svelte";
   import {
     answerNode,
     connectNode,
@@ -18,13 +18,21 @@
     visibleChanged,
   } from "../stores/clusters.svelte";
   import { clusterStates } from "../stores/clusterStates.svelte";
+  import { askHide, isHidden, windowItems } from "../stores/hidden.svelte";
+  import { shownContexts } from "../hidden";
   import ExecPrompt from "./catalog/ExecPrompt.svelte";
   import SidebarKinds from "./SidebarKinds.svelte";
 
   // Every kubeconfig context, by source (ADR 0007). Nothing is asked of a
   // cluster until its node is expanded or selected.
-  const groups = $derived(groupContexts(app.contexts));
   const visible = $derived(currentContextName());
+  // Hidden ones are left out (ADR 0007), unless shown here or running
+  // something in this window: those keep a node, marked hidden.
+  const groups = $derived(
+    groupContexts(
+      shownContexts(app.contexts, settings.current.hidden_contexts, [visible, ...windowItems.byCluster.keys()]),
+    ),
+  );
 
   // A switch from elsewhere (header, catalog, palette, link): the cluster
   // shown before stays connected.
@@ -60,6 +68,7 @@
   <div
     class="node"
     class:visible={isVisible}
+    class:hidden-ctx={isHidden(id)}
     data-testid="cluster-node"
     data-cluster={id}
     data-state={isVisible ? "visible" : state}
@@ -86,6 +95,7 @@
           aria-hidden="true"
         ></span>
         <span class="text">{label(id)}</span>
+        {#if isHidden(id)}<span class="hidden-tag" title="Hidden in nauvi: unhide it in the catalog">hidden</span>{/if}
       </button>
       <span class="actions">
         <button
@@ -102,6 +112,22 @@
             />
           </svg>
         </button>
+        {#if !isVisible && !isHidden(id)}
+          <button
+            type="button"
+            class="icon"
+            aria-label={`Hide ${label(id)}`}
+            title="Hide in nauvi: your kubeconfig is not changed"
+            onclick={() => void askHide(id)}
+          >
+            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46A11.8 11.8 0 0 0 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2z"
+              />
+            </svg>
+          </button>
+        {/if}
         {#if !isVisible && (n.state === "connected" || n.state === "failed")}
           <button
             type="button"
@@ -226,6 +252,17 @@
     gap: 6px;
     padding: 5px 6px 5px 2px;
     font-size: 13px;
+  }
+  .hidden-ctx > .row .text {
+    font-style: italic;
+  }
+  .hidden-tag {
+    flex-shrink: 0;
+    font-size: 10px;
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    color: var(--text-muted);
   }
   .visible > .row .name {
     color: var(--text);

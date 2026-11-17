@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { forwardLabel, forwardRows, forwardsCount, forwardState, plannedUrl, portsLabel, savedPortsLabel } from "../forwards";
-  import { app } from "../stores/app.svelte";
+  import { api } from "../cluster";
+  import type { ForwardInfo } from "../bindings";
+  import { needsClusterLabels } from "../hidden";
+  import { app, currentContextName } from "../stores/app.svelte";
+  import { contextLabel } from "../stores/catalog.svelte";
+  import { pollWindowForwards, refreshWindowForwards, windowItems } from "../stores/hidden.svelte";
+  import ClusterLabel from "./ClusterLabel.svelte";
   import {
     copyForwardUrl,
     deleteSaved,
@@ -18,8 +24,24 @@
    *  outlive this view; leaving it stops nothing. */
   const stopPolling = pollForwards();
   onDestroy(stopPolling);
+  // The forwards of the window's other clusters (ADR 0007), labelled.
+  onDestroy(pollWindowForwards());
 
   const rows = $derived(forwardRows(forwards.saved, forwards.list));
+  const visible = $derived(currentContextName());
+  /** Forwards running on the other clusters this window is connected to. */
+  const others = $derived(windowItems.forwards.filter((f) => f.cluster !== visible));
+  const labelled = $derived(
+    needsClusterLabels([...rows.map(() => visible), ...others.map((f) => f.cluster)], visible),
+  );
+
+  async function stopOther(cluster: string, f: ForwardInfo) {
+    try {
+      await api(cluster).cmdPortforwardStop(f.id);
+    } finally {
+      await refreshWindowForwards();
+    }
+  }
   let starting = $state.raw<string[]>([]);
   const ELSEWHERE_HINT = "Running in another window: stop it there to start it here";
 
@@ -45,10 +67,11 @@
 
 <div class="forwards" data-testid="port-forwards">
   <p class="note muted">
-    Forwards are saved for this cluster. They keep running when you close panels or leave this view; switching
-    context or quitting stops them, and they come back stopped unless you check Start automatically.
+    Forwards are saved per cluster. They keep running when you close panels, leave this view or show another
+    cluster (they are listed here with their cluster); disconnecting the cluster or quitting stops them, and they
+    come back stopped unless you check Start automatically.
   </p>
-  {#if rows.length === 0}
+  {#if rows.length === 0 && others.length === 0}
     <p class="empty muted" data-testid="forwards-empty">
       No port-forwards. Start one from a pod, Service or workload: right-click it and pick Port forward…, or use the
       Forward buttons in its details.
@@ -57,6 +80,7 @@
     <table>
       <thead>
         <tr>
+          {#if labelled}<th>Cluster</th>{/if}
           <th>Target</th>
           <th>Ports</th>
           <th>Local URL</th>
@@ -73,6 +97,7 @@
           {@const url = f ? f.url : s ? plannedUrl(s) : ""}
           {@const error = s ? forwards.errors[s.id] : ""}
           <tr data-testid="forward-row" class:stopped={!f}>
+            {#if labelled}<td class="cluster" data-testid="forward-cluster"><ClusterLabel id={visible} /></td>{/if}
             <td class="mono target">
               {forwardLabel(target)}
               {#if s?.https || s?.auto_start}
@@ -137,6 +162,30 @@
             </td>
           </tr>
         {/each}
+        {#each others as o (o.forward.id)}
+          {@const f = o.forward}
+          {@const st = forwardState(f)}
+          <tr data-testid="forward-row-other" data-cluster={o.cluster}>
+            <td class="cluster" data-testid="forward-cluster"><ClusterLabel id={o.cluster} /></td>
+            <td class="mono target">{forwardLabel(f.target)}</td>
+            <td class="mono nowrap">{portsLabel(f)}</td>
+            <td class="mono nowrap">{f.url}</td>
+            <td class="mono">{f.status.pod || "—"}</td>
+            <td class="status" class:error-text={st.tone === "error"} class:ok={st.tone === "ok"}>{st.text}</td>
+            <td class="actions">
+              <button type="button" class="btn" aria-label="Open {f.url} in the browser" onclick={() => openForward(f)}
+                >Open</button
+              >
+              <button type="button" class="btn" aria-label="Copy {f.url}" onclick={() => copyForwardUrl(f)}>Copy</button>
+              <button
+                type="button"
+                class="btn"
+                aria-label="Stop {f.url} on {contextLabel(o.cluster)}"
+                onclick={() => stopOther(o.cluster, f)}>Stop</button
+              >
+            </td>
+          </tr>
+        {/each}
       </tbody>
     </table>
   {/if}
@@ -193,6 +242,10 @@
   }
   .target {
     max-width: 280px;
+  }
+  .cluster {
+    max-width: 160px;
+    word-break: normal;
   }
   .tags {
     margin-top: 3px;

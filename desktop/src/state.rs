@@ -744,6 +744,18 @@ impl AppState {
             .collect()
     }
 
+    /// The clusters window `label` is connected to (not the left ones),
+    /// without touching them: reading them is no use of the cluster, so it
+    /// does not keep the idle reaper away (ADR 0007).
+    pub(crate) fn window_clusters(&self, label: &str) -> Vec<Arc<ClusterSession>> {
+        self.windows
+            .lock()
+            .unwrap()
+            .get(label)
+            .map(|w| w.clusters.values().cloned().collect())
+            .unwrap_or_default()
+    }
+
     /// `(namespace, pod)` of the node shells open in any window, for any
     /// cluster.
     pub(crate) fn node_shell_pods(&self) -> Vec<(String, String)> {
