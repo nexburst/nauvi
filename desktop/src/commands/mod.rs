@@ -21,6 +21,7 @@ pub(crate) mod help;
 pub(crate) mod kubectl;
 pub(crate) mod links;
 pub(crate) mod local_shell;
+pub(crate) mod log_frame;
 pub(crate) mod logs;
 pub(crate) mod metrics_addons;
 pub(crate) mod overview;
@@ -170,11 +171,6 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             exec::ExecClosed,
             exec::ExecOutput,
             links::LinkPending,
-            logs::PodLog,
-            logs::PodLogDone,
-            logs::PodLogError,
-            logs::WorkloadLog,
-            logs::WorkloadNotice,
             overview::OverviewChanged,
             overview::OverviewStateChanged,
             updater::UpdateProgress,

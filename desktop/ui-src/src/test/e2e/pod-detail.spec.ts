@@ -36,6 +36,8 @@ test("the pod panel shows details; its Logs button starts the stream with the ri
     sinceSeconds: null,
     timestamps: false,
     streamId: await fake.lastStreamId(),
+    // Its own channel (#115).
+    onEvent: expect.stringMatching(/^__CHANNEL__:\d+$/),
   });
   expect(await fake.calls("cmdGetResourceDetail")).toEqual([
     { resource: expect.objectContaining({ kind: "Pod", group: "" }), namespace: "demo", name: "web-1" },

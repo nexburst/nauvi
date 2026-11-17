@@ -3,12 +3,12 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, onMount, tick } from "svelte";
+  import { onDestroy, tick } from "svelte";
   import VirtualList from "./VirtualList.svelte";
-  import { commands, events } from "../bindings";
+  import { commands } from "../bindings";
   import { api, visibleCluster } from "../cluster";
-  import { thisWindow } from "../window";
-  import type { LogContainer, WorkloadNotice } from "../bindings";
+  import type { LogContainer, LogEvent, WorkloadNotice } from "../bindings";
+  import { logChannel } from "../logChannel";
   import {
     ALL_CONTAINERS,
     LogBuffer,
@@ -172,8 +172,8 @@
   let list = $state<ReturnType<typeof VirtualList>>();
   let scrollEl = $state<HTMLDivElement | null>(null);
 
-  // Events carry the id of their stream; ids only grow, so a straggler from a
-  // replaced stream never matches.
+  // Each stream has its own channel (#115); a message from a replaced stream
+  // (ids only grow) is dropped.
   let streamId = ++streamCounter;
   /** Whether `streamId` has been started (and must be stopped). */
   let streaming = false;
@@ -582,6 +582,23 @@
     else updateStatus();
   }
 
+  function onLogEvent(e: LogEvent) {
+    switch (e.type) {
+      case "tagged":
+        onTaggedBatch(e.data);
+        break;
+      case "notice":
+        onNotice(e);
+        break;
+      case "error":
+        appendLog(e.message, "error-text");
+        break;
+      case "done":
+        appendLog("[stream ended]", "muted");
+        break;
+    }
+  }
+
   async function startLogs() {
     resetLogs();
     setPaused(false);
@@ -596,6 +613,11 @@
     tagInfoCache = new Map();
     prefixHits = new Map();
     truncatedNote = "";
+    const id = streamId;
+    const onEvent = logChannel({
+      lines: (lines) => id === streamId && onBatch(lines),
+      event: (e) => id === streamId && onLogEvent(e),
+    });
     try {
       if (workload) {
         await api(cluster).cmdStreamWorkloadLogs(
@@ -609,6 +631,7 @@
             timestamps,
           },
           streamId,
+          onEvent,
         );
         return;
       }
@@ -626,6 +649,7 @@
             timestamps,
           },
           streamId,
+          onEvent,
         );
         return;
       }
@@ -638,6 +662,7 @@
         since === "all" ? null : Number(since),
         timestamps,
         streamId,
+        onEvent,
       );
     } catch (e) {
       appendLog("Could not start log stream: " + e, "error-text");
@@ -871,23 +896,7 @@
     followIfNeeded(true);
   }
 
-  let unlisteners: (() => void)[] = [];
-  let destroyed = false;
-  onMount(async () => {
-    const un = await Promise.all([
-      events.podLog(thisWindow()).listen((e) => e.payload.streamId === streamId && onBatch(e.payload.data)),
-      events.workloadLog(thisWindow()).listen((e) => e.payload.streamId === streamId && onTaggedBatch(e.payload.data)),
-      events.workloadNotice(thisWindow()).listen((e) => e.payload.streamId === streamId && onNotice(e.payload)),
-      events.podLogDone(thisWindow()).listen((e) => e.payload.streamId === streamId && appendLog("[stream ended]", "muted")),
-      events.podLogError(thisWindow()).listen((e) => e.payload.streamId === streamId && appendLog(e.payload.data, "error-text")),
-    ]);
-    if (destroyed) un.forEach((f) => f());
-    else unlisteners = un;
-  });
-
   onDestroy(() => {
-    destroyed = true;
-    unlisteners.forEach((f) => f());
     cancelAnimationFrame(raf);
     clearTimeout(filterTimer);
     gen++;

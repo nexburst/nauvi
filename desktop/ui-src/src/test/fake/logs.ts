@@ -5,9 +5,10 @@ import type { AreaHandlers, FakeState } from "./state";
 
 export function logsHandlers(s: FakeState) {
   return {
-    cmdStreamPodLogs: (_namespace, _name, _container, _previous, _tail, _since, _timestamps, id) => startStream(s, id),
-    cmdStreamWorkloadLogs: (_kind, _namespace, _name, _options, id) => startStream(s, id),
-    cmdStreamPodAllLogs: (_namespace, _name, _options, id) => startStream(s, id),
+    cmdStreamPodLogs: (_namespace, _name, _container, _previous, _tail, _since, _timestamps, id, ch) =>
+      startStream(s, id, ch),
+    cmdStreamWorkloadLogs: (_kind, _namespace, _name, _options, id, ch) => startStream(s, id, ch),
+    cmdStreamPodAllLogs: (_namespace, _name, _options, id, ch) => startStream(s, id, ch),
     cmdStopLogs: (id) => {
       s.logStreams.delete(id);
       return null;

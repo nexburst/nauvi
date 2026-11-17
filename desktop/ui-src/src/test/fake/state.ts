@@ -4,9 +4,10 @@
  * small helpers on them. See the header of `../fake-backend.ts`.
  */
 
+import type { Channel } from "@tauri-apps/api/core";
 import type { commands } from "../../lib/bindings";
 import { events } from "../../lib/bindings";
-import type { LinkRequest, ResourceKind, ResourceRef, ResourceRow } from "../../lib/bindings";
+import type { LinkRequest, LogMessage, ResourceKind, ResourceRef, ResourceRow } from "../../lib/bindings";
 import type { ClusterCommand } from "../../lib/cluster";
 import type { FakeCluster } from "../fixtures/cluster";
 
@@ -46,6 +47,8 @@ export interface FakeState {
   streamId: number | null;
   /** Running log streams, like the backend's map (with its cap). */
   logStreams: Set<number>;
+  /** The channel of every log stream started, stopped or not (stragglers can still be sent). */
+  logChannels: Map<number, Channel<LogMessage>>;
   /** Running overview feeds, and the id of the latest one. */
   overviewFeeds: Set<number>;
   lastOverview: number | null;
@@ -80,6 +83,7 @@ export function newState(cluster: FakeCluster): FakeState {
     sessionSeq: 0,
     streamId: null,
     logStreams: new Set(),
+    logChannels: new Map(),
     overviewFeeds: new Set(),
     lastOverview: null,
     workloadsFeeds: new Map(),
@@ -151,12 +155,13 @@ export function addRow(s: FakeState, kind: ResourceKind, row: ResourceRow) {
 }
 
 /** Start log stream `id`, like the backend (which refuses past its cap). */
-export function startStream(s: FakeState, id: number) {
+export function startStream(s: FakeState, id: number, channel: Channel<LogMessage>) {
   s.logStreams.delete(id);
   if (s.logStreams.size >= MAX_LOG_STREAMS) {
     throw `Too many log streams: ${MAX_LOG_STREAMS} are already open. Close a log tab to open another.`;
   }
   s.logStreams.add(id);
+  s.logChannels.set(id, channel);
   s.streamId = id;
   return null;
 }
