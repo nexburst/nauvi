@@ -151,7 +151,9 @@ describe("read-only and protected contexts", { timeout: 15 * 60_000 }, () => {
         )) === "Protected",
       { message: "the Protected badge in the catalog" },
     );
-    assert.equal(s.app.profile.settings()?.contexts?.[CONTEXT]?.mode ?? "protected", "protected");
+    await app.waitFor(() => s.app.profile.settings()?.contexts?.[CONTEXT]?.mode === "protected", {
+      message: "mode protected in settings.json",
+    });
   });
 
   it("protected: Delete asks for the context name; a wrong one keeps Confirm off (light)", T, async () => {

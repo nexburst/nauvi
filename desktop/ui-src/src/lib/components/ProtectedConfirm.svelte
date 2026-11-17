@@ -43,7 +43,7 @@
         <p class="lead">{pending.what}</p>
         <p class="muted">This cluster is protected. Type its context name to go ahead.</p>
         <label class="field">
-          Type <span class="mono">{pending.name}</span> to confirm
+          <span>Type <span class="mono">{pending.name}</span> to confirm</span>
           <input
             class="input mono"
             aria-label="Context name"

@@ -91,6 +91,10 @@ test("a read-only context shows its badge and greys out every change", async ({ 
   await page.getByRole("button", { name: "Cluster catalog" }).click();
   const devRow = page.locator('[data-testid="catalog-row"][data-context="kind-dev"]');
   await expect(devRow.getByTestId("context-mode-badge")).toHaveText("Read-only");
+  // Not clipped by its narrow column: it wraps under the name instead.
+  const cell = await devRow.locator("td").nth(1).boundingBox();
+  const b = await devRow.getByTestId("context-mode-badge").boundingBox();
+  expect(b!.x + b!.width).toBeLessThanOrEqual(cell!.x + cell!.width);
   await expect(page.locator('[data-testid="catalog-row"][data-context="prod"]').getByTestId("context-mode-badge")).toHaveCount(0);
 });
 

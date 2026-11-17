@@ -425,6 +425,9 @@
   }
   .under {
     margin: 2px 0 0 16px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
   }
   .swatch {
     width: 10px;
