@@ -50,6 +50,14 @@ fn data_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| format!("cannot find the app's data folder: {e}"))
 }
 
+/// [`installed`] (which hashes the whole binary) off the async threads.
+async fn checked_download(data: PathBuf, v: KubeVersion, p: Platform) -> Option<PathBuf> {
+    tokio::task::spawn_blocking(move || installed(&data, &v, &p))
+        .await
+        .ok()
+        .flatten()
+}
+
 /// The API server's release, waiting at most `secs`.
 async fn server_version(cluster: &Cluster, secs: u64) -> Result<KubeVersion, String> {
     let ask = async {
@@ -103,7 +111,7 @@ async fn current_match(cluster: &Cluster, app: &AppHandle) -> Result<KubectlMatc
     let installed_version = kubectl_version(OsStr::new("kubectl")).await;
     let platform = Platform::current();
     let downloaded = match (&server, &platform) {
-        (Ok(v), Ok(p)) => installed(&data, v, p).is_some(),
+        (Ok(v), Ok(p)) => checked_download(data.clone(), *v, *p).await.is_some(),
         _ => false,
     };
     let (base, _) = download_base()?;
@@ -176,7 +184,7 @@ pub(crate) async fn terminal_kubectl(
     let data = data_dir(cluster.app()).ok()?;
     let server = server_version(cluster, 5).await.ok()?;
     let platform = Platform::current().ok()?;
-    let binary = installed(&data, &server, &platform)?;
+    let binary = checked_download(data, server, platform).await?;
     let own = kubectl_version(OsStr::new("kubectl")).await;
     if !skew_too_large(own.as_ref(), &server) {
         return None;

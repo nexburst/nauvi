@@ -216,8 +216,9 @@
       </label>
       <p class="muted hint">
         When your kubectl is more than one minor version from the cluster, a local terminal offers to download the
-        matching one from dl.k8s.io (checked against its published SHA-256). It is used only in this app's local
-        terminals, never in place of your own.
+        matching one from dl.k8s.io. Its SHA-256 is checked against the one dl.k8s.io itself publishes: that catches
+        a corrupted download, not a compromised dl.k8s.io. It is used only in this app's local terminals, never in
+        place of your own.
       </p>
     </fieldset>
 

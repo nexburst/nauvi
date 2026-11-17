@@ -7,7 +7,7 @@
 // Checks: off by default (no offer); the setting in Settings; the offer
 // above a local terminal makes no request; a tampered binary (its SHA-256
 // does not match the published one) is refused and nothing is saved; a good
-// one is saved privately (0700) under the app's data dir; a new local
+// one is saved read-only (0500) with its checksum under the app's data dir; a new local
 // terminal runs it first on PATH while the user's kubectl stays as it was;
 // light and dark theme.
 // Needs openssl (for the test certificates); skipped without it.
@@ -192,7 +192,8 @@ describe("kubectl matching the cluster (#331)", { timeout: 10 * 60_000, skip: SK
     const version = served.requests.at(-1).match(/release\/(v[\d.]+)\//)[1];
     const binary = join(dataDir, version, "kubectl");
     assert.ok(existsSync(binary), binary);
-    assert.equal(statSync(binary).mode & 0o777, 0o700);
+    assert.equal(statSync(binary).mode & 0o777, 0o500);
+    assert.equal(readFileSync(`${binary}.sha256`, "utf8").trim(), createHash("sha256").update(matchedKubectl(version)).digest("hex"));
     assert.equal(statSync(join(dataDir, version)).mode & 0o777, 0o700);
     assert.equal(readFileSync(binary, "utf8"), matchedKubectl(version));
   });

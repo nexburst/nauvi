@@ -12,13 +12,21 @@
 //!   refuses plain http and redirects to other hosts.
 //! - The binary's SHA-256 must equal the `.sha256` file dl.k8s.io publishes
 //!   next to it, fetched over https from the same host. A mismatch is
-//!   refused and nothing is saved.
+//!   refused and nothing is saved. The checksum comes from dl.k8s.io
+//!   itself, so it catches a corrupted or truncated download (or a
+//!   tampering CDN cache), **not** a compromised dl.k8s.io: whoever controls
+//!   that host controls both files. Kubernetes' release signatures are not
+//!   checked.
+//! - The checksum is saved next to the binary (`kubectl.sha256`) and
+//!   checked by [`installed`] before every use; a binary that no longer
+//!   matches (or has no saved checksum) is deleted and offered again.
 //! - Version strings come from the API server, so they are parsed into
 //!   numbers ([`KubeVersion`]) and only those numbers go into URLs and
 //!   paths: a server cannot point the download elsewhere or write outside
 //!   the app's data dir.
 //! - The binary is written to a private temp file next to its final name,
 //!   synced, then renamed into place: a half-written kubectl is never run.
+//!   It is then made read-only and executable for its owner (0500).
 //! - It is only ever put first on `PATH` in the environment of one local
 //!   terminal ([`path_with_first`]); the user's own kubectl is not touched.
 
@@ -278,12 +286,43 @@ pub fn version_dir(data_dir: &Path, version: &KubeVersion) -> PathBuf {
     data_dir.join("kubectl").join(version.tag())
 }
 
-/// The downloaded kubectl `version`, if it is there: a regular file, not
-/// a link.
+/// The name of the saved checksum next to a downloaded binary.
+fn checksum_name(binary_name: &str) -> String {
+    format!("{binary_name}.sha256")
+}
+
+/// The downloaded kubectl `version`, if it is there and still matches the
+/// SHA-256 saved with it: a regular file, not a link. A binary that does
+/// not match, or has no saved checksum, is deleted (so it is offered
+/// again). Reads and hashes the whole binary: call it off the async
+/// runtime's threads.
 pub fn installed(data_dir: &Path, version: &KubeVersion, platform: &Platform) -> Option<PathBuf> {
-    let path = version_dir(data_dir, version).join(platform.binary_name());
+    let dir = version_dir(data_dir, version);
+    let path = dir.join(platform.binary_name());
+    let sum_path = dir.join(checksum_name(platform.binary_name()));
     let meta = std::fs::symlink_metadata(&path).ok()?;
-    meta.file_type().is_file().then_some(path)
+    if !meta.file_type().is_file() {
+        return None;
+    }
+    let saved = std::fs::symlink_metadata(&sum_path)
+        .ok()
+        .filter(|m| m.file_type().is_file())
+        .and_then(|_| std::fs::read_to_string(&sum_path).ok())
+        .and_then(|t| parse_sha256(&t).ok());
+    let matches = match (&saved, std::fs::read(&path)) {
+        (Some(expected), Ok(bytes)) => sha256_hex(&bytes) == *expected,
+        _ => false,
+    };
+    if matches {
+        return Some(path);
+    }
+    tracing::warn!(
+        "the downloaded kubectl {} does not match its saved SHA-256; deleting it",
+        path.display()
+    );
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&sum_path);
+    None
 }
 
 /// Something that GETs a URL over https and returns its body, refusing a
@@ -312,14 +351,25 @@ pub async fn download(
         .await?;
     verify_sha256(&binary, &expected)?;
     let dir = version_dir(data_dir, version);
-    install(&dir, platform.binary_name(), &binary)
-        .map_err(|e| format!("Could not save kubectl {version} in {}: {e}", dir.display()))
+    let name = platform.binary_name();
+    let saved = (|| {
+        // The checksum first: a binary without it is never used.
+        install(
+            &dir,
+            &checksum_name(name),
+            format!("{expected}\n").as_bytes(),
+            0o400,
+        )?;
+        install(&dir, name, &binary, 0o500)
+    })();
+    saved.map_err(|e| format!("Could not save kubectl {version} in {}: {e}", dir.display()))
 }
 
 /// Write `bytes` to `dir/name` atomically: a new private temp file in
-/// `dir`, synced, made executable for its owner only, then renamed over
-/// `name`. The folders are created private (0700 on Unix).
-pub fn install(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+/// `dir` (0600), synced, renamed over `name`, then set to `mode` (Unix;
+/// 0500 for the binary: read and run by its owner only). The folders are
+/// created private (0700 on Unix).
+pub fn install(dir: &Path, name: &str, bytes: &[u8], mode: u32) -> std::io::Result<PathBuf> {
     create_private_dir(dir)?;
     let target = dir.join(name);
     let temp = dir.join(format!(".{name}.{}.part", std::process::id()));
@@ -329,7 +379,8 @@ pub fn install(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<PathBuf>
         file.write_all(bytes)?;
         file.sync_all()?;
         drop(file);
-        std::fs::rename(&temp, &target)
+        std::fs::rename(&temp, &target)?;
+        set_mode(&target, mode)
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&temp);
@@ -358,14 +409,25 @@ fn create_private_dir(dir: &Path) -> std::io::Result<()> {
     }
 }
 
+#[cfg(unix)]
+fn set_mode(path: &Path, mode: u32) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+}
+
+#[cfg(not(unix))]
+fn set_mode(_path: &Path, _mode: u32) -> std::io::Result<()> {
+    Ok(())
+}
+
 fn new_private_file(path: &Path) -> std::io::Result<std::fs::File> {
     let mut options = std::fs::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
-        // Owner read, write and run; nobody else.
-        options.mode(0o700);
+        // Owner only, until `install` sets the final mode.
+        options.mode(0o600);
     }
     options.open(path)
 }
@@ -599,20 +661,58 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
-            assert_eq!(mode(&path), 0o700);
+            // Read and run by its owner only, after the rename.
+            assert_eq!(mode(&path), 0o500);
+            assert_eq!(mode(&data.join("kubectl/v1.31.2/kubectl.sha256")), 0o400);
             assert_eq!(mode(&data.join("kubectl")), 0o700);
             assert_eq!(mode(&data.join("kubectl/v1.31.2")), 0o700);
         }
         // No temp file is left.
-        let left: Vec<_> = std::fs::read_dir(data.join("kubectl/v1.31.2"))
+        let mut left: Vec<_> = std::fs::read_dir(data.join("kubectl/v1.31.2"))
             .unwrap()
             .map(|e| e.unwrap().file_name())
             .collect();
-        assert_eq!(left, ["kubectl"]);
-        // A second download replaces it in place.
+        left.sort();
+        assert_eq!(left, ["kubectl", "kubectl.sha256"]);
+        // A second download replaces the read-only files in place.
         download(&f, &DownloadBase::official(), &ver, &p, &data)
             .await
             .unwrap();
+        assert_eq!(installed(&data, &ver, &p), Some(path));
+        std::fs::remove_dir_all(&data).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_binary_changed_after_download_is_deleted_and_offered_again() {
+        let data = temp_dir("changed");
+        let binary = b"#!/bin/sh\necho kubectl\n";
+        let f = fake(binary, &sha256_hex(binary));
+        let p = Platform::of("linux", "x86_64").unwrap();
+        let ver = v("v1.31.2");
+        let path = download(&f, &DownloadBase::official(), &ver, &p, &data)
+            .await
+            .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        std::fs::write(&path, b"#!/bin/sh\necho changed\n").unwrap();
+        assert_eq!(installed(&data, &ver, &p), None);
+        assert!(!path.exists(), "the changed binary was not deleted");
+        assert!(!path.with_file_name("kubectl.sha256").exists());
+
+        // Downloaded again, it is used again.
+        download(&f, &DownloadBase::official(), &ver, &p, &data)
+            .await
+            .unwrap();
+        assert_eq!(installed(&data, &ver, &p), Some(path.clone()));
+
+        // Without its saved checksum it is not used either.
+        let sum = path.with_file_name("kubectl.sha256");
+        std::fs::remove_file(&sum).unwrap();
+        assert_eq!(installed(&data, &ver, &p), None);
+        assert!(!path.exists());
         std::fs::remove_dir_all(&data).unwrap();
     }
 
