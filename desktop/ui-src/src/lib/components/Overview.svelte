@@ -9,7 +9,16 @@
   import { api, visibleCluster } from "../cluster";
   import { thisWindow } from "../window";
   import type { EventInfo, Overview_Serialize, OverviewStateChanged } from "../bindings";
-  import { app, kinds, openObject, primaryNamespace, setStatus, showError, stamp } from "../stores/app.svelte";
+  import {
+    app,
+    currentContextName,
+    kinds,
+    openObject,
+    primaryNamespace,
+    setStatus,
+    showError,
+    stamp,
+  } from "../stores/app.svelte";
   import { clusterError } from "../clusterError";
   import { formatAge } from "../format";
   import { capacityBars, eventKind, overviewCount, podCards } from "../overview";
@@ -17,6 +26,7 @@
   import { reportProblems, staleProblems } from "../stores/problems.svelte";
   import MetricsOffer from "./helm/MetricsOffer.svelte";
   import MetricsHiddenNote from "./MetricsHiddenNote.svelte";
+  import OverviewUsage from "./OverviewUsage.svelte";
   import { metricsHidden } from "../stores/metricsHidden.svelte";
   import { settingsSaved } from "../stores/settings.svelte";
 
@@ -187,14 +197,29 @@
             <span class="bar-label">{bar.label}</span>
             <div class="bar" role="meter" aria-label={bar.label} aria-valuenow={bar.percent} aria-valuemin={0} aria-valuemax={100}>
               <div class="fill" class:high={bar.high} style:width="{bar.percent}%"></div>
+              {#if bar.limitPercent !== null}
+                <div
+                  class="limit"
+                  class:over={bar.overcommitted}
+                  style:left="{bar.limitPercent}%"
+                  title={bar.limits}
+                  data-testid="limit-{bar.label}"
+                ></div>
+              {/if}
             </div>
             <span class="bar-text">{bar.text}</span>
+            <span class="bar-limits" class:over={bar.overcommitted} title={bar.overcommitted ? "The limits add up to more than the nodes can allocate" : ""}>
+              {bar.limits}
+            </span>
             <span class="bar-usage muted">{hideMetrics ? "" : bar.usage}</span>
           </div>
         {/each}
         {#if hideMetrics}
           <MetricsHiddenNote inline />
-        {:else if !overview.capacity.metrics}
+        {:else}
+          <OverviewUsage capacity={overview.capacity} context={currentContextName()} />
+        {/if}
+        {#if !hideMetrics && !overview.capacity.metrics}
           <p class="muted small">No usage: the metrics API (metrics-server) is not available.</p>
           <MetricsOffer
             addon="metrics-server"
@@ -323,17 +348,37 @@
   }
   .bar-row {
     display: grid;
-    grid-template-columns: 70px minmax(120px, 1fr) auto auto;
+    grid-template-columns: 70px minmax(120px, 1fr) auto auto auto;
     gap: 12px;
     align-items: center;
     font-size: 13px;
     padding: 4px 0;
   }
   .bar {
+    position: relative;
     height: 8px;
     background: var(--bg-hover);
     border-radius: 4px;
     overflow: hidden;
+  }
+  /* Where the limits reach: a tick across the bar. */
+  .limit {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    margin-left: -2px;
+    background: var(--text-muted);
+  }
+  .limit.over,
+  .bar-limits.over {
+    color: var(--red);
+  }
+  .limit.over {
+    background: var(--red);
+  }
+  .bar-limits {
+    color: var(--text-muted);
   }
   .fill {
     height: 100%;

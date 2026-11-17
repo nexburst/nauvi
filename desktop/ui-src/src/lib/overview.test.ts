@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Capacity, EventInfo, PodCounts, ResourceKind } from "./bindings";
-import { capacityBars, eventKind, overviewCount, percent, podCards } from "./overview";
+import { capacityBars, eventKind, overviewCount, percent, podCards, rawPercent } from "./overview";
 
 const capacity: Capacity = {
   cpu_requests_millicores: 1200,
+  cpu_limits_millicores: 2000,
   cpu_allocatable_millicores: 8000,
   cpu_usage_millicores: 900,
   memory_requests_bytes: 3 * 1024 ** 3,
+  memory_limits_bytes: 20 * 1024 ** 3,
   memory_allocatable_bytes: 16 * 1024 ** 3,
   memory_usage_bytes: 4 * 1024 ** 3,
   metrics: true,
@@ -58,6 +60,22 @@ describe("capacityBars", () => {
     expect(pods.text).toBe("105 / 110 (95%)");
     expect(pods.high).toBe(true);
     expect(cpu.high).toBe(false);
+  });
+
+  it("shows the limits, uncapped, with a capped marker", () => {
+    const [cpu, mem, pods] = capacityBars(capacity);
+    expect(cpu.limits).toBe("2 limits (25%)");
+    expect(cpu.limitPercent).toBe(25);
+    expect(cpu.overcommitted).toBe(false);
+    // 20Gi of limits on 16Gi: overcommitted, the marker stops at the end.
+    expect(mem.limits).toBe("20Gi limits (125%)");
+    expect(mem.limitPercent).toBe(100);
+    expect(mem.overcommitted).toBe(true);
+    expect(pods.limits).toBe("");
+    expect(pods.limitPercent).toBeNull();
+    // No limits set: no marker.
+    expect(capacityBars({ ...capacity, cpu_limits_millicores: 0 })[0].limitPercent).toBeNull();
+    expect(rawPercent(5, 0)).toBe(0);
   });
 
   it("leaves usage out without metrics", () => {
