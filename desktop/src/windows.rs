@@ -79,6 +79,8 @@ pub(crate) fn open_window(
     let rect = rect.map(|r| window_state::on_screen(r, &window_state::monitors(app)));
     let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
         .title(title(context.as_deref()))
+        // Shown when its page starts loading (#369).
+        .visible(false)
         .disable_drag_drop_handler();
     builder = match rect {
         Some(r) => builder.inner_size(r.width, r.height).position(r.x, r.y),
@@ -93,6 +95,7 @@ pub(crate) fn open_window(
         app.state::<AppState>().close(&label);
         return Err(format!("Could not open a new window: {e}"));
     }
+    crate::first_show::fallback(app, &label);
     if let Some(r) = rect {
         window_state::placed(&label, r);
     }
@@ -264,6 +267,10 @@ pub(crate) fn reopen(app: &AppHandle) {
         }
         .build()
     });
+    if built.is_ok() {
+        // Hidden until its page loads, as at start-up (#369).
+        crate::first_show::fallback(app, MAIN_WINDOW);
+    }
     if let (Ok(_), Some(r)) = (&built, rect) {
         window_state::placed(MAIN_WINDOW, r);
     }

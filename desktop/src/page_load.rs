@@ -14,6 +14,8 @@ pub(crate) fn on_page_load<R: Runtime>(webview: &Webview<R>, payload: &PageLoadP
     if payload.event() != PageLoadEvent::Started {
         return;
     }
+    // Windows open hidden until now (#369).
+    crate::first_show::on_load_started(webview);
     let label = webview.label();
     // The start-up budget (QA `multicluster`) times the app until this line.
     tracing::info!("window {label}: page load started");
