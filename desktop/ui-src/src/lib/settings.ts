@@ -6,9 +6,12 @@ import type {
   ContextSettings_Serialize,
   KindSettings_Serialize,
   LogDefaults_Serialize,
+  RowHeight,
   Settings_Serialize,
   Theme,
+  TimeZone,
 } from "./bindings";
+import { clampEditorFont, clampTabSize, DEFAULT_EDITOR_FONT, DEFAULT_TAB_SIZE } from "./preferences";
 import { normalizeHistory } from "./searchHistory";
 import type { SearchHistory } from "./searchHistory";
 import type { Sort } from "./view";
@@ -40,6 +43,14 @@ export interface SettingsPatch {
   zoom?: number;
   /** Terminal font size in pixels (#207). */
   terminal_font_size?: number;
+  /** YAML editor font size in pixels (#330). */
+  editor_font_size?: number;
+  /** YAML editor tab size in columns (#330). */
+  editor_tab_size?: number;
+  /** The zone times are shown in (#330). */
+  time_zone?: TimeZone;
+  /** Table row height (#330). */
+  row_height?: RowHeight;
   /** The table filter's whole search history (#219). */
   searches?: SearchHistory;
 }
@@ -61,6 +72,10 @@ export function defaultSettings(): Settings {
     favourites: [],
     zoom: DEFAULT_ZOOM,
     terminal_font_size: DEFAULT_TERMINAL_FONT,
+    editor_font_size: DEFAULT_EDITOR_FONT,
+    editor_tab_size: DEFAULT_TAB_SIZE,
+    time_zone: "local",
+    row_height: "normal",
     forwards: {},
     searches: { recent: [], starred: [] },
   };
@@ -112,6 +127,10 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.favourites != null) next.favourites = patch.favourites;
   if (patch.zoom != null) next.zoom = clampZoom(patch.zoom);
   if (patch.terminal_font_size != null) next.terminal_font_size = clampTerminalFont(patch.terminal_font_size);
+  if (patch.editor_font_size != null) next.editor_font_size = clampEditorFont(patch.editor_font_size);
+  if (patch.editor_tab_size != null) next.editor_tab_size = clampTabSize(patch.editor_tab_size);
+  if (patch.time_zone != null) next.time_zone = patch.time_zone;
+  if (patch.row_height != null) next.row_height = patch.row_height;
   if (patch.searches != null) next.searches = normalizeHistory(patch.searches);
   return next;
 }

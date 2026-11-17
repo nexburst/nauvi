@@ -1,5 +1,7 @@
 <script lang="ts">
   import { clockTime, frameFor, linePoints, valueOf, yOf } from "../usage";
+  import { settings } from "../stores/settings.svelte";
+  import { zoneSuffix } from "../timeZone";
   import type { ChartLine, RefLine, Resource } from "../usage";
 
   /** One usage chart (#47): the first line is the total, the others its
@@ -71,8 +73,8 @@
       {/each}
     </svg>
     <div class="axis times">
-      <span>{clockTime(frame.t0)}</span>
-      <span>{clockTime(frame.t1)}</span>
+      <span>{clockTime(frame.t0, settings.current.time_zone)}</span>
+      <span>{clockTime(frame.t1, settings.current.time_zone)}{zoneSuffix(settings.current.time_zone)}</span>
     </div>
   </div>
   <ul class="legend">

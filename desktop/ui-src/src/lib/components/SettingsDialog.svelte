@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { api, visibleCluster } from "../cluster";
-  import type { PrometheusStatus, Theme } from "../bindings";
+  import { commands } from "../bindings";
+  import type { PrometheusStatus, RowHeight, Theme, TimeZone } from "../bindings";
   import { DEFAULT_DETAIL_WIDTH, prometheusSettingError, TAIL_OPTIONS } from "../settings";
   import type { LogDefaults } from "../settings";
   import { currentContextName } from "../stores/app.svelte";
@@ -25,6 +26,7 @@
   import { checkSummary } from "../updates";
   import { isMacPlatform, shortcutHint } from "../keys";
   import { clampTerminalFont, DEFAULT_ZOOM, MAX_TERMINAL_FONT, MIN_TERMINAL_FONT, ZOOM_STEPS } from "../zoom";
+  import { clampEditorFont, MAX_EDITOR_FONT, MIN_EDITOR_FONT, ROW_HEIGHTS, TAB_SIZES } from "../preferences";
 
   const mac = isMacPlatform();
   const zoomHint = `${shortcutHint("zoomIn", mac)}, ${shortcutHint("zoomOut", mac)} and ${shortcutHint("zoomReset", mac)} zoom this window; other windows take the zoom when they open`;
@@ -51,6 +53,42 @@
   function resetWidth() {
     updateSettings({ detail_width: DEFAULT_DETAIL_WIDTH });
     applyAppearance();
+  }
+
+  const ZONES: { value: TimeZone; label: string }[] = [
+    { value: "local", label: "Local time" },
+    { value: "utc", label: "UTC" },
+  ];
+
+  // Start at login (#330) lives in the OS (an autostart entry), not in the
+  // settings file: read it when the page opens.
+  let autostart = $state<boolean | null>(null);
+  let autostartError = $state("");
+  let autostartBusy = $state(false);
+
+  async function readAutostart() {
+    try {
+      autostart = await commands.cmdAutostartEnabled();
+      autostartError = "";
+    } catch (e) {
+      autostartError = String(e);
+    }
+  }
+
+  async function setAutostart(box: HTMLInputElement) {
+    const enabled = box.checked;
+    autostartBusy = true;
+    try {
+      autostart = await commands.cmdAutostartSet(enabled);
+      autostartError = "";
+    } catch (e) {
+      await readAutostart();
+      autostartError = String(e);
+    } finally {
+      autostartBusy = false;
+      // Show what the OS has, also when the change failed.
+      box.checked = autostart === true;
+    }
   }
 
   const tailLabel = (t: string) => (t === "all" ? "All lines" : `${t} lines`);
@@ -85,6 +123,7 @@
   }
 
   onMount(() => {
+    void readAutostart();
     void checkPrometheus(false);
     void loadCharts();
   });
@@ -163,6 +202,43 @@
       </p>
     </fieldset>
 
+    <fieldset data-testid="editor-settings">
+      <legend>YAML editor</legend>
+      <label class="row">
+        <span>Font size</span>
+        <span class="buttons">
+          <input
+            class="input font"
+            type="number"
+            aria-label="Editor font size"
+            min={MIN_EDITOR_FONT}
+            max={MAX_EDITOR_FONT}
+            value={current.editor_font_size}
+            onchange={(e) => {
+              const size = clampEditorFont(e.currentTarget.valueAsNumber);
+              e.currentTarget.value = String(size);
+              updateSettings({ editor_font_size: size });
+            }}
+          />
+          px
+        </span>
+      </label>
+      <label class="row">
+        <span>Tab size</span>
+        <select
+          class="select"
+          aria-label="Editor tab size"
+          value={String(current.editor_tab_size)}
+          onchange={(e) => updateSettings({ editor_tab_size: Number(e.currentTarget.value) })}
+        >
+          {#each TAB_SIZES.includes(current.editor_tab_size) ? TAB_SIZES : [...TAB_SIZES, current.editor_tab_size] as n (n)}
+            <option value={String(n)}>{n} spaces</option>
+          {/each}
+        </select>
+      </label>
+      <p class="muted hint">Tab and Enter indent by the tab size. Both apply to open editors at once.</p>
+    </fieldset>
+
     <fieldset>
       <legend>Log defaults</legend>
       <label class="row">
@@ -190,6 +266,28 @@
         <input type="checkbox" checked={current.logs.wrap} onchange={(e) => setLogs({ wrap: e.currentTarget.checked })} />
         Wrap long lines
       </label>
+    </fieldset>
+
+    <fieldset data-testid="time-settings">
+      <legend>Times</legend>
+      <div class="choices" role="radiogroup" aria-label="Time zone">
+        {#each ZONES as z (z.value)}
+          <label class="choice">
+            <input
+              type="radio"
+              name="time-zone"
+              value={z.value}
+              checked={current.time_zone === z.value}
+              onchange={() => updateSettings({ time_zone: z.value })}
+            />
+            {z.label}
+          </label>
+        {/each}
+      </div>
+      <p class="muted hint">
+        For the clocks in usage charts, notifications and the footer, and for HH:MM in the log viewer's Jump to time.
+        Log lines keep the time they were written with.
+      </p>
     </fieldset>
 
     {#if context}
@@ -262,6 +360,24 @@
       <p class="muted hint">Shared with the helm command line (its repositories.yaml). Charts are under Helm → Charts.</p>
     </fieldset>
 
+    <fieldset data-testid="startup-settings">
+      <legend>Startup</legend>
+      <label class="choice">
+        <input
+          type="checkbox"
+          aria-label="Start at login"
+          checked={autostart === true}
+          disabled={autostart === null || autostartBusy}
+          onchange={(e) => setAutostart(e.currentTarget)}
+        />
+        Start nauvi when you log in
+      </label>
+      {#if autostartError}
+        <p class="hint error" data-testid="autostart-error">{autostartError}</p>
+      {/if}
+      <p class="muted hint">Off unless you turn it on. Adds the app to your desktop's startup applications.</p>
+    </fieldset>
+
     <fieldset data-testid="update-settings">
       <legend>Updates</legend>
       <label class="choice">
@@ -294,8 +410,25 @@
       </p>
     </fieldset>
 
-    <fieldset>
+    <fieldset data-testid="layout-settings">
       <legend>Layout</legend>
+      <div class="row">
+        <span>Table rows</span>
+        <div class="choices" role="radiogroup" aria-label="Table row height">
+          {#each ROW_HEIGHTS as r (r.value)}
+            <label class="choice">
+              <input
+                type="radio"
+                name="row-height"
+                value={r.value}
+                checked={current.row_height === r.value}
+                onchange={() => updateSettings({ row_height: r.value as RowHeight })}
+              />
+              {r.label}
+            </label>
+          {/each}
+        </div>
+      </div>
       <div class="row">
         <span>Detail panel width: {current.detail_width}px</span>
         <button type="button" class="btn" disabled={current.detail_width === DEFAULT_DETAIL_WIDTH} onclick={resetWidth}
