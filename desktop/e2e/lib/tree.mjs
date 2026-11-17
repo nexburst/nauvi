@@ -1,9 +1,6 @@
 // The sidebar's cluster tree (ADR 0007, #333): its nodes, their state, and
 // expanding, selecting and disconnecting them as a click would.
 
-import { By } from "selenium-webdriver";
-import { xq } from "./app.mjs";
-
 /** CSS selector of cluster `id`'s node. */
 export const treeNode = (id) => `[data-testid="cluster-node"][data-cluster=${JSON.stringify(id)}]`;
 
@@ -18,12 +15,24 @@ export function waitNodeState(app, id, state, timeout = 60_000) {
 }
 
 /** Click a button of node `id` by its accessible name. The row's buttons
- *  show on hover, so the click is a DOM click. */
+ *  show on hover (WebDriver counts them as not displayed until then), so
+ *  it is found and clicked in the page. */
 async function clickIn(app, id, name) {
-  const button = await app.find(
-    By.xpath(`//*[@data-testid='cluster-node'][@data-cluster=${xq(id)}]/div[@class and contains(@class,'row')]//button[@aria-label=${xq(name)} or normalize-space()=${xq(name)}]`),
+  await app.waitFor(
+    () =>
+      app.js(
+        `const row = document.querySelector(arguments[0] + " > .row");
+         const b = row && Array.from(row.querySelectorAll("button")).find(
+           (b) => b.getAttribute("aria-label") === arguments[1] || b.textContent.trim() === arguments[1]);
+         if (!b) return false;
+         b.scrollIntoView({ block: "center" });
+         b.click();
+         return true;`,
+        treeNode(id),
+        name,
+      ),
+    { message: `the ${name} button of ${id}` },
   );
-  await app.js("arguments[0].scrollIntoView({ block: 'center' }); arguments[0].click()", button);
 }
 
 /** Expand node `id` (connects it in the background). */
