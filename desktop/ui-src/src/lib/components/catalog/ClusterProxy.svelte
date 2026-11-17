@@ -4,6 +4,8 @@
   import { visibleCluster } from "../../cluster";
   import { switchContext } from "../../stores/app.svelte";
   import { closeClusterSettings } from "../../stores/catalog.svelte";
+  import { live } from "../../stores/live.svelte";
+  import { confirmDiscard } from "../../stores/unsaved.svelte";
 
   /** The cluster's proxy (#329), a section of its settings page. The backend
    *  keeps the URL; this only ever gets it with the user and password masked,
@@ -63,9 +65,14 @@
     }
   }
 
+  /** A fresh session on this cluster, as opening it from the catalog. */
   async function reconnect() {
+    // Read before the dialog closes: its props are gone after that.
+    const cluster = id;
+    if (!(await confirmDiscard())) return;
     closeClusterSettings();
-    await switchContext(id);
+    live.stop();
+    await switchContext(cluster);
   }
 </script>
 

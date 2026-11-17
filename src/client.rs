@@ -298,15 +298,12 @@ pub fn kubeconfig_proxy_url(
         Some(name) => name.to_string(),
         None => kubeconfig.current_context.clone()?,
     };
-    let Some(cluster_name) = kubeconfig
+    let cluster_name = kubeconfig
         .contexts
         .iter()
         .find(|c| c.name == current)
         .and_then(|c| c.context.as_ref())
-        .map(|ctx| ctx.cluster.clone())
-    else {
-        return None;
-    };
+        .map(|ctx| ctx.cluster.clone())?;
     kubeconfig
         .clusters
         .iter()
