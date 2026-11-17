@@ -48,6 +48,7 @@
   "single-instance": 13,
   "smoke": 32,
   "startup": 65,
+  "stream-perf": 75,
   "table-layout": 24,
   "terminal": 36,
   "terminal-input": 59,
