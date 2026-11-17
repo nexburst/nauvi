@@ -32,7 +32,7 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       TAURI_DRIVER_VERSION: 2.1.0
     steps:
@@ -74,6 +74,13 @@ jobs:
           cargo build -p nauvi --locked
           mkdir -p "$RUNNER_TEMP/qa-app"
           cp target/debug/nauvi-desktop target/debug/nauvi ~/.cargo/bin/tauri-driver "$RUNNER_TEMP/qa-app/"
+      # The idle-memory scenario measures a release build (#341): a debug one
+      # takes more memory. Only when that scenario runs.
+      - name: Build the app (release, for idle-memory)
+        if: ${{ !inputs.scenario || contains(inputs.scenario, 'idle-memory') }}
+        run: |
+          cargo build -p nauvi-desktop --locked --release --features tauri/custom-protocol
+          cp target/release/nauvi-desktop "$RUNNER_TEMP/qa-app/nauvi-desktop-release"
       - name: Upload the build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -186,6 +193,11 @@ jobs:
           install -m 0755 "$RUNNER_TEMP/qa-app/nauvi-desktop" "$RUNNER_TEMP/qa-app/nauvi" target/debug/
           install -m 0755 "$RUNNER_TEMP/qa-app/tauri-driver" "$RUNNER_TEMP/tauri-driver"
           echo "TAURI_DRIVER=$RUNNER_TEMP/tauri-driver" >> "$GITHUB_ENV"
+          if [ -f "$RUNNER_TEMP/qa-app/nauvi-desktop-release" ]; then
+            mkdir -p target/release
+            install -m 0755 "$RUNNER_TEMP/qa-app/nauvi-desktop-release" target/release/nauvi-desktop
+            echo "QA_RELEASE_APP=$PWD/target/release/nauvi-desktop" >> "$GITHUB_ENV"
+          fi
           missing="$(ldd target/debug/nauvi-desktop | grep 'not found' || true)"
           [ -z "$missing" ] || { echo "missing libraries: $missing"; exit 1; }
 

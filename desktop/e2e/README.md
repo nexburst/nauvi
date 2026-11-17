@@ -15,6 +15,10 @@ with a fake backend are in `desktop/ui-src/src/test/`. Both suites use the same
 - `qa/*.test.mjs` are the QA scenarios, run by `qa.sh` (below).
 - `bench.mjs` is the 10k-row table benchmark (`ui-src/bench.html`) running in
   the app's webview. It only reports numbers and never fails on slow ones.
+- `qa/idle-memory.test.mjs` reports the RSS and PSS of the core and the
+  WebKitGTK processes after 30 s idle on the Overview (`artifacts/idle-memory.json`
+  and the job summary). qa.yml measures a release build (`QA_RELEASE_APP`);
+  locally it measures the debug build and says so.
 
 Every test saves a screenshot and the page text to `artifacts/` as
 `smoke-NN-<test>.png` and `.txt`, whether it passes or fails. The app's log
