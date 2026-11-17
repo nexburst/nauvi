@@ -137,6 +137,8 @@ mod tests {
 
     const EXE: &str = "/tmp/.mount_nauviX/usr/bin/nauvi-desktop";
 
+    // Unix paths: only Linux uses the AppImage.
+    #[cfg(unix)]
     #[test]
     fn the_appimage_when_running_from_it() {
         let got = launch_path(
@@ -148,6 +150,8 @@ mod tests {
         assert_eq!(got, PathBuf::from("/home/u/Apps/nauvi.AppImage"));
     }
 
+    // Unix paths: only Linux uses the AppImage.
+    #[cfg(unix)]
     #[test]
     fn an_appimage_we_do_not_run_from_is_ignored() {
         let exe = Path::new("/usr/bin/nauvi-desktop");
@@ -177,6 +181,8 @@ mod tests {
         );
     }
 
+    // Unix paths: only Linux uses the AppImage.
+    #[cfg(unix)]
     #[test]
     fn an_appimage_that_does_not_exist_is_ignored() {
         let exe = Path::new(EXE);
