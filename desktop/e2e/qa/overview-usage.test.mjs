@@ -180,13 +180,19 @@ describe("overview limits and usage chart", { timeout: 15 * 60_000 }, () => {
       const { app } = s;
       await setPrometheus(app, "");
       await reopenOverview(app);
+      // A young Prometheus may have no samples yet: reopen (which asks
+      // again) every 30 s, reading the page in between.
+      let reopened = Date.now();
       const u = await app.waitFor(
         async () => {
-          await reopenOverview(app);
+          if (Date.now() - reopened > 30_000) {
+            await reopenOverview(app);
+            reopened = Date.now();
+          }
           const v = await usage(app);
           return v?.source === `Last hour, from Prometheus (${TARGET}).` && v.cpu >= 2 && v.memory >= 2 ? v : null;
         },
-        { timeout: 150_000, interval: 10_000, message: "the Prometheus chart with data" },
+        { timeout: 150_000, interval: 2000, message: "the Prometheus chart with data" },
       );
       console.log(`prometheus chart: ${JSON.stringify(u)}`);
       assert.equal(u.note, "");
