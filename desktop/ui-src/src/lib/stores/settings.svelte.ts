@@ -13,6 +13,7 @@ import {
   themeAttribute,
 } from "../settings";
 import { clampZoom, DEFAULT_ZOOM, stepZoom } from "../zoom";
+import { setDisplayZone } from "../timeZone";
 
 class SettingsStore {
   /** Replaced on every change, never mutated. */
@@ -27,8 +28,17 @@ export async function loadSettings() {
   } catch {
     // A broken settings store must not stop the app from starting.
   }
+  applyPreferences();
   applyAppearance();
   applyZoom();
+}
+
+/** Hand the editor font and the time zone (#330) to the code that is not a
+ *  component: the CSS variable the editor reads, the clock helpers. */
+function applyPreferences() {
+  setDisplayZone(settings.current.time_zone);
+  if (typeof document === "undefined") return;
+  document.documentElement.style.setProperty("--editor-font-size", `${settings.current.editor_font_size}px`);
 }
 
 /** Settles once the backend has every change sent so far. */
@@ -37,6 +47,7 @@ let saving: Promise<void> = Promise.resolve();
 /** Resolves once the backend has the change (or failed to take it). */
 export function updateSettings(patch: SettingsPatch): Promise<void> {
   settings.current = applyPatch(settings.current, patch);
+  applyPreferences();
   const sent = commands.cmdUpdateSettings(patch).then(
     () => {},
     () => {

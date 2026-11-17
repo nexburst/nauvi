@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { rowHeightPx } from "../../preferences";
+  import { settings } from "../../stores/settings.svelte";
   import { onDestroy, onMount, untrack } from "svelte";
   import VirtualList from "../VirtualList.svelte";
   import HelmRepos from "./HelmRepos.svelte";
@@ -11,7 +13,8 @@
 
   /** The charts in the configured repositories (newest version of each), filtered by the toolbar. */
 
-  const ROW_HEIGHT = 32;
+  // Settings → Tables (#330): normal or compact.
+  const ROW_HEIGHT = $derived(rowHeightPx(32, settings.current.row_height));
   const template = "minmax(180px, 2fr) 100px 110px minmax(200px, 4fr)";
   const HEADERS = ["Chart", "Version", "App version", "Description"];
 

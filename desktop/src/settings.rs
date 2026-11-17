@@ -32,6 +32,25 @@ pub(crate) enum Theme {
     Light,
 }
 
+/// The zone times are shown in (#330): clocks in charts, notifications and
+/// the footer, and "Jump to time" in the log viewer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum TimeZone {
+    #[default]
+    Local,
+    Utc,
+}
+
+/// The height of table rows (#330).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum RowHeight {
+    #[default]
+    Normal,
+    Compact,
+}
+
 /// Defaults of the log viewer's controls.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(default)]
@@ -131,6 +150,13 @@ pub(crate) struct Settings {
     pub(crate) zoom: u32,
     /// The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`.
     pub(crate) terminal_font_size: u32,
+    /// The YAML editor's font size in pixels (#330), within `EDITOR_FONT_RANGE`.
+    pub(crate) editor_font_size: u32,
+    /// The YAML editor's tab size and indent in columns (#330), within
+    /// `EDITOR_TAB_RANGE`.
+    pub(crate) editor_tab_size: u32,
+    pub(crate) time_zone: TimeZone,
+    pub(crate) row_height: RowHeight,
     /// Saved port-forwards (#217), by context id. Changed only through the
     /// port-forward commands. Entries that do not parse or whose ports are
     /// invalid are skipped on load, keeping the others.
@@ -245,6 +271,10 @@ pub(crate) struct SavedForward {
 pub(crate) const ZOOM_RANGE: (u32, u32) = (50, 200);
 /// What `terminal_font_size` may be, in pixels.
 pub(crate) const TERMINAL_FONT_RANGE: (u32, u32) = (8, 32);
+/// What `editor_font_size` may be, in pixels.
+pub(crate) const EDITOR_FONT_RANGE: (u32, u32) = (8, 32);
+/// What `editor_tab_size` may be, in columns.
+pub(crate) const EDITOR_TAB_RANGE: (u32, u32) = (1, 8);
 
 impl Default for Settings {
     fn default() -> Self {
@@ -263,6 +293,10 @@ impl Default for Settings {
             favourites: Vec::new(),
             zoom: 100,
             terminal_font_size: 12,
+            editor_font_size: 12,
+            editor_tab_size: 2,
+            time_zone: TimeZone::Local,
+            row_height: RowHeight::Normal,
             forwards: BTreeMap::new(),
             searches: SearchHistory::default(),
         }
@@ -325,6 +359,14 @@ pub(crate) struct SettingsPatch {
     pub(crate) zoom: Option<u32>,
     #[specta(optional)]
     pub(crate) terminal_font_size: Option<u32>,
+    #[specta(optional)]
+    pub(crate) editor_font_size: Option<u32>,
+    #[specta(optional)]
+    pub(crate) editor_tab_size: Option<u32>,
+    #[specta(optional)]
+    pub(crate) time_zone: Option<TimeZone>,
+    #[specta(optional)]
+    pub(crate) row_height: Option<RowHeight>,
     /// The whole search history (#219).
     #[specta(optional)]
     pub(crate) searches: Option<SearchHistory>,
@@ -361,6 +403,18 @@ impl Settings {
         }
         if let Some(v) = patch.terminal_font_size {
             self.terminal_font_size = v.clamp(TERMINAL_FONT_RANGE.0, TERMINAL_FONT_RANGE.1);
+        }
+        if let Some(v) = patch.editor_font_size {
+            self.editor_font_size = v.clamp(EDITOR_FONT_RANGE.0, EDITOR_FONT_RANGE.1);
+        }
+        if let Some(v) = patch.editor_tab_size {
+            self.editor_tab_size = v.clamp(EDITOR_TAB_RANGE.0, EDITOR_TAB_RANGE.1);
+        }
+        if let Some(v) = patch.time_zone {
+            self.time_zone = v;
+        }
+        if let Some(v) = patch.row_height {
+            self.row_height = v;
         }
         if let Some(v) = patch.searches {
             self.searches = v.normalized();
@@ -682,6 +736,35 @@ mod tests {
             ..Default::default()
         });
         assert_eq!((s.zoom, s.terminal_font_size), (125, 16));
+    }
+
+    #[test]
+    fn editor_and_display_preferences() {
+        let mut s = Settings::default();
+        assert_eq!((s.editor_font_size, s.editor_tab_size), (12, 2));
+        assert_eq!(
+            (s.time_zone, s.row_height),
+            (TimeZone::Local, RowHeight::Normal)
+        );
+        s.apply(SettingsPatch {
+            editor_font_size: Some(99),
+            editor_tab_size: Some(0),
+            time_zone: Some(TimeZone::Utc),
+            row_height: Some(RowHeight::Compact),
+            ..Default::default()
+        });
+        assert_eq!((s.editor_font_size, s.editor_tab_size), (32, 1));
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(
+            json.contains(r#""time_zone":"utc""#) && json.contains(r#""row_height":"compact""#)
+        );
+        // An unknown value keeps the default, the other fields stay.
+        let s =
+            parse(r#"{"time_zone":"mars","row_height":"compact","editor_tab_size":4}"#).unwrap();
+        assert_eq!(
+            (s.time_zone, s.row_height, s.editor_tab_size),
+            (TimeZone::Local, RowHeight::Compact, 4)
+        );
     }
 
     #[test]

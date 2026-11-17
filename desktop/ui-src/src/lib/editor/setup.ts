@@ -28,7 +28,8 @@ const theme = EditorView.theme(
       height: "100%",
       backgroundColor: "var(--code-bg)",
       color: "var(--code-text)",
-      fontSize: "12px",
+      // Settings → Editor (#330), set on <html> by the settings store.
+      fontSize: "var(--editor-font-size, 12px)",
     },
     ".cm-scroller": { fontFamily: MONO, lineHeight: "1.5" },
     ".cm-content": { caretColor: "var(--code-text)" },
@@ -179,6 +180,8 @@ export interface EditorOptions {
   value: string;
   readonly: boolean;
   label: string;
+  /** Tab size and indent unit, in columns (#330). */
+  tabSize: number;
   onChange: (value: string) => void;
 }
 
@@ -187,6 +190,8 @@ export interface EditorHandle {
   getValue(): string;
   setValue(value: string): void;
   setReadonly(readonly: boolean): void;
+  /** Change the tab size and indent unit (#330). */
+  setTabSize(columns: number): void;
   /** Mark a 1-based line (and scroll to it), or clear the mark. */
   markLine(line: number | null): void;
   destroy(): void;
@@ -194,6 +199,8 @@ export interface EditorHandle {
 
 export function createEditor(parent: HTMLElement, opts: EditorOptions): EditorHandle {
   const ro = new Compartment();
+  const tabs = new Compartment();
+  const tabSize = (n: number) => [indentUnit.of(" ".repeat(n)), EditorState.tabSize.of(n)];
   const readonly = (on: boolean) => [
     EditorState.readOnly.of(on),
     EditorView.editable.of(!on),
@@ -206,8 +213,7 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): EditorHa
       extensions: [
         basicSetup,
         keymap.of([indentWithTab]),
-        indentUnit.of("  "),
-        EditorState.tabSize.of(2),
+        tabs.of(tabSize(opts.tabSize)),
         yamlLook(),
         yamlBlockIndent(),
         label(opts.label),
@@ -228,6 +234,10 @@ export function createEditor(parent: HTMLElement, opts: EditorOptions): EditorHa
     },
     setReadonly(on) {
       view.dispatch({ effects: ro.reconfigure(readonly(on)) });
+    },
+    setTabSize(n) {
+      if (n === view.state.tabSize) return;
+      view.dispatch({ effects: tabs.reconfigure(tabSize(n)) });
     },
     markLine(line) {
       const effects: StateEffect<unknown>[] = [markLine.of(line)];

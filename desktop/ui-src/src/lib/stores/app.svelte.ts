@@ -22,6 +22,7 @@ import { history } from "./history.svelte";
 import { filterKeeps } from "./tableFilter.svelte";
 import { startupLinkContext } from "./links.svelte";
 import { notify } from "./notifications.svelte";
+import { hhmmss, zoneSuffix } from "../timeZone";
 
 /** `"overview"`, or the id of a discovered kind (`apps/v1/deployments`). */
 export type View = string;
@@ -203,7 +204,8 @@ export function showError(message: string) {
 }
 
 export function stamp() {
-  app.updated = "Updated " + new Date().toLocaleTimeString();
+  const now = Date.now();
+  app.updated = `Updated ${hhmmss(now)}${zoneSuffix()}`;
 }
 
 export async function loadContexts() {

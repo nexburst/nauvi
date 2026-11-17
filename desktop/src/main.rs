@@ -66,6 +66,13 @@ fn main() {
         // The save dialog of the CSV export (#221), only from
         // `commands/files.rs`: the webview gets no dialog permission.
         .plugin(tauri_plugin_dialog::init())
+        // Start at login (#330), only from `commands/autostart.rs`: the
+        // webview gets no autostart permission. Starts the app as installed
+        // (the AppImage on Linux), with no arguments.
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(builder.invoke_handler())
         // A reload starts the window's session over (#205).
         .on_page_load(page_load::on_page_load)

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { rowHeightPx } from "../../preferences";
+  import { settings } from "../../stores/settings.svelte";
   import { onDestroy, onMount, untrack } from "svelte";
   import VirtualList from "../VirtualList.svelte";
   import { app } from "../../stores/app.svelte";
@@ -9,7 +11,8 @@
 
   /** The Helm releases table. Rows come from labels; charts fill in after. */
 
-  const ROW_HEIGHT = 32;
+  // Settings → Tables (#330): normal or compact.
+  const ROW_HEIGHT = $derived(rowHeightPx(32, settings.current.row_height));
   const template = "minmax(140px, 2fr) minmax(100px, 1fr) 80px minmax(140px, 1.5fr) 110px 120px 80px";
   const HEADERS = ["Name", "Namespace", "Revision", "Chart", "App version", "Status", "Updated"];
 

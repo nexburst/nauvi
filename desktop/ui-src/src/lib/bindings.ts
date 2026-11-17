@@ -42,6 +42,10 @@ export const commands = {
 	 */
 	cmdApplicationsStart: (cluster: string, id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_start", { cluster, id, namespaces }, options),
 	cmdApplicationsStop: (cluster: string, id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_stop", { cluster, id }, options),
+	/**  Whether the app starts when the user logs in. */
+	cmdAutostartEnabled: (options?: InvokeOptions) => __TAURI_INVOKE<boolean>("cmd_autostart_enabled", undefined, options),
+	/**  Turn start at login on or off; returns the state afterwards. */
+	cmdAutostartSet: (enabled: boolean, options?: InvokeOptions) => __TAURI_INVOKE<boolean>("cmd_autostart_set", { enabled }, options),
 	/**
 	 *  Add a kubeconfig file or a folder of them (`~` expands). Its contexts
 	 *  show up in every window. Returns the sources.
@@ -2091,6 +2095,9 @@ export type RevealedValue = {
 	binary: boolean,
 };
 
+/**  The height of table rows (#330). */
+export type RowHeight = "normal" | "compact";
+
 /**
  *  A port-forward kept across restarts (#217). Only what is needed to start
  *  it again: no credentials, nothing from the cluster.
@@ -2207,6 +2214,10 @@ export type SettingsPatch_Deserialize = {
 	favourites?: string[] | null,
 	zoom?: number | null,
 	terminal_font_size?: number | null,
+	editor_font_size?: number | null,
+	editor_tab_size?: number | null,
+	time_zone?: TimeZone | null,
+	row_height?: RowHeight | null,
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Deserialize | null,
 };
@@ -2228,6 +2239,10 @@ export type SettingsPatch_Serialize = {
 	favourites?: string[] | null,
 	zoom?: number | null,
 	terminal_font_size?: number | null,
+	editor_font_size?: number | null,
+	editor_tab_size?: number | null,
+	time_zone?: TimeZone | null,
+	row_height?: RowHeight | null,
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Serialize | null,
 };
@@ -2266,6 +2281,15 @@ export type Settings_Deserialize = {
 	zoom?: number,
 	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */
 	terminal_font_size?: number,
+	/**  The YAML editor's font size in pixels (#330), within `EDITOR_FONT_RANGE`. */
+	editor_font_size?: number,
+	/**
+	 *  The YAML editor's tab size and indent in columns (#330), within
+	 *  `EDITOR_TAB_RANGE`.
+	 */
+	editor_tab_size?: number,
+	time_zone?: TimeZone,
+	row_height?: RowHeight,
 	/**
 	 *  Saved port-forwards (#217), by context id. Changed only through the
 	 *  port-forward commands. Entries that do not parse or whose ports are
@@ -2315,6 +2339,15 @@ export type Settings_Serialize = {
 	zoom: number,
 	/**  The terminal's font size in pixels (#207), within `TERMINAL_FONT_RANGE`. */
 	terminal_font_size: number,
+	/**  The YAML editor's font size in pixels (#330), within `EDITOR_FONT_RANGE`. */
+	editor_font_size: number,
+	/**
+	 *  The YAML editor's tab size and indent in columns (#330), within
+	 *  `EDITOR_TAB_RANGE`.
+	 */
+	editor_tab_size: number,
+	time_zone: TimeZone,
+	row_height: RowHeight,
 	/**
 	 *  Saved port-forwards (#217), by context id. Changed only through the
 	 *  port-forward commands. Entries that do not parse or whose ports are
@@ -2387,6 +2420,12 @@ export type TaggedLine = {
 export type Theme = 
 /**  Follow the system's light or dark preference. */
 "system" | "dark" | "light";
+
+/**
+ *  The zone times are shown in (#330): clocks in charts, notifications and
+ *  the footer, and "Jump to time" in the log viewer.
+ */
+export type TimeZone = "local" | "utc";
 
 /**
  *  Closing this window (`quit`: quitting the app) was stopped because it has

@@ -4,6 +4,7 @@
   import { app, currentContextName, openObject, setNamespaces } from "../stores/app.svelte";
   import { kindOfResource } from "../stores/actions.svelte";
   import { clearNotifications, closeNotifications, notifications } from "../stores/notifications.svelte";
+  import { settings } from "../stores/settings.svelte";
 
   /** The notification history of this window (#326), newest first. */
   const LEVELS = { success: "Done", info: "Info", warning: "Warning", error: "Error" } as const;
@@ -51,7 +52,7 @@
         <li class={`item ${e.level}`} data-testid="notification">
           <div class="meta">
             <span class="level">{LEVELS[e.level]}</span>
-            <time datetime={new Date(e.at).toISOString()}>{notificationTime(e.at)}</time>
+            <time datetime={new Date(e.at).toISOString()}>{notificationTime(e.at, Date.now(), settings.current.time_zone)}</time>
             {#if e.count > 1}<span class="count" title="Shown {e.count} times in a row">×{e.count}</span>{/if}
             {#if e.context}<span class="context" title="Context">{e.context}</span>{/if}
           </div>
