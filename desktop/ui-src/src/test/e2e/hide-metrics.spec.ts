@@ -6,29 +6,48 @@ import type { FakeCluster } from "../fixtures/cluster";
 // "Hide metrics" per cluster (#327): no metric columns, usage charts or
 // overview usage, a note where they would be, and no metrics polling.
 
-const headers = (page: Page) => page.locator(".table .head .th").allTextContents();
+const headers = async (page: Page) =>
+  (await page.locator(".table .head .th").allTextContents()).map((h) =>
+    h.replace(/[▲▼]/g, "").trim(),
+  );
 const note = (page: Page) => page.getByTestId("metrics-hidden");
-const clusterDialog = (page: Page) => page.getByRole("dialog", { name: "Cluster settings" });
+const clusterDialog = (page: Page) =>
+  page.getByRole("dialog", { name: "Cluster settings" });
 
-function hideFor(id: string) {
-  return (cluster: FakeCluster) => {
-    cluster.settings.contexts[id] = {
-      view: "",
-      namespaces: [],
-      typed_namespaces: [],
-      prometheus: "",
-      display_name: "",
-      color: "",
-      default_namespace: "",
-      shell_cwd: "",
-      last_used: 0,
-      hide_metrics: true,
-    };
+// Init functions run in the page as source text: no captured variables.
+const hideDev = (cluster: FakeCluster) => {
+  cluster.settings.contexts["kind-dev"] = {
+    view: "",
+    namespaces: [],
+    typed_namespaces: [],
+    prometheus: "",
+    display_name: "",
+    color: "",
+    default_namespace: "",
+    shell_cwd: "",
+    last_used: 0,
+    hide_metrics: true,
   };
-}
+};
+const hideProd = (cluster: FakeCluster) => {
+  cluster.settings.contexts["prod"] = {
+    view: "",
+    namespaces: [],
+    typed_namespaces: [],
+    prometheus: "",
+    display_name: "",
+    color: "",
+    default_namespace: "",
+    shell_cwd: "",
+    last_used: 0,
+    hide_metrics: true,
+  };
+};
 
-test("hidden metrics: no CPU or memory columns, a note, and no polling", async ({ page }) => {
-  const fake = await openApp(page, hideFor("kind-dev"));
+test("hidden metrics: no CPU or memory columns, a note, and no polling", async ({
+  page,
+}) => {
+  const fake = await openApp(page, hideDev);
   await openKind(page, "Pods");
   await expect(row(page, "web-1")).toBeVisible();
   const cols = await headers(page);
@@ -50,8 +69,10 @@ test("hidden metrics: no CPU or memory columns, a note, and no polling", async (
   expect(fake.errors).toEqual([]);
 });
 
-test("hidden metrics: the pod panel shows the note instead of usage charts", async ({ page }) => {
-  const fake = await openApp(page, hideFor("kind-dev"));
+test("hidden metrics: the pod panel shows the note instead of usage charts", async ({
+  page,
+}) => {
+  const fake = await openApp(page, hideDev);
   await openKind(page, "Pods");
   await row(page, "web-1").click();
   const charts = page.getByTestId("detail-panel").getByTestId("usage-charts");
@@ -60,8 +81,10 @@ test("hidden metrics: the pod panel shows the note instead of usage charts", asy
   expect(await fake.calls("cmdUsageHistory")).toEqual([]);
 });
 
-test("hidden metrics: the overview shows requests but no usage", async ({ page }) => {
-  await openApp(page, hideFor("kind-dev"));
+test("hidden metrics: the overview shows requests but no usage", async ({
+  page,
+}) => {
+  await openApp(page, hideDev);
   const capacity = page.getByRole("region", { name: "Capacity" });
   await expect(capacity).toContainText("1.2 / 8 requested (15%)");
   await expect(capacity).not.toContainText("used (");
@@ -69,28 +92,40 @@ test("hidden metrics: the overview shows requests but no usage", async ({ page }
 });
 
 test("only the cluster it is set for hides metrics", async ({ page }) => {
-  const fake = await openApp(page, hideFor("prod"));
+  const fake = await openApp(page, hideProd);
   await openKind(page, "Pods");
   expect(await headers(page)).toContain("CPU");
   await expect(note(page)).toHaveCount(0);
-  await expect.poll(async () => (await fake.calls("cmdGetMetrics")).length).toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await fake.calls("cmdGetMetrics")).length)
+    .toBeGreaterThan(0);
 });
 
-test("the cluster settings toggle hides and shows metrics at once", async ({ page }) => {
+test("the cluster settings toggle hides and shows metrics at once", async ({
+  page,
+}) => {
   const fake = await openApp(page);
   await openKind(page, "Pods");
   await expect.poll(async () => await headers(page)).toContain("CPU");
-  await expect.poll(async () => (await fake.calls("cmdGetMetrics")).length).toBeGreaterThan(0);
+  await expect
+    .poll(async () => (await fake.calls("cmdGetMetrics")).length)
+    .toBeGreaterThan(0);
 
   // The palette opens this cluster's settings.
   await page.keyboard.press("ControlOrMeta+k");
   await page.keyboard.type("cluster settings");
   await page.keyboard.press("Enter");
-  const hide = clusterDialog(page).getByRole("checkbox", { name: "Hide metrics" });
+  const hide = clusterDialog(page).getByRole("checkbox", {
+    name: "Hide metrics",
+  });
   await expect(hide).not.toBeChecked();
   await hide.check();
   await expect
-    .poll(() => page.evaluate(() => window.__fake.cluster.settings.contexts["kind-dev"]?.hide_metrics))
+    .poll(() =>
+      page.evaluate(
+        () => window.__fake.cluster.settings.contexts["kind-dev"]?.hide_metrics,
+      ),
+    )
     .toBe(true);
   await page.keyboard.press("Escape");
 
@@ -100,10 +135,14 @@ test("the cluster settings toggle hides and shows metrics at once", async ({ pag
   // The note's link opens the settings again; showing metrics polls again.
   await note(page).getByRole("button", { name: "Settings" }).click();
   await expect(clusterDialog(page)).toBeVisible();
-  await clusterDialog(page).getByRole("checkbox", { name: "Hide metrics" }).uncheck();
+  await clusterDialog(page)
+    .getByRole("checkbox", { name: "Hide metrics" })
+    .uncheck();
   await page.keyboard.press("Escape");
   await expect.poll(async () => await headers(page)).toContain("CPU");
   await expect(note(page)).toHaveCount(0);
-  await expect.poll(async () => (await fake.calls("cmdGetMetrics")).length).toBeGreaterThan(polled);
+  await expect
+    .poll(async () => (await fake.calls("cmdGetMetrics")).length)
+    .toBeGreaterThan(polled);
   expect(fake.errors).toEqual([]);
 });
