@@ -61,7 +61,9 @@ their own clusters.
   name, whatever id the app gave the context (that id depends on the app's
   own default kubeconfig, which the CLI can't see). Ids are never parsed.
   An entry without a source (none should exist) counts for every context
-  of its name. With no stored mode, a context the app's catalog does not
+  of its name, and so does an entry whose stored paths both no longer
+  exist (the file was moved or renamed). A hard link to the file is a
+  different path with the same content and is not matched; accepted. With no stored mode, a context the app's catalog does not
   have is refused writes; with no app settings at all, nothing is marked
   and writes follow `--allow-writes`.
 

@@ -242,11 +242,16 @@ fn stored_modes(text: &str, context: &str, files: &[PathBuf]) -> Vec<ContextMode
         let matches = if source.file.is_empty() && source.given.is_empty() {
             id == context || id.starts_with(&format!("{context} ("))
         } else {
+            let paths: Vec<&Path> = [&source.file, &source.given]
+                .iter()
+                .filter(|f| !f.is_empty())
+                .map(|f| Path::new(f.as_str()))
+                .collect();
+            // Neither stored path exists any more (the file was moved or
+            // renamed): match by context name alone, to be strict.
+            let gone = paths.iter().all(|p| !p.exists());
             source.context == context
-                && [&source.file, &source.given]
-                    .iter()
-                    .filter(|f| !f.is_empty())
-                    .any(|f| files.contains(&canonical(Path::new(f.as_str()))))
+                && (gone || paths.iter().any(|p| files.contains(&canonical(p))))
         };
         if matches {
             out.push(mode);
@@ -497,6 +502,28 @@ mod tests {
             [ContextMode::Protected]
         );
         assert!(stored_modes(&text, "dev", &files).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_moved_kubeconfig_keeps_its_mode() {
+        let dir = temp_dir("moved");
+        let old = dir.join("work.yaml");
+        let new = dir.join("moved").join("prod.yaml");
+        std::fs::write(&old, "x").unwrap();
+        let text = settings(&[("prod (work.yaml)", "protected", Some(&old), "prod")]);
+        std::fs::create_dir_all(new.parent().unwrap()).unwrap();
+        std::fs::rename(&old, &new).unwrap();
+        // Neither stored path exists: matched by context name alone.
+        assert_eq!(
+            stored_modes(&text, "prod", &cli_files(Some(&new))),
+            [ContextMode::Protected]
+        );
+        assert!(stored_modes(&text, "dev", &cli_files(Some(&new))).is_empty());
+        // While the stored file exists, another file does not match.
+        let back = dir.join("work.yaml");
+        std::fs::write(&back, "x").unwrap();
+        assert!(stored_modes(&text, "prod", &cli_files(Some(&new))).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
