@@ -322,4 +322,6 @@ fn run_pass(app: &AppHandle, disconnect: bool) {
 }
 
 #[cfg(test)]
+mod budget;
+#[cfg(test)]
 mod tests;

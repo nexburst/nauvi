@@ -39,6 +39,7 @@
   "logs-download": 54,
   "metrics-install": 420,
   "multi-window": 18,
+  "multicluster": 420,
   "namespaces-live": 41,
   "persistence": 167,
   "port-forward": 35,

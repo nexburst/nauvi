@@ -286,3 +286,12 @@ test("Reconnect now starts the cluster over and closes its dock tabs with a noti
   await expect(row(page, "web-1")).toBeVisible();
   expect(fake.errors).toEqual([]);
 });
+
+test("the tree marks when it first shows its contexts, once (start-up budget)", async ({ page }) => {
+  await openApp(page, threeClusters);
+  await expect(node(page, "staging")).toBeVisible();
+  await select(page, "prod").click();
+  await expect(node(page, "prod")).toHaveAttribute("data-state", "visible");
+  const marks = await page.evaluate(() => performance.getEntriesByName("nauvi:cluster-tree").length);
+  expect(marks).toBe(1);
+});
