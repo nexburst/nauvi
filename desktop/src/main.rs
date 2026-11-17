@@ -96,6 +96,8 @@ fn main() {
             // Temp kubeconfigs a crashed run left behind (#242).
             std::thread::spawn(nauvi::sweep_stale_temp_kubeconfigs);
             app.manage(store);
+            // Disconnects idle background clusters (ADR 0007).
+            state::idle::start(app.handle().clone());
             commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());
             // Started from a nauvi:// link (#299).

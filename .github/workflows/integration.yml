@@ -153,6 +153,11 @@ jobs:
           [ "$(cat "$RUNNER_TEMP/cluster/rc" 2>/dev/null)" = 0 ]
           bash scripts/test-cluster/wait-demo.sh
 
+      # The desktop's own cluster tests (`cluster_*`, #[ignore]d): the idle
+      # disconnect against kind (ADR 0007).
+      - name: Desktop cluster tests
+        run: cargo test -p nauvi-desktop --locked --features tauri/custom-protocol -- --ignored cluster_
+
       - name: Smoke tests
         run: xvfb-run -a -s "-screen 0 1600x1000x24" npm --prefix desktop/e2e test
 

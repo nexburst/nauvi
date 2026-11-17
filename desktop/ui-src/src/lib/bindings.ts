@@ -509,6 +509,7 @@ export const commands = {
 export const events = {
 	applicationsState: makeEvent<ApplicationsStateChanged, ApplicationsStateChanged>("applications-state"),
 	applicationsUpdate: makeEvent<ApplicationsChanged, ApplicationsChanged>("applications-update"),
+	clusterStateChanged: makeEvent<ClusterStateChanged, ClusterStateChanged>("cluster-state-changed"),
 	detailWatch: makeEvent<DetailWatchEvent, DetailWatchEvent>("detail-watch"),
 	drainFinished: makeEvent<DrainFinished, DrainFinished>("drain-finished"),
 	drainProgress: makeEvent<DrainProgress, DrainProgress>("drain-progress"),
@@ -781,6 +782,26 @@ export type Category = "workloads" | "network" | "config" | "storage" | "cluster
 /**  Anything else the server serves (apiservices, flowschemas, ...). */
 "other";
 
+export type ClusterState = "connected" | 
+/**  Disconnected because it was idle; the next command connects again. */
+"idle" | 
+/**  The window disconnected it (`cmd_cluster_disconnect`). */
+"disconnected";
+
+/**
+ *  A cluster the window does not show changed state, or what keeps it
+ *  connected changed. Sent to that window only.
+ */
+export type ClusterStateChanged = {
+	cluster: string,
+	state: ClusterState,
+	/**
+	 *  What keeps it connected (`[]` when nothing does, or it is not
+	 *  connected).
+	 */
+	pinnedBy: Pin[],
+};
+
 /**  A table column as the UI sees it. */
 export type ColumnDef = {
 	key: string,
@@ -888,6 +909,11 @@ export type ContextInfo_Deserialize = {
 	 */
 	login_plugin: boolean,
 	/**
+	 *  Logging in runs a plugin that may ask the user ([`plugin_login`]):
+	 *  the app never disconnects the cluster when it is idle (ADR 0007).
+	 */
+	plugin_login: boolean,
+	/**
 	 *  The `tokenFile`, `client-certificate` and `client-key` paths of an
 	 *  added file's context outside that file's folder: logging in sends
 	 *  them, so the catalog checks it only when asked (#244). `[]` for the
@@ -929,6 +955,11 @@ export type ContextInfo_Serialize = {
 	 *  `auth-provider`): the catalog checks it only when asked (#201).
 	 */
 	login_plugin: boolean,
+	/**
+	 *  Logging in runs a plugin that may ask the user ([`plugin_login`]):
+	 *  the app never disconnects the cluster when it is idle (ADR 0007).
+	 */
+	plugin_login: boolean,
 	/**
 	 *  The `tokenFile`, `client-certificate` and `client-key` paths of an
 	 *  added file's context outside that file's folder: logging in sends
@@ -1800,6 +1831,16 @@ export type OwnerLink = {
 	controller: boolean,
 };
 
+/**  What keeps a cluster connected while the window does not show it. */
+export type Pin = "port-forward" | 
+/**  An exec, attach, debug or node shell. */
+"terminal" | "local-shell" | "log-stream" | "drain" | 
+/**
+ *  It signs in through a plugin that may ask the user (a browser for
+ *  OIDC or SSO, say): never disconnected.
+ */
+"plugin-login";
+
 /**
  *  Pod counts, across the cluster or in one namespace. A pod counts once:
  *  a crash-looping pod is in `waiting_errors`, not `running`.
@@ -2236,6 +2277,7 @@ export type SettingsPatch_Deserialize = {
 	editor_tab_size?: number | null,
 	time_zone?: TimeZone | null,
 	row_height?: RowHeight | null,
+	idle_disconnect_minutes?: number | null,
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Deserialize | null,
 };
@@ -2261,6 +2303,7 @@ export type SettingsPatch_Serialize = {
 	editor_tab_size?: number | null,
 	time_zone?: TimeZone | null,
 	row_height?: RowHeight | null,
+	idle_disconnect_minutes?: number | null,
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Serialize | null,
 };
@@ -2308,6 +2351,13 @@ export type Settings_Deserialize = {
 	editor_tab_size?: number,
 	time_zone?: TimeZone,
 	row_height?: RowHeight,
+	/**
+	 *  Disconnect a cluster the window does not show, that nothing keeps
+	 *  connected (a port-forward, terminal, log stream or drain), after
+	 *  this many minutes untouched (ADR 0007). `0`: never. Within
+	 *  `IDLE_DISCONNECT_RANGE`.
+	 */
+	idle_disconnect_minutes?: number,
 	/**
 	 *  Saved port-forwards (#217), by context id. Changed only through the
 	 *  port-forward commands. Entries that do not parse or whose ports are
@@ -2366,6 +2416,13 @@ export type Settings_Serialize = {
 	editor_tab_size: number,
 	time_zone: TimeZone,
 	row_height: RowHeight,
+	/**
+	 *  Disconnect a cluster the window does not show, that nothing keeps
+	 *  connected (a port-forward, terminal, log stream or drain), after
+	 *  this many minutes untouched (ADR 0007). `0`: never. Within
+	 *  `IDLE_DISCONNECT_RANGE`.
+	 */
+	idle_disconnect_minutes: number,
 	/**
 	 *  Saved port-forwards (#217), by context id. Changed only through the
 	 *  port-forward commands. Entries that do not parse or whose ports are

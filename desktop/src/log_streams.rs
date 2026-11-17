@@ -65,7 +65,7 @@ impl LogStreams {
         self.stop_all();
     }
 
-    #[cfg(test)]
+    /// How many streams are running.
     pub(crate) fn running(&self) -> usize {
         let mut tasks = self.tasks.lock().unwrap();
         tasks.retain(|_, t| !t.inner().is_finished());

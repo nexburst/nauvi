@@ -20,6 +20,7 @@ import { listenDrain } from "./stores/actions.svelte";
 import { listenLinks, takePendingLink } from "./stores/links.svelte";
 import { apps } from "./stores/applications.svelte";
 import { catalog, listenKubeconfigs } from "./stores/catalog.svelte";
+import { listenClusterStates } from "./stores/clusterStates.svelte";
 import { createUi } from "./stores/create.svelte";
 import { checkLeftovers } from "./stores/debug.svelte";
 import { helm } from "./stores/helm.svelte";
@@ -160,6 +161,8 @@ export const LISTENERS: (() => Promise<() => void>)[] = [
   async () => trackHistory(),
   // nauvi:// links (#299).
   listenLinks,
+  // Background clusters connected or disconnected while idle (#333).
+  listenClusterStates,
 ];
 
 /** Started once the app has its settings and context (`startApp`). */
