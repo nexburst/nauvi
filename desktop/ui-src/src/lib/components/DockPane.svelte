@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import LogViewer from "./LogViewer.svelte";
-  import Terminal from "./Terminal.svelte";
+  import type { TerminalTarget } from "./Terminal.svelte";
   import { api, visibleCluster } from "../cluster";
   import type { LogContainer } from "../bindings";
   import type { DockTab } from "../dock";
@@ -15,6 +15,16 @@
   let containers = $state<LogContainer[]>([]);
   let shell = $state<string | null>(null);
   let ready = $state(false);
+
+  // xterm loads with the first terminal tab, not with the app (#353).
+  const terminalTarget = $derived.by((): TerminalTarget | null => {
+    if (tab.type === "localShell") return { kind: "local", namespace: tab.namespace };
+    if (tab.type === "debug") return { kind: "debug", pod: tab.pod, target: tab.target, image: tab.image };
+    if (tab.type === "attach") return { kind: "attach", pod: tab.pod, container: tab.container };
+    if (tab.type === "nodeShell") return { kind: "nodeShell", node: tab.node, namespace: tab.namespace };
+    if (tab.type === "terminal" && ready) return { kind: "pod", pod: tab.pod, container: shell };
+    return null;
+  });
 
   onMount(async () => {
     if (tab.type === "localShell" || tab.type === "debug" || tab.type === "nodeShell" || tab.type === "attach") {
@@ -47,16 +57,10 @@
     <LogViewer pod={tab.pod} {containers} {ready} hidden={!active} />
   {:else if tab.type === "workloadLogs"}
     <LogViewer workload={tab.workload} hidden={!active} />
-  {:else if tab.type === "localShell"}
-    <Terminal target={{ kind: "local", namespace: tab.namespace }} {active} />
-  {:else if tab.type === "debug"}
-    <Terminal target={{ kind: "debug", pod: tab.pod, target: tab.target, image: tab.image }} {active} />
-  {:else if tab.type === "attach"}
-    <Terminal target={{ kind: "attach", pod: tab.pod, container: tab.container }} {active} />
-  {:else if tab.type === "nodeShell"}
-    <Terminal target={{ kind: "nodeShell", node: tab.node, namespace: tab.namespace }} {active} />
-  {:else if ready}
-    <Terminal target={{ kind: "pod", pod: tab.pod, container: shell }} {active} />
+  {:else if terminalTarget}
+    {#await import("./Terminal.svelte") then { default: Terminal }}
+      <Terminal target={terminalTarget} {active} />
+    {/await}
   {/if}
 </div>
 
