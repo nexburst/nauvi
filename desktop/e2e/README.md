@@ -17,8 +17,10 @@ with a fake backend are in `desktop/ui-src/src/test/`. Both suites use the same
   the app's webview. It only reports numbers and never fails on slow ones.
 - `qa/idle-memory.test.mjs` reports the RSS and PSS of the core and the
   WebKitGTK processes after 30 s idle on the Overview (`artifacts/idle-memory.json`
-  and the job summary). qa.yml measures a release build (`QA_RELEASE_APP`);
-  locally it measures the debug build and says so.
+  and the job summary), with the biggest mappings of each process. qa.yml
+  measures a release build (`QA_RELEASE_APP`) and fails above the budget in
+  the file (`QA_MEMORY_BUDGET=off` skips it); locally it measures the debug
+  build and says so.
 
 Every test saves a screenshot and the page text to `artifacts/` as
 `smoke-NN-<test>.png` and `.txt`, whether it passes or fails. The app's log
@@ -92,6 +94,7 @@ changed, and no browser opens. The login shell environment import is off
 | command palette | `app.palette(query, option)` | `local-shell` |
 | the table's rows by column, the error banner, the namespace picker | `tableData`, `bannerText`, `pickNamespaces`, `openNamespacePicker`, `namespaceOptions`, `namespaceChips`, `namespaceLabel` (`lib/table.mjs`) | `area-1-tables`, `area-1-namespaces` |
 | the light or dark theme before a screenshot (sets `data-theme`, then waits for the attribute, the body's background colour and two painted frames; after clicking Settings > Theme yourself, call `waitTheme`) | `setTheme(app, "dark" \| "light" \| null)`, `waitTheme(app, theme)`, `backgroundLuminance(app)` (`lib/theme.mjs`; `setTheme` is also exported by `lib/panels.mjs`) | `history`, `detail-actions`, `errors`, most |
+| memory of the app's processes (RSS and PSS by kind, the biggest mappings) | `measure(pid)`, `topMappings(pid, n)` (`lib/memory.mjs`) | `idle-memory` |
 | temp objects | `tempNamespace(prefix, yaml)`, `deleteNamespace`, `httpPodYaml`, `loggerPodYaml`, `waitPodReady`, `contexts()` (`lib/cluster.mjs`) | most |
 
 The pause is guarded four ways, because the cluster is shared: `finally`, a

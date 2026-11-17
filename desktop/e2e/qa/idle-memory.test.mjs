@@ -2,9 +2,10 @@
 // for 30 s untouched, then the resident memory of the core (nauvi-desktop)
 // and of the WebKitGTK processes it started is read from /proc.
 //
-// Report only: it fails if it cannot measure, never on a big number. The
-// numbers go to the console, to artifacts/idle-memory.json and, on GitHub
-// Actions, to the job summary.
+// It fails if it cannot measure and, for a release build, above BUDGET
+// (#353; QA_MEMORY_BUDGET=off turns that off). The numbers go to the
+// console, to artifacts/idle-memory.json (with the biggest mappings of each
+// process) and, on GitHub Actions, to the job summary.
 //
 // A debug build uses more memory than the release one, so qa.yml builds a
 // release binary for this scenario and passes it in QA_RELEASE_APP; without
@@ -35,6 +36,13 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const skip = process.platform !== "linux" ? "reads /proc (Linux only)" : false;
 
 const mb = (k) => (k / 1024).toFixed(0);
+
+/**
+ * Release build on the qa.yml runner (no GPU), MB: what #353 measured
+ * (core 185 MB RSS, core + WebKitWebProcess 384 MB RSS, all 256 MB PSS)
+ * plus 15%. Lower them when a change makes the app smaller.
+ */
+const BUDGET = { coreRss: 213, coreAndWebRss: 442, totalPss: 295 };
 
 /** Counters from the page: what the UI holds (WebKit has no performance.memory). */
 async function pageCounters(app) {
@@ -110,5 +118,18 @@ describe("idle memory on the Overview", { skip, timeout: 5 * 60_000 }, () => {
     const md = markdown(r);
     console.log(md);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+
+    if (RELEASE && process.env.QA_MEMORY_BUDGET !== "off") {
+      const over = [
+        ["core RSS", r.core.rss, BUDGET.coreRss],
+        ["core + WebKitWebProcess RSS", r.coreAndWeb.rss, BUDGET.coreAndWebRss],
+        ["total PSS", r.total.pss, BUDGET.totalPss],
+      ].filter(([, kb, budget]) => kb / 1024 > budget);
+      assert.deepEqual(
+        over.map(([what, kb, budget]) => `${what} ${mb(kb)} MB > ${budget} MB`),
+        [],
+        "idle memory over its budget",
+      );
+    }
   });
 });
