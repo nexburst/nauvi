@@ -1,7 +1,8 @@
 // Notification history (#326): every notice and error banner the window
 // showed, newest first, kept in memory for this window only.
 
-import type { ResourceRef } from "./bindings";
+import type { ResourceRef, TimeZone } from "./bindings";
+import { clockParts, displayZone, hhmm, hhmmss, sameDay } from "./timeZone";
 
 export type NotificationLevel = "success" | "info" | "warning" | "error";
 
@@ -68,14 +69,13 @@ export function badgeText(unread: number): string {
   return unread > 99 ? "99+" : String(unread);
 }
 
-/** "14:03:27" today, "Nov 15 14:03" on another day. */
-export function notificationTime(at: number, now = Date.now()): string {
-  const d = new Date(at);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-  if (new Date(now).toDateString() === d.toDateString()) return time;
-  const month = d.toLocaleString("en", { month: "short" });
-  return `${month} ${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "14:03:27" today, "Nov 15 14:03" on another day, in the display zone (#330). */
+export function notificationTime(at: number, now = Date.now(), zone: TimeZone = displayZone()): string {
+  if (sameDay(at, now, zone)) return hhmmss(at, zone);
+  const c = clockParts(at, zone);
+  return `${MONTHS[c.month]} ${c.day} ${hhmm(at, zone)}`;
 }
 
 /** "Pod demo/web-1", "Node kind-control-plane". */

@@ -51,6 +51,20 @@
     untrack(() => get(virtualizer).setOptions({ count: c, getItemKey: keyFn, overscan: over }));
   });
 
+  // A new row height (Settings → Tables, #330): drop the sizes measured
+  // with the old one.
+  let lastHeight = untrack(() => rowHeight);
+  $effect(() => {
+    const h = rowHeight;
+    if (h === lastHeight) return;
+    lastHeight = h;
+    untrack(() => {
+      const v = get(virtualizer);
+      v.setOptions({ estimateSize: () => h });
+      v.measure();
+    });
+  });
+
   function measure(node: HTMLElement) {
     if (dynamic) get(virtualizer).measureElement(node);
   }

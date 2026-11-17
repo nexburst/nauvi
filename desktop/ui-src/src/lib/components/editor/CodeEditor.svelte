@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import type { EditorHandle } from "../../editor/setup";
+  import { settings } from "../../stores/settings.svelte";
 
   /**
    * A YAML code editor (CodeMirror 6). Generic: it knows nothing about
@@ -41,7 +42,13 @@
     try {
       const { createEditor } = await import("../../editor/setup");
       if (destroyed) return;
-      const handle = createEditor(host, { value, readonly, label, onChange: (v) => onChange(v) });
+      const handle = createEditor(host, {
+        value,
+        readonly,
+        label,
+        tabSize: settings.current.editor_tab_size,
+        onChange: (v) => onChange(v),
+      });
       editor = handle;
       // For the real-app E2E tests (WebDriver can't type reliably into
       // CodeMirror): `el.nauviEditor.setValue(text)` on the root element
@@ -69,6 +76,9 @@
   $effect(() => {
     editor?.markLine(markLine);
   });
+  $effect(() => {
+    editor?.setTabSize(settings.current.editor_tab_size);
+  });
 </script>
 
 <div class="code-editor" bind:this={host} data-ready={editor ? "true" : "false"} data-testid={testid}>
@@ -92,7 +102,7 @@
     padding: 4px 8px 4px 40px;
     color: var(--code-text);
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    font-size: 12px;
+    font-size: var(--editor-font-size, 12px);
     line-height: 1.5;
     white-space: pre;
     overflow: hidden;

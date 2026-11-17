@@ -25,6 +25,8 @@ export type CommandName = keyof Commands;
 export const GLOBAL_COMMANDS = [
   "cmdAddKubeconfigSource",
   "cmdAnswerExecCommand",
+  "cmdAutostartEnabled",
+  "cmdAutostartSet",
   "cmdCheckContext",
   "cmdDiagnostics",
   "cmdDiscardAndClose",

@@ -5,6 +5,7 @@ use crate::state::AppState;
 use tauri::Manager;
 use tauri_specta::Builder;
 
+mod autostart;
 mod catalog;
 mod close_guard;
 mod commands;
@@ -78,6 +79,11 @@ fn main() {
             webkit_env::log(renderer);
             menu::install(app.handle());
             builder.mount_events(app);
+            // Start at login (#330): an existing entry is written again for
+            // this program, so a moved app leaves no stale one.
+            let autostart = autostart::AutoStart::new(&app.package_info().name);
+            autostart.refresh();
+            app.manage(autostart);
             let config_dir = app.path().app_config_dir().ok();
             let store = SettingsStore::open(config_dir.as_ref().map(|d| d.join("settings.json")));
             window_state::init(config_dir.as_ref().map(|d| d.join("window-state.json")));
@@ -90,6 +96,8 @@ fn main() {
             // Temp kubeconfigs a crashed run left behind (#242).
             std::thread::spawn(nauvi::sweep_stale_temp_kubeconfigs);
             app.manage(store);
+            // Disconnects idle background clusters (ADR 0007).
+            state::idle::start(app.handle().clone());
             commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());
             // Started from a nauvi:// link (#299).

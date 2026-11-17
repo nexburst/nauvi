@@ -3,7 +3,7 @@
 //! shows changes with `cmd_set_context`.
 
 use crate::state::{spawn_closes, AppState};
-use tauri::{State, Webview};
+use tauri::{Manager, State, Webview};
 
 /// Connect the calling window to `cluster` (a context id from
 /// `cmd_list_contexts`) without showing it: open its session, unless the
@@ -34,6 +34,7 @@ pub(crate) async fn cmd_cluster_disconnect(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     spawn_closes(state.disconnect(webview.label(), &cluster)?);
+    crate::state::idle::disconnected(webview.app_handle(), webview.label(), &cluster);
     Ok(())
 }
 

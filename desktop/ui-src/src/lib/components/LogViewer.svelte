@@ -37,6 +37,7 @@
   import type { PodRef } from "../stores/detail.svelte";
   import { settings } from "../stores/settings.svelte";
   import { TAIL_OPTIONS } from "../settings";
+  import { dateTime, zoneName } from "../timeZone";
 
   interface Props {
     /** Single-pod mode: the pod whose logs to show. */
@@ -814,7 +815,7 @@
       const t = textOf(i);
       if (t !== undefined) latest = lineTime(t);
     }
-    const target = parseJumpTime(jumpInput, latest);
+    const target = parseJumpTime(jumpInput, latest, settings.current.time_zone);
     if (Number.isNaN(target)) {
       jumpNote = "Not a time: type HH:MM[:SS] or 2026-11-16 10:30";
       return;
@@ -827,7 +828,7 @@
     if (r.kind === "after-last") jumpNote = "Nothing that late: at the newest line";
     else if (r.first) {
       const first = lineTime(d.lines[r.index].text);
-      if (first > target + 1000) jumpNote = `Nothing that early: the oldest line is from ${new Date(first).toLocaleString()}`;
+      if (first > target + 1000) jumpNote = `Nothing that early: the oldest line is from ${dateTime(first, settings.current.time_zone)}`;
     }
     jumpedId = d.lines[r.index].id;
     await tick();
@@ -1062,7 +1063,7 @@
       type="text"
       placeholder="Jump to time"
       aria-label="Jump to time"
-      title="HH:MM[:SS] (local time) or 2026-11-16 10:30; needs lines with a time (Timestamps)"
+      title="HH:MM[:SS] ({zoneName(settings.current.time_zone)}) or 2026-11-16 10:30; needs lines with a time (Timestamps)"
       spellcheck="false"
       autocomplete="off"
       bind:value={jumpInput}

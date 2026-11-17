@@ -47,6 +47,7 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { events } from "../lib/bindings";
 import { isClusterCommand } from "../lib/cluster";
 import type { DetailState, LinkRequest, Overview_Serialize, TaggedLine, WatchBatch, WatchState } from "../lib/bindings";
+import type { ClusterStateChanged } from "../lib/bindings";
 import { defaultCluster } from "./fixtures/cluster";
 import type { FakeCluster } from "./fixtures/cluster";
 import { available } from "./fixtures/updates";
@@ -118,6 +119,8 @@ export interface FakeApi {
   restarted(): boolean;
   /** Send `kubeconfigs-changed`, as the backend does when a kubeconfig file changes. */
   emitKubeconfigsChanged(): Promise<void>;
+  /** The idle reaper's report about a background cluster (#333). */
+  emitClusterState(change: ClusterStateChanged): Promise<void>;
   /** Send `unsaved-close-requested`, as the backend does when closing (or, `quit`, quitting) meets unsaved edits. */
   emitUnsavedCloseRequested(quit?: boolean): Promise<void>;
   /** Send `exec-output`: `data` printed by the shell of `session` (`exec-1` is the first). */
@@ -225,6 +228,7 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     },
     restarted: () => st.restarted,
     emitKubeconfigsChanged: () => events.kubeconfigsChanged.emit({ generation: 1 }),
+    emitClusterState: (change) => events.clusterStateChanged.emit(change),
     emitLogEnd: async (error, done = true, id) => {
       const sid = id ?? st.streamId ?? -1;
       if (error) await events.podLogError.emit({ streamId: sid, data: error });
