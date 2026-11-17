@@ -22,7 +22,6 @@ import { history } from "./history.svelte";
 import { filterKeeps } from "./tableFilter.svelte";
 import { startupLinkContext } from "./links.svelte";
 import { notify } from "./notifications.svelte";
-import { hhmmss, zoneSuffix } from "../timeZone";
 
 /** `"overview"`, or the id of a discovered kind (`apps/v1/deployments`). */
 export type View = string;
@@ -57,7 +56,9 @@ export const app = $state({
   error: "",
   /** Footer: item count and last update, set by the active view. */
   count: "",
-  updated: "",
+  /** When the view last updated, epoch ms (0: not yet); the footer shows
+   *  it in the display zone (#330), so a zone change shows at once. */
+  updatedAt: 0,
   /** Bumped by the Refresh button; views re-request their data on change. */
   refreshNonce: 0,
   /** The remembered context and namespaces are restored (`startApp`). */
@@ -204,8 +205,7 @@ export function showError(message: string) {
 }
 
 export function stamp() {
-  const now = Date.now();
-  app.updated = `Updated ${hhmmss(now)}${zoneSuffix()}`;
+  app.updatedAt = Date.now();
 }
 
 export async function loadContexts() {
@@ -357,7 +357,7 @@ export function setView(view: View) {
     pendingView = null;
     updateContext(currentContextName(), { view });
     app.count = "";
-    app.updated = "";
+    app.updatedAt = 0;
     showError("");
   });
 }

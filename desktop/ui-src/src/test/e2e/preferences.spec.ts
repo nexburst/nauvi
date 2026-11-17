@@ -79,17 +79,16 @@ test("compact table rows are shorter and remembered", async ({ page }) => {
 test("times show in UTC when chosen", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Pods");
-  await expect(page.locator("footer")).not.toContainText("UTC");
+  await page.evaluate(() => window.__fake.emitWatchBatch({ deleted: ["demo/web-1"] }));
+  await expect(page.locator("footer")).toContainText(/Updated \d\d:\d\d:\d\d$/);
   await openSettings(page);
   const dialog = settingsDialog(page);
   await expect(dialog.getByRole("radio", { name: "Local time" })).toBeChecked();
   await dialog.getByRole("radio", { name: "UTC" }).check();
+  // The footer's clock switches at once, without a new update.
+  await expect(page.locator("footer")).toContainText(/Updated \d\d:\d\d:\d\d UTC/);
   await closeSettings(page);
   expect((await fake.lastCall("cmdUpdateSettings")).patch).toEqual({ time_zone: "utc" });
-
-  // The next change from the cluster stamps the footer in UTC.
-  await page.evaluate(() => window.__fake.emitWatchBatch({ deleted: ["demo/web-1"] }));
-  await expect(page.locator("footer")).toContainText(/Updated \d\d:\d\d:\d\d UTC/);
   // And after a restart.
   await page.reload();
   await openKind(page, "Pods");

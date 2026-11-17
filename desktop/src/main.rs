@@ -5,6 +5,7 @@ use crate::state::AppState;
 use tauri::Manager;
 use tauri_specta::Builder;
 
+mod autostart;
 mod catalog;
 mod close_guard;
 mod commands;
@@ -66,13 +67,6 @@ fn main() {
         // The save dialog of the CSV export (#221), only from
         // `commands/files.rs`: the webview gets no dialog permission.
         .plugin(tauri_plugin_dialog::init())
-        // Start at login (#330), only from `commands/autostart.rs`: the
-        // webview gets no autostart permission. Starts the app as installed
-        // (the AppImage on Linux), with no arguments.
-        .plugin(tauri_plugin_autostart::init(
-            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
-            None,
-        ))
         .invoke_handler(builder.invoke_handler())
         // A reload starts the window's session over (#205).
         .on_page_load(page_load::on_page_load)
@@ -81,6 +75,11 @@ fn main() {
             logging::init(app.path().app_log_dir().ok());
             menu::install(app.handle());
             builder.mount_events(app);
+            // Start at login (#330): an existing entry is written again for
+            // this program, so a moved app leaves no stale one.
+            let autostart = autostart::AutoStart::new(&app.package_info().name);
+            autostart.refresh();
+            app.manage(autostart);
             let config_dir = app.path().app_config_dir().ok();
             let store = SettingsStore::open(config_dir.as_ref().map(|d| d.join("settings.json")));
             window_state::init(config_dir.as_ref().map(|d| d.join("window-state.json")));
