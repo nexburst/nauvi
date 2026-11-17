@@ -7,15 +7,66 @@
 //! cannot be made counts as allowed: the API server still has the last word
 //! when the action runs.
 //!
+//! Answers are kept in an [`AccessCache`] per cluster session, keyed by the
+//! request (verb, kind, subresource, namespace), for [`CACHE_TTL`]; the
+//! desktop app clears it on a context switch. Checks that could not be made
+//! are not kept.
+//!
 //! Actions are named by their [`ActionId`](crate::actions::ActionId) in
 //! camelCase (`"scale"`, `"nodeShell"`), plus the panel's own entries:
 //! `"logs"`, `"shell"` (a pod's terminal) and `"edit"` (the YAML editor).
 
 use crate::node_shell::NODE_SHELL_NAMESPACE;
-use crate::resources::{can_i, ResourceRef};
+use crate::resources::{can_i_answer, ResourceRef};
 use futures::StreamExt;
 use kube::Client;
 use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+
+/// How long an answer is reused. Short, so a RoleBinding added or removed
+/// meanwhile shows within a minute (on reopening the panel or the menu).
+pub const CACHE_TTL: Duration = Duration::from_secs(60);
+
+/// Answers of earlier SelfSubjectAccessReviews, by request.
+#[derive(Debug, Default)]
+pub struct AccessCache {
+    answers: Mutex<HashMap<Permission, (bool, Instant)>>,
+}
+
+impl AccessCache {
+    /// Forget every answer (a context switch, a disconnect).
+    pub fn clear(&self) {
+        self.answers.lock().unwrap().clear();
+    }
+
+    fn get_at(&self, p: &Permission, now: Instant) -> Option<bool> {
+        let answers = self.answers.lock().unwrap();
+        let (ok, at) = answers.get(p)?;
+        (now.saturating_duration_since(*at) < CACHE_TTL).then_some(*ok)
+    }
+
+    fn put_at(&self, p: Permission, ok: bool, now: Instant) {
+        let mut answers = self.answers.lock().unwrap();
+        answers.retain(|_, (_, at)| now.saturating_duration_since(*at) < CACHE_TTL);
+        answers.insert(p, (ok, now));
+    }
+
+    /// Keep the answer to `p`, as of now.
+    pub fn put(&self, p: Permission, ok: bool) {
+        self.put_at(p, ok, Instant::now());
+    }
+
+    /// How many answers are kept.
+    pub fn len(&self) -> usize {
+        self.answers.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
 
 /// One API request an action makes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -125,9 +176,11 @@ pub fn denied_reason(p: &Permission) -> String {
 }
 
 /// Check every action of `ids` on the object `r` in `namespace`. Each
-/// distinct request is asked once.
+/// distinct request is asked once, and not at all while `cache` holds a
+/// fresh answer for it.
 pub async fn check_actions(
     client: &Client,
+    cache: &AccessCache,
     r: &ResourceRef,
     namespace: &str,
     ids: &[String],
@@ -136,15 +189,21 @@ pub async fn check_actions(
         .iter()
         .map(|id| (id.clone(), permissions_for(r, namespace, id)))
         .collect();
-    let mut distinct: Vec<Permission> = Vec::new();
+    let now = Instant::now();
+    let mut answers: Vec<(Permission, bool)> = Vec::new();
+    let mut ask: Vec<Permission> = Vec::new();
     for p in needed.iter().flat_map(|(_, ps)| ps) {
-        if !distinct.contains(p) {
-            distinct.push(p.clone());
+        if answers.iter().any(|(q, _)| q == p) || ask.contains(p) {
+            continue;
+        }
+        match cache.get_at(p, now) {
+            Some(ok) => answers.push((p.clone(), ok)),
+            None => ask.push(p.clone()),
         }
     }
-    let answers: Vec<(Permission, bool)> = futures::stream::iter(distinct)
+    let asked: Vec<(Permission, Option<bool>)> = futures::stream::iter(ask)
         .map(|p| async move {
-            let ok = can_i(
+            let ok = can_i_answer(
                 client,
                 p.verb,
                 &p.group,
@@ -158,6 +217,21 @@ pub async fn check_actions(
         .buffer_unordered(8)
         .collect()
         .await;
+    for (p, ok) in asked {
+        // A check that cannot be made counts as allowed, but is not kept.
+        if let Some(ok) = ok {
+            cache.put(p.clone(), ok);
+        }
+        answers.push((p, ok.unwrap_or(true)));
+    }
+    decide(needed, &answers)
+}
+
+/// Each action's verdict from the answers to its requests.
+fn decide(
+    needed: Vec<(String, Vec<Permission>)>,
+    answers: &[(Permission, bool)],
+) -> Vec<ActionAccess> {
     needed
         .into_iter()
         .map(|(id, ps)| {
@@ -283,5 +357,62 @@ mod tests {
             denied_reason(&p),
             "Not allowed: you can't create pods/exec in namespace demo"
         );
+    }
+
+    #[test]
+    fn the_cache_keeps_answers_per_verb_kind_and_namespace() {
+        let cache = AccessCache::default();
+        let p = perm("delete", "apps", "deployments", "", Some("team-a"));
+        let t0 = Instant::now();
+        assert_eq!(cache.get_at(&p, t0), None);
+        cache.put_at(p.clone(), false, t0);
+        assert_eq!(cache.get_at(&p, t0 + Duration::from_secs(5)), Some(false));
+        // Another namespace, verb or kind is another request.
+        for q in [
+            perm("delete", "apps", "deployments", "", Some("demo")),
+            perm("patch", "apps", "deployments", "", Some("team-a")),
+            perm("delete", "apps", "statefulsets", "", Some("team-a")),
+            perm("delete", "apps", "deployments", "", None),
+        ] {
+            assert_eq!(cache.get_at(&q, t0), None, "{}", q.describe());
+        }
+        assert_eq!(
+            cache.get_at(&p, t0 + CACHE_TTL),
+            None,
+            "stale after the TTL"
+        );
+        cache.clear();
+        assert!(cache.is_empty());
+    }
+
+    #[test]
+    fn stale_answers_are_dropped_on_insert() {
+        let cache = AccessCache::default();
+        let t0 = Instant::now();
+        cache.put_at(perm("get", "", "pods", "log", Some("a")), true, t0);
+        cache.put_at(
+            perm("get", "", "pods", "log", Some("b")),
+            true,
+            t0 + CACHE_TTL,
+        );
+        assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn an_action_is_denied_by_its_first_refused_request() {
+        let node = r("", "Node", "nodes", false);
+        let needed = vec![
+            ("drain".to_string(), permissions_for(&node, "", "drain")),
+            ("cordon".to_string(), permissions_for(&node, "", "cordon")),
+        ];
+        let answers = vec![
+            (perm("patch", "", "nodes", "", None), true),
+            (perm("create", "", "pods", "eviction", None), false),
+        ];
+        let out = decide(needed, &answers);
+        assert!(!out[0].allowed);
+        assert_eq!(out[0].reason, "Not allowed: you can't create pods/eviction");
+        assert!(out[1].allowed);
+        assert_eq!(out[1].reason, "");
     }
 }

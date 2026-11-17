@@ -9,6 +9,7 @@
   import { replicasFromRow } from "../actions";
   import { rangeKeys } from "../selection";
   import { requestAction } from "../stores/actions.svelte";
+  import { deniedActions, firstDenied, namespacesOf } from "../access";
   import { dockMenuFor } from "../dock";
   import { openDockTab } from "../stores/dock.svelte";
   import { copyLink, prefetchLink } from "../stores/links.svelte";
@@ -126,6 +127,7 @@
     visible.filter((e) => keys.has(e.key)).map((e) => ({ namespace: e.row.namespace, name: e.row.name }));
 
   function deleteSelected() {
+    if (bulkDenied) return;
     if (deleteAction) requestAction(kind, targetsOf(selected), deleteAction);
   }
 
@@ -139,12 +141,12 @@
   }
 
   function openMenuAt(x: number, y: number, row: Row) {
-    let items: MenuItem[];
+    let items: (MenuItem & { id?: string })[];
     let title: string;
     if (selected.has(row.key) && selected.size > 1) {
       title = `${selected.size} selected`;
       items = deleteAction
-        ? [{ label: `Delete ${selected.size} selected…`, danger: true, run: deleteSelected }]
+        ? [{ label: `Delete ${selected.size} selected…`, danger: true, reason: bulkDenied, run: deleteSelected }]
         : [];
     } else {
       title = row.namespace ? `${row.namespace}/${row.name}` : row.name;
@@ -153,21 +155,51 @@
       // Logs and Shell open dock tabs; the rest come from the action registry.
       items = [
         ...dockMenuFor(kind.resource, row.namespace, row.name).map((d) => ({
+          id: d.label === "Shell" ? "shell" : "logs",
           label: d.label,
           run: () => openDockTab(d.spec),
         })),
         // A nauvi:// link to the object (#299).
         { label: "Copy link", run: () => void copyLink(kind.resource, row.namespace, row.name) },
         ...kind.actions.map((a) => ({
+          id: a.id,
           label: a.label,
           danger: a.destructive,
           run: () =>
             requestAction(kind, [{ namespace: row.namespace, name: row.name }], a, replicasFromRow(row, keys)),
         })),
       ];
+      greyDenied(row.namespace, items);
     }
     menu = items.length > 0 ? { x, y, title, items } : null;
   }
+
+  // RBAC (#340): grey out the menu's actions the user may not run, once
+  // the access check answers (cached in the backend, so usually at once).
+  let menuCheck = 0;
+  function greyDenied(namespace: string, items: (MenuItem & { id?: string })[]) {
+    const token = ++menuCheck;
+    const ids = items.flatMap((i) => (i.id ? [i.id] : []));
+    void deniedActions(kind.resource, namespace, ids).then((reasons) => {
+      if (token !== menuCheck || !menu || reasons.size === 0) return;
+      menu = { ...menu, items: items.map((i) => (i.id && reasons.has(i.id) ? { ...i, reason: reasons.get(i.id) } : i)) };
+    });
+  }
+
+  // The bulk bar's Delete: refused when any namespace of the selection
+  // refuses it.
+  let bulkDenied = $state("");
+  // As one string, so watch batches that keep the namespaces don't re-ask.
+  const selectedNamespaces = $derived(selected.size > 0 ? namespacesOf(targetsOf(selected)).join("\n") : null);
+  $effect(() => {
+    const id = deleteAction?.id;
+    const namespaces = selectedNamespaces !== null && id ? selectedNamespaces.split("\n") : [];
+    let live = true;
+    void Promise.all(namespaces.map((ns) => deniedActions(kind.resource, ns, [id!]))).then((answers) => {
+      if (live) bulkDenied = firstDenied(answers.map((a) => a.get(id!)));
+    });
+    return () => (live = false);
+  });
 
   // Keyboard focus: one row, by key, so it stays on the same object when
   // watch batches reorder the table. Separate from the checkboxes.
@@ -283,7 +315,16 @@
     <div class="bulk" role="toolbar" aria-label="Selection">
       <span>{selected.size} selected</span>
       {#if deleteAction}
-        <button type="button" class="btn danger" onclick={deleteSelected}>Delete {selected.size}…</button>
+        <button
+          type="button"
+          class="btn danger"
+          class:denied={!!bulkDenied}
+          aria-disabled={bulkDenied ? "true" : undefined}
+          aria-describedby={bulkDenied ? "bulk-deny" : undefined}
+          title={bulkDenied || undefined}
+          onclick={deleteSelected}>Delete {selected.size}…</button
+        >
+        {#if bulkDenied}<span class="bulk-reason" id="bulk-deny" data-testid="bulk-reason">{bulkDenied}</span>{/if}
       {/if}
       <button type="button" class="btn" onclick={() => (selected = new Set())}>Clear</button>
     </div>
@@ -507,6 +548,18 @@
   .btn.danger {
     border-color: var(--red);
     color: var(--error-text);
+  }
+  .btn.denied {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .bulk-reason {
+    color: var(--text-muted);
+    font-size: 12px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .td {
     padding: 0 10px;

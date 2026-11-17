@@ -118,6 +118,9 @@ pub(crate) struct ClusterSession {
     /// The Prometheus found for the selected context (#47), cleared when it
     /// changes.
     pub(crate) prometheus: Mutex<Option<crate::commands::prometheus::PromCache>>,
+    /// Answers of the action access checks (#340), cleared when the
+    /// context changes.
+    pub(crate) access: nauvi::action_access::AccessCache,
     /// Set once the window is gone: whatever a command still in flight
     /// adds afterwards is stopped right away instead of leaking.
     closed: AtomicBool,
@@ -236,6 +239,7 @@ impl ClusterSession {
         self.kinds.lock().unwrap().clear();
         self.usage.lock().unwrap().clear();
         *self.prometheus.lock().unwrap() = None;
+        self.access.clear();
         sessions
     }
 
@@ -854,7 +858,21 @@ mod tests {
     fn switching_context_stops_everything_and_forgets_the_cluster() {
         let session = ClusterSession::new(Some("a".into()), Default::default());
         session.add_watch("w".into(), forever());
+        session.access.put(
+            nauvi::action_access::Permission {
+                verb: "delete",
+                group: "apps".into(),
+                resource: "deployments".into(),
+                subresource: "",
+                namespace: Some("team-a".into()),
+            },
+            false,
+        );
         tauri::async_runtime::block_on(session.set_context(Some("b".into())));
+        assert!(
+            session.access.is_empty(),
+            "access answers are of the old context"
+        );
         assert!(session.watches.lock().unwrap().is_empty());
         assert!(session.usage.lock().unwrap().is_empty());
         assert!(session.kinds.lock().unwrap().is_empty());
