@@ -39,10 +39,11 @@ const mb = (k) => (k / 1024).toFixed(0);
 
 /**
  * Release build on the qa.yml runner (no GPU), MB: what #353 measured
- * (core 185 MB RSS, core + WebKitWebProcess 384 MB RSS, all 256 MB PSS)
- * plus 15%. Lower them when a change makes the app smaller.
+ * after its second round (core 138 MB RSS, core + WebKitWebProcess 338 MB
+ * RSS, all 238 MB PSS) plus 15%. Lower them when a change makes the app
+ * smaller.
  */
-const BUDGET = { coreRss: 213, coreAndWebRss: 442, totalPss: 295 };
+const BUDGET = { coreRss: 159, coreAndWebRss: 389, totalPss: 274 };
 
 /** Counters from the page: what the UI holds (WebKit has no performance.memory). */
 async function pageCounters(app) {
