@@ -1,4 +1,10 @@
-import type { ForwardInfo, ForwardKind, ForwardTarget, ResourceRef, SavedForward } from "./bindings";
+import type {
+  ForwardInfo,
+  ForwardKind,
+  ForwardTarget,
+  ResourceRef,
+  SavedForward,
+} from "./bindings";
 
 /** The sidebar view that lists the running forwards. */
 export const PORT_FORWARDS_VIEW = "port-forwards";
@@ -42,7 +48,10 @@ export function parseLocalPort(text: string): Parsed<number | null> {
   const s = text.trim();
   if (s === "") return { ok: true, value: null };
   if (!/^\d+$/.test(s) || Number(s) > 65535) {
-    return { ok: false, error: "The local port must be a number between 0 and 65535, or empty." };
+    return {
+      ok: false,
+      error: "The local port must be a number between 0 and 65535, or empty.",
+    };
   }
   return { ok: true, value: Number(s) };
 }
@@ -50,15 +59,25 @@ export function parseLocalPort(text: string): Parsed<number | null> {
 /** The remote port field: a port number or a port name (IANA_SVC_NAME). */
 export function parseRemotePort(text: string): Parsed<string> {
   const s = text.trim();
-  if (s === "") return { ok: false, error: "Enter the remote port: a number or a port name." };
+  if (s === "")
+    return {
+      ok: false,
+      error: "Enter the remote port: a number or a port name.",
+    };
   if (/^\d+$/.test(s)) {
     const n = Number(s);
     return n >= 1 && n <= 65535
       ? { ok: true, value: String(n) }
       : { ok: false, error: "The remote port must be between 1 and 65535." };
   }
-  const name = s.length <= 15 && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(s) && /[a-z]/.test(s) && !s.includes("--");
-  return name ? { ok: true, value: s } : { ok: false, error: `"${s}" is neither a port number nor a port name.` };
+  const name =
+    s.length <= 15 &&
+    /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(s) &&
+    /[a-z]/.test(s) &&
+    !s.includes("--");
+  return name
+    ? { ok: true, value: s }
+    : { ok: false, error: `"${s}" is neither a port number nor a port name.` };
 }
 
 /** Only forwarded URLs on this machine may be opened (the opener allows http and https only). */
@@ -75,26 +94,46 @@ export interface ForwardRow {
   running: ForwardInfo | null;
 }
 
-export function forwardRows(saved: SavedForward[], running: ForwardInfo[]): ForwardRow[] {
+export function forwardRows(
+  saved: SavedForward[],
+  running: ForwardInfo[],
+): ForwardRow[] {
   const rows: ForwardRow[] = saved.map((s) => ({
     key: s.id,
     saved: s,
     running: running.find((r) => r.saved_id === s.id) ?? null,
   }));
   for (const r of running) {
-    if (!saved.some((s) => s.id === r.saved_id)) rows.push({ key: r.id, saved: null, running: r });
+    if (!saved.some((s) => s.id === r.saved_id))
+      rows.push({ key: r.id, saved: null, running: r });
   }
   return rows;
 }
 
+/** The status bar of Network → Port Forwards: "2 forwards, 1 running",
+ *  plus ", 1 in another window" for saved forwards another window runs
+ *  (#320), so it agrees with their rows. */
+export function forwardsCount(rows: ForwardRow[], elsewhere: string[]): string {
+  const n = rows.length;
+  const running = rows.filter((r) => r.running).length;
+  const away = rows.filter(
+    (r) => !r.running && r.saved && elsewhere.includes(r.saved.id),
+  ).length;
+  const base = `${n === 1 ? "1 forward" : `${n} forwards`}, ${running} running`;
+  return away > 0 ? `${base}, ${away} in another window` : base;
+}
+
 /** The URL of a stopped forward, if its local port is fixed: `https://127.0.0.1:8443`. */
 export function plannedUrl(f: SavedForward): string {
-  return /^[1-9]\d*$/.test(f.local_port) ? `${f.https ? "https" : "http"}://127.0.0.1:${f.local_port}` : "";
+  return /^[1-9]\d*$/.test(f.local_port)
+    ? `${f.https ? "https" : "http"}://127.0.0.1:${f.local_port}`
+    : "";
 }
 
 /** "8080 → 80" or "auto → 80" for a stopped forward. */
 export function savedPortsLabel(f: SavedForward): string {
-  const local = f.local_port === "" ? "auto" : f.local_port === "0" ? "any" : f.local_port;
+  const local =
+    f.local_port === "" ? "auto" : f.local_port === "0" ? "any" : f.local_port;
   return `${local} → ${f.remote}`;
 }
 
@@ -107,12 +146,19 @@ export interface ForwardState {
 export function forwardState(f: ForwardInfo): ForwardState {
   const s = f.status;
   if (s.last_error) return { text: s.last_error, tone: "error" };
-  const open = s.connections === 1 ? "1 connection" : `${s.connections} connections`;
-  return { text: s.connections > 0 ? `Active, ${open}` : "Listening", tone: "ok" };
+  const open =
+    s.connections === 1 ? "1 connection" : `${s.connections} connections`;
+  return {
+    text: s.connections > 0 ? `Active, ${open}` : "Listening",
+    tone: "ok",
+  };
 }
 
 /** "8080 → 80", or "8080 → http (80)" for a named port. */
 export function portsLabel(f: ForwardInfo): string {
-  const remote = f.remote === String(f.remote_port) ? f.remote : `${f.remote} (${f.remote_port})`;
+  const remote =
+    f.remote === String(f.remote_port)
+      ? f.remote
+      : `${f.remote} (${f.remote_port})`;
   return `${f.local_port} → ${remote}`;
 }
