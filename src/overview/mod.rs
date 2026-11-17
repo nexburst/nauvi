@@ -103,11 +103,16 @@ pub struct NodeCounts {
 pub struct Capacity {
     pub cpu_requests_millicores: u64,
     pub cpu_limits_millicores: u64,
+    /// Running containers (app containers and native sidecars) without a
+    /// cpu limit: the limits above are no ceiling when this is not 0.
+    pub cpu_unlimited_containers: u64,
     pub cpu_allocatable_millicores: u64,
     /// 0 unless `metrics`.
     pub cpu_usage_millicores: u64,
     pub memory_requests_bytes: u64,
     pub memory_limits_bytes: u64,
+    /// As `cpu_unlimited_containers`, for memory.
+    pub memory_unlimited_containers: u64,
     pub memory_allocatable_bytes: u64,
     /// 0 unless `metrics`.
     pub memory_usage_bytes: u64,

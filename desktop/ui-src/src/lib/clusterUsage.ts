@@ -71,18 +71,20 @@ export function clusterChart(view: OverviewUsageView | null, local: readonly Usa
 /**
  * The chart's dashed lines: the requests and limits that are set.
  * Allocatable is left out (the bars show it): on most clusters it is far
- * above the usage and would flatten the line.
+ * above the usage and would flatten the line. When some containers have no
+ * limit the limits are no ceiling: that line is "limits set", in grey.
  */
 export function clusterRefs(c: Capacity, r: Resource): RefLine[] {
+  const limit = (unlimited: number) => (unlimited > 0 ? "limits set" : "limit");
   const lines: RefLine[] =
     r === "cpu"
       ? [
           { label: "request", value: c.cpu_requests_millicores },
-          { label: "limit", value: c.cpu_limits_millicores },
+          { label: limit(c.cpu_unlimited_containers), value: c.cpu_limits_millicores },
         ]
       : [
           { label: "request", value: c.memory_requests_bytes },
-          { label: "limit", value: c.memory_limits_bytes },
+          { label: limit(c.memory_unlimited_containers), value: c.memory_limits_bytes },
         ];
   return lines.filter((l) => l.value > 0);
 }

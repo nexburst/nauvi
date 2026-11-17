@@ -18,6 +18,11 @@ export interface CapacityBar {
   limitPercent: number | null;
   /** The limits add up to more than can be allocated. */
   overcommitted: boolean;
+  /**
+   * Some running containers have no limit, so the limits are no ceiling:
+   * the marker is drawn hollow and the text says how many.
+   */
+  partial: boolean;
 }
 
 export function percent(used: number, total: number): number {
@@ -29,6 +34,11 @@ export function percent(used: number, total: number): number {
 export function rawPercent(used: number, total: number): number {
   if (!total) return 0;
   return Math.round((used / total) * 100);
+}
+
+/** "1 container without a limit", "14 containers without a limit". */
+export function unlimitedText(n: number): string {
+  return `${n} container${n === 1 ? "" : "s"} without a limit`;
 }
 
 /**
@@ -43,24 +53,35 @@ export function capacityBars(c: Capacity): CapacityBar[] {
     total: number,
     fmt: (n: number) => string,
     usage: number | null,
+    unlimited: number,
   ): CapacityBar => {
     const p = percent(used, total);
+    const without = unlimited > 0 ? ` · ${unlimitedText(unlimited)}` : "";
     return {
       label,
       text: `${fmt(used)} / ${fmt(total)} requested (${p}%)`,
       percent: p,
       usage: usage === null ? "" : `${fmt(usage)} used (${percent(usage, total)}%)`,
       high: p > 90,
-      limits: limits > 0 ? `${fmt(limits)} limits (${rawPercent(limits, total)}%)` : "no limits",
+      limits: limits > 0 ? `${fmt(limits)} limits (${rawPercent(limits, total)}%)${without}` : "no limits",
       limitPercent: limits > 0 && total > 0 ? percent(limits, total) : null,
       overcommitted: total > 0 && limits > total,
+      partial: unlimited > 0,
     };
   };
   const cpuUsage = c.metrics ? c.cpu_usage_millicores : null;
   const memUsage = c.metrics ? c.memory_usage_bytes : null;
   const pods = percent(c.pods, c.pods_allocatable);
   return [
-    bar("CPU", c.cpu_requests_millicores, c.cpu_limits_millicores, c.cpu_allocatable_millicores, formatCpu, cpuUsage),
+    bar(
+      "CPU",
+      c.cpu_requests_millicores,
+      c.cpu_limits_millicores,
+      c.cpu_allocatable_millicores,
+      formatCpu,
+      cpuUsage,
+      c.cpu_unlimited_containers,
+    ),
     bar(
       "Memory",
       c.memory_requests_bytes,
@@ -68,6 +89,7 @@ export function capacityBars(c: Capacity): CapacityBar[] {
       c.memory_allocatable_bytes,
       formatMemory,
       memUsage,
+      c.memory_unlimited_containers,
     ),
     {
       label: "Pods",
@@ -78,6 +100,7 @@ export function capacityBars(c: Capacity): CapacityBar[] {
       limits: "",
       limitPercent: null,
       overcommitted: false,
+      partial: false,
     },
   ];
 }

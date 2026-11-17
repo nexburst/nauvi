@@ -203,6 +203,7 @@
                 <div
                   class="limit"
                   class:over={bar.overcommitted}
+                  class:partial={bar.partial}
                   style:left="{bar.limitPercent}%"
                   title={bar.limits}
                   data-testid="limit-{bar.label}"
@@ -382,6 +383,18 @@
   }
   .limit.over {
     background: var(--red);
+  }
+  /* Some containers have no limit: the limits are no ceiling, so the
+     marker is hollow. */
+  .limit.partial {
+    width: 4px;
+    margin-left: -4px;
+    background: transparent;
+    border: 1px dashed var(--text-muted);
+    box-sizing: border-box;
+  }
+  .limit.partial.over {
+    border-color: var(--red);
   }
   .bar-limits {
     color: var(--text-muted);

@@ -47,28 +47,65 @@ function memOf(q) {
   return Math.round(Number(m[1]) * (mult[m[2]] ?? 1));
 }
 
-/** The limits kubectl sees, summed like the overview: scheduled, unfinished pods. */
+/**
+ * The limits kubectl sees, summed like the overview (and the scheduler):
+ * scheduled, unfinished pods; app containers plus native sidecars, or the
+ * largest init container (with the sidecars before it); plus overhead. And
+ * how many running containers have no cpu / memory limit.
+ */
 function kubectlLimits() {
   const pods = JSON.parse(kubectl(["get", "pods", "-A", "-o", "json"])).items;
   let cpu = 0;
   let mem = 0;
+  let cpuOpen = 0;
+  let memOpen = 0;
   for (const p of pods) {
     if (!p.spec.nodeName || ["Succeeded", "Failed"].includes(p.status?.phase)) continue;
     const lim = (c) => c.resources?.limits ?? {};
-    let c = 0;
-    let m = 0;
-    for (const x of p.spec.containers) {
-      c += cpuOf(lim(x).cpu);
-      m += memOf(lim(x).memory);
-    }
+    let sc = 0;
+    let sm = 0;
+    let ic = 0;
+    let im = 0;
+    const running = [...p.spec.containers];
     for (const x of p.spec.initContainers ?? []) {
-      c = Math.max(c, cpuOf(lim(x).cpu));
-      m = Math.max(m, memOf(lim(x).memory));
+      const c = cpuOf(lim(x).cpu);
+      const m = memOf(lim(x).memory);
+      if (x.restartPolicy === "Always") {
+        running.push(x);
+        sc += c;
+        sm += m;
+        ic = Math.max(ic, sc);
+        im = Math.max(im, sm);
+      } else {
+        ic = Math.max(ic, c + sc);
+        im = Math.max(im, m + sm);
+      }
     }
-    cpu += c + cpuOf(p.spec.overhead?.cpu);
-    mem += m + memOf(p.spec.overhead?.memory);
+    let ac = sc;
+    let am = sm;
+    for (const x of p.spec.containers) {
+      ac += cpuOf(lim(x).cpu);
+      am += memOf(lim(x).memory);
+    }
+    for (const x of running) {
+      cpuOpen += lim(x).cpu ? 0 : 1;
+      memOpen += lim(x).memory ? 0 : 1;
+    }
+    cpu += Math.max(ac, ic) + cpuOf(p.spec.overhead?.cpu);
+    mem += Math.max(am, im) + memOf(p.spec.overhead?.memory);
   }
-  return { cpu, mem };
+  return { cpu, mem, cpuOpen, memOpen };
+}
+
+/**
+ * A pattern for the limits text of a bar, as `capacityBars` writes it:
+ * "852Mi limits (3%) · 14 containers without a limit", or "no limits".
+ */
+function limitsPattern(v, open, fmt) {
+  if (v === 0) return /no limits/;
+  const esc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const without = open > 0 ? ` · ${open} container${open === 1 ? "" : "s"} without a limit` : "";
+  return new RegExp(`${esc(fmt(v))} limits \\(\\d+%\\)${esc(without)}(?! ·)`);
 }
 
 const capacityText = (app) =>
@@ -130,16 +167,19 @@ describe("overview limits and usage chart", { timeout: 15 * 60_000 }, () => {
     const seen = await app.waitFor(
       async () => {
         const text = await capacityText(app);
-        const { cpu, mem } = kubectlLimits();
-        const lim = (v, fmt) => (v > 0 ? `${fmt(v)} limits (` : "no limits");
-        const want = [lim(cpu, formatCpu), lim(mem, formatMemory)];
-        return want.every((w) => text.includes(w)) ? { text, cpu, mem } : null;
+        const k = kubectlLimits();
+        const want = [limitsPattern(k.cpu, k.cpuOpen, formatCpu), limitsPattern(k.mem, k.memOpen, formatMemory)];
+        return want.every((w) => w.test(text)) ? { text, ...k } : null;
       },
       { timeout: 90_000, interval: 3000, message: "the overview's limits to match kubectl's sums" },
     );
-    console.log(`limits: cpu ${seen.cpu}m, memory ${seen.mem} B`);
+    console.log(`limits: ${JSON.stringify(seen)}`);
     const markers = await app.driver.findElements(By.css('section[aria-label="Capacity"] .limit'));
     assert.ok(markers.length >= 1, "a limit marker on the bars");
+    // Containers without a memory limit: the marker is hollow.
+    if (seen.mem > 0 && seen.memOpen > 0) {
+      await app.find(By.css('[data-testid="limit-Memory"].partial'));
+    }
   });
 
   it("Prometheus off: the chart samples metrics-server and says so (light)", T, async () => {

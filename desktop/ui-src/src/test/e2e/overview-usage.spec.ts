@@ -30,7 +30,10 @@ test("the capacity bars show the limits, with a marker", async ({ page }) => {
   const fake = await openApp(page);
   await expect(capacity(page)).toContainText("1.2 / 8 requested (15%)");
   await expect(capacity(page)).toContainText("2.5 limits (31%)");
-  await expect(capacity(page)).toContainText("6Gi limits (38%)");
+  // Three containers have no memory limit: said, and the marker is hollow.
+  await expect(capacity(page)).toContainText("6Gi limits (38%) · 3 containers without a limit");
+  await expect(capacity(page).getByTestId("limit-Memory")).toHaveClass(/partial/);
+  await expect(capacity(page).getByTestId("limit-CPU")).not.toHaveClass(/partial/);
   await expect(capacity(page).getByTestId("limit-CPU")).toHaveAttribute("style", /left: 31%/);
   await expect(capacity(page).locator(".bar-limits.over")).toHaveCount(0);
 
@@ -78,7 +81,7 @@ test("with a Prometheus, the chart shows its last hour", async ({ page }) => {
     const points = await usage(page).getByTestId(`usage-chart-${r}`).locator("polyline").getAttribute("points");
     expect(points?.split(" ")).toHaveLength(120);
   }
-  await expect(usage(page).getByTestId("usage-chart-memory").getByTestId("ref-limit")).toHaveText("limit 6Gi");
+  await expect(usage(page).getByTestId("usage-chart-memory").getByTestId("ref-limits set")).toHaveText("limits set 6Gi");
   expect(fake.errors).toEqual([]);
 });
 

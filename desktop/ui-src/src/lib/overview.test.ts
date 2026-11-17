@@ -5,10 +5,12 @@ import { capacityBars, eventKind, overviewCount, percent, podCards, rawPercent }
 const capacity: Capacity = {
   cpu_requests_millicores: 1200,
   cpu_limits_millicores: 2000,
+  cpu_unlimited_containers: 0,
   cpu_allocatable_millicores: 8000,
   cpu_usage_millicores: 900,
   memory_requests_bytes: 3 * 1024 ** 3,
   memory_limits_bytes: 20 * 1024 ** 3,
+  memory_unlimited_containers: 0,
   memory_allocatable_bytes: 16 * 1024 ** 3,
   memory_usage_bytes: 4 * 1024 ** 3,
   metrics: true,
@@ -78,6 +80,15 @@ describe("capacityBars", () => {
     expect(none.limitPercent).toBeNull();
     expect(none.limits).toBe("no limits");
     expect(rawPercent(5, 0)).toBe(0);
+  });
+
+  it("says how many containers have no limit, and marks the limits partial", () => {
+    const [cpu, mem] = capacityBars({ ...capacity, cpu_unlimited_containers: 1, memory_unlimited_containers: 14 });
+    expect(cpu.limits).toBe("2 limits (25%) · 1 container without a limit");
+    expect(mem.limits).toBe("20Gi limits (125%) · 14 containers without a limit");
+    expect(cpu.partial).toBe(true);
+    expect(cpu.limitPercent).toBe(25);
+    expect(capacityBars(capacity)[0].partial).toBe(false);
   });
 
   it("leaves usage out without metrics", () => {

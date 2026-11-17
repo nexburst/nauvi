@@ -726,11 +726,18 @@ export type BulkItemResult = {
 export type Capacity = {
 	cpu_requests_millicores: number,
 	cpu_limits_millicores: number,
+	/**
+	 *  Running containers (app containers and native sidecars) without a
+	 *  cpu limit: the limits above are no ceiling when this is not 0.
+	 */
+	cpu_unlimited_containers: number,
 	cpu_allocatable_millicores: number,
 	/**  0 unless `metrics`. */
 	cpu_usage_millicores: number,
 	memory_requests_bytes: number,
 	memory_limits_bytes: number,
+	/**  As `cpu_unlimited_containers`, for memory. */
+	memory_unlimited_containers: number,
 	memory_allocatable_bytes: number,
 	/**  0 unless `metrics`. */
 	memory_usage_bytes: number,
