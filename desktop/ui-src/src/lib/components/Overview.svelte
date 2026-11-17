@@ -18,6 +18,7 @@
   import MetricsOffer from "./helm/MetricsOffer.svelte";
   import MetricsHiddenNote from "./MetricsHiddenNote.svelte";
   import { metricsHidden } from "../stores/metricsHidden.svelte";
+  import { settingsSaved } from "../stores/settings.svelte";
 
   /** Retry a failed start after this long. */
   const RETRY_MS = 5_000;
@@ -90,6 +91,9 @@
     clearError();
     // Listen first: the backend may send the first summary right away.
     await listening;
+    // The backend reads Hide metrics (#327) from the settings: a change
+    // just made must have reached it first.
+    await settingsSaved();
     if (feed !== id) return;
     try {
       // Parts the user may not see cluster-wide fall back to this namespace.

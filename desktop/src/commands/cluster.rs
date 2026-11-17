@@ -162,3 +162,57 @@ pub(crate) async fn cmd_set_context(cluster: Cluster, name: Option<String>) -> R
     windows::context_changed(cluster.app(), cluster.label(), name.as_deref());
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::metrics_hidden;
+    use crate::catalog::KubeconfigSources;
+    use crate::commands::usage::{UsageHistoryView, HIDDEN_NOTE};
+    use crate::settings::SettingsStore;
+    use crate::state::ClusterSession;
+    use std::sync::Arc;
+
+    /// A session on context `id` of an added kubeconfig in a temp dir.
+    fn session(id: &str) -> (ClusterSession, std::path::PathBuf) {
+        let dir = std::env::temp_dir().join(format!("nauvi-327-{id}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("kubeconfig.yaml");
+        std::fs::write(
+            &file,
+            format!(
+                "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster: {{server: \"https://127.0.0.1:1\"}}\nusers:\n- name: u\n  user: {{token: t}}\ncontexts:\n- name: {id}\n  context: {{cluster: c, user: u}}\n"
+            ),
+        )
+        .unwrap();
+        let sources = Arc::new(KubeconfigSources::default());
+        sources.set_extra(&[file.display().to_string()]);
+        (ClusterSession::new(Some(id.into()), sources), dir)
+    }
+
+    /// The commands' guard (#327): `cmd_get_metrics`, `cmd_usage_history`,
+    /// `cmd_workload_usage_history`, `cmd_node_disk_usage` and the overview
+    /// ask nothing when it holds for the session's context.
+    #[test]
+    fn hidden_metrics_follow_the_sessions_context() {
+        let (shown, d1) = session("nauvi-327-shown");
+        let (hidden, d2) = session("nauvi-327-hidden");
+        let settings = SettingsStore::open(None);
+        let id = hidden.context_id().unwrap();
+        settings.modify(|s| {
+            s.contexts.entry(id).or_default().hide_metrics = true;
+        });
+        assert!(metrics_hidden(&hidden, &settings));
+        assert!(!metrics_hidden(&shown, &settings));
+        let _ = std::fs::remove_dir_all(d1);
+        let _ = std::fs::remove_dir_all(d2);
+    }
+
+    #[test]
+    fn the_hidden_usage_view_is_empty() {
+        let v = UsageHistoryView::hidden();
+        assert!(v.history.samples.is_empty());
+        assert!(v.history.containers.is_empty());
+        assert!(v.prometheus.is_empty());
+        assert_eq!(v.note, HIDDEN_NOTE);
+    }
+}
