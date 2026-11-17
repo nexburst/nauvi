@@ -74,7 +74,9 @@ describe("capacityBars", () => {
     expect(pods.limits).toBe("");
     expect(pods.limitPercent).toBeNull();
     // No limits set: no marker.
-    expect(capacityBars({ ...capacity, cpu_limits_millicores: 0 })[0].limitPercent).toBeNull();
+    const none = capacityBars({ ...capacity, cpu_limits_millicores: 0 })[0];
+    expect(none.limitPercent).toBeNull();
+    expect(none.limits).toBe("no limits");
     expect(rawPercent(5, 0)).toBe(0);
   });
 

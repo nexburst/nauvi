@@ -131,7 +131,8 @@ describe("overview limits and usage chart", { timeout: 15 * 60_000 }, () => {
       async () => {
         const text = await capacityText(app);
         const { cpu, mem } = kubectlLimits();
-        const want = [`${formatCpu(cpu)} limits (`, `${formatMemory(mem)} limits (`];
+        const lim = (v, fmt) => (v > 0 ? `${fmt(v)} limits (` : "no limits");
+        const want = [lim(cpu, formatCpu), lim(mem, formatMemory)];
         return want.every((w) => text.includes(w)) ? { text, cpu, mem } : null;
       },
       { timeout: 90_000, interval: 3000, message: "the overview's limits to match kubectl's sums" },
@@ -204,7 +205,7 @@ describe("overview limits and usage chart", { timeout: 15 * 60_000 }, () => {
     await setTheme(app, "dark");
     await setHidden(app, true);
     await app.waitFor(async () => (await usage(app)) === null, { timeout: 30_000, message: "the chart to go" });
-    assert.match(await capacityText(app), /limits \(/);
+    assert.match(await capacityText(app), /limits/);
     await app.find(By.css('section[aria-label="Capacity"] [data-testid="metrics-hidden"]'));
   });
 

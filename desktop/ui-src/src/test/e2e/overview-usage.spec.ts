@@ -57,7 +57,7 @@ test("without Prometheus, the chart samples metrics-server while the window is o
   // The dashed lines: requests, limits and allocatable.
   await expect(cpu.getByTestId("ref-request")).toHaveText("request 1.2");
   await expect(cpu.getByTestId("ref-limit")).toHaveText("limit 2.5");
-  await expect(cpu.getByTestId("ref-allocatable")).toHaveText("allocatable 8");
+  await expect(cpu.getByTestId("ref-allocatable")).toHaveCount(0);
 
   // The next usage poll adds a sample.
   await page.clock.fastForward(30_000);

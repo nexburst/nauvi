@@ -68,19 +68,21 @@ export function clusterChart(view: OverviewUsageView | null, local: readonly Usa
   return { samples: local, source, note };
 }
 
-/** The chart's dashed lines: requests, limits and allocatable that are set. */
+/**
+ * The chart's dashed lines: the requests and limits that are set.
+ * Allocatable is left out (the bars show it): on most clusters it is far
+ * above the usage and would flatten the line.
+ */
 export function clusterRefs(c: Capacity, r: Resource): RefLine[] {
   const lines: RefLine[] =
     r === "cpu"
       ? [
           { label: "request", value: c.cpu_requests_millicores },
           { label: "limit", value: c.cpu_limits_millicores },
-          { label: "allocatable", value: c.cpu_allocatable_millicores },
         ]
       : [
           { label: "request", value: c.memory_requests_bytes },
           { label: "limit", value: c.memory_limits_bytes },
-          { label: "allocatable", value: c.memory_allocatable_bytes },
         ];
   return lines.filter((l) => l.value > 0);
 }

@@ -192,6 +192,8 @@
     {#if overview.capacity}
       <section class="capacity" aria-label="Capacity">
         <h3>Capacity</h3>
+        <!-- One grid for all rows, so the bars line up. -->
+        <div class="bars">
         {#each capacityBars(overview.capacity) as bar (bar.label)}
           <div class="bar-row">
             <span class="bar-label">{bar.label}</span>
@@ -214,6 +216,7 @@
             <span class="bar-usage muted">{hideMetrics ? "" : bar.usage}</span>
           </div>
         {/each}
+        </div>
         {#if hideMetrics}
           <MetricsHiddenNote inline />
         {:else}
@@ -346,13 +349,16 @@
   .capacity {
     margin-bottom: 20px;
   }
-  .bar-row {
+  .bars {
     display: grid;
     grid-template-columns: 70px minmax(120px, 1fr) auto auto auto;
-    gap: 12px;
+    gap: 8px 12px;
     align-items: center;
     font-size: 13px;
     padding: 4px 0;
+  }
+  .bar-row {
+    display: contents;
   }
   .bar {
     position: relative;

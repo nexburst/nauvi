@@ -12,7 +12,7 @@ export interface CapacityBar {
   usage: string;
   /** Over 90% of what can be allocated. */
   high: boolean;
-  /** The limits set ("4 limits (50%)"; the percent is not capped), or "". */
+  /** The limits set ("4 limits (50%)"; the percent is not capped), "no limits", or "" for pods. */
   limits: string;
   /** Where the limit marker sits on the bar (0–100, capped), or null. */
   limitPercent: number | null;
@@ -51,7 +51,7 @@ export function capacityBars(c: Capacity): CapacityBar[] {
       percent: p,
       usage: usage === null ? "" : `${fmt(usage)} used (${percent(usage, total)}%)`,
       high: p > 90,
-      limits: `${fmt(limits)} limits (${rawPercent(limits, total)}%)`,
+      limits: limits > 0 ? `${fmt(limits)} limits (${rawPercent(limits, total)}%)` : "no limits",
       limitPercent: limits > 0 && total > 0 ? percent(limits, total) : null,
       overcommitted: total > 0 && limits > total,
     };

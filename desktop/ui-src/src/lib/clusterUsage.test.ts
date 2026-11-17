@@ -86,12 +86,11 @@ describe("clusterChart", () => {
 });
 
 describe("clusterRefs", () => {
-  it("lists the requests, limits and allocatable that are set", () => {
-    expect(clusterRefs(capacity, "cpu").map((r) => r.label)).toEqual(["request", "allocatable"]);
+  it("lists the requests and limits that are set, not allocatable", () => {
+    expect(clusterRefs(capacity, "cpu").map((r) => r.label)).toEqual(["request"]);
     expect(clusterRefs(capacity, "memory")).toEqual([
       { label: "request", value: 3 * 1024 ** 3 },
       { label: "limit", value: 6 * 1024 ** 3 },
-      { label: "allocatable", value: 16 * 1024 ** 3 },
     ]);
   });
 });
