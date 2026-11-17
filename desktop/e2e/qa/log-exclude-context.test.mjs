@@ -15,7 +15,7 @@ import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { CONTEXT } from "../lib/app.mjs";
 import { deleteNamespace, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { logLines, openPodLogs, pane } from "../lib/dock.mjs";
+import { logLines, logStatus, openPodLogs, pane } from "../lib/dock.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { resizeWindow } from "../lib/window.mjs";
@@ -73,6 +73,12 @@ function rows(app) {
   );
 }
 
+/** The line count in the status ("1,234 lines"). */
+async function statusCount(app) {
+  const m = (await logStatus(app, ID())).match(/([\d,.   ]+)\+? lines/);
+  return m ? Number(m[1].replace(/[^\d]/g, "")) : 0;
+}
+
 async function setContext(app, n) {
   await app.js(
     `const s = document.querySelector(arguments[0] + ' select[aria-label="Context lines"]');
@@ -104,21 +110,23 @@ describe("log exclude and context (#339)", { timeout: 15 * 60_000 }, () => {
     await waitLive(app);
     await resizeWindow(app, 1280, 800);
     await openPodLogs(app, ns, "qa-grep");
-    await app.waitFor(async () => (await logLines(app, ID())).length >= 30, { timeout: 60_000, message: "30 lines" });
+    // The list is virtual: only the rows in view are rendered; count by the status.
+    await app.waitFor(async () => (await statusCount(app)) >= 30, { timeout: 60_000, message: "30 lines" });
     await app.setValue(await excludeBox(app), "health");
+    const last = (l) => Number(l.at(-1)?.match(/^req (\d+)/)?.[1] ?? -1);
     const first = await app.waitFor(
       async () => {
         const l = await logLines(app, ID());
-        return l.length > 10 && l.every((x) => !x.includes("health")) ? l : null;
+        return l.length > 5 && l.every((x) => !x.includes("health")) ? l : null;
       },
       { message: "no health lines" },
     );
     // Still none a few seconds (and lines) later.
     await new Promise((r) => setTimeout(r, 3000));
     const later = await logLines(app, ID());
-    assert.ok(later.length > first.length, `more lines came: ${first.length} -> ${later.length}`);
+    assert.ok(last(later) > last(first), `more lines came: up to ${last(first)} -> ${last(later)}`);
     assert.ok(later.every((x) => !x.includes("health")), "no health line came in");
-    console.log(`exclude: ${later.length} lines without "health"`);
+    console.log(`exclude: ${later.length} rows in view without "health", newest req ${last(later)}`);
     await shots(app, "exclude");
   });
 

@@ -225,5 +225,13 @@ test("a download has a header and, while filtering, holds the lines shown", asyn
   expect(second).toContain("# Filter:     none\n# Lines:      12\n");
   expect(second).toContain("# Time range: 2026-11-16T10:00:00.000Z to 2026-11-16T10:05:00.500Z\n");
   expect(second.split("\n#\n")[1].split("\n")).toHaveLength(13);
+
+  // Download right after typing (before the search ran): what that search shows.
+  await excludeBox(page).fill("health");
+  await logs(page).getByRole("button", { name: "Download" }).click();
+  await expect.poll(() => fake.calls("cmdSaveLogs")).toHaveLength(3);
+  const third = (await fake.lastCall("cmdSaveLogs")).content as string;
+  expect(third).toContain('# Filter:     exclude "health" (text, ignore case)\n# Lines:      9 of 12\n');
+  expect(third).not.toContain("/health");
   expect(fake.errors).toEqual([]);
 });

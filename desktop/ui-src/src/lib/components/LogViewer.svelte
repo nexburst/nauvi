@@ -30,7 +30,7 @@
     segments,
     stepMatch,
   } from "../logFilter";
-  import type { CompiledQuery } from "../logFilter";
+  import type { CompiledQuery, LogQuery } from "../logFilter";
   import { logHeader } from "../logHeader";
   import { LogSearcher, SEARCH_CHUNK } from "../logSearch";
   import type { Hits } from "../logSearch";
@@ -111,6 +111,9 @@
   let excludeInput = $state("");
   let exclude = $state.raw<CompiledQuery>({ kind: "none" });
   let excludeError = $state("");
+  /** What `query` and `exclude` were made from (the boxes may hold newer or invalid text). */
+  let appliedSearch: LogQuery = { text: "", regex: false, matchCase: false };
+  let excludeText = "";
   /** Lines of context around each match, in filter mode (grep -C). */
   let contextLines = $state(0);
   /** The context state after the lines shown so far. */
@@ -642,6 +645,9 @@
     const name = container === ALL_CONTAINERS ? "all" : container || (workload ? "all" : "pod");
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `${(workload ?? pod)?.name}_${name}${previous ? "_previous" : ""}_${stamp}.log`;
+    // Typed just before: save what that search shows, not the one before it.
+    if (filterTimer !== undefined) applySearch();
+    await new Promise<void>((done) => enqueue(done));
     try {
       // Written by the backend: Blob/anchor downloads are not reliable in
       // Tauri's webviews, and a save dialog would need an extra plugin.
@@ -667,9 +673,9 @@
         previous,
         tail,
         since,
-        search: { text: searching ? filterInput : "", regex, matchCase },
+        search: { ...appliedSearch, text: searching ? appliedSearch.text : "" },
         highlight: highlightMode,
-        exclude: excluding ? excludeInput : "",
+        exclude: excluding ? excludeText : "",
         contextLines,
         podFilter,
         saved: texts.length,
@@ -699,11 +705,13 @@
     else {
       excludeError = "";
       exclude = x;
+      excludeText = excludeInput;
     }
     if (q.kind === "error") searchError = `Invalid regex: ${q.message}`;
     else {
       searchError = "";
       query = q;
+      appliedSearch = { text: filterInput, regex, matchCase };
     }
     if (force || JSON.stringify([query, exclude]) !== before) renderLogs();
   }
