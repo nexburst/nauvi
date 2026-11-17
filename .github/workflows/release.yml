@@ -4,10 +4,15 @@ name: Release
 # Linux, macOS and Windows and releases them:
 #   1. `prepare` checks the versions and creates a *draft* release.
 #   2. `desktop` and `cli` build, smoke-check and upload into the draft.
-#   3. `publish` checks every expected asset is there, verifies the update
+#   3. `sbom` writes CycloneDX SBOMs of the Rust crates (cargo-cyclonedx)
+#      and the frontend's npm dependencies (npm sbom); `scan` runs Grype on
+#      them and on the unpacked Linux bundles and CLI, and fails on a High
+#      or Critical finding that has a fix (#341). Neither sees a secret.
+#   4. `publish` checks every expected asset is there, verifies the update
 #      signatures, writes latest.json (the in-app updater's endpoint, #30)
-#      and SHA256SUMS, uploads them and only then publishes the draft. A
-#      failed build leaves just the draft.
+#      and SHA256SUMS, uploads them with the SBOMs and only then publishes
+#      the draft. A failed build or scan leaves just the draft. It also
+#      writes the installer sizes to the job summary.
 #
 # The update bundles are signed with the TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)
 # secrets; the public key is in desktop/tauri.conf.json. The dry run signs
@@ -313,8 +318,8 @@ jobs:
             [ "$size" -gt 1000000 ] || { echo "::error::$f is suspiciously small"; exit 1; }
           done
 
-      - name: Upload the bundles as workflow artifacts (dry run)
-        if: needs.prepare.outputs.dry_run == 'true'
+      # Also in a real release: `scan` reads them from here.
+      - name: Upload the bundles as workflow artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-${{ matrix.name }}
@@ -401,8 +406,8 @@ jobs:
           ASSET: ${{ steps.package.outputs.asset }}
         run: gh release upload "$TAG" "$ASSET" --clobber
 
-      - name: Upload as a workflow artifact (dry run)
-        if: needs.prepare.outputs.dry_run == 'true'
+      # Also in a real release: `scan` reads them from here.
+      - name: Upload as a workflow artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: cli-${{ matrix.target }}
@@ -410,8 +415,144 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # CycloneDX SBOMs, attached to the release (#341): one per Rust package
+  # (the CLI and the desktop app, with every target's dependencies) and one
+  # of the frontend's production npm dependencies, which the app embeds.
+  sbom:
+    needs: prepare
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
+        with:
+          toolchain: stable
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: desktop/ui-src/.nvmrc
+
+      # An exact version, built from its lock file; bump it on purpose.
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --version "=0.5.9" --locked
+
+      - name: Write the SBOMs
+        env:
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          mkdir sbom
+          # Writes <package>.cdx.json next to each Cargo.toml. --target all:
+          # the dependencies of every platform, not only this runner's.
+          cargo cyclonedx --format json --spec-version 1.5 --target all
+          mv nauvi.cdx.json "sbom/nauvi-$TAG-cli.cdx.json"
+          mv desktop/nauvi-desktop.cdx.json "sbom/nauvi-$TAG-desktop.cdx.json"
+          # From the lock file; only what ships (no Vite, Playwright, ...).
+          (cd desktop/ui-src && npm sbom --sbom-format cyclonedx --omit dev --package-lock-only) \
+            > "sbom/nauvi-$TAG-desktop-ui.cdx.json"
+          python3 - sbom/*.cdx.json <<'PY'
+          import json, sys
+          for path in sys.argv[1:]:
+              bom = json.load(open(path))
+              n = len(bom.get("components", []))
+              assert bom.get("bomFormat") == "CycloneDX", f"{path}: not a CycloneDX BOM"
+              assert n > 0, f"{path}: no components"
+              print(f"{path}: CycloneDX {bom.get('specVersion')}, {n} components")
+          PY
+
+      - name: Upload the SBOMs as a workflow artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom
+          path: sbom/*.cdx.json
+          if-no-files-found: error
+          retention-days: 7
+
+  # Grype on the SBOMs and on what the Linux bundles and the Linux CLI unpack
+  # to (the macOS and Windows builds are covered by the Rust SBOMs, which list
+  # every target's crates). Fails on a High or Critical finding with a fix and
+  # reports the rest in the job summary; `publish` waits for it. Read-only,
+  # no secrets.
+  scan:
+    needs: [prepare, desktop, cli, sbom]
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    env:
+      # An exact release, checked against its published SHA-256.
+      GRYPE_VERSION: 0.121.1
+      GRYPE_SHA256: bc3ea3f9e6fd56ac781c08c6c5e614271b79f438200757f6932085c19b0a4657
+      GRYPE_CHECK_FOR_APP_UPDATE: "false"
+    steps:
+      # For scripts/release/grype_report.py.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/in/sbom
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-linux
+          path: ${{ runner.temp }}/in/desktop
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: cli-x86_64-unknown-linux-gnu
+          path: ${{ runner.temp }}/in/cli
+
+      - name: Install Grype
+        run: |
+          cd "$RUNNER_TEMP"
+          curl -fsSL -o grype.tar.gz \
+            "https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          echo "${GRYPE_SHA256}  grype.tar.gz" | sha256sum -c -
+          mkdir grype-bin
+          tar xzf grype.tar.gz -C grype-bin grype
+          echo "$RUNNER_TEMP/grype-bin" >> "$GITHUB_PATH"
+
+      - name: Unpack the Linux bundles and the CLI
+        run: |
+          in="$RUNNER_TEMP/in"
+          un="$RUNNER_TEMP/unpacked"
+          mkdir -p "$un/deb" "$un/cli"
+          appimage=$(ls "$in"/desktop/*.AppImage)
+          chmod +x "$appimage"
+          (cd "$un" && "$appimage" --appimage-extract >/dev/null && mv squashfs-root appimage)
+          dpkg-deb -x "$(ls "$in"/desktop/*.deb)" "$un/deb"
+          tar xzf "$(ls "$in"/cli/*.tar.gz)" -C "$un/cli"
+          du -sh "$un"/*
+
+      - name: Scan
+        run: |
+          grype db update
+          grype version
+          out="$RUNNER_TEMP/scan"
+          mkdir -p "$out"
+          for f in "$RUNNER_TEMP"/in/sbom/*.cdx.json; do
+            grype "sbom:$f" -o json --file "$out/sbom-$(basename "$f" .cdx.json).json"
+          done
+          for d in appimage deb cli; do
+            grype "dir:$RUNNER_TEMP/unpacked/$d" -o json --file "$out/$d.json"
+          done
+          rc=0
+          python3 scripts/release/grype_report.py "$out"/*.json > "$out/report.md" || rc=$?
+          cat "$out/report.md" >> "$GITHUB_STEP_SUMMARY"
+          cat "$out/report.md"
+          exit "$rc"
+
+      - name: Upload the scan reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vulnerability-scan
+          path: ${{ runner.temp }}/scan/
+          if-no-files-found: warn
+          retention-days: 30
+
   publish:
-    needs: [prepare, desktop, cli]
+    needs: [prepare, desktop, cli, sbom, scan]
     permissions:
       contents: write
     runs-on: ubuntu-22.04
@@ -433,10 +574,19 @@ jobs:
           # tauri-action's latest.json: checked against, then replaced.
           if [ -f assets/latest.json ]; then mv assets/latest.json tauri-action-latest.json; fi
 
+      - name: Fetch the SBOMs
+        if: needs.prepare.outputs.dry_run == 'false'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sbom
+          path: assets
+
+      # The bundles, the CLI archives and the SBOMs (not the scan reports).
       - name: Fetch the workflow artifacts (dry run)
         if: needs.prepare.outputs.dry_run == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
+          pattern: "{desktop-*,cli-*,sbom}"
           path: assets
           merge-multiple: true
 
@@ -453,10 +603,39 @@ jobs:
                    "nauvi-cli-$TAG-x86_64-unknown-linux-gnu.tar.gz" \
                    "nauvi-cli-$TAG-aarch64-apple-darwin.tar.gz" \
                    "nauvi-cli-$TAG-x86_64-apple-darwin.tar.gz" \
-                   "nauvi-cli-$TAG-x86_64-pc-windows-msvc.zip"; do
+                   "nauvi-cli-$TAG-x86_64-pc-windows-msvc.zip" \
+                   "nauvi-$TAG-cli.cdx.json" "nauvi-$TAG-desktop.cdx.json" \
+                   "nauvi-$TAG-desktop-ui.cdx.json"; do
             compgen -G "$p" >/dev/null || { echo "::error::missing asset $p"; fail=1; }
           done
           [ "$fail" -eq 0 ] || exit 1
+
+      # For the README's comparison (#341): what a user downloads.
+      - name: Write the installer sizes to the job summary
+        run: |
+          cd assets
+          # Platform, glob.
+          row() {
+            # shellcheck disable=SC2086 # $2 is a glob
+            for f in $2; do
+              [ -e "$f" ] || continue
+              mb=$(awk -v b="$(stat -c %s "$f")" 'BEGIN { printf "%.1f", b / 1048576 }')
+              printf '| %s | `%s` | %s MB |\n' "$1" "$f" "$mb"
+            done
+          }
+          {
+            echo "## Installer sizes"
+            echo
+            echo "| Platform | File | Size |"
+            echo "| --- | --- | ---: |"
+            row "Linux (AppImage)" "*.AppImage"
+            row "Linux (deb)" "*.deb"
+            row "macOS (dmg, universal)" "*_universal.dmg"
+            row "macOS (update bundle)" "*_universal.app.tar.gz"
+            row "Windows (NSIS installer)" "*-setup.exe"
+            row "Windows (MSI)" "*.msi"
+            row "CLI" "nauvi-cli-*"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Every .sig must verify against the public key the app ships with, or
       # the app would refuse the update.
@@ -497,6 +676,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
+          gh release upload "$TAG" assets/*.cdx.json --clobber --repo "$GITHUB_REPOSITORY"
           gh release upload "$TAG" assets/latest.json assets/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
           gh release edit "$TAG" --draft=false --repo "$GITHUB_REPOSITORY"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY"
