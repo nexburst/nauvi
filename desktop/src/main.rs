@@ -22,6 +22,7 @@ mod shell_env;
 mod single_instance;
 mod state;
 mod updater;
+mod webkit_env;
 mod webview_args;
 mod window_state;
 mod windows;
@@ -39,6 +40,8 @@ fn main() {
     // First, before any thread starts: it changes the process environment.
     #[cfg(unix)]
     shell_env::import_login_shell_env();
+    // WebKitGTK's renderer without a GPU (#353); also before any thread.
+    let renderer = webkit_env::apply();
 
     let builder = commands::specta_builder();
     #[cfg(debug_assertions)]
@@ -72,6 +75,7 @@ fn main() {
         .setup(move |app| {
             // The app log and the panic hook (#208), then the Help menu.
             logging::init(app.path().app_log_dir().ok());
+            webkit_env::log(renderer);
             menu::install(app.handle());
             builder.mount_events(app);
             let config_dir = app.path().app_config_dir().ok();

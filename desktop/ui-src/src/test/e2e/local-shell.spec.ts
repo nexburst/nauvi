@@ -60,6 +60,8 @@ test("Ctrl+Shift+` opens a shell in the selected namespace; changing it later le
 
   await page.keyboard.press("Control+Shift+Backquote");
   await expect(tabs(page)).toHaveText(["kind-dev · demo"]);
+  // The terminal loads with its tab (#353), then starts the shell.
+  await expect.poll(() => fake.calls("cmdLocalShellStart")).toHaveLength(1);
   expect(await fake.lastCall("cmdLocalShellStart")).toMatchObject({ namespace: "demo" });
 
   // Another namespace: the open shell keeps its label; a new one gets its own tab.
@@ -72,7 +74,9 @@ test("Ctrl+Shift+` opens a shell in the selected namespace; changing it later le
   await page.keyboard.press("Control+Shift+Backquote");
   await expect(tabs(page)).toHaveText(["kind-dev · demo", "kind-dev · kube-system"]);
   await expect(tabs(page).nth(1)).toHaveAttribute("aria-selected", "true");
-  expect((await fake.calls("cmdLocalShellStart")).map((c) => c.namespace)).toEqual(["demo", "kube-system"]);
+  await expect
+    .poll(async () => (await fake.calls("cmdLocalShellStart")).map((c) => c.namespace))
+    .toEqual(["demo", "kube-system"]);
 
   // The dock's + button opens one too.
   await dock(page).getByRole("button", { name: "New local terminal" }).click();

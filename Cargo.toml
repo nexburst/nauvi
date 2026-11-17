@@ -70,3 +70,11 @@ debug = false
 
 [profile.test]
 debug = "line-tables-only"
+
+# Release builds (#353): one codegen unit and fat LTO make the app's code
+# about a fifth smaller (40 -> 31 MB of text), which is resident memory of
+# every running app and the size of the installers. They take longer to
+# build (about 12 -> 18 min for the desktop app on a 4-core machine).
+[profile.release]
+lto = "fat"
+codegen-units = 1

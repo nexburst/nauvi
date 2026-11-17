@@ -2,9 +2,10 @@
 // for 30 s untouched, then the resident memory of the core (nauvi-desktop)
 // and of the WebKitGTK processes it started is read from /proc.
 //
-// Report only: it fails if it cannot measure, never on a big number. The
-// numbers go to the console, to artifacts/idle-memory.json and, on GitHub
-// Actions, to the job summary.
+// It fails if it cannot measure and, for a release build, above BUDGET
+// (#353; QA_MEMORY_BUDGET=off turns that off). The numbers go to the
+// console, to artifacts/idle-memory.json (with the biggest mappings of each
+// process) and, on GitHub Actions, to the job summary.
 //
 // A debug build uses more memory than the release one, so qa.yml builds a
 // release binary for this scenario and passes it in QA_RELEASE_APP; without
@@ -16,12 +17,13 @@
 // between the processes and is the fairer total. Both are reported.
 
 import assert from "node:assert/strict";
-import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { ARTIFACTS } from "../lib/app.mjs";
 import { appPid } from "../lib/dock.mjs";
+import { measure, topMappings } from "../lib/memory.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 
 const IDLE_MS = Number(process.env.IDLE_SECONDS || 30) * 1000;
@@ -33,74 +35,33 @@ if (RELEASE) process.env.NAUVI_APP = resolve(process.env.QA_RELEASE_APP);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const skip = process.platform !== "linux" ? "reads /proc (Linux only)" : false;
 
-/** kB from a "Name:   1234 kB" line of a /proc file, or 0. */
-function kb(path, field) {
-  try {
-    const m = readFileSync(path, "utf8").match(new RegExp(`^${field}:\\s+(\\d+) kB`, "m"));
-    return m ? Number(m[1]) : 0;
-  } catch {
-    return 0;
-  }
-}
-
-/** pid -> parent pid for every process. */
-function parents() {
-  const map = new Map();
-  for (const pid of readdirSync("/proc").filter((p) => /^\d+$/.test(p))) {
-    try {
-      // The comm field may hold spaces and parentheses: split after the last ")".
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-      const ppid = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]);
-      map.set(Number(pid), ppid);
-    } catch {
-      /* gone */
-    }
-  }
-  return map;
-}
-
-/** `root` and all its descendants. */
-function tree(root) {
-  const ppid = parents();
-  const out = [root];
-  for (let i = 0; i < out.length; i++) {
-    for (const [pid, parent] of ppid) if (parent === out[i]) out.push(pid);
-  }
-  return out;
-}
-
-/** RSS and PSS (kB) of the app's processes, grouped by kind. */
-function measure(root) {
-  const groups = { core: [], web: [], network: [], other: [] };
-  for (const pid of tree(root)) {
-    let comm;
-    try {
-      comm = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
-    } catch {
-      continue;
-    }
-    const p = { pid, comm, rss: kb(`/proc/${pid}/status`, "VmRSS"), pss: kb(`/proc/${pid}/smaps_rollup`, "Pss") };
-    // comm is cut at 15 characters: WebKitWebProces, WebKitNetworkPr.
-    if (pid === root) groups.core.push(p);
-    else if (comm.startsWith("WebKitWebProc")) groups.web.push(p);
-    else if (comm.startsWith("WebKitNetwork")) groups.network.push(p);
-    else groups.other.push(p);
-  }
-  const sum = (list, key) => list.reduce((n, p) => n + p[key], 0);
-  const row = (list) => ({ rss: sum(list, "rss"), pss: sum(list, "pss"), count: list.length });
-  const all = Object.values(groups).flat();
-  return {
-    core: row(groups.core),
-    web: row(groups.web),
-    network: row(groups.network),
-    other: row(groups.other),
-    coreAndWeb: row([...groups.core, ...groups.web]),
-    total: row(all),
-    processes: all,
-  };
-}
-
 const mb = (k) => (k / 1024).toFixed(0);
+
+/**
+ * Release build on the qa.yml runner (no GPU), MB: what #353 measured
+ * (core 185 MB RSS, core + WebKitWebProcess 384 MB RSS, all 256 MB PSS)
+ * plus 15%. Lower them when a change makes the app smaller.
+ */
+const BUDGET = { coreRss: 213, coreAndWebRss: 442, totalPss: 295 };
+
+/** Counters from the page: what the UI holds (WebKit has no performance.memory). */
+async function pageCounters(app) {
+  try {
+    return await app.js(() => ({
+      domNodes: document.getElementsByTagName("*").length,
+      scripts: performance.getEntriesByType("resource").filter((e) => e.initiatorType === "script").length,
+      styleRules: [...document.styleSheets].reduce((n, sh) => {
+        try {
+          return n + sh.cssRules.length;
+        } catch {
+          return n;
+        }
+      }, 0),
+    }));
+  } catch (e) {
+    return { error: String(e) };
+  }
+}
 
 function markdown(r) {
   const line = (label, x) => `| ${label} | ${x.count} | ${mb(x.rss)} MB | ${mb(x.pss)} MB |`;
@@ -146,9 +107,29 @@ describe("idle memory on the Overview", { skip, timeout: 5 * 60_000 }, () => {
     assert.ok(r.core.rss > 0, "read the core's RSS");
     assert.ok(r.web.count > 0, `a WebKitWebProcess under the app: ${JSON.stringify(r.processes)}`);
 
+    r.page = await pageCounters(app);
+    r.mappings = Object.fromEntries(
+      [pid, ...r.processes.filter((p) => p.comm.startsWith("WebKitWebProc")).map((p) => p.pid)].map((p) => [
+        p,
+        topMappings(p),
+      ]),
+    );
     writeFileSync(join(ARTIFACTS, "idle-memory.json"), JSON.stringify(r, null, 2));
     const md = markdown(r);
     console.log(md);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+
+    if (RELEASE && process.env.QA_MEMORY_BUDGET !== "off") {
+      const over = [
+        ["core RSS", r.core.rss, BUDGET.coreRss],
+        ["core + WebKitWebProcess RSS", r.coreAndWeb.rss, BUDGET.coreAndWebRss],
+        ["total PSS", r.total.pss, BUDGET.totalPss],
+      ].filter(([, kb, budget]) => kb / 1024 > budget);
+      assert.deepEqual(
+        over.map(([what, kb, budget]) => `${what} ${mb(kb)} MB > ${budget} MB`),
+        [],
+        "idle memory over its budget",
+      );
+    }
   });
 });
