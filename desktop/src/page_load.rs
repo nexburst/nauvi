@@ -15,6 +15,8 @@ pub(crate) fn on_page_load<R: Runtime>(webview: &Webview<R>, payload: &PageLoadP
         return;
     }
     let label = webview.label();
+    // The start-up budget (QA `multicluster`) times the app until this line.
+    tracing::info!("window {label}: page load started");
     let Some(sessions) = webview.app_handle().state::<AppState>().page_load(label) else {
         return;
     };

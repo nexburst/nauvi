@@ -8,18 +8,19 @@
 // MB_PER_CLUSTER. Each reading is the median of 3 samples.
 //
 // Start-up: 50 contexts in 3 kubeconfig files, 49 of them unreachable
-// (a TEST-NET address), against 1 context. The tree must show (the
-// `nauvi:cluster-tree` mark ClusterTree sets when it first lists contexts)
-// within TREE_MS of the app's start (the fastest of 5 starts), and from the
-// page's start at most SLOWER_MS later than with 1 context (the median).
-//
-// Why the slowdown is taken from the page's start: under WebKitWebDriver
-// the page starts loading when the driver has attached, which lands on
-// steps about 500 ms apart. A few ms more in the core's setup (reading 50
-// contexts) can move it to the next step: 465 vs 980 ms until the page
-// loads, every start, while launched without the driver both start the
-// page at about 560 ms. So the time until the page loads is mostly the
-// driver's, and only the total (TREE_MS) includes it.
+// (a TEST-NET address), against 1 context. The tree must show within
+// TREE_MS of the app's start, and at most SLOWER_MS later than with 1
+// context. That time is taken in two parts, because under WebKitWebDriver
+// the page only starts loading once the driver has attached (steps of
+// about 500 ms locally, about 30 s on the CI runner), which says nothing
+// about the app:
+//   1. until the page starts loading: the app binary run directly (as a
+//      click on its icon would, on a private session bus), until it logs
+//      "page load started";
+//   2. from there until the tree shows: the `nauvi:cluster-tree` mark
+//      ClusterTree sets when it first lists contexts, read through the
+//      driver (this part does not depend on it).
+// Each part is the median of STARTS starts.
 //
 // A release build (QA_RELEASE_APP, which qa.yml builds for this scenario)
 // is measured when there is one; otherwise the debug build, and the report
@@ -28,8 +29,8 @@
 // failing.
 
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { appendFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,7 +39,9 @@ import { ARTIFACTS, CONTEXT, launch } from "../lib/app.mjs";
 import { appPid } from "../lib/dock.mjs";
 import { measure } from "../lib/memory.mjs";
 import { setTheme } from "../lib/panels.mjs";
+import { createProfile } from "../lib/profile.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { appBinary, startBus } from "../lib/second-launch.mjs";
 import { expandCluster, nodeState, nodeText, waitNodeState } from "../lib/tree.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
@@ -46,7 +49,7 @@ import { resizeWindow } from "../lib/window.mjs";
 const MB_PER_CLUSTER = 15;
 const TREE_MS = 1500;
 const SLOWER_MS = 200;
-const STARTS = 5;
+const STARTS = 3;
 
 const CLUSTERS = 6;
 const IDLE_MS = Number(process.env.IDLE_SECONDS || 20) * 1000;
@@ -151,35 +154,57 @@ describe("multi-cluster budgets", { skip, timeout: 30 * 60_000 }, () => {
   });
 
   describe("start-up with 50 contexts", () => {
-    /** Epoch ms the process `pid` started at (10 ms ticks). */
-    function startedAt(pid) {
-      const btime = Number(readFileSync("/proc/stat", "utf8").match(/^btime (\d+)/m)[1]);
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-      const ticks = Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19]);
-      return btime * 1000 + ticks * 10;
+    /** ms from spawning the app binary until it logs that its page started loading. */
+    async function untilPageLoads(kc) {
+      const bus = await startBus();
+      const profile = createProfile();
+      const env = {
+        ...process.env,
+        ...profile.env(),
+        KUBECONFIG: kc,
+        NAUVI_NO_SHELL_ENV: "1",
+        DBUS_SESSION_BUS_ADDRESS: bus.address,
+      };
+      const t0 = performance.now();
+      // Its own process group, so the WebKit processes stop with it.
+      const proc = spawn(appBinary(), [], { env, stdio: ["ignore", "ignore", "pipe"], detached: true });
+      try {
+        return await new Promise((ok, fail) => {
+          let err = "";
+          const timer = setTimeout(() => fail(new Error(`no "page load started" within 60 s:\n${err}`)), 60_000);
+          proc.once("error", fail);
+          proc.stderr.on("data", (d) => {
+            err += d;
+            if (/page load started/.test(err)) {
+              clearTimeout(timer);
+              ok(Math.round(performance.now() - t0));
+            }
+          });
+        });
+      } finally {
+        try {
+          process.kill(-proc.pid, "SIGKILL");
+        } catch {
+          /* gone */
+        }
+        await sleep(500);
+        bus.stop();
+        profile.remove();
+      }
     }
 
-    /**
-     * ms from the app's start (process start time) and from the page's
-     * (navigation start) to the tree's mark, over STARTS starts: the
-     * fastest total and the median page time.
-     */
-    async function treeTimes(name, kc, current) {
+    /** ms from the page's start to the tree's mark, over STARTS starts. */
+    async function pageTimes(name, kc, current) {
       const app = await launch(name, { kubeconfig: kc });
       const runs = [];
       try {
         for (let i = 0; i < STARTS; i++) {
           if (i > 0) await app.restart();
-          const mark = await app.waitFor(
-            () =>
-              app.js(`const m = performance.getEntriesByName("nauvi:cluster-tree")[0];
-                      return m ? { page: m.startTime, origin: performance.timeOrigin } : null;`),
+          const page = await app.waitFor(
+            () => app.js(`return performance.getEntriesByName("nauvi:cluster-tree")[0]?.startTime ?? null`),
             { timeout: 60_000, message: "the cluster tree's mark" },
           );
-          const pid = appPid(app.profile.home);
-          assert.ok(pid, "found the app's process");
-          const load = mark.origin - startedAt(pid);
-          runs.push({ app: Math.round(load + mark.page), load: Math.round(load), page: Math.round(mark.page) });
+          runs.push(Math.round(page));
           assert.equal(await nodeState(app, current), "visible");
         }
         await waitLive(app);
@@ -188,37 +213,47 @@ describe("multi-cluster budgets", { skip, timeout: 30 * 60_000 }, () => {
       } finally {
         await app.close();
       }
-      return { runs, app: Math.min(...runs.map((r) => r.app)), page: median(runs.map((r) => r.page)) };
+      return runs;
     }
 
-    // A start under WebKitWebDriver takes about 30 s on the CI runner (start, attach, quit).
+    // A start under WebKitWebDriver takes about 30 s on the CI runner.
     it(`the tree shows within ${TREE_MS} ms, at most ${SLOWER_MS} ms slower than with 1 context`, { timeout: 15 * 60_000 }, async () => {
-      const one = await treeTimes("multicluster-start-1", kubeconfig("one", 1), "budget-1");
-      const fifty = [kubeconfig("a.yaml", 1, 16, "a"), kubeconfig("b.yaml", 0, 17, "b"), kubeconfig("c.yaml", 0, 16, "c")];
-      const many = await treeTimes("multicluster-start-50", fifty.join(":"), "a-1");
-      report.startup = { one, fifty: many };
-      const row = (label, r) =>
-        `| ${label} | ${r.app} ms | ${r.page} ms | ${r.runs.map((x) => `${x.app} (${x.load} + ${x.page})`).join(", ")} |`;
+      const oneKc = kubeconfig("one", 1);
+      const fiftyKc = [kubeconfig("a.yaml", 1, 16, "a"), kubeconfig("b.yaml", 0, 17, "b"), kubeconfig("c.yaml", 0, 16, "c")].join(":");
+      const load = { one: [], fifty: [] };
+      // Alternated, so a busy moment of the machine hits both.
+      for (let i = 0; i < STARTS; i++) {
+        load.one.push(await untilPageLoads(oneKc));
+        load.fifty.push(await untilPageLoads(fiftyKc));
+      }
+      const page = {
+        one: await pageTimes("multicluster-start-1", oneKc, "budget-1"),
+        fifty: await pageTimes("multicluster-start-50", fiftyKc, "a-1"),
+      };
+      const total = (k) => median(load[k]) + median(page[k]);
+      const one = total("one");
+      const fifty = total("fifty");
+      report.startup = { load, page, one, fifty };
+      const row = (label, k) =>
+        `| ${label} | **${total(k)} ms** | ${median(load[k])} ms (${load[k].join(", ")}) | ${median(page[k])} ms (${page[k].join(", ")}) |`;
       summary(
         [
           `### Start-up with 50 contexts (ADR 0007, ${report.build} build)`,
           "",
-          `Until the cluster tree shows, over ${STARTS} starts. 50 contexts: 3 files, 49 unreachable. ` +
-            "The time until the page loads is mostly WebKitWebDriver attaching (steps of about 500 ms).",
+          `Until the cluster tree shows; medians of ${STARTS} starts. 50 contexts: 3 files, 49 unreachable.`,
           "",
-          "| Contexts | From the app's start (fastest) | From the page's start (median) | Each start, ms: total (until the page loads + page) |",
-          "| ---: | ---: | ---: | --- |",
-          row("1", one),
-          row("50", many),
+          "| Contexts | Total | App start until the page loads (no driver) | Page start until the tree shows |",
+          "| ---: | ---: | ---: | ---: |",
+          row("1", "one"),
+          row("50", "fifty"),
           "",
-          `Slower with 50, from the page's start: **${many.page - one.page} ms** (budget ${SLOWER_MS} ms); ` +
-            `50 contexts: **${many.app} ms** (budget ${TREE_MS} ms).`,
+          `Slower with 50: **${fifty - one} ms** (budget ${SLOWER_MS} ms); 50 contexts: **${fifty} ms** (budget ${TREE_MS} ms).`,
           "",
         ].join("\n"),
       );
       if (ENFORCE) {
-        assert.ok(many.app <= TREE_MS, `the tree showed after ${many.app} ms > ${TREE_MS} ms`);
-        assert.ok(many.page - one.page <= SLOWER_MS, `${many.page - one.page} ms slower than with 1 context > ${SLOWER_MS} ms`);
+        assert.ok(fifty <= TREE_MS, `the tree showed after ${fifty} ms > ${TREE_MS} ms`);
+        assert.ok(fifty - one <= SLOWER_MS, `${fifty - one} ms slower than with 1 context > ${SLOWER_MS} ms`);
       }
     });
   });
