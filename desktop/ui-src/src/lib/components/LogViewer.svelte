@@ -31,6 +31,7 @@
     stepMatch,
   } from "../logFilter";
   import type { CompiledQuery } from "../logFilter";
+  import { logHeader } from "../logHeader";
   import { LogSearcher, SEARCH_CHUNK } from "../logSearch";
   import type { Hits } from "../logSearch";
   import type { PodRef } from "../stores/detail.svelte";
@@ -64,7 +65,25 @@
     /** Search hits in `text` / `prefix` (ranges, see logFilter.ts). */
     hits?: Hits;
     prefixHits?: Hits;
+    /** A line of context around a match (#339), not a match itself. */
+    context?: boolean;
+    /** The "--" between two groups of matches with their context. */
+    sep?: boolean;
   }
+
+  /**
+   * Context lines (#339) across the chunks and updates of the display: the
+   * lines since the last one shown (up to N, for "before"), how many more
+   * to show after the last match, and whether a line was skipped since.
+   */
+  interface Ctx {
+    pending: number[];
+    after: number;
+    gap: boolean;
+    shown: boolean;
+  }
+  const freshCtx = (): Ctx => ({ pending: [], after: 0, gap: false, shown: false });
+  const CONTEXT_OPTIONS = [0, 1, 2, 3, 5, 10];
 
   const LINE_HEIGHT = 18;
   const FILTER_DEBOUNCE_MS = 150;
@@ -88,6 +107,14 @@
   /** Highlight the matches among all lines instead of hiding the others. */
   let highlightMode = $state(false);
   let query = $state.raw<CompiledQuery>({ kind: "none" });
+  // Exclude (#339): lines that match it are hidden, in either mode.
+  let excludeInput = $state("");
+  let exclude = $state.raw<CompiledQuery>({ kind: "none" });
+  let excludeError = $state("");
+  /** Lines of context around each match, in filter mode (grep -C). */
+  let contextLines = $state(0);
+  /** The context state after the lines shown so far. */
+  let ctxState = freshCtx();
   /** An invalid regex, or one that was too slow; shown next to the box. */
   let searchError = $state("");
   /** Id of the current match (n / N), or -1. */
@@ -146,6 +173,7 @@
   let streaming = false;
 
   const searching = $derived(query.kind === "text" || query.kind === "regex");
+  const excluding = $derived(exclude.kind === "text" || exclude.kind === "regex");
   const matchLabel = $derived.by(() => {
     void rev;
     return matchCountLabel(searching, currentId < 0 ? -1 : indexOfId(d.matches, currentId), d.matches.length);
@@ -242,25 +270,59 @@
     return true;
   }
 
-  /** Append line `seq` of the buffer to `out`, with its hits (none: not searching). */
-  function addLine(out: Built, seq: number, hits: Hits | undefined) {
+  /** Append line `seq` of the buffer to `out` as context (#339). */
+  function addContext(out: Built, seq: number) {
+    const i = seq - buf.dropped;
+    if (i < 0) return; // trimmed meanwhile
+    const line = makeLine(buf.lines[i], buf.tagIds[i]);
+    line.context = true;
+    out.lines.push(line);
+  }
+
+  /**
+   * Append line `seq` of the buffer to `out`, with its hits (none: not
+   * searching), unless it is `excluded`. `ctx`: show context lines around
+   * the matches (filter mode), updated as lines go by.
+   */
+  function addLine(out: Built, seq: number, hits: Hits | undefined, excluded: boolean, ctx: Ctx | null) {
     const i = seq - buf.dropped;
     if (i < 0) return; // trimmed meanwhile
     const tagId = buf.tagIds[i];
     if (podFilter && tagId && buf.tags[tagId].pod !== podFilter) return;
+    // Hidden, and not context either: like `grep -C n x | grep -v y`.
+    if (excluded) return;
     if (hits === undefined) {
       out.lines.push(makeLine(buf.lines[i], tagId));
       return;
     }
     const ph = tagId ? (prefixHits.get(tagId) ?? null) : null;
-    const hit = hits !== null || ph !== null;
-    if (!hit && !highlightMode) return;
-    const line = makeLine(buf.lines[i], tagId);
-    if (hit) {
-      line.hits = hits;
-      line.prefixHits = ph;
-      out.matches.push(line.id);
+    if (hits === null && ph === null) {
+      if (highlightMode) out.lines.push(makeLine(buf.lines[i], tagId));
+      else if (ctx && ctx.after > 0) {
+        ctx.after--;
+        addContext(out, seq);
+      } else if (ctx) {
+        ctx.pending.push(seq);
+        if (ctx.pending.length > contextLines) {
+          ctx.pending.shift();
+          ctx.gap = true;
+        }
+      }
+      return;
     }
+    if (ctx) {
+      // A "--" between groups that are not next to each other, like grep.
+      if (ctx.gap && ctx.shown) out.lines.push({ id: nextLineId++, text: "--", cls: "muted sep", sep: true });
+      for (const s of ctx.pending) addContext(out, s);
+      ctx.pending = [];
+      ctx.gap = false;
+      ctx.after = contextLines;
+      ctx.shown = true;
+    }
+    const line = makeLine(buf.lines[i], tagId);
+    line.hits = hits;
+    line.prefixHits = ph;
+    out.matches.push(line.id);
     out.lines.push(line);
   }
 
@@ -271,23 +333,41 @@
    * update made this one stale, or the regex failed (it is then dropped and
    * the display rebuilt without it).
    */
-  async function build(from: number, to: number, g: number): Promise<Built | null> {
+  async function build(from: number, to: number, g: number, ctx: Ctx): Promise<Built | null> {
     const q = query;
+    const ex = exclude;
     const out: Built = { lines: [], matches: [] };
     const since = { t: performance.now() };
     const search = q.kind === "text" || q.kind === "regex";
+    const excl = ex.kind === "text" || ex.kind === "regex";
+    const c = search && !highlightMode && contextLines > 0 ? ctx : null;
+    let failed: "search" | "exclude" = "search";
     try {
       for (let i = from; i < to; i += SEARCH_CHUNK) {
         const end = Math.min(to, i + SEARCH_CHUNK);
+        // Which lines of this chunk the exclude pattern hides.
+        const hidden = new Array<boolean>(end - i).fill(false);
+        if (excl) {
+          failed = "exclude";
+          const ok = await searcher.runRange(
+            ex,
+            i,
+            end,
+            (start, hits) => hits.forEach((x, k) => (hidden[start - i + k] = x !== null)),
+            () => g !== gen,
+          );
+          if (!ok) return null;
+          failed = "search";
+        }
         if (!search) {
-          for (let s = i; s < end; s++) addLine(out, s, undefined);
+          for (let s = i; s < end; s++) addLine(out, s, undefined, hidden[s - i], null);
         } else {
           if (!(await notePrefixHits(q, buf.sliceTags(i, end), g))) return null;
           const ok = await searcher.runRange(
             q,
             i,
             end,
-            (start, hits) => hits.forEach((h, k) => addLine(out, start + k, h)),
+            (start, hits) => hits.forEach((h, k) => addLine(out, start + k, h, hidden[start - i + k], c)),
             () => g !== gen,
           );
           if (!ok) return null;
@@ -298,8 +378,14 @@
       }
     } catch (e) {
       if (g === gen) {
-        searchError = e instanceof Error ? e.message : String(e);
-        query = { kind: "none" };
+        const msg = e instanceof Error ? e.message : String(e);
+        if (failed === "exclude") {
+          excludeError = `Exclude: ${msg}`;
+          exclude = { kind: "none" };
+        } else {
+          searchError = msg;
+          query = { kind: "none" };
+        }
         renderLogs();
       }
       return null;
@@ -358,8 +444,11 @@
     if (from >= to) return;
     shownEnd = to;
     const g = gen;
-    const out = await build(from, to, g);
+    // Committed only if this update is used.
+    const ctx: Ctx = { ...ctxState, pending: [...ctxState.pending] };
+    const out = await build(from, to, g, ctx);
     if (!out || g !== gen) return;
+    ctxState = ctx;
     const atBottom = isAtBottom();
     for (const l of out.lines) d.lines.push(l);
     for (const m of out.matches) d.matches.push(m);
@@ -454,8 +543,10 @@
     const to = buf.end();
     // Lines that come in meanwhile are shown by the next frame's update.
     shownEnd = to;
-    const out = await build(from, to, want);
+    const ctx = freshCtx();
+    const out = await build(from, to, want, ctx);
     if (!out || want !== gen) return;
+    ctxState = ctx;
     d.lines = out.lines;
     d.matches = out.matches;
     trimDisplay();
@@ -469,6 +560,7 @@
   function resetLogs() {
     gen++;
     buf.clear();
+    ctxState = freshCtx();
     shownEnd = buf.end();
     d.lines = [];
     d.matches = [];
@@ -553,8 +645,39 @@
     try {
       // Written by the backend: Blob/anchor downloads are not reliable in
       // Tauri's webviews, and a save dialog would need an extra plugin.
-      const text = buf.lines.map((l, i) => (buf.tagIds[i] ? tagInfo(buf.tagIds[i]).prefix + " " + l : l)).join("\n");
-      const path = await commands.cmdSaveLogs(filename, text + "\n");
+      // With a filter, an exclude or a pod picked: the lines shown (#339);
+      // else the whole buffer (also what came in while paused).
+      const narrowed = (searching && !highlightMode) || excluding || podFilter !== "";
+      let texts: string[];
+      let out: string[];
+      if (narrowed) {
+        const shown = d.lines.filter((l) => !l.cls || l.sep);
+        texts = shown.filter((l) => !l.sep).map((l) => l.text);
+        out = shown.map((l) => (l.prefix ? l.prefix + " " + l.text : l.text));
+      } else {
+        texts = buf.lines;
+        out = buf.lines.map((l, i) => (buf.tagIds[i] ? tagInfo(buf.tagIds[i]).prefix + " " + l : l));
+      }
+      const header = logHeader({
+        context: visibleCluster(),
+        namespace: (workload ?? pod)?.namespace ?? "",
+        pod: pod?.name,
+        workload: workload ? { kind: workload.kind, name: workload.name } : undefined,
+        container: container === ALL_CONTAINERS ? "" : container,
+        previous,
+        tail,
+        since,
+        search: { text: searching ? filterInput : "", regex, matchCase },
+        highlight: highlightMode,
+        exclude: excluding ? excludeInput : "",
+        contextLines,
+        podFilter,
+        saved: texts.length,
+        buffered: buf.lines.length,
+        texts,
+        now: new Date(),
+      });
+      const path = await commands.cmdSaveLogs(filename, header + out.join("\n") + "\n");
       savedPath = path;
       clearTimeout(savedTimer);
       savedTimer = setTimeout(() => (savedPath = ""), SAVED_NOTE_MS);
@@ -564,30 +687,44 @@
   }
 
   /** Use what is in the search box with the toggles; an invalid regex keeps the last good query. */
-  function applySearch() {
+  function applySearch(force = false) {
     clearTimeout(filterTimer);
     filterTimer = undefined;
     const q = compileQuery({ text: filterInput, regex, matchCase });
-    if (q.kind === "error") {
-      searchError = `Invalid regex: ${q.message}`;
-      return;
+    // The exclude box uses the same toggles (#339).
+    const x = compileQuery({ text: excludeInput, regex, matchCase });
+    // An invalid one keeps the last good one.
+    const before = JSON.stringify([query, exclude]);
+    if (x.kind === "error") excludeError = `Invalid exclude regex: ${x.message}`;
+    else {
+      excludeError = "";
+      exclude = x;
     }
-    searchError = "";
-    query = q;
-    renderLogs();
+    if (q.kind === "error") searchError = `Invalid regex: ${q.message}`;
+    else {
+      searchError = "";
+      query = q;
+    }
+    if (force || JSON.stringify([query, exclude]) !== before) renderLogs();
   }
 
   // Typing is debounced: each search rebuilds the display from the buffer.
   function onFilterInput() {
     clearTimeout(filterTimer);
-    filterTimer = setTimeout(applySearch, FILTER_DEBOUNCE_MS);
+    filterTimer = setTimeout(() => applySearch(), FILTER_DEBOUNCE_MS);
   }
 
   function toggle(which: "case" | "regex" | "mode") {
     if (which === "case") matchCase = !matchCase;
     else if (which === "regex") regex = !regex;
     else highlightMode = !highlightMode;
-    applySearch();
+    applySearch(which === "mode");
+  }
+
+  /** The context select changed (bound value first). */
+  async function onContextChange() {
+    await tick();
+    applySearch(true);
   }
 
   /** Index of the shown line with id `id`, or -1 (ids grow down the list). */
@@ -830,6 +967,19 @@
     oninput={onFilterInput}
     onkeydown={onSearchKey}
   />
+  <input
+    class="mini exclude"
+    class:invalid={excludeError !== ""}
+    type="search"
+    placeholder="Exclude…"
+    aria-label="Exclude lines"
+    aria-invalid={excludeError !== "" ? "true" : undefined}
+    title="Hide the lines that match (like grep -v); uses the Aa and .* toggles"
+    spellcheck="false"
+    autocomplete="off"
+    bind:value={excludeInput}
+    oninput={onFilterInput}
+  />
   <button
     type="button"
     class="btn icon"
@@ -854,6 +1004,20 @@
     title="Highlight the matches and keep the other lines, instead of filtering"
     onclick={() => toggle("mode")}>Highlight</button
   >
+  <select
+    class="mini context"
+    aria-label="Context lines"
+    title={highlightMode
+      ? "Context lines are for filtering: Highlight keeps every line"
+      : "Lines of context before and after each match (like grep -C)"}
+    disabled={highlightMode}
+    bind:value={contextLines}
+    onchange={onContextChange}
+  >
+    {#each CONTEXT_OPTIONS as n (n)}
+      <option value={n}>{n === 0 ? "No context" : `Context ±${n}`}</option>
+    {/each}
+  </select>
   <span class="count" role="status" data-testid="log-match-count">{matchLabel}</span>
   <button
     type="button"
@@ -873,6 +1037,9 @@
   >
   {#if searchError}<span class="search-error" role="alert" data-testid="log-search-error" title={searchError}
       >{searchError}</span
+    >{/if}
+  {#if excludeError}<span class="search-error" role="alert" data-testid="log-exclude-error" title={excludeError}
+      >{excludeError}</span
     >{/if}
   {#if jumpNote}<span class="jump-note" role="status" data-testid="log-jump-note" title={jumpNote}>{jumpNote}</span>{/if}
   <form
@@ -924,6 +1091,7 @@
             class:wrap
             class:current={line.id === currentId}
             class:jumped={line.id === jumpedId}
+            class:context={line.context}
             data-testid="log-line"
           >
             {#if line.prefix}<span class="pod" style:color={line.color}
@@ -998,7 +1166,21 @@
   /* A set width: an error next to it shrinks (with an ellipsis), not the box. */
   .filter {
     flex: 0 0 auto;
-    width: clamp(140px, 35vw, 480px);
+    width: clamp(140px, 26vw, 400px);
+  }
+  .exclude {
+    flex: 0 0 auto;
+    width: clamp(90px, 13vw, 220px);
+  }
+  .context {
+    flex-shrink: 0;
+  }
+  .context:disabled {
+    opacity: 0.45;
+  }
+  /* Context around a match (#339): dimmer than the matches themselves. */
+  .line.context {
+    color: #8b929b;
   }
   .mini:focus {
     outline: none;

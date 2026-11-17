@@ -139,7 +139,9 @@ test("download saves the buffered lines through cmd_save_logs", async ({ page })
   await expect.poll(() => fake.calls("cmdSaveLogs")).toHaveLength(1);
   const call = await fake.lastCall("cmdSaveLogs");
   expect(call.filename).toMatch(/^web-1_app_\d{4}-\d\d-\d\dT[\d-]+Z\.log$/);
-  expect(call.content).toBe("alpha\nbeta\n");
+  // A header (#339), then the lines.
+  expect(call.content).toMatch(/^# nauvi logs\n# Context: +kind-dev\n# Namespace: +demo\n# Pod: +web-1\n/);
+  expect(call.content).toMatch(/\n#\nalpha\nbeta\n$/);
   await expect(logs(page).getByTestId("log-saved")).toHaveText(`Saved to Downloads/${call.filename}`);
 });
 
