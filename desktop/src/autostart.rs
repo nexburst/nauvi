@@ -45,6 +45,18 @@ pub(crate) fn exec_path_problem(path: &str) -> Option<String> {
         .map(|c| format!("the app's path has a {c:?}, which a startup entry cannot hold: {path}"))
 }
 
+/// The program for a Windows `Run` value, quoted: unquoted, a path with a
+/// space (`C:\Program Files\...`) would let Windows try `C:\Program.exe`
+/// first. A `"` cannot be in a Windows path; one is refused.
+pub(crate) fn windows_run_command(path: &str) -> Result<String, String> {
+    if path.is_empty() || path.contains('"') {
+        return Err(format!(
+            "the app's path cannot go into a startup entry: {path:?}"
+        ));
+    }
+    Ok(format!("\"{path}\""))
+}
+
 /// The OS entry, or why there is none.
 pub(crate) struct AutoStart {
     launch: Result<AutoLaunch, String>,
@@ -113,16 +125,23 @@ fn build(app_name: &str) -> Result<AutoLaunch, String> {
     } else {
         exe
     };
-    let path = path.display().to_string();
+    let mut path = path.display().to_string();
     if cfg!(target_os = "linux") {
         if let Some(problem) = exec_path_problem(&path) {
             return Err(problem);
         }
     }
+    if cfg!(windows) {
+        // auto-launch writes the Run value as `<path> <args>`.
+        path = windows_run_command(&path)?;
+    }
     let mut builder = AutoLaunchBuilder::new();
     builder.set_app_name(app_name).set_app_path(&path);
     #[cfg(target_os = "macos")]
     builder.set_macos_launch_mode(auto_launch::MacOSLaunchMode::LaunchAgent);
+    // HKCU only: never the machine-wide Run key, even when elevated.
+    #[cfg(windows)]
+    builder.set_windows_enable_mode(auto_launch::WindowsEnableMode::CurrentUser);
     builder.build().map_err(|e| e.to_string())
 }
 
@@ -195,6 +214,20 @@ mod tests {
             gone,
         );
         assert_eq!(got, exe);
+    }
+
+    #[test]
+    fn windows_run_values_are_quoted() {
+        assert_eq!(
+            windows_run_command(r"C:\Program Files\nauvi\nauvi.exe").unwrap(),
+            r#""C:\Program Files\nauvi\nauvi.exe""#
+        );
+        assert_eq!(
+            windows_run_command(r"C:\Users\u\AppData\Local\nauvi\nauvi.exe").unwrap(),
+            r#""C:\Users\u\AppData\Local\nauvi\nauvi.exe""#
+        );
+        assert!(windows_run_command(r#"C:\a" evil.exe"#).is_err());
+        assert!(windows_run_command("").is_err());
     }
 
     #[test]
