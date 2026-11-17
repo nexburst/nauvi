@@ -8,7 +8,8 @@ import { HELM_VIEW } from "../helm";
 import { HELM_CHARTS_VIEW } from "../helmCharts";
 import { WORKLOADS_VIEW } from "../workloads";
 import { APPLICATIONS_VIEW } from "../applications";
-import { pushRecent, WINDOW_PREFIX } from "../palette";
+import { pushRecent, reasonsByItem, WINDOW_PREFIX } from "../palette";
+import { deleteDenied, deniedActions } from "../access";
 import { PORT_FORWARDS_VIEW } from "../forwards";
 import {
   app,
@@ -165,6 +166,7 @@ export function paletteItems(): PaletteItem[] {
           group: "Action",
           label: `Delete ${targets.length} selected…`,
           detail: kind.label,
+          access: "delete",
           run: () => requestAction(kind, targets, del),
         });
       }
@@ -177,6 +179,7 @@ export function paletteItems(): PaletteItem[] {
           label: d.label,
           detail: targetLabel(t),
           terms: d.label === "Shell" ? ["terminal", "exec"] : ["tail"],
+          access: d.label === "Shell" ? "shell" : "logs",
           run: () => openDockTab(d.spec),
         });
       }
@@ -187,6 +190,7 @@ export function paletteItems(): PaletteItem[] {
           group: "Action",
           label: a.label,
           detail: targetLabel(targets[0]),
+          access: a.id,
           run: () => requestAction(kind, targets, a, replicasFromRow(row ?? undefined, keys)),
         });
       }
@@ -257,4 +261,22 @@ export function paletteItems(): PaletteItem[] {
     }
   }
   return items;
+}
+
+/** Why each of `items`' actions is refused, by item id (#349): the same
+ *  access check as the row menu and the bulk bar, for the active table's
+ *  selection or focused row. Empty until it answers, or if it fails. */
+export async function paletteAccess(items: PaletteItem[]): Promise<Map<string, string>> {
+  const table = activeTable();
+  const gated = items.filter((it) => it.access);
+  if (!table || gated.length === 0) return new Map();
+  const { targets } = table.actionTargets();
+  const resource = table.kind.resource;
+  if (targets.length > 1) {
+    const reason = await deleteDenied(resource, targets);
+    return reasonsByItem(gated, new Map(reason ? [["delete", reason]] : []));
+  }
+  if (targets.length !== 1) return new Map();
+  const ids = [...new Set(gated.map((it) => it.access!))];
+  return reasonsByItem(gated, await deniedActions(resource, targets[0].namespace, ids));
 }

@@ -10,7 +10,9 @@
 //! Answers are kept in an [`AccessCache`] per cluster session, keyed by the
 //! request (verb, kind, subresource, namespace), for [`CACHE_TTL`]; the
 //! desktop app clears it on a context switch. Checks that could not be made
-//! are not kept.
+//! are not kept. Each clear starts a new generation, and an answer asked
+//! before it (a check still in flight across the switch) is dropped instead
+//! of being kept in the new one (#349).
 //!
 //! Actions are named by their [`ActionId`](crate::actions::ActionId) in
 //! camelCase (`"scale"`, `"nodeShell"`), plus the panel's own entries:
@@ -32,35 +34,63 @@ pub const CACHE_TTL: Duration = Duration::from_secs(60);
 /// Answers of earlier SelfSubjectAccessReviews, by request.
 #[derive(Debug, Default)]
 pub struct AccessCache {
-    answers: Mutex<HashMap<Permission, (bool, Instant)>>,
+    inner: Mutex<Answers>,
+}
+
+#[derive(Debug, Default)]
+struct Answers {
+    by_request: HashMap<Permission, (bool, Instant)>,
+    /// Bumped by every [`AccessCache::clear`].
+    generation: u64,
 }
 
 impl AccessCache {
-    /// Forget every answer (a context switch, a disconnect).
+    /// Forget every answer (a context switch, a disconnect), and drop the
+    /// answers of checks still in flight.
     pub fn clear(&self) {
-        self.answers.lock().unwrap().clear();
+        let mut inner = self.inner.lock().unwrap();
+        inner.by_request.clear();
+        inner.generation += 1;
+    }
+
+    /// The current generation: pass it to [`Self::put_in`] with an answer
+    /// asked now.
+    pub fn generation(&self) -> u64 {
+        self.inner.lock().unwrap().generation
     }
 
     fn get_at(&self, p: &Permission, now: Instant) -> Option<bool> {
-        let answers = self.answers.lock().unwrap();
-        let (ok, at) = answers.get(p)?;
+        let inner = self.inner.lock().unwrap();
+        let (ok, at) = inner.by_request.get(p)?;
         (now.saturating_duration_since(*at) < CACHE_TTL).then_some(*ok)
     }
 
-    fn put_at(&self, p: Permission, ok: bool, now: Instant) {
-        let mut answers = self.answers.lock().unwrap();
-        answers.retain(|_, (_, at)| now.saturating_duration_since(*at) < CACHE_TTL);
-        answers.insert(p, (ok, now));
+    fn put_at(&self, generation: u64, p: Permission, ok: bool, now: Instant) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        if inner.generation != generation {
+            return false;
+        }
+        inner
+            .by_request
+            .retain(|_, (_, at)| now.saturating_duration_since(*at) < CACHE_TTL);
+        inner.by_request.insert(p, (ok, now));
+        true
+    }
+
+    /// Keep the answer to `p`, as of now, if the cache was not cleared
+    /// since `generation` (when it was asked). Whether it was kept.
+    pub fn put_in(&self, generation: u64, p: Permission, ok: bool) -> bool {
+        self.put_at(generation, p, ok, Instant::now())
     }
 
     /// Keep the answer to `p`, as of now.
     pub fn put(&self, p: Permission, ok: bool) {
-        self.put_at(p, ok, Instant::now());
+        self.put_in(self.generation(), p, ok);
     }
 
     /// How many answers are kept.
     pub fn len(&self) -> usize {
-        self.answers.lock().unwrap().len()
+        self.inner.lock().unwrap().by_request.len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -190,6 +220,8 @@ pub async fn check_actions(
         .map(|id| (id.clone(), permissions_for(r, namespace, id)))
         .collect();
     let now = Instant::now();
+    // Taken before asking: a clear meanwhile drops these answers.
+    let generation = cache.generation();
     let mut answers: Vec<(Permission, bool)> = Vec::new();
     let mut ask: Vec<Permission> = Vec::new();
     for p in needed.iter().flat_map(|(_, ps)| ps) {
@@ -220,7 +252,7 @@ pub async fn check_actions(
     for (p, ok) in asked {
         // A check that cannot be made counts as allowed, but is not kept.
         if let Some(ok) = ok {
-            cache.put(p.clone(), ok);
+            cache.put_in(generation, p.clone(), ok);
         }
         answers.push((p, ok.unwrap_or(true)));
     }
@@ -365,7 +397,7 @@ mod tests {
         let p = perm("delete", "apps", "deployments", "", Some("team-a"));
         let t0 = Instant::now();
         assert_eq!(cache.get_at(&p, t0), None);
-        cache.put_at(p.clone(), false, t0);
+        cache.put_at(0, p.clone(), false, t0);
         assert_eq!(cache.get_at(&p, t0 + Duration::from_secs(5)), Some(false));
         // Another namespace, verb or kind is another request.
         for q in [
@@ -389,13 +421,31 @@ mod tests {
     fn stale_answers_are_dropped_on_insert() {
         let cache = AccessCache::default();
         let t0 = Instant::now();
-        cache.put_at(perm("get", "", "pods", "log", Some("a")), true, t0);
+        cache.put_at(0, perm("get", "", "pods", "log", Some("a")), true, t0);
         cache.put_at(
+            0,
             perm("get", "", "pods", "log", Some("b")),
             true,
             t0 + CACHE_TTL,
         );
         assert_eq!(cache.len(), 1);
+    }
+
+    #[test]
+    fn answers_asked_before_a_clear_are_dropped() {
+        let cache = AccessCache::default();
+        let p = perm("delete", "apps", "deployments", "", Some("team-a"));
+        // A check starts in the old context...
+        let asked_in = cache.generation();
+        // ...the context switches before it answers...
+        cache.clear();
+        // ...and its answer is not kept for the new one.
+        assert!(!cache.put_in(asked_in, p.clone(), false));
+        assert!(cache.is_empty());
+        assert_eq!(cache.get_at(&p, Instant::now()), None);
+        // A check asked after the switch is kept.
+        assert!(cache.put_in(cache.generation(), p.clone(), true));
+        assert_eq!(cache.get_at(&p, Instant::now()), Some(true));
     }
 
     #[test]
