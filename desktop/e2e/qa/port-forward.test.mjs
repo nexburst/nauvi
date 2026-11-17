@@ -19,7 +19,7 @@ let ns;
 let url;
 
 /** A 20 MB file next to index.html, so a client can leave mid-response. */
-const podYaml = httpPodYaml("web", 8080, "hello from kubeloupe qa").replace(
+const podYaml = httpPodYaml("web", 8080, "hello from nauvi qa").replace(
   "exec httpd",
   "head -c 20000000 /dev/zero > /www/big && exec httpd",
 );
@@ -67,7 +67,7 @@ describe("port-forward: open in browser and copy URL", { timeout: 10 * 60_000 },
     );
     url = status;
     const body = await (await fetch(url)).text();
-    assert.match(body, /hello from kubeloupe qa/);
+    assert.match(body, /hello from nauvi qa/);
   });
 
   it("a client that resets its connection mid-response is not an error (#293)", T, async () => {
@@ -90,7 +90,7 @@ describe("port-forward: open in browser and copy URL", { timeout: 10 * 60_000 },
     assert.match(status.text, /Listening|Active/);
     assert.doesNotMatch(status.text, /reset|broken pipe|aborted/i);
     // The forward still answers.
-    assert.match(await (await fetch(url)).text(), /hello from kubeloupe qa/);
+    assert.match(await (await fetch(url)).text(), /hello from nauvi qa/);
   });
 
   it("Open asks the system to open the URL", T, async () => {

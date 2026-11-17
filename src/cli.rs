@@ -1,4 +1,4 @@
-//! Table and text output for the `kubeloupe` CLI.
+//! Table and text output for the `nauvi` CLI.
 
 use crate::{
     exec_command, format_cpu, format_memory, get_namespaces, get_node_metrics, get_nodes,
@@ -17,7 +17,7 @@ pub async fn list_pods(client: &Client, namespace: Option<&str>) -> Result<()> {
 }
 
 /// Build a table (header first) and size its columns to their content, as
-/// `kubeloupe get` does.
+/// `nauvi get` does.
 fn table<T>(header: &[&str], items: &[T], cells: impl Fn(&T) -> Vec<String>) -> String {
     let mut rows = vec![header.iter().map(|h| h.to_string()).collect()];
     rows.extend(items.iter().map(cells));
@@ -330,7 +330,7 @@ mod tests {
             node: node.into(),
             age: "2d".into(),
         };
-        let long = "kube-controller-manager-kubeloupe-test-control-plane-with-more";
+        let long = "kube-controller-manager-nauvi-test-control-plane-with-more";
         let node = "ip-10-0-1-23.eu-west-1.compute.internal";
         let out = pods_table(&[pod("hungry", ""), pod(long, node)]);
         assert_aligned(

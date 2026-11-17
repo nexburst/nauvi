@@ -330,7 +330,7 @@ export async function startApp() {
   if (docked > 0) dock.height = clampHeight(docked, window.innerHeight - 160);
   await loadContexts();
   // A window opened for a context is already connected to it. The main
-  // window started from a kubeloupe:// link (#299) starts on its context.
+  // window started from a nauvi:// link (#299) starts on its context.
   const linked = isMainWindow() ? await startupLinkContext() : null;
   const remembered = isMainWindow() ? (linked ?? contextToRestore(settings.current.last_context, app.contexts)) : null;
   if (remembered) {

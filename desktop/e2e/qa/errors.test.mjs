@@ -3,7 +3,7 @@
 //   own HOME): the banner says "No kubeconfig found (looked at …)" and what
 //   to do, the status says "No kubeconfig"; no in-cluster attempt, no Rust
 //   debug text
-// - as the namespace-scoped user (skipped unless KUBELOUPE_LIMITED_KUBECONFIG
+// - as the namespace-scoped user (skipped unless NAUVI_LIMITED_KUBECONFIG
 //   names limited-user.sh's kubeconfig): the 403 banners carry the API
 //   server's message once, without kube's `ErrorResponse { … }` dump; the
 //   "Pods in team-a" card label stays on one line
@@ -63,8 +63,8 @@ describe("errors: no kubeconfig at all", { timeout: 10 * 60_000 }, () => {
   });
 });
 
-const limited = process.env.KUBELOUPE_LIMITED_KUBECONFIG;
-const skipLimited = limited && existsSync(limited) ? false : "set KUBELOUPE_LIMITED_KUBECONFIG (limited-user.sh)";
+const limited = process.env.NAUVI_LIMITED_KUBECONFIG;
+const skipLimited = limited && existsSync(limited) ? false : "set NAUVI_LIMITED_KUBECONFIG (limited-user.sh)";
 
 describe("errors: 403s as the namespace-scoped user", { timeout: 10 * 60_000, skip: skipLimited }, () => {
   const s = appSession("errors-limited", { kubeconfig: limited });

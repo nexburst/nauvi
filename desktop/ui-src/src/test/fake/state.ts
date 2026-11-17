@@ -27,7 +27,7 @@ export type Handlers = { [K in CommandName]: Handler<K> };
 export type AreaHandlers = Partial<Handlers>;
 
 /** Where the fake keeps the settings across reloads (the real app: a file). */
-export const SETTINGS_KEY = "kubeloupe-fake-settings";
+export const SETTINGS_KEY = "nauvi-fake-settings";
 /** Like the backend's cap on log streams. */
 const MAX_LOG_STREAMS = 10;
 
@@ -54,7 +54,7 @@ export interface FakeState {
   /** Releases a `cmd_update_install` waiting half way through its download. */
   finishDownload: (() => void) | null;
   restarted: boolean;
-  /** The kubeloupe:// link request waiting for the window (#299). */
+  /** The nauvi:// link request waiting for the window (#299). */
   link: LinkRequest | null;
 }
 

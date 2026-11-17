@@ -1,4 +1,4 @@
-//! Exec credential plugins (`users[].user.exec`), run by kubeloupe instead
+//! Exec credential plugins (`users[].user.exec`), run by nauvi instead
 //! of kube-client, with their credentials cached (#201).
 //!
 //! kube-client 2.0 runs the plugin each time it builds the auth parts of a
@@ -35,11 +35,11 @@ const EXPIRY_MARGIN: Duration = Duration::from_secs(60);
 /// enough for a login in the browser (`kubelogin`, `aws sso login`).
 pub const DEFAULT_PLUGIN_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
-/// The plugin timeout of `kubeloupe mcp`: nobody is there to log in.
+/// The plugin timeout of `nauvi mcp`: nobody is there to log in.
 pub const MCP_PLUGIN_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Overrides the timeout, in whole seconds (for tests of the real app).
-pub const TIMEOUT_ENV: &str = "KUBELOUPE_EXEC_TIMEOUT_SECS";
+pub const TIMEOUT_ENV: &str = "NAUVI_EXEC_TIMEOUT_SECS";
 
 /// The timeout set by [`set_plugin_timeout`], in ms (0: not set).
 static TIMEOUT_MS: AtomicU64 = AtomicU64::new(0);
@@ -81,7 +81,7 @@ impl std::fmt::Display for PluginTimedOut {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "the credential plugin did not finish within {}, so kubeloupe stopped it",
+            "the credential plugin did not finish within {}, so nauvi stopped it",
             human_duration(self.after)
         )
     }
@@ -529,7 +529,7 @@ mod tests {
     }
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("kubeloupe-201-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-201-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -698,7 +698,7 @@ mod tests {
         assert_eq!(t.after, Duration::from_millis(700));
         assert_eq!(
             err_text(&err),
-            "the credential plugin did not finish within 1 s, so kubeloupe stopped it"
+            "the credential plugin did not finish within 1 s, so nauvi stopped it"
         );
         // The plugin and its grandchild are gone. The grandchild is reaped
         // by init once its parent is killed: give that a moment.

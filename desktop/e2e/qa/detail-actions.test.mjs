@@ -9,7 +9,7 @@
 // - a view-only ServiceAccount (made here): Logs offered; Shell, Attach,
 //   Edit, Delete... greyed with "Not allowed: you can't ..." and inert
 // - the limited user (limited-user.sh, `edit` in team-a): nothing greyed
-//   in team-a but Debug where `edit` lacks pods/ephemeralcontainers. Skipped without KUBELOUPE_LIMITED_KUBECONFIG.
+//   in team-a but Debug where `edit` lacks pods/ephemeralcontainers. Skipped without NAUVI_LIMITED_KUBECONFIG.
 // Everything lives in a temp namespace.
 
 import assert from "node:assert/strict";
@@ -31,7 +31,7 @@ const WORKER = (() => {
   try {
     return kubectl(["get", "nodes", "-l", "!node-role.kubernetes.io/control-plane", "-o", "jsonpath={.items[0].metadata.name}"]);
   } catch {
-    return "kubeloupe-test-worker";
+    return "nauvi-test-worker";
   }
 })();
 
@@ -228,7 +228,7 @@ function serviceAccountKubeconfig(namespace, sa) {
   const token = kubectl(["-n", namespace, "create", "token", sa, "--duration=1h"]);
   const server = kubectl(["config", "view", "--raw", "--minify", "-o", "jsonpath={.clusters[0].cluster.server}"]);
   const ca = kubectl(["config", "view", "--raw", "--minify", "-o", "jsonpath={.clusters[0].cluster.certificate-authority-data}"]);
-  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-viewer-"));
+  const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-viewer-"));
   const path = join(dir, "kubeconfig");
   const yaml = `apiVersion: v1
 kind: Config
@@ -312,9 +312,9 @@ describe("detail panel action header (view-only user)", { timeout: 10 * 60_000 }
   });
 });
 
-const limited = process.env.KUBELOUPE_LIMITED_KUBECONFIG;
+const limited = process.env.NAUVI_LIMITED_KUBECONFIG;
 const skipLimited =
-  limited && existsSync(limited) ? false : "set KUBELOUPE_LIMITED_KUBECONFIG (limited-user.sh)";
+  limited && existsSync(limited) ? false : "set NAUVI_LIMITED_KUBECONFIG (limited-user.sh)";
 
 describe("detail panel action header (limited user, edit in team-a)", { timeout: 10 * 60_000, skip: skipLimited }, () => {
   const s = appSession("detail-actions-limited", { kubeconfig: limited });

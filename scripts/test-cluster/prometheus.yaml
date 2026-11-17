@@ -6,7 +6,7 @@
 # CI only. Do NOT apply it to the shared local cluster: the cluster tests
 # expect no Prometheus there (tests/cluster.rs, "Prometheus").
 #
-#   kubectl --context kind-kubeloupe-test apply -f scripts/test-cluster/prometheus.yaml
+#   kubectl --context kind-nauvi-test apply -f scripts/test-cluster/prometheus.yaml
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -21,7 +21,7 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kubeloupe-qa-prometheus
+  name: nauvi-qa-prometheus
 rules:
   - apiGroups: [""]
     resources: ["nodes", "nodes/proxy", "nodes/metrics"]
@@ -30,11 +30,11 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: kubeloupe-qa-prometheus
+  name: nauvi-qa-prometheus
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: kubeloupe-qa-prometheus
+  name: nauvi-qa-prometheus
 subjects:
   - kind: ServiceAccount
     name: prometheus

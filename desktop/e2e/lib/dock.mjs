@@ -165,7 +165,7 @@ export function logStatus(app, id) {
  * cluster. Written to a private temp dir; call `remove()` when done.
  */
 export function aliasKubeconfig(alias = `${CONTEXT}-alias`) {
-  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-area4-"));
+  const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-area4-"));
   const path = join(dir, "kubeconfig");
   const yaml = execFileSync("kubectl", ["config", "view", "--minify", "--flatten", "--context", CONTEXT], {
     encoding: "utf8",
@@ -178,10 +178,10 @@ export function aliasKubeconfig(alias = `${CONTEXT}-alias`) {
   return { path, alias, remove: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-/** Local shell temp kubeconfigs (`kubeloupe-shell-<pid>-<n>.yaml`) in `dir`. */
+/** Local shell temp kubeconfigs (`nauvi-shell-<pid>-<n>.yaml`) in `dir`. */
 export function shellKubeconfigs(dir) {
   try {
-    return readdirSync(dir).filter((f) => /^kubeloupe-shell-\d+-\d+\.yaml$/.test(f));
+    return readdirSync(dir).filter((f) => /^nauvi-shell-\d+-\d+\.yaml$/.test(f));
   } catch {
     return [];
   }
@@ -192,7 +192,7 @@ export function appPid(home) {
   for (const pid of readdirSync("/proc").filter((p) => /^\d+$/.test(p))) {
     try {
       const comm = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
-      if (!comm.startsWith("kubeloupe-desk")) continue;
+      if (!comm.startsWith("nauvi-desk")) continue;
       const env = readFileSync(`/proc/${pid}/environ`, "utf8").split("\0");
       if (env.includes(`HOME=${home}`)) return Number(pid);
     } catch {

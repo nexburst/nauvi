@@ -9,7 +9,7 @@
 // team-a stays live; the Overview shows team-a's pods and events, the notes,
 // and no Nodes or Namespaces cards.
 //
-// Skipped unless KUBELOUPE_LIMITED_KUBECONFIG names that kubeconfig. The pod
+// Skipped unless NAUVI_LIMITED_KUBECONFIG names that kubeconfig. The pod
 // it adds to team-a (with the admin context) has a unique name and is
 // deleted afterwards.
 
@@ -30,8 +30,8 @@ import {
 
 const T = { timeout: 120_000 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const kubeconfig = process.env.KUBELOUPE_LIMITED_KUBECONFIG;
-const skip = kubeconfig && existsSync(kubeconfig) ? false : "set KUBELOUPE_LIMITED_KUBECONFIG (limited-user.sh)";
+const kubeconfig = process.env.NAUVI_LIMITED_KUBECONFIG;
+const skip = kubeconfig && existsSync(kubeconfig) ? false : "set NAUVI_LIMITED_KUBECONFIG (limited-user.sh)";
 const FORBIDDEN = "demo";
 
 /**

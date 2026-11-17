@@ -44,7 +44,7 @@ const CHART_CONCURRENCY: usize = 6;
 
 /// Where a release is stored: Helm's default Secret driver or the
 /// ConfigMap one. (Helm's `sql` driver keeps releases outside the cluster,
-/// where kubeloupe does not look.)
+/// where nauvi does not look.)
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "lowercase")]

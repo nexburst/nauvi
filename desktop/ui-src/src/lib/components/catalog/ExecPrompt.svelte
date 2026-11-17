@@ -35,7 +35,7 @@
     {/each}
   </ul>
   <p class="muted note">
-    Allow {many ? "them" : "it"} only if you trust where this kubeconfig came from. kubeloupe remembers your answer for
+    Allow {many ? "them" : "it"} only if you trust where this kubeconfig came from. nauvi remembers your answer for
     this source.
   </p>
   <div class="buttons">

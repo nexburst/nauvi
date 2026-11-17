@@ -68,7 +68,7 @@ pub(crate) fn redact(text: &str) -> String {
     let text = FIELD.replace_all(source, |c: &regex::Captures| {
         let (key, sep, value) = (&c["key"], &c["sep"], &c["value"]);
         let start = c.get(0).map_or(0, |m| m.start());
-        // A Rust path (`kubeloupe::exec_credentials: ...`, a log target)
+        // A Rust path (`nauvi::exec_credentials: ...`, a log target)
         // names a module, not a field.
         let module = source[..start].ends_with("::");
         // "key value" with only spaces between is a value only after a
@@ -138,9 +138,9 @@ mod tests {
             "Secret demo/db was deleted",
             "could not refresh the token for context kind",
             "window main reloaded; its session starts over",
-            "kubeloupe 0.1.0 (abc1234) on Linux",
+            "nauvi 0.1.0 (abc1234) on Linux",
             "Secrets are listed without their values",
-            "WARN kubeloupe::exec_credentials: the plugin exited",
+            "WARN nauvi::exec_credentials: the plugin exited",
         ] {
             assert_eq!(redact(text), text);
         }

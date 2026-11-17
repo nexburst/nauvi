@@ -10,7 +10,7 @@
 //!
 //! Unix only: Windows apps get the user's environment. Skipped when started
 //! from a terminal (stdin is a TTY, so the environment is already the
-//! shell's), or when `KUBELOUPE_NO_SHELL_ENV` is set.
+//! shell's), or when `NAUVI_NO_SHELL_ENV` is set.
 
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -18,14 +18,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// Set to any value to skip importing the login shell's environment.
-pub(crate) const OPT_OUT: &str = "KUBELOUPE_NO_SHELL_ENV";
+pub(crate) const OPT_OUT: &str = "NAUVI_NO_SHELL_ENV";
 
 const TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Printed around the environment, so whatever the rc files print to stdout
 /// is ignored.
-const START: &str = "__KUBELOUPE_ENV_START__";
-const END: &str = "__KUBELOUPE_ENV_END__";
+const START: &str = "__NAUVI_ENV_START__";
+const END: &str = "__NAUVI_ENV_END__";
 
 /// Imported when the process doesn't already set them (besides `PATH`, which
 /// is merged).

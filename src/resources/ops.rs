@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 /// Field manager used for server-side apply.
-pub(super) const FIELD_MANAGER: &str = "kubeloupe";
+pub(super) const FIELD_MANAGER: &str = "nauvi";
 
 // ---------------------------------------------------------------------------
 // Generic operations.
@@ -188,7 +188,7 @@ pub struct FieldTakeover {
     pub fields: Vec<String>,
 }
 
-/// Apply edited YAML with server-side apply (field manager "kubeloupe").
+/// Apply edited YAML with server-side apply (field manager "nauvi").
 ///
 /// Server-managed fields are stripped first (see [`strip_server_fields`]),
 /// so saving the same editor content again, or content that was loaded

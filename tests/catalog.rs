@@ -10,17 +10,17 @@ use anyhow::{Context as _, Result};
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::{Api, ListParams};
 use kube::config::Kubeconfig;
-use kubeloupe::catalog::{
+use nauvi::catalog::{
     check_context, default_kubeconfig_paths, load_catalog, CatalogInput, ContextState,
 };
-use kubeloupe::client_for_target;
+use nauvi::client_for_target;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 fn test_context() -> String {
-    std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".to_string())
+    std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string())
 }
 
 fn hash(path: &Path) -> Option<u64> {
@@ -74,7 +74,7 @@ async fn catalog_contexts_connect_through_their_own_file() -> Result<()> {
     let before: Vec<Option<u64>> = defaults.iter().map(|p| hash(p)).collect();
     let kc = Kubeconfig::read()?;
 
-    let dir = std::env::temp_dir().join(format!("kubeloupe-catalog-kind-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("nauvi-catalog-kind-{}", std::process::id()));
     let folder = dir.join("clusters");
     std::fs::create_dir_all(&folder)?;
     // Same name as the default kubeconfig's context: it needs a new id.

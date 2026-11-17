@@ -1,6 +1,6 @@
 # Developer machine setup (and recovery)
 
-How to get a machine from nothing to "agents can build, test and QA kubeloupe".
+How to get a machine from nothing to "agents can build, test and QA nauvi".
 Use it for a new laptop or to recover after losing one. Everything that matters
 long term lives in GitHub (code, issues, PRs, the roadmap #24, the release gate
 #84, `CLAUDE.md`, `.claude/agents/`); this page covers the local pieces.
@@ -31,8 +31,8 @@ Linux (Ubuntu/Debian) is the main development platform.
 
 ```sh
 gh auth login                       # GitHub (SSH or HTTPS)
-git clone git@github.com:pedrosanzmtz/kubeloupe.git
-cd kubeloupe
+git clone git@github.com:nexburst/nauvi.git
+cd nauvi
 npm --prefix desktop/ui-src ci
 cd desktop/ui-src && npx playwright install chromium && cd ../..
 ```
@@ -40,8 +40,8 @@ cd desktop/ui-src && npx playwright install chromium && cd ../..
 ## 3. Test clusters
 
 ```sh
-bash scripts/test-cluster/setup.sh            # kind-kubeloupe-test (+ metrics-server, demo workload)
-bash scripts/test-cluster/limited-user.sh     # optional: namespace-scoped user (~/.kube/kubeloupe-limited.yaml)
+bash scripts/test-cluster/setup.sh            # kind-nauvi-test (+ metrics-server, demo workload)
+bash scripts/test-cluster/limited-user.sh     # optional: namespace-scoped user (~/.kube/nauvi-limited.yaml)
 ```
 
 ## 4. Check everything works
@@ -68,8 +68,8 @@ Keep these somewhere safe outside git; the repo is public.
 
 The maintainer keeps secrets in 1Password, vault `dev`:
 
-- `kubeloupe updater key` (document): the minisign private key, encrypted
-- `kubeloupe updater key password` (password, field `password`)
+- `nauvi updater key` (document): the minisign private key, encrypted
+- `nauvi updater key password` (password, field `password`)
 
 Install the 1Password desktop app and CLI (`op`), sign in in the app, and turn
 on **Settings → Developer → Integrate with 1Password CLI**. Then every `op`
@@ -80,12 +80,12 @@ Examples:
 
 ```sh
 # Re-upload the CI signing secrets (e.g. after rotating the key)
-op document get "kubeloupe updater key" --vault dev | gh secret set TAURI_SIGNING_PRIVATE_KEY
-op read "op://dev/kubeloupe updater key password/password" | gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+op document get "nauvi updater key" --vault dev | gh secret set TAURI_SIGNING_PRIVATE_KEY
+op read "op://dev/nauvi updater key password/password" | gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 # Sign a local build with the updater key, without writing it to disk
-TAURI_SIGNING_PRIVATE_KEY="$(op document get 'kubeloupe updater key' --vault dev)" \
-TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(op read 'op://dev/kubeloupe updater key password/password')" \
+TAURI_SIGNING_PRIVATE_KEY="$(op document get 'nauvi updater key' --vault dev)" \
+TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(op read 'op://dev/nauvi updater key password/password')" \
   cargo tauri build
 ```
 

@@ -5,7 +5,7 @@
 ## Decision
 No first release (no `v*` tag) until **both**:
 
-1. kubeloupe covers at least 90% of a 30-item scorecard of Lens's most-used
+1. nauvi covers at least 90% of a 30-item scorecard of Lens's most-used
    features (reached 30/30 on 2026-11-15), and
 2. QA agents have run every manual check against the real app (#83) and the
    `release-gate` bugs they found are fixed; checks agents cannot do (macOS,

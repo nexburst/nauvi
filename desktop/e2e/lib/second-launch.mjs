@@ -1,6 +1,6 @@
 // A second launch of the app next to the one under test (#202, #299): a
 // private D-Bus session bus for the single-instance plugin, and the app
-// binary run directly, as a click on its icon or a kubeloupe:// link would.
+// binary run directly, as a click on its icon or a nauvi:// link would.
 
 import { execFileSync, spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -23,9 +23,9 @@ export function cannotLaunchTwice() {
 }
 
 export function appBinary() {
-  if (process.env.KUBELOUPE_APP) return resolve(process.env.KUBELOUPE_APP);
+  if (process.env.NAUVI_APP) return resolve(process.env.NAUVI_APP);
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : join(REPO, "target");
-  return join(target, "debug", "kubeloupe-desktop");
+  return join(target, "debug", "nauvi-desktop");
 }
 
 /**
@@ -33,7 +33,7 @@ export function appBinary() {
  * accessibility bus get started on it); resolves to { address, stop }.
  */
 export function startBus() {
-  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-bus-"));
+  const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-bus-"));
   const config = join(dir, "session.conf");
   writeFileSync(
     config,
@@ -69,9 +69,9 @@ export function startBus() {
   });
 }
 
-/** PIDs of kubeloupe-desktop processes whose HOME is `home`. */
+/** PIDs of nauvi-desktop processes whose HOME is `home`. */
 export function appPids(home) {
-  const out = execFileSync("sh", ["-c", "pgrep -f kubeloupe-desktop || true"], { encoding: "utf8" });
+  const out = execFileSync("sh", ["-c", "pgrep -f nauvi-desktop || true"], { encoding: "utf8" });
   return out
     .split("\n")
     .filter(Boolean)
@@ -79,7 +79,7 @@ export function appPids(home) {
     .filter((pid) => {
       try {
         const comm = readFileSync(`/proc/${pid}/comm`, "utf8").trim();
-        return comm.startsWith("kubeloupe-desk") && readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").includes(`HOME=${home}`);
+        return comm.startsWith("nauvi-desk") && readFileSync(`/proc/${pid}/environ`, "utf8").split("\0").includes(`HOME=${home}`);
       } catch {
         return false;
       }

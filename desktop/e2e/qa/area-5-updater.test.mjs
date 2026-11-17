@@ -1,6 +1,6 @@
 // QA area 5 (#83): the update banner and the Settings toggle (PR #85), with
 // the debug override: a local `latest.json` served by this process through
-// KUBELOUPE_UPDATE_ENDPOINT. Nothing is downloaded or installed.
+// NAUVI_UPDATE_ENDPOINT. Nothing is downloaded or installed.
 // Checks: a newer version shows the banner on start (main window), with
 // Release notes opening the release page and, for a plain binary, "Download
 // from the release page"; ✕ closes it; turning "Check for updates on start"
@@ -33,7 +33,7 @@ function latestJson(version) {
     notes: "QA area 5 test release",
     pub_date: "2026-11-01T00:00:00Z",
     platforms: {
-      "linux-x86_64": { signature: "not-a-signature", url: "http://127.0.0.1:1/kubeloupe.AppImage" },
+      "linux-x86_64": { signature: "not-a-signature", url: "http://127.0.0.1:1/nauvi.AppImage" },
     },
   });
 }
@@ -80,7 +80,7 @@ describe("area 5: updates with a local latest.json", { timeout: 15 * 60_000 }, (
     endpoint = `http://127.0.0.1:${server.address().port}/latest.json`;
   });
   after(() => server?.close());
-  const s = appSession("area-5-updater", () => ({ env: { KUBELOUPE_UPDATE_ENDPOINT: endpoint } }));
+  const s = appSession("area-5-updater", () => ({ env: { NAUVI_UPDATE_ENDPOINT: endpoint } }));
 
   it("shows the banner for 9.9.9 on start", T, async () => {
     const { app } = s;
@@ -88,7 +88,7 @@ describe("area 5: updates with a local latest.json", { timeout: 15 * 60_000 }, (
     const banner = await app.find(byTestId("update-banner"), { timeout: 30_000 });
     const text = await app.js("return arguments[0].innerText", banner);
     console.log(`banner: ${text.replace(/\s+/g, " ")}; requests ${served.requests}`);
-    assert.match(text, /kubeloupe 9\.9\.9 is available/);
+    assert.match(text, /nauvi 9\.9\.9 is available/);
     assert.match(text, /Download from the release page/, "a plain binary is sent to the release page");
     assert.equal(served.requests, 1);
   });
@@ -98,7 +98,7 @@ describe("area 5: updates with a local latest.json", { timeout: 15 * 60_000 }, (
     await (await app.find(By.xpath("//*[@data-testid='update-banner']//button[normalize-space()='Release notes']"))).click();
     const url = await app.waitFor(() => app.profile.opened().at(-1), { message: "a URL opened" });
     console.log(`opened ${url}`);
-    assert.match(url, /^https:\/\/github\.com\/pedrosanzmtz\/kubeloupe\/releases\/.*9\.9\.9/);
+    assert.match(url, /^https:\/\/github\.com\/nexburst\/nauvi\/releases\/.*9\.9\.9/);
     await (await app.find(By.css('[data-testid="update-banner"] button[aria-label="Dismiss update"]'))).click();
     await app.waitFor(async () => (await count(app, '[data-testid="update-banner"]')) === 0, { message: "banner closed" });
   });
@@ -186,13 +186,13 @@ describe("area 5: updates without the override", { timeout: 5 * 60_000 }, () => 
 });
 
 // #206: a copy run from the DMG or translocated by Gatekeeper cannot be
-// replaced, so it offers no Install. KUBELOUPE_UPDATE_EXE_PATH (debug builds
+// replaced, so it offers no Install. NAUVI_UPDATE_EXE_PATH (debug builds
 // only) makes the check see the macOS paths of #159 on Linux.
 const READ_ONLY_COPIES = [
-  ["dmg", "/Volumes/kubeloupe/kubeloupe.app/Contents/MacOS/kubeloupe", /running from the disk image/],
+  ["dmg", "/Volumes/nauvi/nauvi.app/Contents/MacOS/nauvi", /running from the disk image/],
   [
     "translocated",
-    "/private/var/folders/7k/2lyy0kc93xs3m1qz5jw0t8hr0000gn/T/AppTranslocation/0F4D3A6E-58B4-4E3B-9C2A-6A0E7A8D1F42/d/kubeloupe.app/Contents/MacOS/kubeloupe",
+    "/private/var/folders/7k/2lyy0kc93xs3m1qz5jw0t8hr0000gn/T/AppTranslocation/0F4D3A6E-58B4-4E3B-9C2A-6A0E7A8D1F42/d/nauvi.app/Contents/MacOS/nauvi",
     /App Translocation/,
   ],
 ];
@@ -212,7 +212,7 @@ for (const [name, exe, noteRe] of READ_ONLY_COPIES) {
     });
     after(() => server2?.close());
     const s = appSession(`area-5-updater-${name}`, () => ({
-      env: { KUBELOUPE_UPDATE_ENDPOINT: endpoint2, KUBELOUPE_UPDATE_EXE_PATH: exe },
+      env: { NAUVI_UPDATE_ENDPOINT: endpoint2, NAUVI_UPDATE_EXE_PATH: exe },
     }));
 
     it(`the banner sends a ${name} copy to Applications, in both themes`, T, async () => {
@@ -221,10 +221,10 @@ for (const [name, exe, noteRe] of READ_ONLY_COPIES) {
       const banner = await app.find(byTestId("update-banner"), { timeout: 30_000 });
       const text = (await app.js("return arguments[0].innerText", banner)).replace(/\s+/g, " ");
       console.log(`banner: ${text}`);
-      assert.match(text, /kubeloupe 9\.9\.9 is available/);
+      assert.match(text, /nauvi 9\.9\.9 is available/);
       assert.match(text, /Download from the release page/);
       assert.doesNotMatch(text, /Install and restart/);
-      assert.match(text, /Move kubeloupe to Applications/);
+      assert.match(text, /Move nauvi to Applications/);
       assert.match(text, noteRe);
       const box = await app.js(
         `const b = document.querySelector('[data-testid="update-banner"]').getBoundingClientRect();

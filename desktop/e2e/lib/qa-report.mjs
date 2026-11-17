@@ -37,7 +37,7 @@ const icon = { pass: "✅", fail: "❌", skip: "⏭️", todo: "🐞" };
 const count = (rs, s) => rs.filter((r) => r.status === s).length;
 const cell = (s) => String(s).replace(/\|/g, "\\|");
 
-const lines = ["# kubeloupe QA run", ""];
+const lines = ["# nauvi QA run", ""];
 const all = [...byFile.values()].flat();
 lines.push(
   `${count(all, "pass")} passed, ${count(all, "fail")} failed, ${count(all, "skip")} skipped, ${count(all, "todo")} known bugs (todo), in ${byFile.size} scenario file(s).`,

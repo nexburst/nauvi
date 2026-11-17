@@ -31,7 +31,7 @@ export function catalogHandlers(s: FakeState) {
     },
     cmdRemoveKubeconfigSource: (path) => {
       if (!cluster.settings.kubeconfig_sources.includes(path)) {
-        throw `${path} was not added in kubeloupe, so it cannot be removed here.`;
+        throw `${path} was not added in nauvi, so it cannot be removed here.`;
       }
       cluster.catalog.sources = cluster.catalog.sources.filter((src) => src.path !== path);
       for (const key of Object.keys(cluster.catalog.answers)) {

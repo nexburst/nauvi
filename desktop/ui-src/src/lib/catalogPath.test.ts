@@ -3,8 +3,8 @@ import { pathParts } from "./catalog";
 
 describe("pathParts (#179)", () => {
   it("cuts after each slash and keeps the text", () => {
-    const p = "/Users/pedro/.kube/kubeloupe-kind.yaml";
-    expect(pathParts(p)).toEqual(["/", "Users/", "pedro/", ".kube/", "kubeloupe-kind.yaml"]);
+    const p = "/Users/pedro/.kube/nauvi-kind.yaml";
+    expect(pathParts(p)).toEqual(["/", "Users/", "pedro/", ".kube/", "nauvi-kind.yaml"]);
     expect(pathParts(p).join("")).toBe(p);
   });
 

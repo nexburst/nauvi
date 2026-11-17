@@ -37,7 +37,7 @@ pub(crate) fn title(context: Option<&str>) -> String {
     };
     match context {
         Some(c) if !c.is_empty() => c.to_string(),
-        _ => current().unwrap_or_else(|| "kubeloupe".to_string()),
+        _ => current().unwrap_or_else(|| "nauvi".to_string()),
     }
 }
 

@@ -1,4 +1,4 @@
-//! `kubeloupe get` and `kubeloupe yaml`: list or fetch objects of any kind
+//! `nauvi get` and `nauvi yaml`: list or fetch objects of any kind
 //! and print them as a table, YAML, JSON or `kind/name` lines.
 
 use crate::resources::{self, ResourceKind, ResourceRef};
@@ -7,7 +7,7 @@ use kube::api::{DynamicObject, ListParams};
 use kube::Client;
 use serde_json::{json, Value};
 
-/// `-o` of `kubeloupe get`.
+/// `-o` of `nauvi get`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum OutputFormat {
     /// The same columns as the app
@@ -23,7 +23,7 @@ pub enum OutputFormat {
     Name,
 }
 
-/// Everything `kubeloupe get` takes besides the kind and name.
+/// Everything `nauvi get` takes besides the kind and name.
 #[derive(Debug, Clone, Default)]
 pub struct GetOptions {
     /// List only this namespace; `None` lists all of them.
@@ -70,7 +70,7 @@ pub fn object_namespace(client: &Client, r: &ResourceRef, namespace: Option<&str
         .unwrap_or_else(|| client.default_namespace().to_string())
 }
 
-/// `kubeloupe get <kind> [name]`.
+/// `nauvi get <kind> [name]`.
 pub async fn print_get(
     client: &Client,
     kind: &str,
@@ -116,7 +116,7 @@ pub async fn print_get(
     Ok(())
 }
 
-/// `kubeloupe yaml <kind>/<name>`: one object as YAML, Secret values hidden
+/// `nauvi yaml <kind>/<name>`: one object as YAML, Secret values hidden
 /// unless `reveal`.
 pub async fn print_yaml(
     client: &Client,

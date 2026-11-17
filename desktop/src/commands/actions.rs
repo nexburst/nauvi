@@ -1,9 +1,9 @@
 //! Resource actions: run an action, bulk delete, drain a node.
 
 use crate::state::{next_session, Cluster};
-use kubeloupe::action_access::{self, ActionAccess};
-use kubeloupe::actions::{self, ActionId, BulkItemResult, DrainEvent, DrainSummary};
-use kubeloupe::resources::ResourceRef;
+use nauvi::action_access::{self, ActionAccess};
+use nauvi::actions::{self, ActionId, BulkItemResult, DrainEvent, DrainSummary};
+use nauvi::resources::ResourceRef;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::time::Duration;

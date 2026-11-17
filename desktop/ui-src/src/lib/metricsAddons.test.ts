@@ -15,7 +15,7 @@ const req: MetricsAddonRequest = {
 
 describe("metrics add-ons", () => {
   it("recognises local clusters by their context name", () => {
-    expect(looksLocal("kind-kubeloupe-test")).toBe(true);
+    expect(looksLocal("kind-nauvi-test")).toBe(true);
     expect(looksLocal("k3d-dev")).toBe(true);
     expect(looksLocal("minikube")).toBe(true);
     expect(looksLocal("prod-eu")).toBe(false);

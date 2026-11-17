@@ -1,7 +1,7 @@
 //! Pod and workload log streams, and saving logs.
 
 use crate::state::{Cluster, WindowEmitter};
-use kubeloupe::{
+use nauvi::{
     batch_lines, stream_pod_containers_logs, stream_pod_logs, stream_workload_logs, LogOptions,
     StopReason, TaggedLine, WorkloadEvent, WorkloadKind,
 };
@@ -86,7 +86,7 @@ pub(crate) async fn cmd_stream_pod_logs(
             if let Err(e) = result {
                 let msg = format!(
                     "Log stream ended with an error: {}",
-                    kubeloupe::errors::error_text(&e)
+                    nauvi::errors::error_text(&e)
                 );
                 out.emit(PodLogError {
                     stream_id,
@@ -282,7 +282,7 @@ fn end_tagged(out: &WindowEmitter, stream_id: u64, result: anyhow::Result<()>) {
             stream_id,
             data: format!(
                 "Log stream ended with an error: {}",
-                kubeloupe::errors::error_text(&e)
+                nauvi::errors::error_text(&e)
             ),
         });
     }

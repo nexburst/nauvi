@@ -36,14 +36,14 @@ desktop/e2e/qa.sh --no-build port-forward helm
 desktop/e2e/qa.sh                           # every qa/*.test.mjs
 desktop/e2e/qa.sh smoke.test.mjs            # the smoke suite
 desktop/e2e/qa.sh --shard 2/4               # the second of four equal parts (as in CI)
-KUBELOUPE_LIMITED_KUBECONFIG=~/.kube/kubeloupe-limited.yaml desktop/e2e/qa.sh limited-user
+NAUVI_LIMITED_KUBECONFIG=~/.kube/nauvi-limited.yaml desktop/e2e/qa.sh limited-user
 ```
 
 It:
 
 - uses `WebKitWebDriver`, `Xvfb`, `tauri-driver` and `helm` from the system
   when they are there, and otherwise fetches them once into
-  `~/.cache/kubeloupe-qa` (`KUBELOUPE_QA_CACHE`): the driver and Xvfb with
+  `~/.cache/nauvi-qa` (`NAUVI_QA_CACHE`): the driver and Xvfb with
   `apt-get download` + `dpkg-deb -x` (the driver's version matches the
   installed WebKitGTK), tauri-driver with `cargo install --root`, helm from
   get.helm.sh, xclip from its `.deb` if neither xclip nor xsel is installed.
@@ -61,10 +61,10 @@ It:
   every app), and unpauses a control plane a scenario paused.
 
 Each app gets a private home (`lib/profile.mjs`): its own `HOME`, so its own
-`~/.config/com.kubeloupe.app/settings.json` and `~/Downloads`, and an
+`~/.config/com.nauvi.app/settings.json` and `~/Downloads`, and an
 `xdg-open` that only records URLs. Your own settings are never read or
 changed, and no browser opens. The login shell environment import is off
-(`KUBELOUPE_NO_SHELL_ENV=1`) unless a scenario asks for it.
+(`NAUVI_NO_SHELL_ENV=1`) unless a scenario asks for it.
 
 ### Helpers
 
@@ -165,22 +165,22 @@ on your desktop, `xvfb-run` (`sudo apt install xvfb`).
 # `cargo tauri build --debug --no-bundle` does.
 npm --prefix desktop/ui-src ci
 npm --prefix desktop/ui-src run build
-cargo build -p kubeloupe-desktop --features tauri/custom-protocol
+cargo build -p nauvi-desktop --features tauri/custom-protocol
 
 npm --prefix desktop/e2e ci
 xvfb-run -a -s "-screen 0 1600x1000x24" npm --prefix desktop/e2e test
 xvfb-run -a -s "-screen 0 1600x1000x24" npm --prefix desktop/e2e run bench   # serves ui-src with Vite on :1420
 ```
 
-The app gets a kubeconfig that holds only `kind-kubeloupe-test`, so the
+The app gets a kubeconfig that holds only `kind-nauvi-test`, so the
 current context in your own kubeconfig doesn't matter. These environment
 variables are optional:
 
 | variable | default |
 | --- | --- |
-| `KUBELOUPE_APP` | `$CARGO_TARGET_DIR` (or `target`)`/debug/kubeloupe-desktop` |
+| `NAUVI_APP` | `$CARGO_TARGET_DIR` (or `target`)`/debug/nauvi-desktop` |
 | `TAURI_DRIVER` / `WEBKIT_DRIVER` | `tauri-driver` / `WebKitWebDriver` on `PATH` |
-| `E2E_CONTEXT` | `kind-kubeloupe-test` |
+| `E2E_CONTEXT` | `kind-nauvi-test` |
 | `E2E_ARTIFACTS` | `desktop/e2e/artifacts` |
 | `E2E_DRIVER_PORT` | `4444` (the native driver uses the next port) |
 | `BENCH_SECONDS` / `BENCH_PORT` | `30` / `1420` |

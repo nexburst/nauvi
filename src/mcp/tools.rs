@@ -251,7 +251,7 @@ pub fn check(name: &str, allow_writes: bool) -> Result<()> {
         }
         bail!(
             "the {name} tool changes the cluster and is off: the server is read-only unless \
-             started with `kubeloupe mcp --allow-writes`"
+             started with `nauvi mcp --allow-writes`"
         );
     }
     bail!("unknown tool: {name}")

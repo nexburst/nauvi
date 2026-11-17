@@ -8,7 +8,7 @@
 #
 #   scripts/dev/capped.sh cargo test --workspace
 #   CAP=4G scripts/dev/capped.sh desktop/e2e/qa.sh terminal
-#   HEAVY_SLOTS=1 scripts/dev/capped.sh cargo build -p kubeloupe-desktop
+#   HEAVY_SLOTS=1 scripts/dev/capped.sh cargo build -p nauvi-desktop
 #
 # The memory ceiling uses a transient systemd user scope (no sudo); without
 # systemd the command runs without one. Without flock, there are no slots.
@@ -20,10 +20,10 @@
 set -euo pipefail
 cap="${CAP:-6G}"
 slots="${HEAVY_SLOTS:-2}"
-lockdir="${XDG_RUNTIME_DIR:-/tmp}/kubeloupe-heavy"
+lockdir="${XDG_RUNTIME_DIR:-/tmp}/nauvi-heavy"
 mkdir -p "$lockdir"
 
-if [ -z "${KUBELOUPE_SLOT_HELD:-}" ]; then
+if [ -z "${NAUVI_SLOT_HELD:-}" ]; then
   if command -v flock >/dev/null 2>&1; then
     # Take the first free slot; if all are busy, wait for slot 1. The slot is
     # held through descriptor 9 until this script (and the command) ends.
@@ -38,7 +38,7 @@ if [ -z "${KUBELOUPE_SLOT_HELD:-}" ]; then
       flock 9
     fi
     # Nested capped.sh calls (e.g. qa.sh building the app) reuse this slot.
-    export KUBELOUPE_SLOT_HELD=1
+    export NAUVI_SLOT_HELD=1
   else
     echo "capped.sh: flock not found, running without a build slot (macOS: brew install flock)" >&2
   fi

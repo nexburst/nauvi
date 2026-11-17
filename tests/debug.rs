@@ -17,20 +17,20 @@ use anyhow::{bail, ensure, Context, Result};
 use k8s_openapi::api::core::v1::{Namespace, Node, Pod};
 use kube::api::{Api, DeleteParams, ListParams, PostParams};
 use kube::Client;
-use kubeloupe::debug::{add_debug_container, attach_container, describe_debug_error};
-use kubeloupe::node_shell::{
+use nauvi::debug::{add_debug_container, attach_container, describe_debug_error};
+use nauvi::node_shell::{
     create_node_shell, delete_node_shell, describe_node_shell_error, exec_node_shell,
     leftover_node_shells, new_node_shell_name, NODE_SHELL_IMAGE, NODE_SHELL_LABEL,
     NODE_SHELL_NAMESPACE,
 };
-use kubeloupe::{client_for_context, exec_command};
+use nauvi::{client_for_context, exec_command};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 const TIMEOUT: Duration = Duration::from_secs(180);
 const PAUSE: &str = "registry.k8s.io/pause:3.10";
 
 fn context() -> String {
-    std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".to_string())
+    std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string())
 }
 
 async fn connect() -> Result<Client> {
@@ -182,7 +182,7 @@ async fn debug_container_reports_a_bad_image_and_a_missing_container() -> Result
                 &ns,
                 "noshell",
                 "app",
-                "kubeloupe.invalid/no-such-image:1",
+                "nauvi.invalid/no-such-image:1",
                 false,
                 |_| {},
             )
@@ -231,7 +231,7 @@ async fn cli_debug_runs_piped_commands() -> Result<()> {
 
 fn run_cli(args: &[&str], stdin: &str) -> Result<std::process::Output> {
     let ctx = context();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_kubeloupe"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nauvi"))
         .arg("--context")
         .arg(&ctx)
         .args(args)
@@ -316,18 +316,18 @@ async fn node_shell_forbidden_by_pod_security_says_so() -> Result<()> {
 #[tokio::test]
 #[ignore]
 async fn limited_user_node_shell_is_forbidden() -> Result<()> {
-    let Ok(path) = std::env::var("KUBELOUPE_LIMITED_KUBECONFIG") else {
-        eprintln!("KUBELOUPE_LIMITED_KUBECONFIG not set; skipping");
+    let Ok(path) = std::env::var("NAUVI_LIMITED_KUBECONFIG") else {
+        eprintln!("NAUVI_LIMITED_KUBECONFIG not set; skipping");
         return Ok(());
     };
     let kubeconfig = kube::config::Kubeconfig::read_from(&path)?;
     let mut config = kube::Config::from_custom_kubeconfig(kubeconfig, &Default::default()).await?;
     config.proxy_url = None;
     let client = Client::try_from(config)?;
-    let pod = new_node_shell_name("kubeloupe-test-worker");
+    let pod = new_node_shell_name("nauvi-test-worker");
     let err = create_node_shell(
         &client,
-        "kubeloupe-test-worker",
+        "nauvi-test-worker",
         NODE_SHELL_NAMESPACE,
         &pod,
         NODE_SHELL_IMAGE,

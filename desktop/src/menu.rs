@@ -36,9 +36,8 @@ pub(crate) fn open<R: Runtime>(app: &AppHandle<R>, item: HelpItem) -> Result<(),
             .open_url(crate::diagnostics::bug_report_url(), None::<&str>)
             .map_err(|e| format!("Could not open the bug report page in the browser: {e}")),
         HelpItem::LogFolder => {
-            let dir = crate::logging::dir().ok_or(
-                "kubeloupe has no log folder on this system; its log goes to stderr only.",
-            )?;
+            let dir = crate::logging::dir()
+                .ok_or("nauvi has no log folder on this system; its log goes to stderr only.")?;
             let file = dir.join(crate::logging::LOG_FILE);
             match log_folder_action(dir, file.is_file(), cfg!(target_os = "macos")) {
                 LogFolderAction::Reveal(path) => opener
@@ -61,7 +60,7 @@ enum LogFolderAction {
     Open(PathBuf),
 }
 
-/// On macOS the log folder is `~/Library/Logs/com.kubeloupe.app`, named
+/// On macOS the log folder is `~/Library/Logs/com.nauvi.app`, named
 /// after the bundle id. Launch Services takes a folder ending in `.app` for
 /// an application bundle and refuses to open it ("its executable is
 /// missing", #321), so there the log is revealed (selected) in Finder
@@ -86,7 +85,7 @@ pub(crate) fn install<R: Runtime>(app: &AppHandle<R>) {
     const ITEMS: [(&str, &str, HelpItem); 3] = [
         (
             "help-documentation",
-            "kubeloupe Documentation",
+            "nauvi Documentation",
             HelpItem::Documentation,
         ),
         ("help-report-bug", "Report a Bug…", HelpItem::ReportBug),
@@ -126,13 +125,13 @@ pub(crate) fn install<R: Runtime>(_app: &AppHandle<R>) {}
 mod tests {
     use super::*;
 
-    const DIR: &str = "/Users/me/Library/Logs/com.kubeloupe.app";
+    const DIR: &str = "/Users/me/Library/Logs/com.nauvi.app";
 
     #[test]
     fn macos_reveals_the_log_rather_than_opening_the_app_named_folder() {
         assert_eq!(
             log_folder_action(Path::new(DIR), true, true),
-            LogFolderAction::Reveal(Path::new(DIR).join("kubeloupe.log"))
+            LogFolderAction::Reveal(Path::new(DIR).join("nauvi.log"))
         );
     }
 
@@ -146,7 +145,7 @@ mod tests {
 
     #[test]
     fn linux_and_windows_open_the_folder() {
-        let dir = Path::new("/home/me/.local/share/com.kubeloupe.app/logs");
+        let dir = Path::new("/home/me/.local/share/com.nauvi.app/logs");
         for exists in [true, false] {
             assert_eq!(
                 log_folder_action(dir, exists, false),

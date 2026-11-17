@@ -3,9 +3,9 @@
 
 use crate::state::Cluster;
 use futures::StreamExt;
-use kubeloupe::applications::ApplicationsList;
-use kubeloupe::watch::WatchState;
-use kubeloupe::{watch_applications, ApplicationsUpdate};
+use nauvi::applications::ApplicationsList;
+use nauvi::watch::WatchState;
+use nauvi::{watch_applications, ApplicationsUpdate};
 use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;

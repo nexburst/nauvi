@@ -15,7 +15,7 @@ test("the Help menu opens the documentation, a bug report and the log folder", a
     "Documentation",
     "Report a bug…",
     "Open log folder",
-    "About kubeloupe",
+    "About nauvi",
   ]);
   await menu(page).getByRole("menuitem", { name: "Documentation" }).click();
   await expect(menu(page)).toHaveCount(0);
@@ -56,10 +56,10 @@ test("About shows the version and commit and copies the diagnostics", async ({ p
   });
   const fake = await openApp(page);
   await helpButton(page).click();
-  await menu(page).getByRole("menuitem", { name: "About kubeloupe" }).click();
+  await menu(page).getByRole("menuitem", { name: "About nauvi" }).click();
   const about = page.getByTestId("about-settings");
   await expect(about).toBeInViewport();
-  await expect(page.getByTestId("about-version")).toContainText("kubeloupe 0.1.0");
+  await expect(page.getByTestId("about-version")).toContainText("nauvi 0.1.0");
   await expect(page.getByTestId("about-version")).toContainText("0123456789ab");
   await expect(page.getByTestId("diagnostics-text")).toContainText("Webview: WebKitGTK");
 
@@ -67,7 +67,7 @@ test("About shows the version and commit and copies the diagnostics", async ({ p
   await expect(page.getByTestId("diagnostics-copied")).toHaveText("Copied.");
   const copied = await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied);
   expect(copied).toHaveLength(1);
-  expect(copied[0]).toContain("kubeloupe 0.1.0\nCommit: 0123456789ab");
+  expect(copied[0]).toContain("nauvi 0.1.0\nCommit: 0123456789ab");
 
   await about.getByRole("button", { name: "Open log folder" }).click();
   await expect.poll(() => fake.calls("cmdHelpOpen")).toEqual([{ item: "log_folder" }]);

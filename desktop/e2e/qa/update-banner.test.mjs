@@ -1,9 +1,9 @@
 // The update banner's layout (#124): a plain debug binary cannot update
 // itself, so the banner shows a long note next to its text. The text
-// ("kubeloupe 9.9.9 is available — Release notes · Download from the release
+// ("nauvi 9.9.9 is available — Release notes · Download from the release
 // page") must stay on one line at 1280x800, with the note beside it or on its
 // own row, in the dark and the light theme. A local `latest.json` is served
-// through KUBELOUPE_UPDATE_ENDPOINT; nothing is downloaded or installed.
+// through NAUVI_UPDATE_ENDPOINT; nothing is downloaded or installed.
 
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -19,7 +19,7 @@ const LATEST = JSON.stringify({
   notes: "QA update banner test release",
   pub_date: "2026-11-01T00:00:00Z",
   platforms: {
-    "linux-x86_64": { signature: "not-a-signature", url: "http://127.0.0.1:1/kubeloupe.AppImage" },
+    "linux-x86_64": { signature: "not-a-signature", url: "http://127.0.0.1:1/nauvi.AppImage" },
   },
 });
 
@@ -52,7 +52,7 @@ describe("update banner with a note (#124)", { timeout: 10 * 60_000 }, () => {
     endpoint = `http://127.0.0.1:${server.address().port}/latest.json`;
   });
   after(() => server?.close());
-  const s = appSession("update-banner", () => ({ env: { KUBELOUPE_UPDATE_ENDPOINT: endpoint } }));
+  const s = appSession("update-banner", () => ({ env: { NAUVI_UPDATE_ENDPOINT: endpoint } }));
 
   for (const theme of ["dark", "light"]) {
     it(`the text stays on one line beside the note (${theme})`, T, async () => {

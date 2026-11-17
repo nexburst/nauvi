@@ -212,7 +212,7 @@ pub async fn helm_install(
 
 /// [`helm_install`] of `req.chart` from the repository at `repo_url`
 /// (`--repo`), which is not added to the user's repositories. Only for the
-/// charts kubeloupe names itself ([`super::addons`]).
+/// charts nauvi names itself ([`super::addons`]).
 pub(crate) async fn helm_install_from_repo(
     target: &HelmTarget,
     req: &HelmDeployRequest,

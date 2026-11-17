@@ -23,7 +23,7 @@ import { waitTheme } from "../lib/theme.mjs";
 import { resizeWindow, selectContext } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
-const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-area5-catalog-"));
+const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-area5-catalog-"));
 const folder = join(dir, "clusters");
 const cwd = join(dir, "work dir");
 const ADDED = "qa-area5-cat";

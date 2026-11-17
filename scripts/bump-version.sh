@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Set the kubeloupe version in every place it lives:
+# Set the nauvi version in every place it lives:
 #   Cargo.toml, desktop/Cargo.toml, desktop/tauri.conf.json and Cargo.lock.
 #
 # Usage: scripts/bump-version.sh <version>     e.g. 0.2.0 or 0.2.0-1
@@ -42,7 +42,7 @@ set_cargo_lock() {
   local tmp
   tmp="$(mktemp)"
   awk -v v="$version" '
-    /^name = "(kubeloupe|kubeloupe-desktop)"$/ { hit = 1; print; next }
+    /^name = "(nauvi|nauvi-desktop)"$/ { hit = 1; print; next }
     hit && /^version = / { print "version = \"" v "\""; hit = 0; next }
     { hit = 0; print }
   ' Cargo.lock >"$tmp"
@@ -70,7 +70,7 @@ check Cargo.toml "$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
 check desktop/Cargo.toml "$(grep -m1 '^version' desktop/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')"
 check desktop/tauri.conf.json \
   "$(python3 -c "import json;print(json.load(open('desktop/tauri.conf.json'))['version'])")"
-for p in kubeloupe kubeloupe-desktop; do
+for p in nauvi nauvi-desktop; do
   check "Cargo.lock ($p)" \
     "$(grep -A1 "^name = \"$p\"$" Cargo.lock | sed -nE 's/^version = "(.*)"/\1/p')"
 done

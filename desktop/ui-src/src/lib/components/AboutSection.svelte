@@ -28,7 +28,7 @@
   {#if d}
     <div class="row">
       <span data-testid="about-version"
-        >kubeloupe {d.version}{d.debug_build ? " (debug build)" : ""}
+        >nauvi {d.version}{d.debug_build ? " (debug build)" : ""}
         <span class="muted">· commit <code>{d.commit}</code></span></span
       >
     </div>

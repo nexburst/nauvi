@@ -1,4 +1,4 @@
-//! `kubeloupe describe <kind>/<name>`: a [`ResourceDetail`] printed the way
+//! `nauvi describe <kind>/<name>`: a [`ResourceDetail`] printed the way
 //! `kubectl describe` prints an object.
 
 use crate::get::{object_namespace, resolve_kind_named};

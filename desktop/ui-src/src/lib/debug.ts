@@ -3,11 +3,11 @@
 
 import type { ContainerDetail } from "./bindings";
 
-/** Same default as the backend (`kubeloupe::debug::DEFAULT_DEBUG_IMAGE`). */
+/** Same default as the backend (`nauvi::debug::DEFAULT_DEBUG_IMAGE`). */
 export const DEFAULT_DEBUG_IMAGE = "busybox:1.37";
 /** Offered in the image field. */
 export const DEBUG_IMAGES = [DEFAULT_DEBUG_IMAGE, "nicolaka/netshoot", "alpine:3.22"];
-/** Where node shell pods run (`kubeloupe::node_shell::NODE_SHELL_NAMESPACE`). */
+/** Where node shell pods run (`nauvi::node_shell::NODE_SHELL_NAMESPACE`). */
 export const NODE_SHELL_NAMESPACE = "kube-system";
 
 export const EPHEMERAL_NOTE =

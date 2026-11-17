@@ -3,7 +3,7 @@
 //! in `mod.rs` run them through the settings store.
 
 use crate::settings::{SavedForward, Settings};
-use kubeloupe::RemotePort;
+use nauvi::RemotePort;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -89,7 +89,7 @@ pub(crate) fn remove(s: &mut Settings, ctx: &str, id: &str) {
 /// matches: same target, remote port and local port.
 pub(crate) fn matching<'a>(
     saved: &'a [SavedForward],
-    target: &kubeloupe::ForwardTarget,
+    target: &nauvi::ForwardTarget,
     remote: &str,
     local: Option<u16>,
 ) -> Option<&'a SavedForward> {
@@ -102,7 +102,7 @@ pub(crate) fn matching<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kubeloupe::{ForwardKind, ForwardTarget};
+    use nauvi::{ForwardKind, ForwardTarget};
 
     fn fwd(name: &str, remote: &str, local: &str) -> SavedForward {
         SavedForward {

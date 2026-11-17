@@ -228,7 +228,7 @@ pub async fn add_debug_container(
     pods.patch_ephemeral_containers(
         pod,
         &PatchParams {
-            field_manager: Some("kubeloupe".to_string()),
+            field_manager: Some("nauvi".to_string()),
             ..PatchParams::default()
         },
         &Patch::Strategic(patch),

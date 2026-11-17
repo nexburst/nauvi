@@ -3,8 +3,8 @@
 use crate::commands::usage;
 use crate::state::{spawn_closes, Cluster};
 use crate::windows;
-use kubeloupe::resources::{self, AccessResult, ResourceKind, ResourceRef};
-use kubeloupe::{
+use nauvi::resources::{self, AccessResult, ResourceKind, ResourceRef};
+use nauvi::{
     default_namespace, get_node_metrics, get_pod_metrics, list_namespaces_if_allowed, ContextInfo,
     NamespaceInfo, NodeUsage, PodUsage, Spark,
 };
@@ -22,7 +22,7 @@ pub(crate) async fn cmd_list_namespaces(
     let client = cluster.client().await?;
     list_namespaces_if_allowed(&client)
         .await
-        .map_err(|e| kubeloupe::error_text(&e))
+        .map_err(|e| nauvi::error_text(&e))
 }
 
 /// The namespace to start on: `null` (all namespaces) if the user may list
@@ -71,10 +71,10 @@ pub(crate) async fn cmd_get_metrics(
         MetricsKind::Pods => (get_pod_metrics(&client, namespace.as_deref()).await, None),
         MetricsKind::Nodes => (Ok(None), Some(get_node_metrics(&client).await)),
     };
-    let pods = pods.map_err(|e| kubeloupe::error_text(&e))?;
+    let pods = pods.map_err(|e| nauvi::error_text(&e))?;
     let nodes = nodes
         .transpose()
-        .map_err(|e| kubeloupe::error_text(&e))?
+        .map_err(|e| nauvi::error_text(&e))?
         .flatten();
     let available = pods.is_some() || nodes.is_some();
     let (pods, nodes) = (pods.unwrap_or_default(), nodes.unwrap_or_default());
@@ -95,7 +95,7 @@ pub(crate) async fn cmd_discover(cluster: Cluster) -> Result<Vec<ResourceKind>, 
     let client = cluster.client().await?;
     let kinds = resources::discover(&client)
         .await
-        .map_err(|e| kubeloupe::error_text(&e))?;
+        .map_err(|e| nauvi::error_text(&e))?;
     *cluster.kinds.lock().unwrap() = kinds.clone();
     Ok(kinds)
 }

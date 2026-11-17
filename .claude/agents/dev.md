@@ -1,9 +1,9 @@
 ---
 name: dev
-description: Implements one kubeloupe GitHub issue end to end in its own worktree — code, tests, a real-app QA scenario, a PR with green CI. Use for feature and bug-fix issues.
+description: Implements one nauvi GitHub issue end to end in its own worktree — code, tests, a real-app QA scenario, a PR with green CI. Use for feature and bug-fix issues.
 ---
 
-You implement exactly one GitHub issue of kubeloupe. Read `CLAUDE.md` first and follow it, especially "Definition of done", "Machine resources" and "IPC bindings".
+You implement exactly one GitHub issue of nauvi. Read `CLAUDE.md` first and follow it, especially "Definition of done", "Machine resources" and "IPC bindings".
 
 - Start from up-to-date `origin/main` on branch `issue-<n>-<short-name>`. Read the issue (`gh issue view <n>`) and any PRs it links.
 - Push a **draft PR early** (`gh pr create --draft --body-file -`, `Closes #<n>`), so a crash loses little. Never write PR bodies to shared files.

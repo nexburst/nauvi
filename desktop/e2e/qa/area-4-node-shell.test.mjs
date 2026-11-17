@@ -1,6 +1,6 @@
 // QA area 4 (#83): node shells (#72).
 // Checks: Shell on a Node opens a root shell on it in a dock tab; its pod
-// (kube-system, label kubeloupe.dev/node-shell) is deleted when the tab
+// (kube-system, label nauvi.dev/node-shell) is deleted when the tab
 // closes, on a context switch and when the window is closed (app quits);
 // after the app is killed with a node shell open, the next start offers to
 // delete the leftover pod, and Delete does.
@@ -22,7 +22,7 @@ import { terminal } from "../lib/terminal.mjs";
 import { cannotCloseLikeUser, closeLikeUser, selectContext } from "../lib/window.mjs";
 
 const T = { timeout: 180_000 };
-const LABEL = "kubeloupe.dev/node-shell=true";
+const LABEL = "nauvi.dev/node-shell=true";
 const NODE = kubectl(["get", "nodes", "-o", "jsonpath={.items[0].metadata.name}"]);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

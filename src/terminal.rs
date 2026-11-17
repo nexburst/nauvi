@@ -1,5 +1,5 @@
-//! Interactive sessions on the CLI: `kubeloupe attach`, `kubeloupe debug`
-//! and `kubeloupe node-shell`. Connects the local terminal (raw mode, window
+//! Interactive sessions on the CLI: `nauvi attach`, `nauvi debug`
+//! and `nauvi node-shell`. Connects the local terminal (raw mode, window
 //! size) or plain pipes to an attached or exec'd process.
 
 use crate::attach::{attach_note, attach_target, describe_attach_error};
@@ -203,7 +203,7 @@ pub async fn run_attached(mut process: AttachedProcess, tty: bool, detach: bool)
     Ok(())
 }
 
-/// `kubeloupe debug <pod> [-c container] [--image]`.
+/// `nauvi debug <pod> [-c container] [--image]`.
 pub async fn cli_debug(
     client: &Client,
     namespace: &str,
@@ -233,7 +233,7 @@ pub async fn cli_debug(
     run_attached(process, tty, false).await
 }
 
-/// `kubeloupe attach <pod> [-c container]`. A TTY is used when the container
+/// `nauvi attach <pod> [-c container]`. A TTY is used when the container
 /// has one and the local terminal is one too.
 pub async fn cli_attach(
     client: &Client,
@@ -264,7 +264,7 @@ pub async fn cli_attach(
     }
 }
 
-/// `kubeloupe node-shell <node>`: the pod is deleted however the session ends
+/// `nauvi node-shell <node>`: the pod is deleted however the session ends
 /// (exit, error, Ctrl-C, SIGTERM).
 pub async fn cli_node_shell(
     client: &Client,

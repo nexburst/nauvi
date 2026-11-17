@@ -1,4 +1,4 @@
-// kubeloupe:// links (`commands/links.rs`, #299). Tests queue a request with
+// nauvi:// links (`commands/links.rs`, #299). Tests queue a request with
 // `fake.queueLink` / `fake.openLink`.
 
 import type { AreaHandlers, FakeState } from "./state";
@@ -14,7 +14,7 @@ export function linksHandlers(s: FakeState) {
     cmdObjectLink: (resource, namespace, name) => {
       const context = s.cluster.contexts.find((c) => c.current)?.name ?? "";
       const parts = [context, resource.group || "core", resource.version, resource.kind, namespace || "_", name];
-      return `kubeloupe://${parts.map(encode).join("/")}`;
+      return `nauvi://${parts.map(encode).join("/")}`;
     },
     cmdTakeLink: () => {
       const request = s.link;

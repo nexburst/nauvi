@@ -3,7 +3,7 @@
 //! would both write `settings.json` and lose each other's changes.
 //!
 //! The second launch's context is ignored: it only focuses the app that is
-//! already running. Its one argument that counts is a `kubeloupe://` link
+//! already running. Its one argument that counts is a `nauvi://` link
 //! (#299, `links.rs`), which the running app opens.
 //!
 //! On Linux the running app owns a D-Bus name on the session bus. The name
@@ -19,7 +19,7 @@ use tauri::{AppHandle, Manager, Wry};
 /// The plugin; register it before the other plugins, so a second launch
 /// exits before anything else starts.
 pub(crate) fn plugin(identifier: &str) -> TauriPlugin<Wry> {
-    // A second launch with a kubeloupe:// link (#299) goes to the window
+    // A second launch with a nauvi:// link (#299) goes to the window
     // the link is for; any other second launch focuses the app.
     let builder = tauri_plugin_single_instance::Builder::new().callback(|app, args, _cwd| {
         if !crate::links::open_from_args(app, &args) {
@@ -96,11 +96,11 @@ mod tests {
 
     #[test]
     fn dbus_id_is_stable_and_per_directory() {
-        let a = dbus_id("com.kubeloupe.app", "/home/a/.config");
-        assert_eq!(a, dbus_id("com.kubeloupe.app", "/home/a/.config"));
-        assert_ne!(a, dbus_id("com.kubeloupe.app", "/home/b/.config"));
+        let a = dbus_id("com.nauvi.app", "/home/a/.config");
+        assert_eq!(a, dbus_id("com.nauvi.app", "/home/a/.config"));
+        assert_ne!(a, dbus_id("com.nauvi.app", "/home/b/.config"));
         let last = a.rsplit('.').next().unwrap();
-        assert!(a.starts_with("com.kubeloupe.app.c"));
+        assert!(a.starts_with("com.nauvi.app.c"));
         assert_eq!(last.len(), 17);
         assert!(last.chars().all(|c| c.is_ascii_alphanumeric()));
     }

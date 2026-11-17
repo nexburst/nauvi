@@ -19,13 +19,13 @@ use k8s_openapi::api::core::v1::{ConfigMap, Namespace};
 use kube::api::{Api, DeleteParams, PostParams};
 use kube::config::KubeConfigOptions;
 use kube::Client;
-use kubeloupe::liveness::Prober;
-use kubeloupe::watch::{watch_with, Update, WatchState};
+use nauvi::liveness::Prober;
+use nauvi::watch::{watch_with, Update, WatchState};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio::task::{JoinHandle, JoinSet};
 
 fn context() -> String {
-    std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".to_string())
+    std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string())
 }
 
 /// Listen on 127.0.0.1:`port` (0: any free port), reusing the address so
@@ -105,7 +105,7 @@ async fn a_dropped_connection_goes_live_again_without_a_change() -> Result<()> {
 
     // The namespace first, straight to the API server: nothing to stop if
     // it cannot be made.
-    let direct = kubeloupe::client_for_context(Some(&context())).await?;
+    let direct = nauvi::client_for_context(Some(&context())).await?;
     let ns = format!("reconnect-{:x}", common::unique_suffix());
     let namespaces: Api<Namespace> = Api::all(direct.clone());
     let obj: Namespace = serde_json::from_value(serde_json::json!({

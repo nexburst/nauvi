@@ -2,11 +2,11 @@
 //! through the `helm` CLI.
 
 use crate::state::{Cluster, ClusterSession};
-use kubeloupe::actions::describe_error;
-use kubeloupe::helm::{
+use nauvi::actions::describe_error;
+use nauvi::helm::{
     self, HelmChartInfo, HelmRelease, HelmReleaseList, HelmRevisionKey, HelmStorage, HelmTarget,
 };
-use kubeloupe::TempKubeconfig;
+use nauvi::TempKubeconfig;
 
 /// The releases in `namespaces` (empty = all), from labels only. Namespaces
 /// whose Secrets may not be listed come back as `warnings`.
@@ -69,7 +69,7 @@ pub(crate) fn target(state: &ClusterSession) -> Result<HelmRun, String> {
     let approved = state.target()?;
     let temp = match approved.flat()? {
         Some(flat) => Some(
-            kubeloupe::catalog::kubeconfig_yaml(&flat)
+            nauvi::catalog::kubeconfig_yaml(&flat)
                 .and_then(|yaml| TempKubeconfig::create(&yaml))
                 .map_err(|e| format!("{e:#}"))?,
         ),

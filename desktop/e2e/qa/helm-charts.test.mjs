@@ -59,7 +59,7 @@ const button = (testid, text) => By.xpath(`//*[@data-testid=${xq(testid)}]//butt
 
 describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
   before(async () => {
-    dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-helm-"));
+    dir = mkdtempSync(join(tmpdir(), "nauvi-qa-helm-"));
     repo = join(dir, "repo");
     mkdirSync(repo);
     for (const version of ["0.1.0", "0.2.0"]) {
@@ -96,10 +96,10 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
   async function setEditor(testid, text) {
     const { app } = s;
     const editor = await app.find(byTestId(testid));
-    await app.waitFor(async () => (await app.js("return !!arguments[0].kubeloupeEditor", editor)), {
+    await app.waitFor(async () => (await app.js("return !!arguments[0].nauviEditor", editor)), {
       message: `the ${testid} editor to load`,
     });
-    await app.js("arguments[0].kubeloupeEditor.setValue(arguments[1])", editor, text);
+    await app.js("arguments[0].nauviEditor.setValue(arguments[1])", editor, text);
   }
 
   async function selectOption(el, value) {
@@ -152,7 +152,7 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
     await app.waitFor(
       async () =>
         (await app.js(
-          `return document.querySelector('[data-testid="deploy-values"]')?.kubeloupeEditor?.getValue() ?? ""`,
+          `return document.querySelector('[data-testid="deploy-values"]')?.nauviEditor?.getValue() ?? ""`,
         )).includes("greeting: hello"),
       { message: "the chart defaults in the values editor" },
     );
@@ -163,7 +163,7 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
       message: "the dry-run summary",
     });
     const manifest = await app.js(
-      `return document.querySelector('[data-testid="deploy-manifest"]')?.kubeloupeEditor?.getValue() ?? ""`,
+      `return document.querySelector('[data-testid="deploy-manifest"]')?.nauviEditor?.getValue() ?? ""`,
     );
     if (!manifest.includes('greeting: "from-qa"')) throw new Error(`dry-run manifest:\n${manifest}`);
     // Nothing installed yet.
@@ -197,7 +197,7 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
     await app.waitFor(
       async () =>
         (await app.js(
-          `return document.querySelector('[data-testid="deploy-values"]')?.kubeloupeEditor?.getValue() ?? ""`,
+          `return document.querySelector('[data-testid="deploy-values"]')?.nauviEditor?.getValue() ?? ""`,
         )).includes("greeting: from-qa"),
       { message: "the release's values prefilled" },
     );
@@ -240,7 +240,7 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
     await app.setValue(await dialog.findElement(By.css('input[aria-label="Release name"]')), "qa-bad-values");
     await app.waitFor(
       async () =>
-        (await app.js(`return document.querySelector('[data-testid="deploy-values"]')?.kubeloupeEditor?.getValue() ?? ""`)).includes("greeting"),
+        (await app.js(`return document.querySelector('[data-testid="deploy-values"]')?.nauviEditor?.getValue() ?? ""`)).includes("greeting"),
       { message: "the chart defaults" },
     );
     await setEditor("deploy-values", "- just\n- a list\n");

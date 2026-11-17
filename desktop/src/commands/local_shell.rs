@@ -7,8 +7,8 @@ use crate::commands::exec::{ExecClosed, ExecOutput};
 use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::SettingsStore;
 use crate::state::{next_session, Cluster};
-use kubeloupe::catalog::expand_home;
-use kubeloupe::{
+use nauvi::catalog::expand_home;
+use nauvi::{
     flat_shell_kubeconfig, shell_kubeconfig, shell_kubeconfig_env_for, ShellKubeconfig,
     TempKubeconfig,
 };
@@ -103,7 +103,7 @@ pub(crate) fn shell_kubeconfig_for(
             let kubeconfig = kube::config::Kubeconfig::read().map_err(|e| {
                 format!(
                     "cannot read the kubeconfig: {}",
-                    kubeloupe::errors::chain_text(&e)
+                    nauvi::errors::chain_text(&e)
                 )
             })?;
             shell_kubeconfig(&kubeconfig, Some(&approved.target.context), namespace)

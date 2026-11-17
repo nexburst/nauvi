@@ -6,20 +6,20 @@
 #     printed a line,
 #   - demo/crashed has crashed (and restarted) at least once.
 # Stops with "image pull failed: <image>" once a demo pod has failed to pull
-# its image for 30 s (KUBELOUPE_PULL_GRACE), instead of waiting out the timeout.
+# its image for 30 s (NAUVI_PULL_GRACE), instead of waiting out the timeout.
 #
 # Usage: bash scripts/test-cluster/wait-demo.sh [timeout-seconds]   (default 240)
-# The context is KUBELOUPE_TEST_CONTEXT (default kind-kubeloupe-test).
+# The context is NAUVI_TEST_CONTEXT (default kind-nauvi-test).
 set -euo pipefail
 
 timeout="${1:-240}"
-ctx="${KUBELOUPE_TEST_CONTEXT:-kind-kubeloupe-test}"
+ctx="${NAUVI_TEST_CONTEXT:-kind-nauvi-test}"
 k() { kubectl --context "$ctx" -n demo "$@"; }
 deadline=$((SECONDS + timeout))
 
 # How long an image may keep failing to pull before giving up: the kubelet
 # retries, and one failed pull can be a registry hiccup.
-pull_grace="${KUBELOUPE_PULL_GRACE:-30}"
+pull_grace="${NAUVI_PULL_GRACE:-30}"
 # "<image> <first second it failed>" per line, for the images failing now.
 pull_failing=""
 

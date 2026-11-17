@@ -154,7 +154,7 @@ pub async fn get_pod_yaml(client: &Client, namespace: &str, name: &str) -> Resul
     resources::get_resource_yaml(client, &pod_ref(), namespace, name, false).await
 }
 
-/// Apply edited pod YAML with server-side apply (field manager "kubeloupe").
+/// Apply edited pod YAML with server-side apply (field manager "nauvi").
 pub async fn apply_pod_yaml(
     client: &Client,
     namespace: &str,

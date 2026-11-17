@@ -11,7 +11,7 @@ struct TempDir(PathBuf);
 impl TempDir {
     fn new() -> Self {
         let dir = std::env::temp_dir().join(format!(
-            "kubeloupe-catalog-{}-{}",
+            "nauvi-catalog-{}-{}",
             std::process::id(),
             NEXT_DIR.fetch_add(1, Ordering::Relaxed)
         ));

@@ -5,7 +5,7 @@
 // namespace list; switching back restores the admin view of the cluster.
 //
 // The second context is the namespace-scoped user from limited-user.sh
-// (KUBELOUPE_LIMITED_KUBECONFIG), on the same kind cluster, so discovery and
+// (NAUVI_LIMITED_KUBECONFIG), on the same kind cluster, so discovery and
 // the namespace list really differ. Without it, the second context is the
 // admin context under another name, and only the reset and reload are
 // checked. Only reads the cluster.
@@ -23,10 +23,10 @@ import { appSession, waitLive } from "../lib/qa.mjs";
 import { namespaceLabel, namespaceOptions, openNamespacePicker, closeNamespacePicker } from "../lib/table.mjs";
 
 const T = { timeout: 150_000 };
-const limited = process.env.KUBELOUPE_LIMITED_KUBECONFIG;
+const limited = process.env.NAUVI_LIMITED_KUBECONFIG;
 const hasLimited = !!limited && existsSync(limited);
 
-const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-area1-"));
+const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-area1-"));
 const view = (args, env = {}) =>
   execFileSync("kubectl", ["config", "view", "--flatten", ...args], { encoding: "utf8", env: { ...process.env, ...env } });
 

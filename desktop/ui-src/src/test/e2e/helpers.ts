@@ -114,7 +114,7 @@ export class Fake {
     return this.page.evaluate(([l, id]) => window.__fake.emitTaggedLines(l, id), [lines, streamId] as const);
   }
 
-  /** A kubeloupe:// link request reaches the window (#299), as from a second launch. */
+  /** A nauvi:// link request reaches the window (#299), as from a second launch. */
   openLink(request: LinkRequest): Promise<void> {
     return this.page.evaluate((r) => window.__fake.openLink(r), request);
   }

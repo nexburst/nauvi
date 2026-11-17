@@ -34,18 +34,18 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Same script as local development: kind cluster + metrics-server +
-      # demo workload. KUBELOUPE_IMAGES=pull: the test images are pulled once
+      # demo workload. NAUVI_IMAGES=pull: the test images are pulled once
       # through mirror.gcr.io and loaded into the nodes (#269).
       - name: Create kind cluster
         env:
-          KUBELOUPE_IMAGES: pull
+          NAUVI_IMAGES: pull
         run: bash scripts/test-cluster/setup.sh
 
       # A namespace-scoped user (edit in team-a only) for the RBAC tests.
       - name: Create limited user
         run: |
-          bash scripts/test-cluster/limited-user.sh "$HOME/.kube/kubeloupe-limited.yaml"
-          echo "KUBELOUPE_LIMITED_KUBECONFIG=$HOME/.kube/kubeloupe-limited.yaml" >> "$GITHUB_ENV"
+          bash scripts/test-cluster/limited-user.sh "$HOME/.kube/nauvi-limited.yaml"
+          echo "NAUVI_LIMITED_KUBECONFIG=$HOME/.kube/nauvi-limited.yaml" >> "$GITHUB_ENV"
 
       # For the Helm tests (tests/helm_cluster.rs, tests/helm_charts_cluster.rs):
       # install, upgrade, rollback and uninstall the local chart in
@@ -68,10 +68,10 @@ jobs:
       - name: Debug info
         if: failure()
         run: |
-          kubectl --context kind-kubeloupe-test get pods -A -o wide || true
-          kubectl --context kind-kubeloupe-test get events -A --sort-by=.lastTimestamp || true
-          kubectl --context kind-kubeloupe-test -n kube-system logs deploy/metrics-server --tail=50 || true
-          kubectl --context kind-kubeloupe-test describe pods -n demo || true
+          kubectl --context kind-nauvi-test get pods -A -o wide || true
+          kubectl --context kind-nauvi-test get events -A --sort-by=.lastTimestamp || true
+          kubectl --context kind-nauvi-test -n kube-system logs deploy/metrics-server --tail=50 || true
+          kubectl --context kind-nauvi-test describe pods -n demo || true
 
   # The real desktop app (embedded frontend, real IPC) on WebKitGTK, driven
   # through tauri-driver + WebKitWebDriver under Xvfb, against its own kind
@@ -93,7 +93,7 @@ jobs:
       # test images are pulled once and loaded into the nodes (#269).
       - name: Create kind cluster (background)
         env:
-          KUBELOUPE_IMAGES: pull
+          NAUVI_IMAGES: pull
         run: |
           mkdir -p "$RUNNER_TEMP/cluster"
           ( bash scripts/test-cluster/setup.sh > "$RUNNER_TEMP/cluster/setup.log" 2>&1
@@ -144,7 +144,7 @@ jobs:
       - name: Build the app
         run: |
           npm --prefix desktop/ui-src run build
-          cargo build -p kubeloupe-desktop --locked --features tauri/custom-protocol
+          cargo build -p nauvi-desktop --locked --features tauri/custom-protocol
 
       - name: Wait for the cluster
         run: |
@@ -174,5 +174,5 @@ jobs:
       - name: Debug info
         if: failure()
         run: |
-          kubectl --context kind-kubeloupe-test get pods -A -o wide || true
-          kubectl --context kind-kubeloupe-test get events -A --sort-by=.lastTimestamp | tail -50 || true
+          kubectl --context kind-nauvi-test get pods -A -o wide || true
+          kubectl --context kind-nauvi-test get events -A --sort-by=.lastTimestamp | tail -50 || true

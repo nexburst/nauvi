@@ -3,7 +3,7 @@
 **Status:** accepted (2026-11-13). Details: #9, #16, #18, #19.
 
 ## Context
-kubeloupe is a Lens-style Kubernetes IDE. The UI needs widgets the web already
+nauvi is a Lens-style Kubernetes IDE. The UI needs widgets the web already
 has in mature form: a terminal (xterm.js), a code editor with diffs
 (CodeMirror), virtualized tables with 10k+ live rows, charts, a command palette.
 All Kubernetes logic should be shared with the CLI.

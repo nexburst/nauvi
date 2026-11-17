@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 import type { ObjectLink } from "../../lib/bindings";
 import { namespaceButton, openApp, openKind, row, toggleNamespaces } from "./helpers";
 
-// "Copy link" and opening kubeloupe:// links (#299). The backend parses and
+// "Copy link" and opening nauvi:// links (#299). The backend parses and
 // checks the link and routes it to a window; these tests start from the
 // request a window takes (`cmdTakeLink`).
 
@@ -54,13 +54,13 @@ test("Copy link in the detail panel and the row menu", async ({ page }) => {
   ]);
   await bar(page).getByRole("button", { name: "Copy link" }).click();
   await expect(page.getByRole("status")).toContainText("Copied the link to Pod web-1");
-  expect(await copied(page)).toEqual(["kubeloupe://kind-dev/core/v1/Pod/demo/web-1"]);
+  expect(await copied(page)).toEqual(["nauvi://kind-dev/core/v1/Pod/demo/web-1"]);
   expect((await fake.lastCall("cmdCheckActions")).ids).not.toContain("link");
 
   await openKind(page, "Deployments");
   await row(page, "api").click({ button: "right" });
   await menu(page).getByRole("menuitem", { name: "Copy link" }).click();
-  await expect.poll(() => copied(page)).toContain("kubeloupe://kind-dev/apps/v1/Deployment/demo/api");
+  await expect.poll(() => copied(page)).toContain("nauvi://kind-dev/apps/v1/Deployment/demo/api");
   expect(fake.errors).toEqual([]);
 });
 
@@ -69,12 +69,12 @@ test("Copy link says why when the backend refuses", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Nodes");
   // The menu asks ahead, the click asks again.
-  const refusal = "This object can't be linked to: its context is not a name kubeloupe can link to.";
+  const refusal = "This object can't be linked to: its context is not a name nauvi can link to.";
   await fake.failNext("cmdObjectLink", refusal);
   await fake.failNext("cmdObjectLink", refusal);
   await row(page, "node-1").click({ button: "right" });
   await menu(page).getByRole("menuitem", { name: "Copy link" }).click();
-  await expect(page.getByRole("alert")).toContainText("its context is not a name kubeloupe can link to");
+  await expect(page.getByRole("alert")).toContainText("its context is not a name nauvi can link to");
   expect(await copied(page)).toEqual([]);
 });
 

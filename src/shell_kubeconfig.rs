@@ -186,7 +186,7 @@ impl TempKubeconfig {
         let pid = std::process::id();
         for _ in 0..100 {
             let n = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
-            let path = dir.join(format!("kubeloupe-shell-{pid}-{n}.yaml"));
+            let path = dir.join(format!("nauvi-shell-{pid}-{n}.yaml"));
             let mut options = std::fs::OpenOptions::new();
             options.write(true).create_new(true);
             #[cfg(unix)]
@@ -231,7 +231,7 @@ impl Drop for TempKubeconfig {
     }
 }
 
-/// Delete the temp kubeconfigs a kubeloupe that is gone left in the system
+/// Delete the temp kubeconfigs a nauvi that is gone left in the system
 /// temp directory (it crashed or was killed before dropping them; they may
 /// hold a context's credentials, #242). Returns how many were deleted.
 pub fn sweep_stale_temp_kubeconfigs() -> usize {
@@ -239,7 +239,7 @@ pub fn sweep_stale_temp_kubeconfigs() -> usize {
 }
 
 /// [`sweep_stale_temp_kubeconfigs`] in `dir`, with `alive` telling whether
-/// a process id still runs. Only `kubeloupe-shell-<pid>-<n>.yaml` files of
+/// a process id still runs. Only `nauvi-shell-<pid>-<n>.yaml` files of
 /// another, gone process, that are regular files (a symlink is never
 /// followed or removed) owned by the current user, are deleted.
 pub fn sweep_stale_in(dir: &Path, alive: impl Fn(u32) -> bool) -> usize {
@@ -267,9 +267,7 @@ pub fn sweep_stale_in(dir: &Path, alive: impl Fn(u32) -> bool) -> usize {
 
 /// The process id in a [`TempKubeconfig`] file name.
 fn temp_file_pid(name: &str) -> Option<u32> {
-    let rest = name
-        .strip_prefix("kubeloupe-shell-")?
-        .strip_suffix(".yaml")?;
+    let rest = name.strip_prefix("nauvi-shell-")?.strip_suffix(".yaml")?;
     let (pid, n) = rest.split_once('-')?;
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     if !digits(n) || !digits(pid) {
@@ -453,7 +451,7 @@ contexts:
 
     #[test]
     fn sweep_removes_only_files_of_gone_processes() {
-        let dir = std::env::temp_dir().join(format!("kubeloupe-242-sweep-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-242-sweep-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let file = |name: &str| {
@@ -461,21 +459,21 @@ contexts:
             std::fs::write(&p, "token: t").unwrap();
             p
         };
-        let gone = file("kubeloupe-shell-4000001-1.yaml");
-        let gone2 = file("kubeloupe-shell-4000001-7.yaml");
-        let running = file("kubeloupe-shell-4000002-1.yaml");
+        let gone = file("nauvi-shell-4000001-1.yaml");
+        let gone2 = file("nauvi-shell-4000001-7.yaml");
+        let running = file("nauvi-shell-4000002-1.yaml");
         let ours = TempKubeconfig::create_in(&dir, "x").unwrap();
         let others = [
-            file("kubeloupe-shell-4000001.yaml"),
-            file("kubeloupe-shell-4000001-1.yml"),
-            file("kubeloupe-shell-x-1.yaml"),
+            file("nauvi-shell-4000001.yaml"),
+            file("nauvi-shell-4000001-1.yml"),
+            file("nauvi-shell-x-1.yaml"),
             file("other-4000001-1.yaml"),
         ];
         // A link named like ours, to a file elsewhere: neither is touched.
         #[cfg(unix)]
         let (target, link) = {
             let target = file("target.yaml");
-            let link = dir.join("kubeloupe-shell-4000001-9.yaml");
+            let link = dir.join("nauvi-shell-4000001-9.yaml");
             std::os::unix::fs::symlink(&target, &link).unwrap();
             (target, link)
         };
@@ -502,7 +500,7 @@ contexts:
 
     #[test]
     fn temp_file_is_private_and_removed_on_drop() {
-        let dir = std::env::temp_dir().join(format!("kubeloupe-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let temp = TempKubeconfig::create_in(&dir, "kind: Config\n").unwrap();
         let path = temp.path().to_path_buf();

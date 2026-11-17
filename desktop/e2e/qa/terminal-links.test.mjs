@@ -14,7 +14,7 @@ import { terminal } from "../lib/terminal.mjs";
 
 const T = { timeout: 180_000 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const GOOD = "http://example.com/kubeloupe-qa-245";
+const GOOD = "http://example.com/nauvi-qa-245";
 const BAD = [
   ["javascript:alert(document.domain)", "BADJSLINK"],
   ["file:///etc/passwd", "BADFILELINK"],

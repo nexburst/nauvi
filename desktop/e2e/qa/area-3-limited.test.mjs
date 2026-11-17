@@ -6,7 +6,7 @@
 // - PR #64: per-group 403s stay in their group (a Deployment panel)
 // - PR #92: the Workloads overview is scoped to team-a and says what it
 //   could not see; a Deployment's charts still load
-// Skipped unless KUBELOUPE_LIMITED_KUBECONFIG names that kubeconfig.
+// Skipped unless NAUVI_LIMITED_KUBECONFIG names that kubeconfig.
 
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -18,8 +18,8 @@ import { appSession, waitLive } from "../lib/qa.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
-const kubeconfig = process.env.KUBELOUPE_LIMITED_KUBECONFIG;
-const skip = kubeconfig && existsSync(kubeconfig) ? false : "set KUBELOUPE_LIMITED_KUBECONFIG (limited-user.sh)";
+const kubeconfig = process.env.NAUVI_LIMITED_KUBECONFIG;
+const skip = kubeconfig && existsSync(kubeconfig) ? false : "set NAUVI_LIMITED_KUBECONFIG (limited-user.sh)";
 
 function summary(groups) {
   return groups.map((g) => ({ title: g.title, error: g.error, rows: g.rows.length }));

@@ -1,4 +1,4 @@
-// kubeloupe:// links (#299). "Copy link" asks the backend for an object's
+// nauvi:// links (#299). "Copy link" asks the backend for an object's
 // link. An opened link reaches a window as a request it takes with
 // `cmdTakeLink` (on start, and whenever `linkPending` says there is one):
 // it opens the object's detail panel, which only reads. Nothing a link

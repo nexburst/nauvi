@@ -1,4 +1,4 @@
-//! The catalog's status column: can kubeloupe log in to a context's
+//! The catalog's status column: can nauvi log in to a context's
 //! cluster right now?
 
 use super::ContextTarget;

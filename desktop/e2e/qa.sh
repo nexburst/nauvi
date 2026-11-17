@@ -13,7 +13,7 @@
 #   --tools-only  fetch the tools, print their paths and exit
 #
 # Tools come from the system when it has them, otherwise they are fetched
-# once into ~/.cache/kubeloupe-qa (KUBELOUPE_QA_CACHE):
+# once into ~/.cache/nauvi-qa (NAUVI_QA_CACHE):
 #   WebKitWebDriver  webkit2gtk-driver / webkitgtk-webdriver .deb (apt-get download)
 #   Xvfb             xvfb .deb (apt-get download)
 #   tauri-driver     cargo install --root <cache>
@@ -28,7 +28,7 @@ set -euo pipefail
 
 E2E="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$E2E/../.." && pwd)"
-CACHE="${KUBELOUPE_QA_CACHE:-$HOME/.cache/kubeloupe-qa}"
+CACHE="${NAUVI_QA_CACHE:-$HOME/.cache/nauvi-qa}"
 TAURI_DRIVER_VERSION="${TAURI_DRIVER_VERSION:-2.1.0}"
 HELM_VERSION="${HELM_VERSION:-v3.16.4}"
 
@@ -173,7 +173,7 @@ if [ "$BUILD" = 1 ]; then
   log "building the app (frontend embedded)"
   [ -d "$REPO/desktop/ui-src/node_modules" ] || npm --prefix "$REPO/desktop/ui-src" ci --no-audit --no-fund
   npm --prefix "$REPO/desktop/ui-src" run build
-  (cd "$REPO" && cargo build -p kubeloupe-desktop --features tauri/custom-protocol)
+  (cd "$REPO" && cargo build -p nauvi-desktop --features tauri/custom-protocol)
 fi
 [ -d "$E2E/node_modules" ] || npm --prefix "$E2E" ci --no-audit --no-fund
 

@@ -38,7 +38,7 @@
       use:focus
     />
     <p class="muted hint">
-      A folder brings in every kubeconfig file in it, including files added to it later. kubeloupe only reads them.
+      A folder brings in every kubeconfig file in it, including files added to it later. nauvi only reads them.
     </p>
   {:else}
     <textarea
@@ -52,7 +52,7 @@
     ></textarea>
     <input class="input" aria-label="Name (optional)" placeholder="Name (optional)" spellcheck="false" bind:value={name} />
     <p class="muted hint">
-      Saved in kubeloupe's config folder, readable only by you. Removing it from the catalog deletes that copy.
+      Saved in nauvi's config folder, readable only by you. Removing it from the catalog deletes that copy.
     </p>
   {/if}
   <div class="buttons">

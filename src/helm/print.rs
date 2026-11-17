@@ -1,4 +1,4 @@
-//! CLI output: `kubeloupe helm list` and `kubeloupe helm get`.
+//! CLI output: `nauvi helm list` and `nauvi helm get`.
 
 use super::{
     get_helm_release, list_helm_releases, release_charts, HelmRelease, HelmReleaseRow,
@@ -8,7 +8,7 @@ use crate::resources::align_columns;
 use anyhow::Result;
 use kube::Client;
 
-/// What `kubeloupe helm get` prints.
+/// What `nauvi helm get` prints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
 pub enum HelmSection {
     /// Status, chart, history and notes
@@ -74,7 +74,7 @@ fn history_table(history: &[HelmRevision]) -> String {
     align_columns(&table)
 }
 
-/// `kubeloupe helm list [-n ns]`: all namespaces by default.
+/// `nauvi helm list [-n ns]`: all namespaces by default.
 pub async fn print_helm_list(client: &Client, namespace: Option<&str>) -> Result<()> {
     let namespaces: Vec<String> = namespace.map(str::to_string).into_iter().collect();
     let list = list_helm_releases(client, &namespaces).await?;
@@ -134,7 +134,7 @@ fn summary(r: &HelmRelease) -> String {
     out
 }
 
-/// What `kubeloupe helm get` takes besides the client.
+/// What `nauvi helm get` takes besides the client.
 #[derive(Debug, Clone, Default)]
 pub struct HelmGetOptions {
     pub namespace: String,
@@ -146,7 +146,7 @@ pub struct HelmGetOptions {
     pub reveal: bool,
 }
 
-/// `kubeloupe helm get <release> [section]`.
+/// `nauvi helm get <release> [section]`.
 pub async fn print_helm_get(client: &Client, name: &str, opts: &HelmGetOptions) -> Result<()> {
     let r = get_helm_release(client, &opts.namespace, name, opts.revision, opts.reveal).await?;
     match opts.section {

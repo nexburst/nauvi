@@ -4,7 +4,7 @@
 // pinned chart and its repository. Nodes get a Disk column once Prometheus
 // (node-exporter) is there. RBAC greys the offer for the limited user.
 //
-// Runs against kind-kubeloupe-staging when it exists (qa.yml creates it,
+// Runs against kind-nauvi-staging when it exists (qa.yml creates it,
 // empty: no metrics-server, no Prometheus), else the test context. Real
 // installs happen only in qa.yml (GITHUB_ACTIONS and QA_PROMETHEUS set) and
 // only on the staging cluster, and are uninstalled afterwards. Elsewhere the
@@ -24,7 +24,7 @@ import { setTheme } from "../lib/theme.mjs";
 import { tableData } from "../lib/table.mjs";
 
 const T = { timeout: 300_000 };
-const STAGING = process.env.QA_STAGING_CONTEXT || "kind-kubeloupe-staging";
+const STAGING = process.env.QA_STAGING_CONTEXT || "kind-nauvi-staging";
 const hasStaging = contexts().includes(STAGING);
 const TARGET = hasStaging ? STAGING : CONTEXT;
 const REAL = !!(process.env.GITHUB_ACTIONS && process.env.QA_PROMETHEUS && hasStaging);
@@ -285,8 +285,8 @@ describe("one-click metrics", { timeout: 30 * 60_000, skip }, () => {
   });
 });
 
-const limited = process.env.KUBELOUPE_LIMITED_KUBECONFIG;
-const noLimited = limited && existsSync(limited) ? false : "set KUBELOUPE_LIMITED_KUBECONFIG (limited-user.sh)";
+const limited = process.env.NAUVI_LIMITED_KUBECONFIG;
+const noLimited = limited && existsSync(limited) ? false : "set NAUVI_LIMITED_KUBECONFIG (limited-user.sh)";
 
 describe("one-click metrics as a namespace-scoped user", { timeout: 5 * 60_000, skip: skip || noLimited }, () => {
   const s = appSession("metrics-install-limited", { kubeconfig: limited });

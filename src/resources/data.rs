@@ -351,7 +351,7 @@ fn ascii_json_escaped(v: &str) -> String {
     out
 }
 
-/// Save `changes` with a JSON merge patch (field manager "kubeloupe").
+/// Save `changes` with a JSON merge patch (field manager "nauvi").
 /// `resource_version` is the version the data was loaded at (empty: don't
 /// check); if the object changed since, nothing is saved and the outcome is
 /// [`ApplyOutcome::Conflict`]. Errors are already plain text, and never

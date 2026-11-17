@@ -5,7 +5,7 @@ use crate::commands::cluster::MetricsKind;
 use crate::commands::prometheus::prometheus_for;
 use crate::settings::SettingsStore;
 use crate::state::{Cluster, ClusterSession};
-use kubeloupe::{
+use nauvi::{
     get_one_node_metrics, get_one_pod_metrics, get_usage_reference, pod_key, prometheus_usage,
     NodeUsage, PodUsage, SeriesView, Spark, UsageRange, UsageReference, MIN_SPACING_MS,
 };

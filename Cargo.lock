@@ -2603,65 +2603,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kubeloupe"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.23.1",
- "clap",
- "clap_complete",
- "flate2",
- "futures",
- "home",
- "http",
- "jiff",
- "k8s-openapi",
- "kube",
- "libc",
- "rmcp",
- "serde",
- "serde_json",
- "serde_yaml",
- "specta",
- "tokio",
- "tokio-tungstenite",
- "tower",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
-name = "kubeloupe-desktop"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.23.1",
- "futures",
- "kube",
- "kubeloupe",
- "objc2",
- "portable-pty",
- "regex",
- "semver",
- "serde",
- "serde_json",
- "specta",
- "specta-typescript",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tauri-specta",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "windows-registry 0.100.0",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2876,6 +2817,65 @@ name = "multiversion_no_op"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
+
+[[package]]
+name = "nauvi"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "clap",
+ "clap_complete",
+ "flate2",
+ "futures",
+ "home",
+ "http",
+ "jiff",
+ "k8s-openapi",
+ "kube",
+ "libc",
+ "rmcp",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "specta",
+ "tokio",
+ "tokio-tungstenite",
+ "tower",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "nauvi-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.23.1",
+ "futures",
+ "kube",
+ "nauvi",
+ "objc2",
+ "portable-pty",
+ "regex",
+ "semver",
+ "serde",
+ "serde_json",
+ "specta",
+ "specta-typescript",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tauri-specta",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "windows-registry 0.100.0",
+]
 
 [[package]]
 name = "ndk"

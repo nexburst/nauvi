@@ -18,14 +18,14 @@ use k8s_openapi::api::core::v1::{Namespace, Pod};
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::api::{Api, DeleteParams, DynamicObject, Patch, PatchParams, PostParams};
 use kube::Client;
-use kubeloupe::client_for_context;
-use kubeloupe::resources::{self, Category, Related, RelatedGroup, ResourceKind, ResourceRow};
+use nauvi::client_for_context;
+use nauvi::resources::{self, Category, Related, RelatedGroup, ResourceKind, ResourceRow};
 use serde_json::{json, Value};
 
 const TIMEOUT: Duration = Duration::from_secs(120);
 
 fn context() -> String {
-    std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".to_string())
+    std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string())
 }
 
 async fn connect() -> Result<Client> {
@@ -100,7 +100,7 @@ async fn apply(client: &Client, kind: &ResourceKind, ns: &str, obj: Value) -> Re
     let obj: DynamicObject = serde_json::from_value(obj)?;
     api.patch(
         &name,
-        &PatchParams::apply("kubeloupe-it").force(),
+        &PatchParams::apply("nauvi-it").force(),
         &Patch::Apply(&obj),
     )
     .await
@@ -147,9 +147,9 @@ async fn row(
         .with_context(|| format!("no {} {name} in the list", kind.resource.kind))
 }
 
-fn kubeloupe(args: &[&str]) -> Result<String> {
+fn nauvi(args: &[&str]) -> Result<String> {
     let ctx = context();
-    let out = Command::new(env!("CARGO_BIN_EXE_kubeloupe"))
+    let out = Command::new(env!("CARGO_BIN_EXE_nauvi"))
         .args(["--context", &ctx])
         .args(args)
         .output()?;
@@ -361,11 +361,11 @@ async fn role_binding_and_service_account_link_each_other() -> Result<()> {
             ensure!(rbs.items[0].cells[1] == ns, "{rbs:?}");
 
             // The CLI gets both from the registry.
-            let out = kubeloupe(&["get", "roles", "-n", &ns])?;
+            let out = nauvi(&["get", "roles", "-n", &ns])?;
             let header = out.lines().next().unwrap_or_default();
             ensure!(header.contains("RULES"), "{out}");
             ensure!(out.contains("pod-reader"), "{out}");
-            let out = kubeloupe(&["describe", &format!("clusterrole/{cluster_role}")])?;
+            let out = nauvi(&["describe", &format!("clusterrole/{cluster_role}")])?;
             for want in ["Rules:", "/healthz", "Cluster role bindings:", "app-healthz"] {
                 ensure!(out.contains(want), "no {want:?} in:\n{out}");
             }

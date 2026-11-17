@@ -33,7 +33,7 @@ const T = { timeout: 180_000 };
 const suffix = `${Date.now().toString(36)}${process.pid.toString(36)}`;
 const CLUSTER_ROLE = `qa-area3-cr-${suffix}`;
 const CRD_PLURAL = `qaarea3${suffix}s`;
-const CRD_GROUP = "qa.kubeloupe.dev";
+const CRD_GROUP = "qa.nauvi.dev";
 const CRD = `${CRD_PLURAL}.${CRD_GROUP}`;
 const CRD_KIND = `QaArea3${suffix.replace(/^[0-9]+/, "")}`.replace(/[^A-Za-z0-9]/g, "");
 

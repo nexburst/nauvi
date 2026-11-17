@@ -1,8 +1,8 @@
 [package]
-name = "kubeloupe-desktop"
+name = "nauvi-desktop"
 version = "0.1.0"
 edition = "2021"
-description = "kubeloupe desktop app — a Lens alternative in Rust, built with Tauri"
+description = "nauvi desktop app — a Lens alternative in Rust, built with Tauri"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -12,7 +12,7 @@ base64 = "0.23"
 anyhow = "1"
 futures = "0.3"
 kube = { version = "5", features = ["ws"] }
-kubeloupe = { path = "..", default-features = false, features = ["specta"] }
+nauvi = { path = "..", default-features = false, features = ["specta"] }
 portable-pty = "0.9"
 # Secret-looking text is masked in the app log (#208).
 regex = "1"

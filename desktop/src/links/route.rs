@@ -54,7 +54,7 @@ pub(crate) fn open_from_args(app: &AppHandle, args: &[String]) -> bool {
     let Some(link) = args.iter().skip(1).find(|a| is_link(a)) else {
         return false;
     };
-    tracing::info!("opened with a kubeloupe:// link");
+    tracing::info!("opened with a nauvi:// link");
     spawn_open(app, link.clone());
     true
 }
@@ -72,7 +72,7 @@ pub(crate) fn open_launch_link(app: &AppHandle) {
 #[cfg(target_os = "macos")]
 pub(crate) fn opened(app: &AppHandle, urls: &[url::Url]) {
     if let Some(link) = urls.iter().find(|u| is_link(u.as_str())) {
-        tracing::info!("asked to open a kubeloupe:// link");
+        tracing::info!("asked to open a nauvi:// link");
         spawn_open(app, link.as_str().to_string());
     }
 }
@@ -100,7 +100,7 @@ fn open(app: &AppHandle, raw: &str) {
         Ok(link) => link,
         Err(e) => {
             tracing::warn!("refused a link: {e}");
-            let message = format!("This kubeloupe link can't be opened: {e}. Nothing was opened.");
+            let message = format!("This nauvi link can't be opened: {e}. Nothing was opened.");
             deliver(app, None, LinkRequest::Notice { message });
             return;
         }

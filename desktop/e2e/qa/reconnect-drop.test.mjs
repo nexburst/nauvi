@@ -103,7 +103,7 @@ describe("reconnecting after the path to the API server drops", { timeout: 5 * 6
   let dir = "";
   const s = appSession("reconnect-drop", async () => {
     await p.start();
-    dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-drop-"));
+    dir = mkdtempSync(join(tmpdir(), "nauvi-qa-drop-"));
     const path = join(dir, "kubeconfig");
     writeFileSync(path, kubeconfigOf(CONTEXT), { mode: 0o600 });
     const cluster = execFileSync(

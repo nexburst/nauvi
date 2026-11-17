@@ -1,4 +1,4 @@
-# Contributing to kubeloupe
+# Contributing to nauvi
 
 Guide for people and coding agents. `AGENTS.md` is a symlink to this file.
 User-facing docs are in `README.md`; the plan is the roadmap issue #24.
@@ -12,7 +12,7 @@ recovering) a development machine: `docs/dev-setup.md`.
   `actions`, `cli`, `get`, `describe`), plus `src/resources/` (discovery,
   columns, table, ops, detail). `lib.rs` re-exports them. The CLI is
   `src/main.rs`, with its arguments in `src/args.rs`; `tests/cli.rs` runs the
-  binary. `src/mcp/` is `kubeloupe mcp`, the MCP server (only
+  binary. `src/mcp/` is `nauvi mcp`, the MCP server (only
   `src/mcp/server.rs` uses the SDK; `tests/mcp.rs` drives it over stdio).
 - `desktop/src/`: the Tauri app. `main.rs` builds the app, `state.rs` holds
   `AppState`, `commands/` has one module per concern and `commands/mod.rs`
@@ -29,11 +29,12 @@ recovering) a development machine: `docs/dev-setup.md`.
   `demo.yaml` (the demo workload), `wait-demo.sh` (waits until the demo pods
   are in the state the tests expect), `limited-user.sh` (a namespace-scoped
   user, opt-in), `images.sh` (pulls the Docker Hub test images once and
-  loads them into the kind nodes; CI sets `KUBELOUPE_IMAGES` for `setup.sh`;
+  loads them into the kind nodes; CI sets `NAUVI_IMAGES` for `setup.sh`;
   a new test image goes in its list) and `prometheus.yaml` (CI only, see
   below).
-- `scripts/dev/`: `capped.sh` (run a command under a memory ceiling) and
-  `clean-worktrees.sh` (remove merged agent worktrees).
+- `scripts/dev/`: `capped.sh` (run a command under a memory ceiling),
+  `clean-worktrees.sh` (remove merged agent worktrees) and `check-old-name.sh`
+  (the project's old name appears nowhere but `docs/decisions/0008`).
 
 ## Rules
 
@@ -49,10 +50,11 @@ recovering) a development machine: `docs/dev-setup.md`.
 Run all of these before opening a PR:
 
 ```sh
+scripts/dev/check-old-name.sh
 cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo test -p kubeloupe-desktop export_typescript_bindings   # then commit bindings.ts if it changed
+cargo test -p nauvi-desktop export_typescript_bindings   # then commit bindings.ts if it changed
 
 cd desktop/ui-src
 npm ci
@@ -73,7 +75,7 @@ Playwright needs a browser once: `npx playwright install chromium` (add
 - tauri-specta generates `desktop/ui-src/src/lib/bindings.ts` from the
   commands and events. Never edit it by hand. CI fails if it is stale.
 - On a merge or rebase conflict in `bindings.ts`, take either side and
-  regenerate it with `cargo test -p kubeloupe-desktop export_typescript_bindings`.
+  regenerate it with `cargo test -p nauvi-desktop export_typescript_bindings`.
   `.gitattributes` marks it `-merge` (git never merges it: a conflict means take
   either side and regenerate) and `linguist-generated`
   (collapsed in PR diffs). Always regenerate after a merge or rebase.
@@ -131,7 +133,7 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
   `desktop/e2e/qa/<scenario>.test.mjs` (none: all of them;
   `smoke.test.mjs`: the smoke suite). No sudo: WebKitWebDriver, Xvfb,
   tauri-driver and helm come from the system or are fetched once into
-  `~/.cache/kubeloupe-qa`. `--no-build` reuses the built app.
+  `~/.cache/nauvi-qa`. `--no-build` reuses the built app.
 - Output: `desktop/e2e/artifacts/qa-<time>/` (or `--out`): a screenshot and
   the page text per test, app logs and `report.md`. Look at the screenshots.
 - Each app gets its own `HOME` (settings, Downloads, an `xdg-open` that only
@@ -150,7 +152,7 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
 ## Cluster tests
 
 - kind only. `bash scripts/test-cluster/setup.sh` creates the cluster
-  (context `kind-kubeloupe-test`).
+  (context `kind-nauvi-test`).
 - `cargo test -- --ignored --test-threads=4` runs `tests/cluster.rs`.
   On a fresh cluster run `bash scripts/test-cluster/wait-demo.sh` first (CI
   does): it waits for `demo/crashed`'s first restart and the logger's first
@@ -158,11 +160,11 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
   bound (`eventually`), never assume it: `demo/crashed` is only a problem
   between two runs of its container. Run one
   test with `cargo test --test cluster -- --ignored <name>`. Set
-  `KUBELOUPE_TEST_CONTEXT` to use another context.
+  `NAUVI_TEST_CONTEXT` to use another context.
 - New cluster tests are `#[ignore]`d and create what they need in a temporary
   namespace (`in_temp_ns`), which they delete afterwards.
 - `tests/helm_cluster.rs` needs `helm` (on `PATH`, or the binary in
-  `KUBELOUPE_HELM`); it skips without it, except in CI. It installs
+  `NAUVI_HELM`); it skips without it, except in CI. It installs
   `scripts/test-cluster/charts/demo-chart` in a temporary namespace.
   `tests/helm_charts_cluster.rs` serves that chart as a repository on
   127.0.0.1 and sets `HELM_CONFIG_HOME`/`HELM_CACHE_HOME`/`HELM_DATA_HOME` to
@@ -174,11 +176,11 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
   node afterwards and only evict pods they created (`--pod-selector`).
 - RBAC: `bash scripts/test-cluster/limited-user.sh` creates a ServiceAccount
   with `edit` in `team-a` only and writes a separate kubeconfig,
-  `~/.kube/kubeloupe-limited.yaml` (it never touches `~/.kube/config`). The
+  `~/.kube/nauvi-limited.yaml` (it never touches `~/.kube/config`). The
   `limited_*` tests run as that user when
-  `KUBELOUPE_LIMITED_KUBECONFIG=~/.kube/kubeloupe-limited.yaml` is set, and
+  `NAUVI_LIMITED_KUBECONFIG=~/.kube/nauvi-limited.yaml` is set, and
   skip otherwise. Try the app as that user with
-  `KUBECONFIG=~/.kube/kubeloupe-limited.yaml cargo tauri dev`. The token
+  `KUBECONFIG=~/.kube/nauvi-limited.yaml cargo tauri dev`. The token
   lasts 24h; re-run the script to refresh it.
 
 ## Parallel agents

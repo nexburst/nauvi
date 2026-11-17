@@ -9,10 +9,10 @@ use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
 use kube::api::TerminalSize;
 use kube::Client;
-use kubeloupe::client_for_context_with;
-use kubeloupe::liveness::Prober;
-use kubeloupe::resources::ResourceKind;
-use kubeloupe::UsageHistory;
+use nauvi::client_for_context_with;
+use nauvi::liveness::Prober;
+use nauvi::resources::ResourceKind;
+use nauvi::UsageHistory;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -48,10 +48,10 @@ pub(crate) struct ExecSession {
 
 impl ExecSession {
     /// Stop the session: end its shell (bounded, see
-    /// [`kubeloupe::end_shell`]), stop its pumps and run its cleanup.
+    /// [`nauvi::end_shell`]), stop its pumps and run its cleanup.
     pub(crate) async fn close(mut self) {
         if self.end_on_close {
-            kubeloupe::end_shell(&self.stdin_tx, &mut self.task).await;
+            nauvi::end_shell(&self.stdin_tx, &mut self.task).await;
         }
         self.task.abort();
         if let Some(c) = self.cleanup {
@@ -71,14 +71,14 @@ pub(crate) struct SessionCleanup {
 
 impl SessionCleanup {
     pub(crate) async fn run(self) {
-        let _ = kubeloupe::node_shell::delete_node_shell(&self.client, &self.namespace, &self.pod)
-            .await;
+        let _ =
+            nauvi::node_shell::delete_node_shell(&self.client, &self.namespace, &self.pod).await;
     }
 }
 
 /// A running port-forward; dropping it stops it.
 pub(crate) struct ForwardSession {
-    pub(crate) forward: kubeloupe::PortForward,
+    pub(crate) forward: nauvi::PortForward,
     /// Epoch milliseconds, to list forwards in the order they started.
     pub(crate) started_at: u64,
     /// The saved forward it runs (#217).
@@ -200,7 +200,7 @@ impl ClusterSession {
             // from the file as it was read for that check (#242).
             Some(id) => self.sources.approved(Some(id))?.client().await,
         }
-        .map_err(|e| kubeloupe::error_text(&e))?;
+        .map_err(|e| nauvi::error_text(&e))?;
         let server = self.sources.server(selected.as_deref());
         let c = (c.clone(), Prober::for_server(c, &server));
         *slot = Some(c.clone());
@@ -824,7 +824,7 @@ mod tests {
     fn closing_an_exec_session_ends_its_shell() {
         let (session, typed) = shell(true);
         tauri::async_runtime::block_on(session.close());
-        assert_eq!(typed.try_recv().unwrap(), kubeloupe::END_SHELL_KEYS);
+        assert_eq!(typed.try_recv().unwrap(), nauvi::END_SHELL_KEYS);
     }
 
     #[test]
@@ -847,7 +847,7 @@ mod tests {
                 s.close().await;
             }
         });
-        assert_eq!(typed.try_recv().unwrap(), kubeloupe::END_SHELL_KEYS);
+        assert_eq!(typed.try_recv().unwrap(), nauvi::END_SHELL_KEYS);
     }
 
     #[test]

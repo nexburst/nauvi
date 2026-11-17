@@ -1,6 +1,6 @@
 //! Lists bounded on the server (#311): pages of `limit` objects, followed
 //! with `continue` until the caller's cap, so a big cluster never sends (and
-//! kubeloupe never holds) more objects than a caller will use.
+//! nauvi never holds) more objects than a caller will use.
 
 use kube::api::{Api, ListParams};
 use kube::Resource;

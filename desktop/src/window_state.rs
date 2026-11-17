@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn ignores_rects_no_window_could_have() {
-        let dir = std::env::temp_dir().join(format!("kubeloupe-ws-bad-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-ws-bad-{}", std::process::id()));
         let path = dir.join("window-state.json");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -414,7 +414,7 @@ mod tests {
 
     #[test]
     fn concurrent_saves_never_leave_a_half_written_file() {
-        let dir = std::env::temp_dir().join(format!("kubeloupe-ws-race-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-ws-race-{}", std::process::id()));
         let path = dir.join("window-state.json");
         let big = |n: usize| Saved {
             main: Some(r(n as f64, 0.0, 800.0, 600.0)),
@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn saved_state_round_trips_and_tolerates_old_or_bad_files() {
-        let dir = std::env::temp_dir().join(format!("kubeloupe-ws-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-ws-{}", std::process::id()));
         let path = dir.join("window-state.json");
         let saved = Saved {
             main: Some(r(1.0, 2.0, 3.0, 4.0)),

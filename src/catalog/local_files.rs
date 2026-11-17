@@ -66,7 +66,7 @@ mod tests {
     /// `team/key.pem` and `<tmp>/<tag>/elsewhere/token`.
     fn written(tag: &str, user: &str) -> (Dir, PathBuf) {
         let root =
-            std::env::temp_dir().join(format!("kubeloupe-244-local-{tag}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("nauvi-244-local-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let team = root.join("team");
         std::fs::create_dir_all(&team).unwrap();

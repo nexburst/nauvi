@@ -24,7 +24,7 @@ export function updaterHandlers(s: FakeState) {
       const { check, size } = cluster.update;
       if (check.status !== "available") throw "There is no update to install. Check for updates first.";
       if (!check.can_install) {
-        throw `This copy of kubeloupe cannot install updates itself. Download ${check.version} from ${check.release_url}.`;
+        throw `This copy of nauvi cannot install updates itself. Download ${check.version} from ${check.release_url}.`;
       }
       await events.updateProgress.emit({ phase: "downloading", downloaded: 0, total: size });
       await events.updateProgress.emit({ phase: "downloading", downloaded: Math.round(size * 0.45), total: size });

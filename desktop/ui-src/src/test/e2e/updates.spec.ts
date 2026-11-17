@@ -8,7 +8,7 @@ import { openApp } from "./helpers";
 const banner = (page: Page) => page.getByTestId("update-banner");
 const notice = (page: Page) => page.getByTestId("update-notice");
 const noticeText = (page: Page) => notice(page).locator(".text");
-const RELEASE = "https://github.com/pedrosanzmtz/kubeloupe/releases/tag/v0.2.0";
+const RELEASE = "https://github.com/nexburst/nauvi/releases/tag/v0.2.0";
 
 async function openSettings(page: Page) {
   await page.getByRole("button", { name: "Settings", exact: true }).click();
@@ -17,7 +17,7 @@ async function openSettings(page: Page) {
 
 test("a newer release shows a banner; install only starts on a click, with progress", async ({ page }) => {
   const fake = await openApp(page, (_c, f) => f.offerUpdate("0.2.0"));
-  await expect(banner(page)).toContainText("kubeloupe 0.2.0 is available — Release notes · Install and restart");
+  await expect(banner(page)).toContainText("nauvi 0.2.0 is available — Release notes · Install and restart");
   expect((await fake.calls("cmdUpdateCheck")).map((c) => c.startup)).toEqual([true]);
   expect(await fake.calls("cmdUpdateInstall")).toEqual([]);
 
@@ -43,10 +43,10 @@ test("a newer release shows a banner; install only starts on a click, with progr
 test("a failed install says why and can be tried again", async ({ page }) => {
   const fake = await openApp(page, (_c, f) => {
     f.offerUpdate("0.2.0");
-    f.failNext("cmdUpdateInstall", "Could not download kubeloupe 0.2.0: connection reset");
+    f.failNext("cmdUpdateInstall", "Could not download nauvi 0.2.0: connection reset");
   });
   await banner(page).getByRole("button", { name: "Install and restart" }).click();
-  await expect(banner(page).getByRole("alert")).toHaveText("Could not download kubeloupe 0.2.0: connection reset");
+  await expect(banner(page).getByRole("alert")).toHaveText("Could not download nauvi 0.2.0: connection reset");
   await expect(page.getByTestId("update-progress")).toHaveCount(0);
   await banner(page).getByRole("button", { name: "Install and restart" }).click();
   await expect(page.getByTestId("update-progress")).toContainText("Downloading…");
@@ -58,10 +58,10 @@ test("where the update cannot be installed in place, the banner links to the rel
     f.offerUpdate(
       "0.2.0",
       false,
-      "kubeloupe was installed from a .deb package, and this release has no signed .deb update.",
+      "nauvi was installed from a .deb package, and this release has no signed .deb update.",
     ),
   );
-  await expect(banner(page)).toContainText("kubeloupe 0.2.0 is available — Release notes · Download from the release page");
+  await expect(banner(page)).toContainText("nauvi 0.2.0 is available — Release notes · Download from the release page");
   await expect(banner(page)).toContainText("installed from a .deb package");
   await expect(banner(page).getByRole("button", { name: "Install and restart" })).toHaveCount(0);
   await banner(page).getByRole("button", { name: "Download from the release page" }).click();
@@ -94,8 +94,8 @@ test("a long note does not squeeze the banner's text into a column (#124)", asyn
 
 // The notes of `updater::ReadOnlyLocation` (#206).
 const READ_ONLY_NOTES = [
-  "kubeloupe is running from the disk image, which is read-only. Move kubeloupe to Applications to update it in place, or download the new version from the release page.",
-  "macOS runs this copy of kubeloupe from a temporary read-only location (App Translocation). Move kubeloupe to Applications with Finder to update it in place, or download the new version from the release page.",
+  "nauvi is running from the disk image, which is read-only. Move nauvi to Applications to update it in place, or download the new version from the release page.",
+  "macOS runs this copy of nauvi from a temporary read-only location (App Translocation). Move nauvi to Applications with Finder to update it in place, or download the new version from the release page.",
 ];
 
 for (const [i, note] of READ_ONLY_NOTES.entries()) {
@@ -108,12 +108,12 @@ for (const [i, note] of READ_ONLY_NOTES.entries()) {
     await openApp(page, (_c, f) =>
       f.offerUpdate("0.2.0", false, (window as unknown as { note206: string }).note206),
     );
-    await expect(banner(page)).toContainText("kubeloupe 0.2.0 is available — Release notes · Download from the release page");
+    await expect(banner(page)).toContainText("nauvi 0.2.0 is available — Release notes · Download from the release page");
     await expect(banner(page).getByRole("button", { name: "Install and restart" })).toHaveCount(0);
     const text = banner(page).locator(".text");
     const noteEl = banner(page).locator(".note");
     await expect(noteEl).toHaveText(note);
-    await expect(noteEl).toContainText("Move kubeloupe to Applications");
+    await expect(noteEl).toContainText("Move nauvi to Applications");
     // One line of text with the note next to it or below, inside the banner.
     const lineHeight = await text.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 18);
     const t = (await text.boundingBox())!;
@@ -133,7 +133,7 @@ test("the banner can be closed, and checking again brings it back", async ({ pag
 
   const dialog = await openSettings(page);
   await dialog.getByRole("button", { name: "Check for updates" }).click();
-  await expect(dialog.getByTestId("update-status")).toHaveText("kubeloupe 0.2.0 is available (you have 0.1.0).");
+  await expect(dialog.getByTestId("update-status")).toHaveText("nauvi 0.2.0 is available (you have 0.1.0).");
   await dialog.getByRole("button", { name: "Close" }).click();
   await expect(banner(page)).toBeVisible();
 });
@@ -160,7 +160,7 @@ test("turning the check off in Settings skips it on start; asking still checks",
   await again.getByRole("button", { name: "Check for updates" }).click();
   expect((await fake.lastCall("cmdUpdateCheck")).startup).toBe(false);
   await again.getByRole("button", { name: "Close" }).click();
-  await expect(banner(page)).toContainText("kubeloupe 0.2.0 is available");
+  await expect(banner(page)).toContainText("nauvi 0.2.0 is available");
 });
 
 test("Check for updates is in the palette and says when there is nothing new", async ({ page }) => {
@@ -172,7 +172,7 @@ test("Check for updates is in the palette and says when there is nothing new", a
   await page.keyboard.press("ControlOrMeta+k");
   await page.keyboard.type("check for updates");
   await page.keyboard.press("Enter");
-  await expect(noticeText(page)).toHaveText("kubeloupe 0.1.0 is the latest version.");
+  await expect(noticeText(page)).toHaveText("nauvi 0.1.0 is the latest version.");
   expect((await fake.lastCall("cmdUpdateCheck")).startup).toBe(false);
   await notice(page).getByRole("button", { name: "Dismiss" }).click();
   await expect(notice(page)).toHaveCount(0);

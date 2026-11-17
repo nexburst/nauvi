@@ -22,7 +22,7 @@ use serde_json::json;
 use std::collections::{BTreeMap, HashSet};
 use std::time::Duration;
 
-const FIELD_MANAGER: &str = "kubeloupe";
+const FIELD_MANAGER: &str = "nauvi";
 
 /// What `kubectl rollout restart` patches.
 pub const RESTARTED_AT: &str = "kubectl.kubernetes.io/restartedAt";
@@ -802,7 +802,7 @@ pub async fn resolve_target(client: &Client, target: &str) -> Result<(ResourceKi
     Ok((found.clone(), name.to_string()))
 }
 
-/// `kubeloupe <action> <kind>/<name>` from the CLI.
+/// `nauvi <action> <kind>/<name>` from the CLI.
 pub async fn cli_action(
     client: &Client,
     target: &str,
@@ -827,7 +827,7 @@ pub fn cli_namespace(r: &ResourceRef, namespace: Option<&str>) -> String {
     namespace.unwrap_or("default").to_string()
 }
 
-/// `kubeloupe drain <node>` with progress lines.
+/// `nauvi drain <node>` with progress lines.
 pub async fn cli_drain(client: &Client, node: &str, opts: &DrainOptions) -> Result<()> {
     let summary = drain_node(client, node, opts, |ev| println!("{}", render_event(&ev)))
         .await
@@ -874,7 +874,7 @@ pub fn render_event(ev: &DrainEvent) -> String {
     }
 }
 
-/// `kubeloupe evict <pod>`: a pod name, or `pod/<name>`.
+/// `nauvi evict <pod>`: a pod name, or `pod/<name>`.
 pub fn evict_target(pod: &str) -> Result<String> {
     let name = match pod.split_once('/') {
         Some((kind, name)) => {
@@ -891,13 +891,13 @@ pub fn evict_target(pod: &str) -> Result<String> {
     Ok(format!("pod/{name}"))
 }
 
-/// `kubeloupe evict <pod>`.
+/// `nauvi evict <pod>`.
 pub async fn cli_evict(client: &Client, pod: &str, namespace: Option<&str>) -> Result<()> {
     let target = evict_target(pod)?;
     cli_action(client, &target, namespace, ActionId::Evict, None).await
 }
 
-/// `kubeloupe delete <kind>/<name> [--force]`.
+/// `nauvi delete <kind>/<name> [--force]`.
 pub async fn cli_delete(
     client: &Client,
     target: &str,

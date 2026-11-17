@@ -35,7 +35,7 @@ const ITEMS: PaletteItem[] = [
   item("kind:ds", "Kind", "DaemonSets", ["daemonsets", "DaemonSet", "ds"]),
   item("kind:ns", "Kind", "Namespaces", ["namespaces", "Namespace", "ns"]),
   item("ns:demo", "Namespace", "demo"),
-  item("ctx:kind", "Context", "kind-kubeloupe-test"),
+  item("ctx:kind", "Context", "kind-nauvi-test"),
   item("obj:web", "Object", "pods/web-1", ["web-1"]),
 ];
 const ids = (query: string, recent: string[] = []) => rankItems(ITEMS, query, recent).map((r) => r.item.id);

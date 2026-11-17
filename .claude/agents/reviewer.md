@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: Independent pre-merge review of a kubeloupe PR against its issue's acceptance criteria. Read-only; returns blocking findings only. Use before merging any feature or fix PR.
+description: Independent pre-merge review of a nauvi PR against its issue's acceptance criteria. Read-only; returns blocking findings only. Use before merging any feature or fix PR.
 tools: Read, Grep, Glob, Bash
 ---
 

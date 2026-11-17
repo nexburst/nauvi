@@ -12,15 +12,14 @@ use anyhow::{ensure, Context, Result};
 use k8s_openapi::api::core::v1::{ConfigMap, Namespace, Secret};
 use kube::api::{Api, DeleteParams, PostParams};
 use kube::Client;
-use kubeloupe::client_for_context;
-use kubeloupe::resources::{
+use nauvi::client_for_context;
+use nauvi::resources::{
     get_data_entries, patch_data, reveal_data_value, ApplyOutcome, DataChange, DataEncoding,
     DataField, ResourceRef,
 };
 
 async fn connect() -> Result<Client> {
-    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
     tokio::time::timeout(Duration::from_secs(20), client_for_context(Some(&ctx)))
         .await
         .context("timed out building client")?

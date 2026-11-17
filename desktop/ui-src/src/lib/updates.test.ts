@@ -7,7 +7,7 @@ const check = (change: Partial<UpdateCheck> = {}): UpdateCheck => ({
   current_version: "0.1.0",
   version: "0.2.0",
   notes: "",
-  release_url: "https://github.com/pedrosanzmtz/kubeloupe/releases/tag/v0.2.0",
+  release_url: "https://github.com/nexburst/nauvi/releases/tag/v0.2.0",
   can_install: true,
   note: "",
   ...change,
@@ -38,8 +38,8 @@ describe("progress", () => {
 
 describe("checkSummary", () => {
   it("describes each result", () => {
-    expect(checkSummary(check())).toBe("kubeloupe 0.2.0 is available (you have 0.1.0).");
-    expect(checkSummary(check({ status: "up_to_date", version: "" }))).toBe("kubeloupe 0.1.0 is the latest version.");
+    expect(checkSummary(check())).toBe("nauvi 0.2.0 is available (you have 0.1.0).");
+    expect(checkSummary(check({ status: "up_to_date", version: "" }))).toBe("nauvi 0.1.0 is the latest version.");
     expect(checkSummary(check({ status: "skipped", note: "Development builds do not check." }))).toBe(
       "Development builds do not check.",
     );

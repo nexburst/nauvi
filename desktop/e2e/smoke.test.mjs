@@ -16,7 +16,7 @@ const TEST_TIMEOUT = 90_000;
 let app;
 let fx;
 
-describe("kubeloupe on WebKitGTK against kind", { timeout: 15 * 60_000 }, () => {
+describe("nauvi on WebKitGTK against kind", { timeout: 15 * 60_000 }, () => {
   before(async () => {
     fx = createFixture();
     app = await launch("smoke");
@@ -141,18 +141,18 @@ describe("kubeloupe on WebKitGTK against kind", { timeout: 15 * 60_000 }, () => 
     await (
       await app.find(By.xpath("//*[@data-testid='detail-panel']//button[@role='tab'][normalize-space()='YAML']"))
     ).click();
-    // The editor is CodeMirror; its root element exposes `kubeloupeEditor`
+    // The editor is CodeMirror; its root element exposes `nauviEditor`
     // (getValue / setValue, which edits like typing) once it has loaded.
     const editor = await app.find(byTestId("yaml-editor"));
     const yaml = await app.waitFor(
       async () => {
-        const v = await app.js("return arguments[0].kubeloupeEditor?.getValue() ?? null", editor);
+        const v = await app.js("return arguments[0].nauviEditor?.getValue() ?? null", editor);
         return v?.includes("greeting: before") ? v : null;
       },
       { message: "the ConfigMap's YAML in the editor" },
     );
     await app.js(
-      "arguments[0].kubeloupeEditor.setValue(arguments[1])",
+      "arguments[0].nauviEditor.setValue(arguments[1])",
       editor,
       yaml.replace("greeting: before", "greeting: after"),
     );

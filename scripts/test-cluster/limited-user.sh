@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 # Opt-in: a namespace-scoped user on the kind test cluster, for trying
-# kubeloupe the way someone with only a RoleBinding sees it.
+# nauvi the way someone with only a RoleBinding sees it.
 #
-# Creates, on kind-kubeloupe-test:
+# Creates, on kind-nauvi-test:
 #   namespace team-a
 #   ServiceAccount team-a/limited, bound to the built-in `edit` ClusterRole
 #   in team-a only (a RoleBinding, no ClusterRoleBinding)
-# and writes a SEPARATE kubeconfig for it (context kind-kubeloupe-limited,
+# and writes a SEPARATE kubeconfig for it (context kind-nauvi-limited,
 # namespace team-a) with a 24h token. ~/.kube/config is never modified.
 #
 # Usage:   bash scripts/test-cluster/limited-user.sh [output-kubeconfig]
-#          (default output: ~/.kube/kubeloupe-limited.yaml)
-# Then:    KUBECONFIG=~/.kube/kubeloupe-limited.yaml cargo tauri dev
-# Tests:   KUBELOUPE_LIMITED_KUBECONFIG=~/.kube/kubeloupe-limited.yaml \
+#          (default output: ~/.kube/nauvi-limited.yaml)
+# Then:    KUBECONFIG=~/.kube/nauvi-limited.yaml cargo tauri dev
+# Tests:   NAUVI_LIMITED_KUBECONFIG=~/.kube/nauvi-limited.yaml \
 #            cargo test --test cluster limited -- --ignored
 # Re-run it to refresh the token. Tear down:
-#          kubectl --context kind-kubeloupe-test delete namespace team-a
+#          kubectl --context kind-nauvi-test delete namespace team-a
 set -euo pipefail
 
 export PATH="$HOME/.local/bin:$PATH"
-OUT="${1:-$HOME/.kube/kubeloupe-limited.yaml}"
-ADMIN_CONTEXT="${KUBELOUPE_TEST_CONTEXT:-kind-kubeloupe-test}"
+OUT="${1:-$HOME/.kube/nauvi-limited.yaml}"
+ADMIN_CONTEXT="${NAUVI_TEST_CONTEXT:-kind-nauvi-test}"
 NS=team-a
 KCTX=(--context "$ADMIN_CONTEXT")
 
@@ -77,25 +77,25 @@ umask 077
 cat >"$OUT" <<EOF
 apiVersion: v1
 kind: Config
-current-context: kind-kubeloupe-limited
+current-context: kind-nauvi-limited
 clusters:
-  - name: kind-kubeloupe-test
+  - name: kind-nauvi-test
     cluster:
       server: $SERVER
       certificate-authority-data: $CA
 users:
-  - name: kubeloupe-limited
+  - name: nauvi-limited
     user:
       token: $TOKEN
 contexts:
-  - name: kind-kubeloupe-limited
+  - name: kind-nauvi-limited
     context:
-      cluster: kind-kubeloupe-test
-      user: kubeloupe-limited
+      cluster: kind-nauvi-test
+      user: nauvi-limited
       namespace: $NS
 EOF
 
-echo "Wrote $OUT (context kind-kubeloupe-limited, namespace $NS)."
+echo "Wrote $OUT (context kind-nauvi-limited, namespace $NS)."
 echo "Check:  KUBECONFIG=$OUT kubectl get pods          # allowed"
 echo "        KUBECONFIG=$OUT kubectl get pods -A       # forbidden"
 echo "Run:    KUBECONFIG=$OUT cargo tauri dev"

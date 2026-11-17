@@ -14,7 +14,7 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
 use kube::api::{Api, DeleteParams, ListParams, PostParams};
 use kube::Client;
-use kubeloupe::{
+use nauvi::{
     client_for_context, pod_is_ready, ForwardKind, ForwardTarget, LocalPort, PortForward,
     RemotePort,
 };
@@ -23,8 +23,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 const TIMEOUT: Duration = Duration::from_secs(120);
 
 async fn connect() -> Result<Client> {
-    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
     tokio::time::timeout(Duration::from_secs(20), client_for_context(Some(&ctx)))
         .await
         .context("timed out building client")?
@@ -363,7 +362,7 @@ fn pattern(seed: u64, len: usize) -> Vec<u8> {
 #[tokio::test]
 #[ignore]
 async fn an_idle_forwarded_connection_outlives_the_read_timeout() -> Result<()> {
-    let idle = kubeloupe::READ_TIMEOUT + Duration::from_secs(20);
+    let idle = nauvi::READ_TIMEOUT + Duration::from_secs(20);
     in_temp_ns_for(
         "kl-it-pf-idle",
         idle + TIMEOUT * 2,

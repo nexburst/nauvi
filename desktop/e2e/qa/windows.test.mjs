@@ -88,7 +88,7 @@ for (const shell of SHELLS) {
       // The temp kubeconfig first, then the app's own, separated by `;`.
       const parts = kubeconfig.replace(/\s*\n\s*/g, "").split(";");
       assert.ok(parts.length >= 2, kubeconfig);
-      assert.match(parts[0], /kubeloupe-shell-\d+-\d+\.yaml$/);
+      assert.match(parts[0], /nauvi-shell-\d+-\d+\.yaml$/);
       if (onPath("kubectl.exe")) {
         assert.equal(await run(term, shell.kind, ["kubectl config current-context"]), CONTEXT);
       }

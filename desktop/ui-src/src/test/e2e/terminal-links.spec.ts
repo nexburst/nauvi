@@ -66,15 +66,15 @@ test("terminal links open only http(s) URLs, through the opener", async ({ page 
       " ",
       osc8("vscode://file/etc/passwd", "BADSCHEMELINK"),
       "\r\n",
-      osc8("https://example.com/kubeloupe-245", "GOODLINK"),
+      osc8("https://example.com/nauvi-245", "GOODLINK"),
       "\r\n",
     ].join(""),
   );
 
   for (const bad of ["BADJSLINK", "BADFILELINK", "BADSCHEMELINK"]) await clickText(page, bad);
-  await clickText(page, "GOODLINK", "https://example.com/kubeloupe-245");
+  await clickText(page, "GOODLINK", "https://example.com/nauvi-245");
 
-  await expect.poll(() => page.evaluate(() => window.__fake.opened())).toEqual(["https://example.com/kubeloupe-245"]);
+  await expect.poll(() => page.evaluate(() => window.__fake.opened())).toEqual(["https://example.com/nauvi-245"]);
   expect(await page.evaluate(() => (window as unknown as { __windowOpens: string[] }).__windowOpens)).toEqual([]);
   expect(dialogs).toEqual([]);
   expect(page.url()).toContain("test.html");

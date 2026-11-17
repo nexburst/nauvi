@@ -34,12 +34,12 @@ import {
 } from "./area-2-helpers.mjs";
 
 const T = { timeout: 180_000 };
-/** The kind worker node (kubeloupe-test-worker): cordoned briefly, never drained. */
+/** The kind worker node (nauvi-test-worker): cordoned briefly, never drained. */
 const WORKER = (() => {
   try {
     return kubectl(["get", "nodes", "-l", "!node-role.kubernetes.io/control-plane", "-o", "jsonpath={.items[0].metadata.name}"]);
   } catch {
-    return "kubeloupe-test-worker";
+    return "nauvi-test-worker";
   }
 })();
 const CONFIGMAPS = ["qa-cm-a", "qa-cm-b", "qa-cm-c", "qa-cm-d", "qa-cm-e"];

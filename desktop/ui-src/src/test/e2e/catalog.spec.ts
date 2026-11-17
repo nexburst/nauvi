@@ -121,7 +121,7 @@ test("a pasted kubeconfig is saved and added; removing it asks first", async ({ 
   await pasted.getByRole("button", { name: "More actions for prod (lab.yaml)" }).click();
   await page.getByRole("menuitem", { name: "Remove source…" }).click();
   const confirm = page.getByRole("alertdialog", { name: "Remove source" });
-  await expect(confirm).toContainText("The pasted kubeconfig saved by kubeloupe is deleted.");
+  await expect(confirm).toContainText("The pasted kubeconfig saved by nauvi is deleted.");
   await confirm.getByRole("button", { name: "Cancel" }).click();
   await expect(pasted).toBeVisible();
   expect(await fake.calls("cmdRemoveKubeconfigSource")).toEqual([]);
@@ -131,7 +131,7 @@ test("a pasted kubeconfig is saved and added; removing it asks first", async ({ 
   await confirm.getByRole("button", { name: "Remove" }).click();
   await expect(pasted).toHaveCount(0);
   expect(await fake.calls("cmdRemoveKubeconfigSource")).toEqual([
-    { path: "/home/user/.config/dev.kubeloupe.app/kubeconfigs/lab.yaml" },
+    { path: "/home/user/.config/dev.nauvi.app/kubeconfigs/lab.yaml" },
   ]);
   expect(await page.evaluate(() => window.__fake.cluster.settings.kubeconfig_sources)).toEqual([]);
   expect(fake.errors).toEqual([]);

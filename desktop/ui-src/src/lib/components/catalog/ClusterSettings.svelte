@@ -6,7 +6,7 @@
   import { closeClusterSettings, isPinned, togglePin } from "../../stores/catalog.svelte";
   import { contextSettings, updateContext } from "../../stores/settings.svelte";
 
-  /** One cluster's settings page (#78): its name and colour in kubeloupe,
+  /** One cluster's settings page (#78): its name and colour in nauvi,
    *  namespaces, Prometheus and local shell folder. Each field is saved when
    *  it changes, if it is valid. */
   let { id }: { id: string } = $props();
@@ -68,7 +68,7 @@
     {/if}
 
     <fieldset>
-      <legend>In kubeloupe</legend>
+      <legend>In nauvi</legend>
       <label class="row">
         <span>Display name</span>
         <input

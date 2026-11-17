@@ -7,16 +7,16 @@ import { openApp } from "./helpers";
 // message clamped, and the row actions in one line (Open, Check, More).
 
 const catalogRow = (page: Page, id: string) => page.locator(`[data-testid="catalog-row"][data-context="${id}"]`);
-const LONG_FILE = "/Users/pedrosanchezmartinez/.kube/kubeloupe-kind.yaml";
+const LONG_FILE = "/Users/pedrosanchezmartinez/.kube/nauvi-kind.yaml";
 // One folder name wider than the Source column.
-const DEAD_FILE = "/tmp/kubeloupe-qa-area5-catalog-Z95d7V-with-a-much-longer-folder-name/clusters/dead.yaml";
+const DEAD_FILE = "/tmp/nauvi-qa-area5-catalog-Z95d7V-with-a-much-longer-folder-name/clusters/dead.yaml";
 
 async function openCatalog(page: Page) {
   await page.setViewportSize({ width: 1280, height: 800 });
   const fake = await openApp(page, (cluster) => {
     cluster.contexts = [
-      { name: "kind-kubeloupe-test", current: true, namespace: null, server: "https://127.0.0.1:45613", file: "/Users/pedrosanchezmartinez/.kube/kubeloupe-kind.yaml" },
-      { name: "dead", current: false, namespace: null, server: "https://127.0.0.1:1", file: "/tmp/kubeloupe-qa-area5-catalog-Z95d7V-with-a-much-longer-folder-name/clusters/dead.yaml", source: "/tmp/kubeloupe-qa-area5-catalog-Z95d7V-with-a-much-longer-folder-name/clusters/dead.yaml" },
+      { name: "kind-nauvi-test", current: true, namespace: null, server: "https://127.0.0.1:45613", file: "/Users/pedrosanchezmartinez/.kube/nauvi-kind.yaml" },
+      { name: "dead", current: false, namespace: null, server: "https://127.0.0.1:1", file: "/tmp/nauvi-qa-area5-catalog-Z95d7V-with-a-much-longer-folder-name/clusters/dead.yaml", source: "/tmp/nauvi-qa-area5-catalog-Z95d7V-with-a-much-longer-folder-name/clusters/dead.yaml" },
     ];
     cluster.catalog.checks["dead"] = {
       name: "dead",
@@ -45,22 +45,22 @@ function lines(page: Page, id: string, testid: string) {
 
 test("server URLs stay on one line, with the full URL in the tooltip", async ({ page }) => {
   await openCatalog(page);
-  for (const id of ["kind-kubeloupe-test", "dead"]) {
+  for (const id of ["kind-nauvi-test", "dead"]) {
     expect(await lines(page, id, "catalog-server"), `${id}'s server on one line`).toBe(1);
   }
-  await expect(catalogRow(page, "kind-kubeloupe-test").getByTestId("catalog-server")).toHaveAttribute(
+  await expect(catalogRow(page, "kind-nauvi-test").getByTestId("catalog-server")).toHaveAttribute(
     "title",
     "https://127.0.0.1:45613",
   );
   await expect(catalogRow(page, "dead").getByTestId("catalog-server")).toHaveText("https://127.0.0.1:1");
   // Not cut: the whole URL fits.
-  const cut = await catalogRow(page, "kind-kubeloupe-test")
+  const cut = await catalogRow(page, "kind-nauvi-test")
     .getByTestId("catalog-server")
     .evaluate((el) => el.scrollWidth > el.clientWidth);
   expect(cut).toBe(false);
   await expect(catalogRow(page, "dead").getByTestId("catalog-user")).toHaveText("dead-admin");
   // A long name stays beside its colour swatch, level with the rest of the row.
-  for (const id of ["kind-kubeloupe-test", "dead"]) {
+  for (const id of ["kind-nauvi-test", "dead"]) {
     const name = await catalogRow(page, id).getByTestId("catalog-name").boundingBox();
     const status = await catalogRow(page, id).getByTestId("catalog-status").locator("span").first().boundingBox();
     expect(Math.abs(name!.y - status!.y), `${id}'s name on the row's first line`).toBeLessThan(4);
@@ -69,7 +69,7 @@ test("server URLs stay on one line, with the full URL in the tooltip", async ({ 
 
 test("source paths wrap only after a slash", async ({ page }) => {
   await openCatalog(page);
-  const file = catalogRow(page, "kind-kubeloupe-test").getByTestId("catalog-file");
+  const file = catalogRow(page, "kind-nauvi-test").getByTestId("catalog-file");
   await expect(file).toContainText(LONG_FILE);
   // Each line of the wrapped path ends with a "/" (except the last).
   const rows = await file.locator(".source").evaluate((el) => {
@@ -98,7 +98,7 @@ test("the status message is clamped to two lines, the row actions fit in one lin
   const box = await why.boundingBox();
   expect(box!.height).toBeLessThanOrEqual(2 * 18);
 
-  for (const id of ["kind-kubeloupe-test", "dead"]) {
+  for (const id of ["kind-nauvi-test", "dead"]) {
     const buttons = catalogRow(page, id).locator(".actions button");
     await expect(buttons).toHaveText(["Open", "⋯"]);
     const tops = await buttons.evaluateAll((bs) => new Set(bs.map((b) => Math.round(b.getBoundingClientRect().top))).size);
@@ -134,7 +134,7 @@ test("More actions offers New window, Check, Settings and Remove", async ({ page
   await expect(more).toBeFocused();
 
   // The current context's file is the default kubeconfig: nothing to remove.
-  await catalogRow(page, "kind-kubeloupe-test").getByRole("button", { name: "More actions for kind-kubeloupe-test" }).click();
+  await catalogRow(page, "kind-nauvi-test").getByRole("button", { name: "More actions for kind-nauvi-test" }).click();
   await expect(page.getByRole("menu").getByRole("menuitem")).toHaveText([
     "Open in new window",
     "Check connection",

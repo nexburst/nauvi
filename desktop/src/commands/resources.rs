@@ -1,8 +1,8 @@
 //! Resource details, YAML get / apply, delete.
 
 use crate::state::Cluster;
-use kubeloupe::actions::{self};
-use kubeloupe::resources::{self, ResourceDetail, ResourceRef};
+use nauvi::actions::{self};
+use nauvi::resources::{self, ResourceDetail, ResourceRef};
 
 /// Detail of any object; pods include their `pod` section.
 #[tauri::command]
@@ -16,7 +16,7 @@ pub(crate) async fn cmd_get_resource_detail(
     let client = cluster.client().await?;
     resources::get_resource_detail(&client, &resource, &namespace, &name)
         .await
-        .map_err(|e| kubeloupe::error_text(&e))
+        .map_err(|e| nauvi::error_text(&e))
 }
 
 /// The per-kind summary and related objects of any object (a Deployment's
@@ -48,7 +48,7 @@ pub(crate) async fn cmd_get_resource_yaml(
     let client = cluster.client().await?;
     resources::get_resource_yaml(&client, &resource, &namespace, &name, reveal)
         .await
-        .map_err(|e| kubeloupe::error_text(&e))
+        .map_err(|e| nauvi::error_text(&e))
 }
 
 /// Server-side apply of edited YAML. `resource_version` is the version the

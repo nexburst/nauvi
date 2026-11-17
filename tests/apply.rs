@@ -14,14 +14,13 @@ use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomRe
 use kube::api::{Api, DeleteParams, DynamicObject, PostParams};
 use kube::discovery::ApiResource;
 use kube::Client;
-use kubeloupe::client_for_context;
-use kubeloupe::resources::{
+use nauvi::client_for_context;
+use nauvi::resources::{
     apply_manifests, discover, ApplyResult, ApplyStatus, ManifestOptions, ResourceKind,
 };
 
 async fn connect() -> Result<Client> {
-    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
     tokio::time::timeout(Duration::from_secs(20), client_for_context(Some(&ctx)))
         .await
         .context("timed out building client")?

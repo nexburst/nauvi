@@ -23,7 +23,7 @@ import { cannotCloseLikeUser, pressX11Keys, resizeWindow } from "../lib/window.m
 
 const T = { timeout: 180_000 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const GROUP = "qa-area5.kubeloupe.dev";
+const GROUP = "qa-area5.nauvi.dev";
 const CRD = `qaareafivewidgets.${GROUP}`;
 const COUNT = 300;
 let ns;

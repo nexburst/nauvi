@@ -23,7 +23,7 @@ import { answerDiscard, editor, editorValue, openKind, setEditorValue, setTheme,
 
 const T = { timeout: 180_000 };
 const SUFFIX = `${Date.now().toString(36)}${process.pid.toString(36)}`;
-const GROUP = `qa${SUFFIX}.kubeloupe.test`;
+const GROUP = `qa${SUFFIX}.nauvi.test`;
 const CRD = `gadgets.${GROUP}`;
 let ns;
 let dir;

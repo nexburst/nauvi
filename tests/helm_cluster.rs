@@ -2,7 +2,7 @@
 //! with the local chart in `scripts/test-cluster/charts/demo-chart`. All
 //! `#[ignore]`d; run with `cargo test --test helm_cluster -- --ignored`.
 //!
-//! They need the `helm` binary (on `PATH`, or `KUBELOUPE_HELM`) and skip
+//! They need the `helm` binary (on `PATH`, or `NAUVI_HELM`) and skip
 //! without it, except in CI, where a missing helm fails them. Each test
 //! installs its release in its own temporary namespace and deletes it.
 
@@ -18,23 +18,23 @@ use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::{Api, DeleteParams, PostParams};
 use kube::Client;
-use kubeloupe::applications::{AppHealth, AppSource, ApplicationsList};
-use kubeloupe::client_for_context;
-use kubeloupe::helm::{
+use nauvi::applications::{AppHealth, AppSource, ApplicationsList};
+use nauvi::client_for_context;
+use nauvi::helm::{
     get_helm_release, helm_rollback, helm_uninstall, helm_upgrade, helm_version,
     list_helm_releases, release_charts, HelmDeployRequest, HelmRevisionKey, HelmStorage,
     HelmTarget,
 };
-use kubeloupe::liveness::Prober;
-use kubeloupe::resources::REDACTED;
-use kubeloupe::{watch_applications, ApplicationsUpdate};
+use nauvi::liveness::Prober;
+use nauvi::resources::REDACTED;
+use nauvi::{watch_applications, ApplicationsUpdate};
 
 fn context() -> String {
-    std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".to_string())
+    std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string())
 }
 
 fn helm_bin() -> String {
-    std::env::var("KUBELOUPE_HELM")
+    std::env::var("NAUVI_HELM")
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "helm".into())
@@ -78,14 +78,14 @@ fn helm_with_driver(driver: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-fn kubeloupe(args: &[&str]) -> Result<(String, String)> {
-    let out = Command::new(env!("CARGO_BIN_EXE_kubeloupe"))
+fn nauvi(args: &[&str]) -> Result<(String, String)> {
+    let out = Command::new(env!("CARGO_BIN_EXE_nauvi"))
         .args(args)
         .args(["--context", &context()])
         .output()?;
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-    ensure!(out.status.success(), "kubeloupe {args:?}: {stderr}");
+    ensure!(out.status.success(), "nauvi {args:?}: {stderr}");
     Ok((stdout, stderr))
 }
 
@@ -223,21 +223,21 @@ async fn helm_releases_list_decode_roll_back_and_uninstall() -> Result<()> {
         );
 
         // The CLI.
-        let (out, _) = kubeloupe(&["helm", "list", "-n", &ns])?;
+        let (out, _) = nauvi(&["helm", "list", "-n", &ns])?;
         ensure!(
             out.starts_with("NAME") && out.contains("demo-chart-0.1.0"),
             "{out}"
         );
-        let (out, _) = kubeloupe(&["helm", "get", rel, "values", "-n", &ns])?;
+        let (out, _) = nauvi(&["helm", "get", rel, "values", "-n", &ns])?;
         ensure!(out == "greeting: bye\n", "{out}");
-        let (out, err) = kubeloupe(&["helm", "get", rel, "manifest", "-n", &ns])?;
+        let (out, err) = nauvi(&["helm", "get", rel, "manifest", "-n", &ns])?;
         ensure!(
             !out.contains("not-a-real-secret") && err.contains("--reveal"),
             "{out}"
         );
-        let (out, _) = kubeloupe(&["helm", "get", rel, "notes", "-n", &ns, "--revision", "1"])?;
+        let (out, _) = nauvi(&["helm", "get", rel, "notes", "-n", &ns, "--revision", "1"])?;
         ensure!(out.trim() == format!("{rel} says hello."), "{out}");
-        let (out, _) = kubeloupe(&["helm", "get", rel, "-n", &ns])?;
+        let (out, _) = nauvi(&["helm", "get", rel, "-n", &ns])?;
         ensure!(
             out.contains("STATUS: deployed") && out.contains("HISTORY:"),
             "{out}"
@@ -344,8 +344,8 @@ async fn helm_release_in_configmaps_upgrades_rolls_back_and_uninstalls() -> Resu
 #[tokio::test]
 #[ignore]
 async fn limited_user_helm_listing_degrades_per_namespace() -> Result<()> {
-    let Ok(path) = std::env::var("KUBELOUPE_LIMITED_KUBECONFIG") else {
-        eprintln!("KUBELOUPE_LIMITED_KUBECONFIG not set; skipping");
+    let Ok(path) = std::env::var("NAUVI_LIMITED_KUBECONFIG") else {
+        eprintln!("NAUVI_LIMITED_KUBECONFIG not set; skipping");
         return Ok(());
     };
     let kubeconfig = kube::config::Kubeconfig::read_from(&path)?;
@@ -445,7 +445,7 @@ async fn applications_group_labelled_workloads_and_helm_releases() -> Result<()>
         deployments
             .create(
                 &pp,
-                &labelled_deployment("shop-api", labels("api"), "kubeloupe.invalid/nope:1")?,
+                &labelled_deployment("shop-api", labels("api"), "nauvi.invalid/nope:1")?,
             )
             .await?;
         deployments
@@ -518,8 +518,8 @@ async fn applications_group_labelled_workloads_and_helm_releases() -> Result<()>
 #[tokio::test]
 #[ignore]
 async fn limited_user_applications_are_narrowed_with_notes() -> Result<()> {
-    let Ok(path) = std::env::var("KUBELOUPE_LIMITED_KUBECONFIG") else {
-        eprintln!("KUBELOUPE_LIMITED_KUBECONFIG not set; skipping");
+    let Ok(path) = std::env::var("NAUVI_LIMITED_KUBECONFIG") else {
+        eprintln!("NAUVI_LIMITED_KUBECONFIG not set; skipping");
         return Ok(());
     };
     let kubeconfig = kube::config::Kubeconfig::read_from(&path)?;

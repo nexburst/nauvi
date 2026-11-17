@@ -2,7 +2,7 @@
 #![allow(clippy::print_literal)]
 
 // One module per concern. Their items are re-exported at the crate root, so
-// callers keep using `kubeloupe::get_pods`, `kubeloupe::LogOptions`, ...
+// callers keep using `nauvi::get_pods`, `nauvi::LogOptions`, ...
 mod access;
 mod age;
 mod cli;

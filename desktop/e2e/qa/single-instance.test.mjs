@@ -48,7 +48,7 @@ describe("#202: single instance", { timeout: 10 * 60_000, skip: cannotLaunchTwic
   const secondEnv = (app, extra = {}) => ({
     ...process.env,
     ...app.profile.env(),
-    KUBELOUPE_NO_SHELL_ENV: "1",
+    NAUVI_NO_SHELL_ENV: "1",
     DBUS_SESSION_BUS_ADDRESS: bus.address,
     ...extra,
   });
@@ -76,7 +76,7 @@ describe("#202: single instance", { timeout: 10 * 60_000, skip: cannotLaunchTwic
     assert.deepEqual(result, { code: 0, signal: null }, "the second launch exits with 0");
 
     await sleep(1500);
-    assert.deepEqual(appPids(app.profile.home), [pid], "still one kubeloupe process");
+    assert.deepEqual(appPids(app.profile.home), [pid], "still one nauvi process");
     assert.equal(x11Windows(pid).length, 1, "still one window");
     assert.deepEqual(x11Titles(pid), titlesBefore, `the window still shows ${CONTEXT}`);
     assert.equal(await app.statusText(), "Live");
@@ -97,7 +97,7 @@ describe("#202: single instance", { timeout: 10 * 60_000, skip: cannotLaunchTwic
     const other = launchDirect({
       ...process.env,
       ...profile.env(),
-      KUBELOUPE_NO_SHELL_ENV: "1",
+      NAUVI_NO_SHELL_ENV: "1",
       DBUS_SESSION_BUS_ADDRESS: bus.address,
       KUBECONFIG: unreachable,
     });

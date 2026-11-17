@@ -43,7 +43,7 @@ export function defaultCatalog(): FakeCatalog {
     sources: [{ path: DEFAULT_KUBECONFIG, kind: "kubeconfig", contexts: 2, files: 1, error: "" }],
     checks: {},
     files: {},
-    pastedDir: "/home/user/.config/dev.kubeloupe.app/kubeconfigs",
+    pastedDir: "/home/user/.config/dev.nauvi.app/kubeconfigs",
     answers: {},
     pluginRuns: {},
   };

@@ -3,8 +3,8 @@ mod args;
 use anyhow::Result;
 use args::{Cli, Commands, HelmCommand};
 use clap::{CommandFactory, Parser};
-use kubeloupe::actions::{cli_action, cli_delete, cli_drain, cli_evict, ActionId, DrainOptions};
-use kubeloupe::{
+use nauvi::actions::{cli_action, cli_delete, cli_drain, cli_evict, ActionId, DrainOptions};
+use nauvi::{
     client_with, error_text, exec_in_pod, list_namespaces, list_nodes, list_pods, parse_log_target,
     print_describe, print_get, print_pod_logs, print_top_nodes, print_top_pods,
     print_workload_logs, print_yaml, run_port_forward, split_target, watch_and_print, GetOptions,
@@ -19,7 +19,7 @@ const STACK_SIZE: usize = 8 << 20;
 
 fn main() -> ExitCode {
     let cli = std::thread::Builder::new()
-        .name("kubeloupe".into())
+        .name("nauvi".into())
         .stack_size(STACK_SIZE)
         .spawn(cli_main)
         .expect("cannot start the CLI thread");
@@ -48,7 +48,7 @@ async fn async_main() -> ExitCode {
     // Diagnostics go to stderr, coloured only on a terminal, so stdout stays
     // clean for pipes.
     tracing_subscriber::fmt()
-        .with_env_filter("kubeloupe=info")
+        .with_env_filter("nauvi=info")
         .with_writer(std::io::stderr)
         .with_ansi(std::io::stderr().is_terminal())
         .init();
@@ -71,7 +71,7 @@ fn exit_code_of(e: &anyhow::Error) -> ExitCode {
     }
 }
 
-/// Let `kubeloupe get pods | head` end quietly, like other Unix tools,
+/// Let `nauvi get pods | head` end quietly, like other Unix tools,
 /// instead of panicking on a closed pipe.
 fn reset_sigpipe() {
     #[cfg(unix)]
@@ -84,23 +84,18 @@ fn reset_sigpipe() {
 
 async fn run(cli: Cli) -> Result<()> {
     if let Commands::Completions { shell } = cli.command {
-        clap_complete::generate(
-            shell,
-            &mut Cli::command(),
-            "kubeloupe",
-            &mut std::io::stdout(),
-        );
+        clap_complete::generate(shell, &mut Cli::command(), "nauvi", &mut std::io::stdout());
         return Ok(());
     }
     if let Commands::Mcp { allow_writes } = cli.command {
         // Connects on the first tool call, never interactively: stdin is
         // the protocol.
-        let opts = kubeloupe::mcp::McpOptions {
+        let opts = nauvi::mcp::McpOptions {
             allow_writes,
             kubeconfig: cli.kubeconfig,
             context: cli.context,
         };
-        return kubeloupe::mcp::serve_stdio(opts).await;
+        return nauvi::mcp::serve_stdio(opts).await;
     }
     // Exec credential plugins may prompt only when we have a terminal.
     let client = client_with(
@@ -283,7 +278,7 @@ async fn run(cli: Cli) -> Result<()> {
             file,
             namespace,
             dry_run,
-        } => kubeloupe::resources::cli_apply(&client, &file, namespace.as_deref(), dry_run).await?,
+        } => nauvi::resources::cli_apply(&client, &file, namespace.as_deref(), dry_run).await?,
         Commands::Yaml {
             target,
             namespace,
@@ -307,7 +302,7 @@ async fn run(cli: Cli) -> Result<()> {
             container,
             image,
         } => {
-            kubeloupe::terminal::cli_debug(
+            nauvi::terminal::cli_debug(
                 &client,
                 namespace.as_deref().unwrap_or("default"),
                 &pod,
@@ -321,7 +316,7 @@ async fn run(cli: Cli) -> Result<()> {
             namespace,
             container,
         } => {
-            kubeloupe::terminal::cli_attach(
+            nauvi::terminal::cli_attach(
                 &client,
                 namespace.as_deref().unwrap_or("default"),
                 &pod,
@@ -333,10 +328,10 @@ async fn run(cli: Cli) -> Result<()> {
             node,
             namespace,
             image,
-        } => kubeloupe::terminal::cli_node_shell(&client, &node, &namespace, &image).await?,
+        } => nauvi::terminal::cli_node_shell(&client, &node, &namespace, &image).await?,
         Commands::Helm { command } => match command {
             HelmCommand::List { namespace } => {
-                kubeloupe::helm::print_helm_list(&client, namespace.as_deref()).await?
+                nauvi::helm::print_helm_list(&client, namespace.as_deref()).await?
             }
             HelmCommand::Get {
                 release,
@@ -346,14 +341,14 @@ async fn run(cli: Cli) -> Result<()> {
                 all,
                 reveal,
             } => {
-                let opts = kubeloupe::helm::HelmGetOptions {
+                let opts = nauvi::helm::HelmGetOptions {
                     namespace: namespace.unwrap_or_else(|| client.default_namespace().to_string()),
                     revision,
                     section,
                     all_values: all,
                     reveal,
                 };
-                kubeloupe::helm::print_helm_get(&client, &release, &opts).await?
+                nauvi::helm::print_helm_get(&client, &release, &opts).await?
             }
         },
         Commands::Exec {

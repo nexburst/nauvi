@@ -22,20 +22,20 @@ use anyhow::{bail, ensure, Context, Result};
 use k8s_openapi::api::core::v1::Namespace;
 use kube::api::{Api, DeleteParams};
 use kube::Client;
-use kubeloupe::client_for_context;
-use kubeloupe::helm::{
+use nauvi::client_for_context;
+use nauvi::helm::{
     add_repo, chart_details, chart_versions, get_helm_release, helm_install, helm_uninstall,
     helm_upgrade, helm_version, list_helm_releases, list_repos, remove_repo, search_charts,
     update_repos, HelmDeployRequest, HelmRepo, HelmStorage, HelmTarget,
 };
-use kubeloupe::resources::REDACTED;
+use nauvi::resources::REDACTED;
 
 fn context() -> String {
-    std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".to_string())
+    std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string())
 }
 
 fn helm_bin() -> String {
-    std::env::var("KUBELOUPE_HELM")
+    std::env::var("NAUVI_HELM")
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "helm".into())
@@ -60,7 +60,7 @@ async fn have_helm() -> Result<bool> {
 /// A fresh temporary directory.
 fn temp_dir(what: &str) -> Result<PathBuf> {
     let suffix = common::unique_suffix();
-    let dir = std::env::temp_dir().join(format!("kubeloupe-{what}-{suffix:x}"));
+    let dir = std::env::temp_dir().join(format!("nauvi-{what}-{suffix:x}"));
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }

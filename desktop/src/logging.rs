@@ -1,4 +1,4 @@
-//! The app log (#208): `kubeloupe.log` in the platform's log folder
+//! The app log (#208): `nauvi.log` in the platform's log folder
 //! (`app_log_dir`), with the app's `tracing` output, panics and the errors
 //! the UI forwards.
 //!
@@ -7,15 +7,15 @@
 //!   line separators become spaces, so text from a cluster or a page can't
 //!   start a line of its own (#264). Panic backtraces and UI stacks are
 //!   joined with " | ".
-//! - The file is capped at [`MAX_BYTES`]; it then moves to `kubeloupe.1.log`
+//! - The file is capped at [`MAX_BYTES`]; it then moves to `nauvi.1.log`
 //!   (the older one to `.2`), so the folder never holds more than
 //!   `KEEP + 1` files. If it can't be moved (another program holds it open
 //!   on Windows), lines are dropped once it reaches [`HARD_MAX_BYTES`],
 //!   until a rotation works again.
 //! - On Unix the files are 0600 and the folder 0700.
-//! - Only kubeloupe's own events at `info` and up are kept, and other crates'
+//! - Only nauvi's own events at `info` and up are kept, and other crates'
 //!   at `warn` and up (their debug output can carry request details).
-//!   `KUBELOUPE_LOG=debug` raises kubeloupe's own level only.
+//!   `NAUVI_LOG=debug` raises nauvi's own level only.
 //!
 //! The lines also go to stderr, for runs from a terminal.
 
@@ -31,7 +31,7 @@ use tracing_subscriber::fmt::MakeWriter;
 use tracing_subscriber::prelude::*;
 
 /// The log's name in its folder.
-pub(crate) const LOG_FILE: &str = "kubeloupe.log";
+pub(crate) const LOG_FILE: &str = "nauvi.log";
 /// The size at which the log is rotated.
 pub(crate) const MAX_BYTES: u64 = 2 * 1024 * 1024;
 /// The size the log never grows past, even when it can't be rotated.
@@ -67,22 +67,19 @@ pub(crate) fn init(dir: Option<PathBuf>) {
             Some(f)
         }
         Err(e) => {
-            eprintln!(
-                "kubeloupe: could not open the log in {}: {e}",
-                dir.display()
-            );
+            eprintln!("nauvi: could not open the log in {}: {e}", dir.display());
             None
         }
     });
-    let own = match std::env::var("KUBELOUPE_LOG").ok().as_deref() {
+    let own = match std::env::var("NAUVI_LOG").ok().as_deref() {
         Some("debug") => LevelFilter::DEBUG,
         Some("trace") => LevelFilter::TRACE,
         _ => LevelFilter::INFO,
     };
     let filter = Targets::new()
         .with_default(LevelFilter::WARN)
-        .with_target("kubeloupe", own)
-        .with_target("kubeloupe_desktop", own);
+        .with_target("nauvi", own)
+        .with_target("nauvi_desktop", own);
     let layer = tracing_subscriber::fmt::layer()
         .with_ansi(false)
         .with_writer(Sink {
@@ -137,13 +134,13 @@ pub(crate) fn ui_error(window: &str, source: &str, message: &str, stack: &str) {
     } else {
         format!(" | stack: {stack}")
     };
-    tracing::error!(target: "kubeloupe_desktop::ui", "UI error ({source}) in window {window}: {message}{stack}");
+    tracing::error!(target: "nauvi_desktop::ui", "UI error ({source}) in window {window}: {message}{stack}");
 }
 
 /// `s` on one line, at most `max` characters: control characters
 /// (newlines too), bidi overrides and isolates, line and paragraph
 /// separators and other invisible characters
-/// ([`kubeloupe::catalog::is_invisible`]) become spaces.
+/// ([`nauvi::catalog::is_invisible`]) become spaces.
 fn one_line(s: &str, max: usize) -> String {
     flatten(&clip(s, max))
 }
@@ -151,7 +148,7 @@ fn one_line(s: &str, max: usize) -> String {
 fn flatten(s: &str) -> String {
     s.chars()
         .map(|c| {
-            if kubeloupe::catalog::is_invisible(c) {
+            if nauvi::catalog::is_invisible(c) {
                 ' '
             } else {
                 c
@@ -245,7 +242,7 @@ impl Drop for Line<'_> {
     }
 }
 
-/// `kubeloupe.log`, rotated at [`MAX_BYTES`], never past [`HARD_MAX_BYTES`].
+/// `nauvi.log`, rotated at [`MAX_BYTES`], never past [`HARD_MAX_BYTES`].
 pub(crate) struct RotatingFile {
     dir: PathBuf,
     file: File,
@@ -274,7 +271,7 @@ impl RotatingFile {
     pub(crate) fn path(dir: &Path, n: usize) -> PathBuf {
         match n {
             0 => dir.join(LOG_FILE),
-            n => dir.join(format!("kubeloupe.{n}.log")),
+            n => dir.join(format!("nauvi.{n}.log")),
         }
     }
 
@@ -287,7 +284,7 @@ impl RotatingFile {
                 }
                 Err(e) => {
                     if !self.rotate_failed {
-                        eprintln!("kubeloupe: could not rotate the log: {e}");
+                        eprintln!("nauvi: could not rotate the log: {e}");
                         self.rotate_failed = true;
                     }
                     // Keep growing a little, but never past the hard cap.
@@ -312,7 +309,7 @@ impl RotatingFile {
     /// Say once, at the end of the full log, that lines are dropped.
     fn note_full(&mut self, e: &io::Error) {
         let note = format!(
-            "kubeloupe: the log could not be rotated ({}) and is full; lines are dropped until it can be\n",
+            "nauvi: the log could not be rotated ({}) and is full; lines are dropped until it can be\n",
             one_line(&e.to_string(), 200)
         );
         let note = &note.as_bytes()[..note.len().min(FULL_NOTE_ROOM as usize)];
@@ -367,7 +364,7 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("kubeloupe-208-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-208-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         dir
     }
@@ -469,7 +466,7 @@ mod tests {
     #[test]
     fn an_event_is_one_line() {
         // A cluster message with a newline can't forge a log line.
-        let raw = "2026-11-16T10:00:00Z  WARN kubeloupe: watch failed: boom\n2026-11-16T10:00:01Z  INFO kubeloupe: forged\r\n";
+        let raw = "2026-11-16T10:00:00Z  WARN nauvi: watch failed: boom\n2026-11-16T10:00:01Z  INFO nauvi: forged\r\n";
         let line = event_line(raw);
         assert_eq!(line.matches('\n').count(), 1, "{line:?}");
         assert!(line.ends_with("forged\n"), "{line:?}");

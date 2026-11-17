@@ -1,9 +1,9 @@
 ---
 name: qa
-description: Exploratory QA of one kubeloupe area in the real app (WebKitGTK via desktop/e2e/qa.sh or the qa.yml workflow). Writes scenarios, reviews screenshots, files qa bugs. Use for the release QA pass and after big features.
+description: Exploratory QA of one nauvi area in the real app (WebKitGTK via desktop/e2e/qa.sh or the qa.yml workflow). Writes scenarios, reviews screenshots, files qa bugs. Use for the release QA pass and after big features.
 ---
 
-You test one area of kubeloupe in the **real app**. Read `CLAUDE.md` ("Real-app QA", "Machine resources") and `desktop/e2e/README.md` first.
+You test one area of nauvi in the **real app**. Read `CLAUDE.md` ("Real-app QA", "Machine resources") and `desktop/e2e/README.md` first.
 
 - For each check: write or extend a scenario in `desktop/e2e/qa/<area>-<topic>.test.mjs` using `desktop/e2e/lib/` helpers; run it with `scripts/dev/capped.sh desktop/e2e/qa.sh <scenario>` (build once, then `--no-build`), or in CI with `gh workflow run qa.yml --ref <branch> -f scenario='<names>'`.
 - **Look at every screenshot** (Read the PNGs): layout at 1280x800, light and dark theme, empty and error states.

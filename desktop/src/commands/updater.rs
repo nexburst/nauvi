@@ -78,7 +78,7 @@ fn current_version(app: &AppHandle) -> String {
 
 /// Check for a newer release. `startup`: the check on start, which the
 /// "Check for updates on start" setting turns off. Debug builds only check
-/// when `KUBELOUPE_UPDATE_ENDPOINT` points them at a test `latest.json`.
+/// when `NAUVI_UPDATE_ENDPOINT` points them at a test `latest.json`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_update_check(
@@ -171,7 +171,7 @@ pub(crate) async fn cmd_update_install(
     };
     if !can_install {
         return Err(format!(
-            "This copy of kubeloupe cannot install updates itself. Download {} from {}.",
+            "This copy of nauvi cannot install updates itself. Download {} from {}.",
             update.version,
             updater::release_page(&update.version)
         ));
@@ -214,7 +214,7 @@ async fn download_and_install(update: Update, out: &WindowEmitter) -> Result<(),
             || {},
         )
         .await
-        .map_err(|e| format!("Could not download kubeloupe {}: {e}", update.version))?;
+        .map_err(|e| format!("Could not download nauvi {}: {e}", update.version))?;
     let size = bytes.len() as u64;
     out.emit(UpdateProgress {
         phase: UpdatePhase::Installing,
@@ -225,8 +225,8 @@ async fn download_and_install(update: Update, out: &WindowEmitter) -> Result<(),
     let version = update.version.clone();
     tauri::async_runtime::spawn_blocking(move || update.install(bytes))
         .await
-        .map_err(|e| format!("Could not install kubeloupe {version}: {e}"))?
-        .map_err(|e| format!("Could not install kubeloupe {version}: {e}"))
+        .map_err(|e| format!("Could not install nauvi {version}: {e}"))?
+        .map_err(|e| format!("Could not install nauvi {version}: {e}"))
 }
 
 /// Registers the state the commands use.

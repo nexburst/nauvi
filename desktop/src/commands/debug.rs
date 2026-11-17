@@ -3,8 +3,8 @@
 
 use crate::commands::exec::{emit_note, start_session, SessionClose};
 use crate::state::{AppState, Cluster, ClusterSession, SessionCleanup};
-use kubeloupe::debug::{add_debug_container, attach_container, describe_debug_error};
-use kubeloupe::node_shell::{
+use nauvi::debug::{add_debug_container, attach_container, describe_debug_error};
+use nauvi::node_shell::{
     create_node_shell, delete_node_shell, describe_node_shell_error, exec_node_shell,
     leftover_node_shells, new_node_shell_name, NodeShellPod, NODE_SHELL_IMAGE,
 };
@@ -139,8 +139,8 @@ pub(crate) async fn cmd_node_shell_leftovers(
     let client = cluster.client().await?;
     match leftovers(cluster.app(), &client).await {
         Ok(p) => Ok(p),
-        Err(e) if kubeloupe::is_forbidden(&e) => Ok(Vec::new()),
-        Err(e) => Err(kubeloupe::errors::error_text(&e)),
+        Err(e) if nauvi::is_forbidden(&e) => Ok(Vec::new()),
+        Err(e) => Err(nauvi::errors::error_text(&e)),
     }
 }
 
@@ -163,14 +163,14 @@ pub(crate) async fn cmd_node_shell_cleanup(cluster: Cluster) -> Result<u32, Stri
     let client = cluster.client().await?;
     let pods = leftovers(cluster.app(), &client)
         .await
-        .map_err(|e| kubeloupe::actions::describe_error(&e))?;
+        .map_err(|e| nauvi::actions::describe_error(&e))?;
     let mut deleted = 0;
     let mut first_error = None;
     for p in pods {
         match delete_node_shell(&client, &p.namespace, &p.name).await {
             Ok(()) => deleted += 1,
             Err(e) => {
-                first_error.get_or_insert_with(|| kubeloupe::actions::describe_error(&e));
+                first_error.get_or_insert_with(|| nauvi::actions::describe_error(&e));
             }
         }
     }
