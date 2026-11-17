@@ -17,7 +17,7 @@ use anyhow::{anyhow, bail, Result};
 use kube::Client;
 use serde::{Deserialize, Serialize};
 
-/// The add-ons kubeloupe offers.
+/// The add-ons nauvi offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 #[serde(rename_all = "kebab-case")]

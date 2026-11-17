@@ -1,4 +1,4 @@
-// Captured from a real `cmd_discover` (kubeloupe::resources::discover) against
+// Captured from a real `cmd_discover` (nauvi::resources::discover) against
 // the kind test cluster (scripts/test-cluster, Kubernetes v1.37.0). Columns and
 // actions come from the backend registry, so re-capture this when the
 // registry changes: print `resources::discover(&client)` as JSON and paste it

@@ -2,7 +2,7 @@
 // Checks (#88): Attach to a container with stdin and a TTY: typing works,
 // the TTY follows a dock resize, closing the tab leaves the process running
 // and a second Attach reaches the same process; a container without stdin
-// gives the plain error; `kubeloupe attach` in a real TTY detaches on
+// gives the plain error; `nauvi attach` in a real TTY detaches on
 // Ctrl-P Ctrl-Q, also from an ephemeral debug container whose tab was
 // closed.
 // Checks (#72): Debug… on a pod: the dialog, typing in the attached shell
@@ -41,8 +41,8 @@ async function enterUntilPrompt(term, timeout = 30_000) {
   }
 }
 const target = process.env.CARGO_TARGET_DIR || join(REPO, "target");
-const CLI = process.env.KUBELOUPE_CLI || join(target, "debug", "kubeloupe");
-const noCli = existsSync(CLI) ? false : `no CLI at ${CLI} (cargo build -p kubeloupe)`;
+const CLI = process.env.NAUVI_CLI || join(target, "debug", "nauvi");
+const noCli = existsSync(CLI) ? false : `no CLI at ${CLI} (cargo build -p nauvi)`;
 const noScript = existsSync("/usr/bin/script") ? false : "no script(1) to give the CLI a real TTY";
 
 const PODS = `
@@ -198,7 +198,7 @@ describe("area 4: attach and debug containers", { timeout: 20 * 60_000 }, () => 
     assert.ok(names.length > 0);
   });
 
-  it("kubeloupe attach: Ctrl-P Ctrl-Q detaches in a real TTY, the process keeps running", { ...T, skip: noCli || noScript }, async () => {
+  it("nauvi attach: Ctrl-P Ctrl-Q detaches in a real TTY, the process keeps running", { ...T, skip: noCli || noScript }, async () => {
     const cli = cliInTty(["attach", "tty", "-n", ns]);
     await cli.waitFor(/Ctrl-P Ctrl-Q/);
     cli.write("\r");
@@ -214,7 +214,7 @@ describe("area 4: attach and debug containers", { timeout: 20 * 60_000 }, () => 
     assert.equal(restarts("tty"), 0);
   });
 
-  it("kubeloupe attach to the debug container after its tab was closed", { ...T, skip: noCli || noScript }, async () => {
+  it("nauvi attach to the debug container after its tab was closed", { ...T, skip: noCli || noScript }, async () => {
     const name = kubectl(["-n", ns, "get", "pod", "web", "-o", "jsonpath={.spec.ephemeralContainers[0].name}"]);
     assert.ok(name, "the Debug… test added a debug container");
     const state = kubectl(["-n", ns, "get", "pod", "web", "-o", "jsonpath={.status.ephemeralContainerStatuses[0].state}"]);

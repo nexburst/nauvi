@@ -31,7 +31,7 @@ import { appSession, waitLive } from "../lib/qa.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
-const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-catalog-"));
+const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-catalog-"));
 const folder = join(dir, "clusters");
 const team = join(folder, "team.yaml");
 const broken = join(folder, "broken.yaml");

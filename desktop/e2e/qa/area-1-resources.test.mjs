@@ -22,7 +22,7 @@ import { bannerText, tableData } from "../lib/table.mjs";
 const T = { timeout: 180_000 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const suffix = `${Date.now().toString(36)}${process.pid.toString(36)}`;
-const GROUP = `qa-area1-${suffix}.kubeloupe.dev`;
+const GROUP = `qa-area1-${suffix}.nauvi.dev`;
 const CRD = `gadgets.${GROUP}`;
 
 const fixtures = `
@@ -130,7 +130,7 @@ async function editorValue(app, needle) {
   const editor = await app.find(byTestId("yaml-editor"));
   return app.waitFor(
     async () => {
-      const v = await app.js("return arguments[0].kubeloupeEditor?.getValue() ?? null", editor);
+      const v = await app.js("return arguments[0].nauviEditor?.getValue() ?? null", editor);
       return v?.includes(needle) ? v : null;
     },
     { message: `"${needle}" in the editor` },
@@ -140,7 +140,7 @@ async function editorValue(app, needle) {
 /** Replace the editor text, Review, Save and wait for "Saved". */
 async function saveYaml(app, text) {
   const editor = await app.find(byTestId("yaml-editor"));
-  await app.js("arguments[0].kubeloupeEditor.setValue(arguments[1])", editor, text);
+  await app.js("arguments[0].nauviEditor.setValue(arguments[1])", editor, text);
   const review = await app.find(byTestId("yaml-review"));
   await app.waitFor(() => review.isEnabled(), { message: "Review enabled by the edit" });
   await review.click();

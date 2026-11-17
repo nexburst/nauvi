@@ -12,7 +12,7 @@
     { label: "Documentation", run: () => void openHelpItem("documentation") },
     { label: "Report a bug…", run: () => void openHelpItem("report_bug") },
     { label: "Open log folder", run: () => void openHelpItem("log_folder") },
-    { label: "About kubeloupe", run: openAbout },
+    { label: "About nauvi", run: openAbout },
   ];
 
   function toggle() {

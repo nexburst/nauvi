@@ -4,7 +4,7 @@
 
 use super::helm::target;
 use crate::state::Cluster;
-use kubeloupe::helm::{
+use nauvi::helm::{
     self, HelmChartDetails, HelmChartVersion, HelmDeployRequest, HelmDeployResult, HelmRepo,
     HelmRepoUpdate,
 };

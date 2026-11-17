@@ -84,11 +84,11 @@ fn main() {
             sources.set_extra(&store.get().kubeconfig_sources);
             catalog::watch(app.handle().clone(), sources);
             // Temp kubeconfigs a crashed run left behind (#242).
-            std::thread::spawn(kubeloupe::sweep_stale_temp_kubeconfigs);
+            std::thread::spawn(nauvi::sweep_stale_temp_kubeconfigs);
             app.manage(store);
             commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());
-            // Started from a kubeloupe:// link (#299).
+            // Started from a nauvi:// link (#299).
             links::open_launch_link(app.handle());
             close_guard::install(app.handle());
             Ok(())
@@ -112,7 +112,7 @@ fn main() {
             _ => {}
         })
         .build(context)
-        .expect("error while building kubeloupe")
+        .expect("error while building nauvi")
         .run(|app, event| match event {
             // Windows that close from now on stay remembered (#126).
             // On macOS the last window closing leaves the app in the Dock (#174).
@@ -123,7 +123,7 @@ fn main() {
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Reopen { .. } => windows::reopen(app),
             tauri::RunEvent::Exit => windows::before_exit(app),
-            // macOS hands kubeloupe:// links to the running app (#299).
+            // macOS hands nauvi:// links to the running app (#299).
             #[cfg(target_os = "macos")]
             tauri::RunEvent::Opened { urls } => links::opened(app, &urls),
             _ => {}

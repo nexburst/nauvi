@@ -7,7 +7,7 @@
 // - a row opens the side panel, whose workload opens its own detail;
 // - live: deleting the broken workload makes `shop` Healthy;
 // - an empty namespace explains what the view groups;
-// - as the limited user (if KUBELOUPE_LIMITED_KUBECONFIG is set), only its
+// - as the limited user (if NAUVI_LIMITED_KUBECONFIG is set), only its
 //   namespace's applications, with the notes saying why.
 // Screenshots at 1280x800 in light and dark theme.
 
@@ -86,7 +86,7 @@ describe("applications", { timeout: 15 * 60_000 }, () => {
         deployment(
           "shop-api",
           { "app.kubernetes.io/instance": "shop", "app.kubernetes.io/name": "api", "app.kubernetes.io/version": "1.0" },
-          "kubeloupe.invalid/nope:1",
+          "nauvi.invalid/nope:1",
         ),
         deployment("cache", { "app.kubernetes.io/name": "redis" }),
         deployment("loner", {}),
@@ -187,8 +187,8 @@ describe("applications", { timeout: 15 * 60_000 }, () => {
   });
 });
 
-const kubeconfig = process.env.KUBELOUPE_LIMITED_KUBECONFIG;
-const limitedSkip = kubeconfig && existsSync(kubeconfig) ? false : "set KUBELOUPE_LIMITED_KUBECONFIG (limited-user.sh)";
+const kubeconfig = process.env.NAUVI_LIMITED_KUBECONFIG;
+const limitedSkip = kubeconfig && existsSync(kubeconfig) ? false : "set NAUVI_LIMITED_KUBECONFIG (limited-user.sh)";
 const TEAM_APP = `qa-apps-${Date.now().toString(36)}`;
 
 describe("applications as the limited user", { timeout: 10 * 60_000, skip: limitedSkip }, () => {

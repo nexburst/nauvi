@@ -3,8 +3,8 @@
 
 use crate::state::Cluster;
 use futures::StreamExt;
-use kubeloupe::watch::WatchState;
-use kubeloupe::{watch_workloads, WorkloadsOverview, WorkloadsUpdate};
+use nauvi::watch::WatchState;
+use nauvi::{watch_workloads, WorkloadsOverview, WorkloadsUpdate};
 use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;

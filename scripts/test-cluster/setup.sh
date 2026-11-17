@@ -1,24 +1,24 @@
 #!/usr/bin/env bash
-# Sets up the kubeloupe test cluster with kind (Kubernetes IN Docker): real
+# Sets up the nauvi test cluster with kind (Kubernetes IN Docker): real
 # nodes running real containers, so logs, exec, port-forwarding and the
 # metrics API all work.
 #
 # Creates:
-#   kubeloupe-test     — control-plane + 1 worker, metrics-server and the
+#   nauvi-test     — control-plane + 1 worker, metrics-server and the
 #                        demo workload (demo.yaml)
-#   kubeloupe-staging  — single node, empty, only with --staging (a second
+#   nauvi-staging  — single node, empty, only with --staging (a second
 #                        cluster for testing the context switcher)
-# kind merges the contexts into ~/.kube/config; kind-kubeloupe-test is left
+# kind merges the contexts into ~/.kube/config; kind-nauvi-test is left
 # current.
 #
 # Requires: Docker (your user able to run `docker` without sudo).
 # Usage:     bash scripts/test-cluster/setup.sh [--staging]
-#   KUBELOUPE_IMAGES=pull  pull the test images once (images.sh) and load them
+#   NAUVI_IMAGES=pull  pull the test images once (images.sh) and load them
 #                          into the nodes, so the nodes never pull from
 #                          Docker Hub (CI sets this)
-#   KUBELOUPE_IMAGES=<file.tar>  load them from an `images.sh save` archive
-# Tear down: kind delete cluster --name kubeloupe-test
-#            kind delete cluster --name kubeloupe-staging
+#   NAUVI_IMAGES=<file.tar>  load them from an `images.sh save` archive
+# Tear down: kind delete cluster --name nauvi-test
+#            kind delete cluster --name nauvi-staging
 set -euo pipefail
 
 KIND_VERSION="${KIND_VERSION:-v0.33.0}"
@@ -77,7 +77,7 @@ create_cluster() {
   fi
 }
 
-create_cluster kubeloupe-test "$(cat <<'EOF'
+create_cluster nauvi-test "$(cat <<'EOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -86,7 +86,7 @@ nodes:
 EOF
 )"
 if [ "$WITH_STAGING" = 1 ]; then
-  create_cluster kubeloupe-staging "$(cat <<'EOF'
+  create_cluster nauvi-staging "$(cat <<'EOF'
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -97,16 +97,16 @@ fi
 
 # Docker Hub images, loaded into the nodes instead of pulled by them.
 load_images() {
-  case "${KUBELOUPE_IMAGES:-}" in
+  case "${NAUVI_IMAGES:-}" in
     "") ;;
     pull) bash "$SCRIPT_DIR/images.sh" load "$1" ;;
-    *) bash "$SCRIPT_DIR/images.sh" load "$1" "$KUBELOUPE_IMAGES" ;;
+    *) bash "$SCRIPT_DIR/images.sh" load "$1" "$NAUVI_IMAGES" ;;
   esac
 }
-load_images kubeloupe-test
-if [ "$WITH_STAGING" = 1 ]; then load_images kubeloupe-staging; fi
+load_images nauvi-test
+if [ "$WITH_STAGING" = 1 ]; then load_images nauvi-staging; fi
 
-KCTX=(--context kind-kubeloupe-test)
+KCTX=(--context kind-nauvi-test)
 
 # 4. metrics-server. kind's kubelets use self-signed serving certs, so
 # metrics-server needs --kubelet-insecure-tls (fine for a local test cluster).
@@ -126,10 +126,10 @@ kubectl "${KCTX[@]}" -n kube-system rollout status deploy/metrics-server --timeo
 kubectl "${KCTX[@]}" -n demo rollout status deploy/web --timeout=180s
 kubectl "${KCTX[@]}" -n demo rollout status deploy/logger --timeout=180s
 
-kubectl config use-context kind-kubeloupe-test
+kubectl config use-context kind-nauvi-test
 
 echo
 echo "Test cluster ready:"
 kubectl config get-contexts
-echo "Run the app with: cargo run -p kubeloupe-desktop"
+echo "Run the app with: cargo run -p nauvi-desktop"
 echo "(Usage columns fill in about a minute after metrics-server starts.)"

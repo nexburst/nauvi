@@ -158,7 +158,7 @@ export const LISTENERS: (() => Promise<() => void>)[] = [
   listenMouseButtons,
   // Back/forward (#223): records each place the window shows.
   async () => trackHistory(),
-  // kubeloupe:// links (#299).
+  // nauvi:// links (#299).
   listenLinks,
 ];
 
@@ -167,6 +167,6 @@ export const AFTER_START: (() => Promise<void>)[] = [
   checkLeftovers,
   // The update check waits for the settings (its on/off switch).
   startupCheck,
-  // A kubeloupe:// link that came while the window started (#299).
+  // A nauvi:// link that came while the window started (#299).
   takePendingLink,
 ];

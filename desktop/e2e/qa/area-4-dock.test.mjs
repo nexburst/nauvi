@@ -9,7 +9,7 @@
 // Checks (#19): close a terminal tab and open it again; switching views
 // keeps the dock (the panel and its streams were replaced by dock tabs in #67).
 // Checks (#43): Ctrl+Shift+` opens a local shell; its temp kubeconfig
-// (`kubeloupe-shell-<pid>-<n>.yaml` in the app's temp dir) is removed when
+// (`nauvi-shell-<pid>-<n>.yaml` in the app's temp dir) is removed when
 // the tab closes.
 // Checks (#116): with the strip overflowing, every tab and its ✕ take
 // clicks on their whole height (no overlay scrollbar over them).

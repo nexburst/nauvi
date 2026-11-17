@@ -72,7 +72,7 @@ struct Entry {
 }
 
 /// Apply every object of a (multi-document) YAML manifest with server-side
-/// apply, as the field manager "kubeloupe".
+/// apply, as the field manager "nauvi".
 ///
 /// The whole batch is validated with a dry run first; unless
 /// `opts.dry_run`, it is then applied if every document passed (or, with
@@ -428,7 +428,7 @@ fn describe(err: &anyhow::Error) -> String {
 // CLI.
 // ---------------------------------------------------------------------------
 
-/// `kubeloupe apply -f <file|->`: apply a manifest and print a line per
+/// `nauvi apply -f <file|->`: apply a manifest and print a line per
 /// object, like kubectl. Fails if any object failed.
 pub async fn cli_apply(
     client: &Client,

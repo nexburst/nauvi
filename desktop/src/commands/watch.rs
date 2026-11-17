@@ -2,8 +2,8 @@
 
 use crate::state::{next_session, Cluster, ClusterSession, WindowEmitter};
 use kube::Client;
-use kubeloupe::resources::{self, ResourceKind, ResourceRef, ResourceRow};
-use kubeloupe::watch;
+use nauvi::resources::{self, ResourceKind, ResourceRef, ResourceRow};
+use nauvi::watch;
 use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;
@@ -74,7 +74,7 @@ async fn kind_of(
     }
     let kinds = resources::discover(client)
         .await
-        .map_err(|e| kubeloupe::error_text(&e))?;
+        .map_err(|e| nauvi::error_text(&e))?;
     let found = find(&kinds);
     *state.kinds.lock().unwrap() = kinds;
     found.ok_or_else(|| format!("{} is not served by this cluster", resource.kind))

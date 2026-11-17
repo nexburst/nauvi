@@ -1,6 +1,6 @@
-# kubeloupe
+# nauvi
 
-[![CI](https://github.com/pedrosanzmtz/kubeloupe/actions/workflows/ci.yml/badge.svg)](https://github.com/pedrosanzmtz/kubeloupe/actions/workflows/ci.yml)
+[![CI](https://github.com/nexburst/nauvi/actions/workflows/ci.yml/badge.svg)](https://github.com/nexburst/nauvi/actions/workflows/ci.yml)
 
 A Lens alternative written in Rust: a Kubernetes IDE that stays fast while
 streaming logs and watching cluster state. It comes as a desktop app (Tauri +
@@ -11,7 +11,7 @@ Svelte) and a CLI, both built on the same Rust core.
 > workloads, opens terminals and port-forwards, edits YAML with server-side
 > apply, and runs the common actions (scale, restart, cordon, drain, trigger,
 > suspend, delete). There is no tagged release yet. What comes next is tracked
-> in the [roadmap (#24)](https://github.com/pedrosanzmtz/kubeloupe/issues/24).
+> in the [roadmap (#24)](https://github.com/nexburst/nauvi/issues/24).
 
 ## Desktop app
 
@@ -117,7 +117,7 @@ Svelte) and a CLI, both built on the same Rust core.
   dock's `+` or "New local terminal" in the palette): your own shell
   (`$SHELL -l`; on Windows `pwsh`, `powershell` or `cmd`) in your home
   directory, with `kubectl` and `helm` already pointed at the app's context
-  and namespace. The app writes a temp kubeconfig, `kubeloupe-shell-*.yaml`
+  and namespace. The app writes a temp kubeconfig, `nauvi-shell-*.yaml`
   in the system temp directory, so your own kubeconfig files are never
   changed. For a context of your default kubeconfig it holds just that
   context entry and comes first in `KUBECONFIG`, before your own files. For
@@ -151,16 +151,16 @@ Svelte) and a CLI, both built on the same Rust core.
   PodDisruptionBudget would be violated, the eviction is refused and the
   dialog says why. It needs `create pods/eviction`.
 - **Links to objects**: **Copy link** (in the detail panel's header and the
-  right-click menu) copies a `kubeloupe://` link such as
-  `kubeloupe://my-context/apps/v1/Deployment/shop/web` (`core` for the core
+  right-click menu) copies a `nauvi://` link such as
+  `nauvi://my-context/apps/v1/Deployment/shop/web` (`core` for the core
   group, `_` for no namespace). Opening one (from a browser, a chat, or
-  `xdg-open`, `open`, `start`) brings kubeloupe to the front and shows that
+  `xdg-open`, `open`, `start`) brings nauvi to the front and shows that
   object in a window on that context, opening one if needed. A link only
   opens a view; it never changes the cluster. Opening a context from your
   default kubeconfig may run its login plugin, as switching to it does. A
   link to a context that is not in your kubeconfigs only shows a notice.
   The Linux `.deb`, the macOS app and the Windows installers register the
-  `kubeloupe://` scheme. The AppImage doesn't: it handles links only if you
+  `nauvi://` scheme. The AppImage doesn't: it handles links only if you
   set up desktop integration (for example with AppImageLauncher). A build
   from source doesn't either.
 - **Debugging**: "Debug…" on a pod adds an ephemeral debug container
@@ -204,9 +204,9 @@ Svelte) and a CLI, both built on the same Rust core.
   forwards: switching or closing one window leaves the others alone. The
   windows open when you quit are reopened on the next start, where they were
   and at their size; "New window" opens offset from the current window. On
-  macOS, closing the last window keeps kubeloupe in the Dock (that window's
+  macOS, closing the last window keeps nauvi in the Dock (that window's
   port-forwards, shells and logs stop with it); click the Dock icon to open a
-  window again. kubeloupe runs once per user: launching it again (from the
+  window again. nauvi runs once per user: launching it again (from the
   menu, a shortcut or the command line) brings the running app's window to
   the front instead of starting a second copy. On Linux this uses the D-Bus
   session bus; without one, each launch starts its own copy.
@@ -223,14 +223,14 @@ Svelte) and a CLI, both built on the same Rust core.
   them first in the context selector and the palette. Each cluster's
   Settings page has its display name and colour, default and accessible
   namespaces, Prometheus Service and the local terminal's working directory.
-  kubeloupe only reads your kubeconfig files; removing an added file or
+  nauvi only reads your kubeconfig files; removing an added file or
   folder leaves it as it is.
 - **Login commands** (exec credential plugins: EKS, GKE, AKS, kubelogin, …)
-  run when kubeloupe logs in. The credential is cached per plugin
+  run when nauvi logs in. The credential is cached per plugin
   configuration (command, arguments and environment) and reused until it
   expires. The catalog checks these contexts only when you click
   **Check**. When an added kubeconfig file, folder or pasted kubeconfig logs
-  in by running a command, kubeloupe shows the exact command and runs it
+  in by running a command, nauvi shows the exact command and runs it
   only if you choose **Allow and check** (**Don't run** marks its contexts
   "Not allowed"). The answer is remembered per source and command (in
   `exec-approvals.json` in the app's config directory) until you remove the
@@ -247,27 +247,27 @@ Svelte) and a CLI, both built on the same Rust core.
   the log viewer defaults, and **Zoom and text**: the window zoom (50–200%)
   and the terminal font size (8–32 px), both remembered; a new font size
   applies to open terminals at once. Saved in `settings.json` in the app's config
-  directory (`~/.config/com.kubeloupe.app/` on Linux,
-  `~/Library/Application Support/com.kubeloupe.app/` on macOS,
-  `%APPDATA%\com.kubeloupe.app\` on Windows).
+  directory (`~/.config/com.nauvi.app/` on Linux,
+  `~/Library/Application Support/com.nauvi.app/` on macOS,
+  `%APPDATA%\com.nauvi.app\` on Windows).
 - **Help and diagnostics**: the Help menu (the `?` in the header; on macOS
   also in the menu bar) has Documentation, Report a bug (opens a GitHub issue
   with the version, commit, OS and webview filled in), Open log folder and
   About. Settings → About shows the version and commit and has Copy
   diagnostics (nothing about your clusters). The app log is
-  `kubeloupe.log` in `~/.local/share/com.kubeloupe.app/logs/` on Linux,
-  `~/Library/Logs/com.kubeloupe.app/` on macOS and
-  `%LOCALAPPDATA%\com.kubeloupe.app\logs\` on Windows. It is rotated at
+  `nauvi.log` in `~/.local/share/com.nauvi.app/logs/` on Linux,
+  `~/Library/Logs/com.nauvi.app/` on macOS and
+  `%LOCALAPPDATA%\com.nauvi.app\logs\` on Windows. It is rotated at
   2 MiB (3 files kept); on Linux and macOS only you can read it (mode 0600).
   Secret-looking text is masked, but check the log before you share it.
-  `KUBELOUPE_LOG=debug` logs more.
+  `NAUVI_LOG=debug` logs more.
 
 ## CLI
 
 The CLI uses the current kubeconfig context. Every command takes
 `--context NAME` and `--kubeconfig PATH` to use another context or file, so
-one script can work against several clusters. Run `kubeloupe --help` or
-`kubeloupe <command> --help` for every option; `kubeloupe --version` prints
+one script can work against several clusters. Run `nauvi --help` or
+`nauvi <command> --help` for every option; `nauvi --version` prints
 the installed version.
 
 Output is meant for scripts too: results go to stdout, errors and log lines
@@ -282,42 +282,42 @@ the command cannot be run).
 
 | Command | What it does |
 |---|---|
-| `kubeloupe get <kind> [<name>] [-n NS] [-o FORMAT] [-l SEL] [--field-selector SEL]` | List any resource type, built-in or custom (`deploy`, `svc`, `widgets.example.com`), with the same columns as the app. `-o` is `table` (default), `wide` (adds labels, and IPs for pods and nodes), `yaml`, `json` or `name` (`deployment.apps/web`). Also `get <kind>/<name>` |
-| `kubeloupe describe <kind>/<name> [-n NS]` | Metadata, owners, labels and annotations, conditions, Secret keys (never values) and events of any object, like `kubectl describe` |
-| `kubeloupe yaml <kind>/<name> [-n NS] [--reveal]` | Print any object as YAML. Secret values are hidden unless `--reveal` is given (same for `get -o yaml\|json`). `yaml <pod>` is short for `yaml pod/<pod>` |
-| `kubeloupe helm list [-n NS]` | Helm releases with chart, app version, revision and status (all namespaces by default), read from the cluster without `helm` |
-| `kubeloupe helm get <release> [all\|values\|manifest\|notes\|history] [-n NS] [--revision N] [--all] [--reveal]` | One release: a summary with history and notes (default), its user values (`--all` merges the chart defaults), manifest (Secret values hidden unless `--reveal`), notes or revisions |
-| `kubeloupe completions <bash\|zsh\|fish\|powershell\|elvish>` | Print a shell completion script, e.g. `kubeloupe completions bash > ~/.local/share/bash-completion/completions/kubeloupe` |
-| `kubeloupe watch [<kind>] [-n NS]` | Print live changes to a resource type (default `pods`) until Ctrl-C |
-| `kubeloupe pods [-n NS]` | List pods (all namespaces by default) |
-| `kubeloupe namespaces` | List namespaces |
-| `kubeloupe nodes` | List nodes with readiness and kubelet version |
-| `kubeloupe logs <pod> [-n NS] [-c CONTAINER] [-p] [-f] [--tail N]` | A pod's logs: `-c` picks a container, `-p` the previous (crashed) instance, `-f` follows |
-| `kubeloupe logs deploy/<name>` (also `sts/`, `ds/`, `job/`) | The logs of every pod of a workload, as `[pod] line` |
-| `kubeloupe top [pods\|nodes] [-n NS]` | CPU/memory usage (needs metrics-server); `-n` limits pods to one namespace |
-| `kubeloupe exec <pod> [-n NS] [-c CONTAINER] -- <command>` | Run a command in a pod and print its output; exits with the command's exit code |
-| `kubeloupe debug <pod> [-n NS] [-c CONTAINER] [--image IMAGE]` | Add an ephemeral debug container (default `busybox:1.37`) that shares the container's processes, and attach to it. Works on images without a shell; the container cannot be removed afterwards |
-| `kubeloupe node-shell <node> [-n NS] [--image IMAGE]` | A root shell on a node through a privileged pod (in `kube-system` by default; it needs Pod Security `privileged`). The pod is deleted when the shell exits |
-| `kubeloupe port-forward <target> <[local:]remote>... [-n NS]` | Forward to localhost until Ctrl-C. Target: a pod name, `svc/<name>`, `deploy/<name>` (also `pod/`, `sts/`, `rs/`, `ds/`). Ports: `8080:80`, `:80` (random local), or `80` (the same local port if free and ≥ 1024, else random); the remote port may be a port name |
+| `nauvi get <kind> [<name>] [-n NS] [-o FORMAT] [-l SEL] [--field-selector SEL]` | List any resource type, built-in or custom (`deploy`, `svc`, `widgets.example.com`), with the same columns as the app. `-o` is `table` (default), `wide` (adds labels, and IPs for pods and nodes), `yaml`, `json` or `name` (`deployment.apps/web`). Also `get <kind>/<name>` |
+| `nauvi describe <kind>/<name> [-n NS]` | Metadata, owners, labels and annotations, conditions, Secret keys (never values) and events of any object, like `kubectl describe` |
+| `nauvi yaml <kind>/<name> [-n NS] [--reveal]` | Print any object as YAML. Secret values are hidden unless `--reveal` is given (same for `get -o yaml\|json`). `yaml <pod>` is short for `yaml pod/<pod>` |
+| `nauvi helm list [-n NS]` | Helm releases with chart, app version, revision and status (all namespaces by default), read from the cluster without `helm` |
+| `nauvi helm get <release> [all\|values\|manifest\|notes\|history] [-n NS] [--revision N] [--all] [--reveal]` | One release: a summary with history and notes (default), its user values (`--all` merges the chart defaults), manifest (Secret values hidden unless `--reveal`), notes or revisions |
+| `nauvi completions <bash\|zsh\|fish\|powershell\|elvish>` | Print a shell completion script, e.g. `nauvi completions bash > ~/.local/share/bash-completion/completions/nauvi` |
+| `nauvi watch [<kind>] [-n NS]` | Print live changes to a resource type (default `pods`) until Ctrl-C |
+| `nauvi pods [-n NS]` | List pods (all namespaces by default) |
+| `nauvi namespaces` | List namespaces |
+| `nauvi nodes` | List nodes with readiness and kubelet version |
+| `nauvi logs <pod> [-n NS] [-c CONTAINER] [-p] [-f] [--tail N]` | A pod's logs: `-c` picks a container, `-p` the previous (crashed) instance, `-f` follows |
+| `nauvi logs deploy/<name>` (also `sts/`, `ds/`, `job/`) | The logs of every pod of a workload, as `[pod] line` |
+| `nauvi top [pods\|nodes] [-n NS]` | CPU/memory usage (needs metrics-server); `-n` limits pods to one namespace |
+| `nauvi exec <pod> [-n NS] [-c CONTAINER] -- <command>` | Run a command in a pod and print its output; exits with the command's exit code |
+| `nauvi debug <pod> [-n NS] [-c CONTAINER] [--image IMAGE]` | Add an ephemeral debug container (default `busybox:1.37`) that shares the container's processes, and attach to it. Works on images without a shell; the container cannot be removed afterwards |
+| `nauvi node-shell <node> [-n NS] [--image IMAGE]` | A root shell on a node through a privileged pod (in `kube-system` by default; it needs Pod Security `privileged`). The pod is deleted when the shell exits |
+| `nauvi port-forward <target> <[local:]remote>... [-n NS]` | Forward to localhost until Ctrl-C. Target: a pod name, `svc/<name>`, `deploy/<name>` (also `pod/`, `sts/`, `rs/`, `ds/`). Ports: `8080:80`, `:80` (random local), or `80` (the same local port if free and ≥ 1024, else random); the remote port may be a port name |
 
 Actions report errors in plain words (not allowed, already gone, blocked by a
 PodDisruptionBudget). Namespaced actions default to the `default` namespace.
 
 | Command | What it does |
 |---|---|
-| `kubeloupe scale <deploy\|sts\|rs>/<name> --replicas N [-n NS]` | Set the replica count |
-| `kubeloupe restart <deploy\|sts\|ds>/<name> [-n NS]` | Rollout restart |
-| `kubeloupe cordon <node>` / `kubeloupe uncordon <node>` | Mark a node unschedulable / schedulable |
-| `kubeloupe evict <pod> [-n NS]` | Evict one pod through the Eviction API. A PodDisruptionBudget that would be violated refuses it (not retried) |
-| `kubeloupe drain <node> [--timeout SECS] [--pod-selector SEL]` | Cordon, then evict the node's pods through the Eviction API with progress output. Skips DaemonSet and mirror pods and retries evictions a PodDisruptionBudget refuses |
-| `kubeloupe trigger cronjob/<name> [-n NS]` | Create a Job from a CronJob now |
-| `kubeloupe suspend cronjob/<name> [-n NS]` / `resume cronjob/<name>` | Suspend or resume a CronJob |
-| `kubeloupe delete <kind>/<name> [-n NS] [--force]` | Delete an object of any kind. `--force` (pods only) uses grace period 0 |
-| `kubeloupe apply -f <file\|-> [-n NS] [--dry-run]` | Create or update the objects of a (multi-document) YAML file, like `kubectl apply`. Validated with a dry run first; nothing is applied if any object fails |
+| `nauvi scale <deploy\|sts\|rs>/<name> --replicas N [-n NS]` | Set the replica count |
+| `nauvi restart <deploy\|sts\|ds>/<name> [-n NS]` | Rollout restart |
+| `nauvi cordon <node>` / `nauvi uncordon <node>` | Mark a node unschedulable / schedulable |
+| `nauvi evict <pod> [-n NS]` | Evict one pod through the Eviction API. A PodDisruptionBudget that would be violated refuses it (not retried) |
+| `nauvi drain <node> [--timeout SECS] [--pod-selector SEL]` | Cordon, then evict the node's pods through the Eviction API with progress output. Skips DaemonSet and mirror pods and retries evictions a PodDisruptionBudget refuses |
+| `nauvi trigger cronjob/<name> [-n NS]` | Create a Job from a CronJob now |
+| `nauvi suspend cronjob/<name> [-n NS]` / `resume cronjob/<name>` | Suspend or resume a CronJob |
+| `nauvi delete <kind>/<name> [-n NS] [--force]` | Delete an object of any kind. `--force` (pods only) uses grace period 0 |
+| `nauvi apply -f <file\|-> [-n NS] [--dry-run]` | Create or update the objects of a (multi-document) YAML file, like `kubectl apply`. Validated with a dry run first; nothing is applied if any object fails |
 
-### Use kubeloupe from an AI assistant (MCP)
+### Use nauvi from an AI assistant (MCP)
 
-`kubeloupe mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
+`nauvi mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
 server over stdio. It offers the tools `list`, `get`, `describe`, `logs`
 (of a pod or of `deploy/`, `sts/`, `ds/`, `job/`, `rs/`), `events` and
 `top`. It uses the CLI's kubeconfig and current context (or `--context`,
@@ -342,9 +342,9 @@ so RBAC applies. It connects on the first tool call.
 Claude Code:
 
 ```sh
-claude mcp add kubeloupe -- kubeloupe mcp
+claude mcp add nauvi -- nauvi mcp
 # a fixed context, with the write tools:
-claude mcp add kubeloupe-staging -- kubeloupe --context staging mcp --allow-writes
+claude mcp add nauvi-staging -- nauvi --context staging mcp --allow-writes
 ```
 
 Claude Desktop (`claude_desktop_config.json`), Cursor (`.cursor/mcp.json`)
@@ -354,12 +354,12 @@ it under `"servers"`):
 ```json
 {
   "mcpServers": {
-    "kubeloupe": { "command": "kubeloupe", "args": ["mcp"] }
+    "nauvi": { "command": "nauvi", "args": ["mcp"] }
   }
 }
 ```
 
-Use the full path to `kubeloupe` if the client does not see your shell's
+Use the full path to `nauvi` if the client does not see your shell's
 `PATH`. Desktop clients often start without your shell's environment: add
 `"env": { "KUBECONFIG": "..." }` if your kubeconfig is not
 `~/.kube/config`. Exec credential plugins (EKS, GKE, AKS) must log in
@@ -368,13 +368,13 @@ without a prompt, so sign in once in a terminal first.
 ## Install
 
 Releases will be published on the
-[Releases page](https://github.com/pedrosanzmtz/kubeloupe/releases) with these
+[Releases page](https://github.com/nexburst/nauvi/releases) with these
 files:
 
-- Linux: `.AppImage` (`chmod +x` it and run) or `.deb` (`sudo apt install ./kubeloupe_*.deb`)
+- Linux: `.AppImage` (`chmod +x` it and run) or `.deb` (`sudo apt install ./nauvi_*.deb`)
 - macOS: `.dmg` (universal, Apple silicon and Intel)
 - Windows: `.msi` or the NSIS `-setup.exe`
-- CLI only: `kubeloupe-cli-<version>-<target>.tar.gz` (`.zip` on Windows)
+- CLI only: `nauvi-cli-<version>-<target>.tar.gz` (`.zip` on Windows)
 
 The builds are not signed yet, so the OS will warn you the first time:
 
@@ -382,12 +382,12 @@ The builds are not signed yet, so the OS will warn you the first time:
   run it from the disk image: macOS then runs it from a temporary read-only
   copy, which can't update itself. The first launch says "Apple could not verify…";
   click Done, then open System Settings → Privacy & Security and click
-  **Open Anyway** next to the kubeloupe message (on macOS 15 and later,
+  **Open Anyway** next to the nauvi message (on macOS 15 and later,
   right-click → Open no longer offers this). If macOS says the app is
-  damaged, run `xattr -dr com.apple.quarantine /Applications/kubeloupe.app`.
-- macOS CLI: a downloaded `kubeloupe` binary is killed at launch (exit
+  damaged, run `xattr -dr com.apple.quarantine /Applications/nauvi.app`.
+- macOS CLI: a downloaded `nauvi` binary is killed at launch (exit
   status 137) until you remove the quarantine flag:
-  `xattr -d com.apple.quarantine ./kubeloupe`.
+  `xattr -d com.apple.quarantine ./nauvi`.
 - Windows: SmartScreen shows "Windows protected your PC"; click
   More info, then Run anyway.
 - Linux needs no workaround; the AppImage needs FUSE 2 (`libfuse2`) on
@@ -418,7 +418,7 @@ a signed `.deb` update, otherwise the banner links to the release page.
 On macOS, a copy run straight from the disk image, or from a temporary
 location (App Translocation, when a downloaded app was not moved with
 Finder), can't update itself: the banner says so and links to the release
-page. Drag kubeloupe into Applications with Finder to update it in place.
+page. Drag nauvi into Applications with Finder to update it in place.
 
 ## Build and run from source
 
@@ -449,7 +449,7 @@ cd desktop && cargo tauri dev                     # starts Vite on :1420 and the
 ```
 
 A debug build loads the UI from the Vite dev server, so
-`cargo run -p kubeloupe-desktop` on its own shows a connection error unless
+`cargo run -p nauvi-desktop` on its own shows a connection error unless
 `npm --prefix desktop/ui-src run dev` is running. `cd desktop && cargo tauri
 build` builds the UI (`npm run build` in `desktop/ui-src`) and makes a release
 build with it bundled; add `--no-bundle` to skip the installers. The
@@ -460,7 +460,7 @@ installers include signed update bundles, which need the release signing key
 Debug builds never check for updates. To try the update banner, serve a
 `latest.json` with a higher `version` (for example with
 `python3 -m http.server` in its folder) and start the app with
-`KUBELOUPE_UPDATE_ENDPOINT=http://127.0.0.1:8000/latest.json cargo tauri dev`;
+`NAUVI_UPDATE_ENDPOINT=http://127.0.0.1:8000/latest.json cargo tauri dev`;
 release builds ignore this variable. Installing from it also needs bundles
 signed with the release key.
 
@@ -473,10 +473,10 @@ all work end to end. It needs Docker, usable by your user without `sudo`.
 The script installs `kind` and `kubectl` into `~/.local/bin` if they are
 missing.
 
-It creates `kubeloupe-test` (a control-plane node and a worker) with:
+It creates `nauvi-test` (a control-plane node and a worker) with:
 
 - metrics-server (patched with `--kubelet-insecure-tls`, which kind's
-  self-signed kubelet certs need), so the usage columns and `kubeloupe top`
+  self-signed kubelet certs need), so the usage columns and `nauvi top`
   work; the numbers appear about a minute after it starts
 - the demo workload (`scripts/test-cluster/demo.yaml`) in namespace `demo`:
   the `web` (nginx) and `logger` deployments (the logger writes a line every
@@ -489,15 +489,15 @@ namespaces with `helm`. `tests/helm_charts_cluster.rs` also packages it as a
 chart repository served from 127.0.0.1, with helm pointed at temporary
 configuration directories, so it never touches your own repositories.
 
-Pass `--staging` to also create `kubeloupe-staging`, a single empty node, so
+Pass `--staging` to also create `nauvi-staging`, a single empty node, so
 the context switcher has a second cluster to switch to. Each kind cluster
 costs roughly 500 MB to 1 GB of RAM, which is why it is opt-in.
 
-kind adds the contexts (`kind-kubeloupe-test`, `kind-kubeloupe-staging`) to
-`~/.kube/config` and the script leaves `kind-kubeloupe-test` current.
+kind adds the contexts (`kind-nauvi-test`, `kind-nauvi-staging`) to
+`~/.kube/config` and the script leaves `kind-nauvi-test` current.
 
-Delete the clusters with `kind delete cluster --name kubeloupe-test` (and
-`kubeloupe-staging`); re-run the script to recreate them.
+Delete the clusters with `kind delete cluster --name nauvi-test` (and
+`nauvi-staging`); re-run the script to recreate them.
 
 ## Contributing
 

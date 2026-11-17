@@ -3,7 +3,7 @@
 // scripts/test-cluster/limited-user.sh, the app opens on team-a, Pods list
 // and go Live, and Nodes is greyed out with a reason.
 //
-// Skipped unless KUBELOUPE_LIMITED_KUBECONFIG names that kubeconfig.
+// Skipped unless NAUVI_LIMITED_KUBECONFIG names that kubeconfig.
 
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
@@ -12,8 +12,8 @@ import { By } from "selenium-webdriver";
 import { appSession, waitLive } from "../lib/qa.mjs";
 
 const T = { timeout: 120_000 };
-const kubeconfig = process.env.KUBELOUPE_LIMITED_KUBECONFIG;
-const skip = kubeconfig && existsSync(kubeconfig) ? false : "set KUBELOUPE_LIMITED_KUBECONFIG (limited-user.sh)";
+const kubeconfig = process.env.NAUVI_LIMITED_KUBECONFIG;
+const skip = kubeconfig && existsSync(kubeconfig) ? false : "set NAUVI_LIMITED_KUBECONFIG (limited-user.sh)";
 
 describe("namespace-scoped user", { timeout: 10 * 60_000, skip }, () => {
   const s = appSession("limited-user", { kubeconfig });

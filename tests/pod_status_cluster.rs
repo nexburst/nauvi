@@ -11,12 +11,11 @@ use anyhow::{bail, Context, Result};
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::api::{Api, DeleteParams, PostParams};
 use kube::Client;
-use kubeloupe::client_for_context;
-use kubeloupe::resources::{discover, list_resources, resolve_kind};
+use nauvi::client_for_context;
+use nauvi::resources::{discover, list_resources, resolve_kind};
 
 async fn connect() -> Result<Client> {
-    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
     tokio::time::timeout(Duration::from_secs(20), client_for_context(Some(&ctx)))
         .await
         .context("timed out building client")?
@@ -102,7 +101,7 @@ async fn scenario(client: &Client, ns: &str) -> Result<()> {
                 .map(|r| r.cells[col].clone())
                 .unwrap_or_default();
             // The overview prints the typed pod the same way.
-            let typed = kubeloupe::pod_status(&pods.get(name).await?);
+            let typed = nauvi::pod_status(&pods.get(name).await?);
             if cell != *want || typed != *want {
                 pending.push(format!(
                     "{name}: table {cell:?}, overview {typed:?}, want {want}"

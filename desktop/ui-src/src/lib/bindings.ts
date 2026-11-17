@@ -400,7 +400,7 @@ export const commands = {
 	/**
 	 *  Check for a newer release. `startup`: the check on start, which the
 	 *  "Check for updates on start" setting turns off. Debug builds only check
-	 *  when `KUBELOUPE_UPDATE_ENDPOINT` points them at a test `latest.json`.
+	 *  when `NAUVI_UPDATE_ENDPOINT` points them at a test `latest.json`.
 	 */
 	cmdUpdateCheck: (startup: boolean, options?: InvokeOptions) => __TAURI_INVOKE<UpdateCheck>("cmd_update_check", { startup }, options),
 	/**
@@ -1395,7 +1395,7 @@ export type HelmRevisionKey = {
 /**
  *  Where a release is stored: Helm's default Secret driver or the
  *  ConfigMap one. (Helm's `sql` driver keeps releases outside the cluster,
- *  where kubeloupe does not look.)
+ *  where nauvi does not look.)
  */
 export type HelmStorage = "secret" | "configmap";
 
@@ -1517,7 +1517,7 @@ export type MetricsAddon = {
 	options: MetricsAddonOption[],
 };
 
-/**  The add-ons kubeloupe offers. */
+/**  The add-ons nauvi offers. */
 export type MetricsAddonId = "metrics-server" | "prometheus";
 
 /**

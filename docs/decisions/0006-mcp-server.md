@@ -3,7 +3,7 @@
 **Status:** accepted (2026-11-16). Issue #298.
 
 ## Decision
-`kubeloupe mcp` serves the Model Context Protocol on stdio, in the CLI only
+`nauvi mcp` serves the Model Context Protocol on stdio, in the CLI only
 (not in the desktop app, which builds the core without the `mcp` feature).
 
 - **Protocol:** the official Rust SDK, `rmcp` (Apache-2.0, maintained by the

@@ -69,11 +69,11 @@ jobs:
         run: |
           npm --prefix desktop/ui-src ci
           npm --prefix desktop/ui-src run build
-          cargo build -p kubeloupe-desktop --locked --features tauri/custom-protocol
+          cargo build -p nauvi-desktop --locked --features tauri/custom-protocol
           # area-4-attach-debug drives the CLI's exec and debug too.
-          cargo build -p kubeloupe --locked
+          cargo build -p nauvi --locked
           mkdir -p "$RUNNER_TEMP/qa-app"
-          cp target/debug/kubeloupe-desktop target/debug/kubeloupe ~/.cargo/bin/tauri-driver "$RUNNER_TEMP/qa-app/"
+          cp target/debug/nauvi-desktop target/debug/nauvi ~/.cargo/bin/tauri-driver "$RUNNER_TEMP/qa-app/"
       - name: Upload the build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -116,7 +116,7 @@ jobs:
     env:
       SHARDS: ${{ inputs.scenario && 1 || 4 }}
       SHARD: ${{ matrix.shard }}
-      KUBELOUPE_LIMITED_KUBECONFIG: /home/runner/.kube/kubeloupe-limited.yaml
+      NAUVI_LIMITED_KUBECONFIG: /home/runner/.kube/nauvi-limited.yaml
       QA_PROMETHEUS: "1"
       # Its own cluster: the reconnect scenario may pause it long enough for
       # the app's watches to time out.
@@ -140,18 +140,18 @@ jobs:
           name: qa-images
           path: ${{ runner.temp }}/qa-images
 
-      # Both clusters (kubeloupe-test with metrics-server and the demo
-      # workload, and the empty kubeloupe-staging for the multi-window
+      # Both clusters (nauvi-test with metrics-server and the demo
+      # workload, and the empty nauvi-staging for the multi-window
       # scenario), then Prometheus so it has scraped a while before the
       # scenarios look at its charts. Runs while the rest is set up. The
       # nodes get the test images from the build job's archive.
       - name: Create kind clusters and Prometheus (background)
         run: |
-          export KUBELOUPE_IMAGES="$RUNNER_TEMP/qa-images/images.tar"
+          export NAUVI_IMAGES="$RUNNER_TEMP/qa-images/images.tar"
           mkdir -p "$RUNNER_TEMP/cluster"
           ( ( set -e
               bash scripts/test-cluster/setup.sh --staging
-              kubectl --context kind-kubeloupe-test apply -f scripts/test-cluster/prometheus.yaml
+              kubectl --context kind-nauvi-test apply -f scripts/test-cluster/prometheus.yaml
             ) > "$RUNNER_TEMP/cluster/setup.log" 2>&1
             echo $? > "$RUNNER_TEMP/cluster/rc" ) &
 
@@ -183,10 +183,10 @@ jobs:
       - name: Put the build in place
         run: |
           mkdir -p target/debug
-          install -m 0755 "$RUNNER_TEMP/qa-app/kubeloupe-desktop" "$RUNNER_TEMP/qa-app/kubeloupe" target/debug/
+          install -m 0755 "$RUNNER_TEMP/qa-app/nauvi-desktop" "$RUNNER_TEMP/qa-app/nauvi" target/debug/
           install -m 0755 "$RUNNER_TEMP/qa-app/tauri-driver" "$RUNNER_TEMP/tauri-driver"
           echo "TAURI_DRIVER=$RUNNER_TEMP/tauri-driver" >> "$GITHUB_ENV"
-          missing="$(ldd target/debug/kubeloupe-desktop | grep 'not found' || true)"
+          missing="$(ldd target/debug/nauvi-desktop | grep 'not found' || true)"
           [ -z "$missing" ] || { echo "missing libraries: $missing"; exit 1; }
 
       - name: Wait for the clusters
@@ -195,10 +195,10 @@ jobs:
           cat "$RUNNER_TEMP/cluster/setup.log"
           [ "$(cat "$RUNNER_TEMP/cluster/rc" 2>/dev/null)" = 0 ]
           bash scripts/test-cluster/wait-demo.sh
-          kubectl --context kind-kubeloupe-test -n monitoring rollout status deploy/prometheus-server --timeout=180s
+          kubectl --context kind-nauvi-test -n monitoring rollout status deploy/prometheus-server --timeout=180s
 
       - name: Create limited user
-        run: bash scripts/test-cluster/limited-user.sh "$KUBELOUPE_LIMITED_KUBECONFIG"
+        run: bash scripts/test-cluster/limited-user.sh "$NAUVI_LIMITED_KUBECONFIG"
 
       - name: QA scenarios and smoke suite
         working-directory: desktop/e2e
@@ -225,9 +225,9 @@ jobs:
       - name: Debug info
         if: failure()
         run: |
-          kubectl --context kind-kubeloupe-test get pods -A -o wide || true
-          kubectl --context kind-kubeloupe-test get events -A --sort-by=.lastTimestamp | tail -50 || true
-          kubectl --context kind-kubeloupe-test -n monitoring logs deploy/prometheus-server --tail=50 || true
+          kubectl --context kind-nauvi-test get pods -A -o wide || true
+          kubectl --context kind-nauvi-test get events -A --sort-by=.lastTimestamp | tail -50 || true
+          kubectl --context kind-nauvi-test -n monitoring logs deploy/prometheus-server --tail=50 || true
 
   # One report and one `qa-artifacts` artifact from all the shards, laid out
   # like a single qa.sh run (with run.log and xvfb.log per shard).
@@ -345,7 +345,7 @@ jobs:
       - name: Build the app
         run: |
           npm --prefix desktop/ui-src run build
-          cargo build -p kubeloupe-desktop --locked --features tauri/custom-protocol
+          cargo build -p nauvi-desktop --locked --features tauri/custom-protocol
 
       - name: Start-up scenario
         working-directory: desktop/e2e

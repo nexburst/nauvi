@@ -143,7 +143,7 @@
         Remove {removing.path}? Its {removing.contexts === 1 ? "context leaves" : `${removing.contexts} contexts leave`}
         the catalog.
         {removing.kind === "pasted"
-          ? "The pasted kubeconfig saved by kubeloupe is deleted."
+          ? "The pasted kubeconfig saved by nauvi is deleted."
           : "The file itself is not changed."}
       </span>
       <button type="button" class="btn primary" onclick={confirmRemove}>Remove</button>
@@ -288,7 +288,7 @@
 
   <h3>Kubeconfig sources</h3>
   <p class="muted note">
-    kubeloupe reads these files and never changes them. Files and folders are checked for changes every few seconds.
+    nauvi reads these files and never changes them. Files and folders are checked for changes every few seconds.
   </p>
   <ul class="sources" aria-label="Kubeconfig sources">
     {#each catalog.sources as s (s.path)}

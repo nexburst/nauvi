@@ -11,12 +11,12 @@ pub(crate) use approvals::ExecAnswer;
 
 use approvals::{not_allowed_message, Approvals};
 use kube::config::Kubeconfig;
-use kubeloupe::catalog::{
+use nauvi::catalog::{
     context_local_files, context_login_command, default_kubeconfig_paths, expand_home,
     flatten_context, load_catalog, sources_fingerprint, Catalog, CatalogInput,
 };
-use kubeloupe::errors::kubeconfig_error_text;
-use kubeloupe::{client_for_target, client_from_kubeconfig, ContextTarget};
+use nauvi::errors::kubeconfig_error_text;
+use nauvi::{client_for_target, client_from_kubeconfig, ContextTarget};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

@@ -65,7 +65,7 @@ pub fn prepare_exec(
 fn interactive_message(target: &AuthTarget) -> String {
     format!(
         "{LOGIN_FAILED}{ctx}` failed: `{cmd}` needs an interactive login (interactiveMode: Always), \
-         which kubeloupe can't show. Log in from a terminal first, for example with \
+         which nauvi can't show. Log in from a terminal first, for example with \
          `kubectl --context {ctx} get namespaces`, then retry.",
         ctx = target.context,
         cmd = target.command(),
@@ -143,7 +143,7 @@ pub fn not_found_message(cmd: &str, ctx: &str, path: &str) -> String {
     };
     format!(
         "{LOGIN_FAILED}{ctx}` failed: the `{cmd}` command it logs in with was not found. \
-         Searched PATH: {searched}. Install it, or start kubeloupe from a terminal."
+         Searched PATH: {searched}. Install it, or start nauvi from a terminal."
     )
 }
 
@@ -164,7 +164,7 @@ pub fn timed_out_message(cmd: &str, ctx: &str, after: std::time::Duration) -> St
         .map(|n| n.to_string_lossy())
         .unwrap_or(cmd.into());
     format!(
-        "{LOGIN_FAILED}{ctx}` failed: `{cmd}` did not finish within {}, so kubeloupe stopped it. \
+        "{LOGIN_FAILED}{ctx}` failed: `{cmd}` did not finish within {}, so nauvi stopped it. \
          If it waits for a login in the browser, finish the login and try again.",
         crate::exec_credentials::human_duration(after)
     )
@@ -375,7 +375,7 @@ mod tests {
         let msg = describe_client_error(&timed_out, &target());
         assert_eq!(
             msg,
-            "Login to `prod` failed: `aws` did not finish within 1 min, so kubeloupe stopped it. \
+            "Login to `prod` failed: `aws` did not finish within 1 min, so nauvi stopped it. \
              If it waits for a login in the browser, finish the login and try again."
         );
         assert!(

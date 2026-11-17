@@ -1,7 +1,7 @@
 // Helper: several windows (lib/window.mjs: openNewWindow, switchTo,
 // selectContext, windowTitles).
 // Checks (#45): a second window opens with its own session, can list pods of
-// another cluster (kind-kubeloupe-staging when it exists, as in qa.yml), and
+// another cluster (kind-nauvi-staging when it exists, as in qa.yml), and
 // closing it leaves the first window live.
 
 import assert from "node:assert/strict";
@@ -12,7 +12,7 @@ import { appSession, waitLive } from "../lib/qa.mjs";
 import { openNewWindow, selectContext, switchTo, windowHandles, windowTitles } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
-const STAGING = process.env.QA_STAGING_CONTEXT || "kind-kubeloupe-staging";
+const STAGING = process.env.QA_STAGING_CONTEXT || "kind-nauvi-staging";
 const hasStaging = contexts().includes(STAGING);
 let main;
 let second;

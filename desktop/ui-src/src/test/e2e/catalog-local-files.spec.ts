@@ -8,7 +8,7 @@ import { openApp } from "./helpers";
 
 const catalogRow = (page: Page, id: string) => page.locator(`[data-testid="catalog-row"][data-context="${id}"]`);
 const TOKEN = "/var/run/secrets/kubernetes.io/serviceaccount/token";
-const PASTED = "/home/user/.config/dev.kubeloupe.app/kubeconfigs";
+const PASTED = "/home/user/.config/dev.nauvi.app/kubeconfigs";
 
 function kubeconfig(name: string, user: string): string {
   return (

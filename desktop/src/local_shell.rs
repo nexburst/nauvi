@@ -2,10 +2,10 @@
 //! Windows), for the dock's "local terminal" tabs.
 //!
 //! The shell runs with `KUBECONFIG` pointing at a temp kubeconfig first (see
-//! `kubeloupe::shell_kubeconfig`); the session owns that file and deletes it
+//! `nauvi::shell_kubeconfig`); the session owns that file and deletes it
 //! when it is dropped.
 
-use kubeloupe::TempKubeconfig;
+use nauvi::TempKubeconfig;
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -335,7 +335,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn kubectl_in_the_pty_uses_the_app_context() {
-        use kubeloupe::{shell_kubeconfig, shell_kubeconfig_env};
+        use nauvi::{shell_kubeconfig, shell_kubeconfig_env};
         use std::process::Command;
 
         if Command::new("kubectl")
@@ -349,7 +349,7 @@ mod tests {
             return;
         }
         let home = std::env::temp_dir().join(format!(
-            "kubeloupe-pty-test-{}-{:?}",
+            "nauvi-pty-test-{}-{:?}",
             std::process::id(),
             std::thread::current().id()
         ));

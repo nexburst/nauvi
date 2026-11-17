@@ -28,9 +28,9 @@ export function progressLabel(p: UpdateProgress): string {
 export function checkSummary(c: UpdateCheck): string {
   switch (c.status) {
     case "available":
-      return `kubeloupe ${c.version} is available (you have ${c.current_version}).`;
+      return `nauvi ${c.version} is available (you have ${c.current_version}).`;
     case "up_to_date":
-      return `kubeloupe ${c.current_version} is the latest version.`;
+      return `nauvi ${c.current_version} is the latest version.`;
     case "skipped":
       return c.note;
   }

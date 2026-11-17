@@ -2,8 +2,8 @@
 //! `scripts/test-cluster/setup.sh`). All `#[ignore]`d so plain `cargo test`
 //! stays fast; run with `cargo test -- --ignored`.
 //!
-//! The context comes from `KUBELOUPE_TEST_CONTEXT` (default
-//! `kind-kubeloupe-test`). Tests that mutate things use their own temporary
+//! The context comes from `NAUVI_TEST_CONTEXT` (default
+//! `kind-nauvi-test`). Tests that mutate things use their own temporary
 //! namespace and delete it afterwards.
 
 mod common;
@@ -22,18 +22,18 @@ use k8s_openapi::api::policy::v1::PodDisruptionBudget;
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::CustomResourceDefinition;
 use kube::api::{Api, DeleteParams, Patch, PatchParams, PostParams};
 use kube::Client;
-use kubeloupe::actions::{
+use nauvi::actions::{
     self, delete_many, drain_node, force_delete_pod, rollout_restart, scale, set_suspended,
     set_unschedulable, trigger_cronjob, DrainEvent, DrainOptions,
 };
-use kubeloupe::resources::{
+use nauvi::resources::{
     self, apply_resource_yaml, apply_resource_yaml_with, delete_resource, get_resource_detail,
     get_resource_yaml, list_resources, ApplyOptions, ApplyOutcome, Category, DetailState,
     ResourceDetail, ResourceKind,
 };
-use kubeloupe::watch::Update;
-use kubeloupe::watch::WatchState;
-use kubeloupe::{
+use nauvi::watch::Update;
+use nauvi::watch::WatchState;
+use nauvi::{
     apply_pod_yaml, client_for_context, default_namespace, exec_command, get_namespaces, get_nodes,
     get_overview, get_pod_logs, get_pod_metrics, get_pod_yaml, get_pods, is_forbidden,
     list_namespaces_if_allowed, pod_ref, stream_pod_logs, stream_workload_logs, watch_overview,
@@ -44,8 +44,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 const TIMEOUT: Duration = Duration::from_secs(90);
 
 async fn connect() -> Result<Client> {
-    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
     tokio::time::timeout(Duration::from_secs(20), client_for_context(Some(&ctx)))
         .await
         .context("timed out building client")?
@@ -321,7 +320,7 @@ fn strings(v: &[&str]) -> Vec<String> {
 async fn exec_runs_echo() -> Result<()> {
     let client = connect().await?;
     let pod = first_running_demo_pod(&client, "logger-").await?;
-    let cmd = strings(&["echo", "kubeloupe-exec"]);
+    let cmd = strings(&["echo", "nauvi-exec"]);
     let r = within(
         "exec echo",
         TIMEOUT,
@@ -329,11 +328,7 @@ async fn exec_runs_echo() -> Result<()> {
     )
     .await?;
     ensure!(r.success, "exec failed: {}{}", r.stderr, r.error);
-    ensure!(
-        r.stdout.trim() == "kubeloupe-exec",
-        "stdout = {:?}",
-        r.stdout
-    );
+    ensure!(r.stdout.trim() == "nauvi-exec", "stdout = {:?}", r.stdout);
 
     let fail = strings(&["sh", "-c", "echo oops >&2; exit 3"]);
     let r = within(
@@ -369,7 +364,7 @@ async fn exec_reports_the_remote_exit_code() -> Result<()> {
         ensure!(r.stderr == "oops\n", "stderr = {:?}", r.stderr);
         ensure!(r.error.is_empty(), "error = {:?}", r.error);
 
-        let missing = strings(&["kubeloupe-no-such-command"]);
+        let missing = strings(&["nauvi-no-such-command"]);
         let r = within(
             "exec missing",
             TIMEOUT,
@@ -377,7 +372,7 @@ async fn exec_reports_the_remote_exit_code() -> Result<()> {
         )
         .await?;
         ensure!(!r.success && r.exit_code != 0, "exit code {}", r.exit_code);
-        ensure!(r.error.contains("kubeloupe-no-such-command"), "{}", r.error);
+        ensure!(r.error.contains("nauvi-no-such-command"), "{}", r.error);
         ensure!(
             r.error.matches("Internal error occurred").count() <= 1,
             "{}",
@@ -385,12 +380,12 @@ async fn exec_reports_the_remote_exit_code() -> Result<()> {
         );
 
         // The binary exits with the remote code; its error is on its own line.
-        let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-            .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+        let ctx =
+            std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
         let run = |cmd: &[&str]| {
             let mut args = vec!["--context", &ctx, "exec", "-n", &ns, "p", "--"];
             args.extend_from_slice(cmd);
-            std::process::Command::new(env!("CARGO_BIN_EXE_kubeloupe"))
+            std::process::Command::new(env!("CARGO_BIN_EXE_nauvi"))
                 .args(args)
                 .output()
         };
@@ -402,7 +397,7 @@ async fn exec_reports_the_remote_exit_code() -> Result<()> {
             stderr == "oops\nerror: command terminated with exit code 3\n",
             "{stderr:?}"
         );
-        let out = run(&["kubeloupe-no-such-command"])?;
+        let out = run(&["nauvi-no-such-command"])?;
         let stderr = String::from_utf8_lossy(&out.stderr);
         ensure!(out.status.code() == Some(1), "{:?}: {stderr}", out.status);
         ensure!(
@@ -444,7 +439,7 @@ async fn closing_an_exec_shell_ends_it() -> Result<()> {
         pods.create(&PostParams::default(), &pod).await?;
         wait_running(&client, &ns, "shell").await?;
 
-        let mut attached = kubeloupe::exec_pod(&client, &ns, "shell", None).await?;
+        let mut attached = nauvi::exec_pod(&client, &ns, "shell", None).await?;
         let mut stdin = attached.stdin().context("no stdin")?;
         let mut stdout = attached.stdout().context("no stdout")?;
         // Drain the output so the connection never blocks on it.
@@ -479,12 +474,12 @@ async fn closing_an_exec_shell_ends_it() -> Result<()> {
         })
         .await?;
 
-        let ended = kubeloupe::end_shell(&tx, attached.join()).await;
+        let ended = nauvi::end_shell(&tx, attached.join()).await;
         drop(tx);
         ensure!(
             ended,
             "the shell did not exit within {:?}",
-            kubeloupe::END_SHELL_WAIT
+            nauvi::END_SHELL_WAIT
         );
         eventually(
             "no shell left in the pod",
@@ -522,15 +517,15 @@ async fn exec_in_named_container() -> Result<()> {
 async fn port_forward_serves_http() -> Result<()> {
     let client = connect().await?;
     let pod = first_running_demo_pod(&client, "web-").await?;
-    let target = kubeloupe::ForwardTarget::parse(&pod, "demo")?;
+    let target = nauvi::ForwardTarget::parse(&pod, "demo")?;
     let fwd = within(
         "PortForward::start",
         TIMEOUT,
-        kubeloupe::PortForward::start(
+        nauvi::PortForward::start(
             &client,
             target,
-            kubeloupe::RemotePort::Number(80),
-            kubeloupe::LocalPort::Random,
+            nauvi::RemotePort::Number(80),
+            nauvi::LocalPort::Random,
         ),
     )
     .await?;
@@ -661,7 +656,7 @@ where
     let name = format!("widgets.{CRD_GROUP}");
     crds.patch(
         &name,
-        &PatchParams::apply("kubeloupe-it").force(),
+        &PatchParams::apply("nauvi-it").force(),
         &Patch::Apply(&crd),
     )
     .await?;
@@ -990,7 +985,7 @@ async fn yaml_apply_reports_fields_taken_over() -> Result<()> {
         let now = cms.get("cm").await?;
         ensure!(now.data.unwrap_or_default().get("a").map(String::as_str) == Some("2"));
 
-        // kubeloupe owns those fields now: saving again takes nothing over.
+        // nauvi owns those fields now: saving again takes nothing over.
         let took = apply_resource_yaml(&client, r, &ns, "cm", &edited).await?;
         ensure!(took.is_empty(), "second save took over {took:?}");
         Ok(())
@@ -1036,9 +1031,9 @@ async fn generic_watch_sees_configmap_changes() -> Result<()> {
     in_temp_ns("kl-it-gwatch", |client, ns| async move {
         let kind = kind_named(&client, "configmaps").await?;
         let r = &kind.resource;
-        let (_store, mut updates) = kubeloupe::watch::watch_resource(
+        let (_store, mut updates) = nauvi::watch::watch_resource(
             &client,
-            &kubeloupe::liveness::Prober::new(client.clone()),
+            &nauvi::liveness::Prober::new(client.clone()),
             &kind,
             Some(&ns),
         );
@@ -1107,14 +1102,10 @@ async fn kinds_without_watch_are_listed_instead() -> Result<()> {
     // componentstatuses has only get and list (#95): a watch never starts.
     let client = connect().await?;
     let kind = kind_named(&client, "componentstatuses").await?;
-    ensure!(
-        !kubeloupe::watch::can_watch(&kind),
-        "verbs: {:?}",
-        kind.verbs
-    );
-    let (store, mut updates) = kubeloupe::watch::watch_resource(
+    ensure!(!nauvi::watch::can_watch(&kind), "verbs: {:?}", kind.verbs);
+    let (store, mut updates) = nauvi::watch::watch_resource(
         &client,
-        &kubeloupe::liveness::Prober::new(client.clone()),
+        &nauvi::liveness::Prober::new(client.clone()),
         &kind,
         None,
     );
@@ -1153,9 +1144,9 @@ async fn polled_kind_sees_creates_and_deletes() -> Result<()> {
         let mut kind = kind_named(&client, "configmaps").await?;
         kind.verbs.retain(|v| v != "watch");
         let r = kind.resource.clone();
-        let (_store, mut updates) = kubeloupe::watch::poll_resource(
+        let (_store, mut updates) = nauvi::watch::poll_resource(
             &client,
-            &kubeloupe::liveness::Prober::new(client.clone()),
+            &nauvi::liveness::Prober::new(client.clone()),
             &kind,
             Some(&ns),
             Duration::from_secs(1),
@@ -1206,7 +1197,7 @@ async fn metrics_become_available() -> Result<()> {
     .await?;
     ensure!(pods.iter().any(|m| m.namespace == "kube-system"));
     let nodes = eventually("node metrics", Duration::from_secs(120), || async {
-        Ok(kubeloupe::get_node_metrics(&client)
+        Ok(nauvi::get_node_metrics(&client)
             .await?
             .filter(|m| !m.is_empty()))
     })
@@ -1221,9 +1212,9 @@ async fn metrics_become_available() -> Result<()> {
 #[ignore]
 async fn watch_pods_sees_create_and_delete() -> Result<()> {
     in_temp_ns("kl-it-watch", |client, ns| async move {
-        let (_store, mut updates) = kubeloupe::watch::watch_pods(
+        let (_store, mut updates) = nauvi::watch::watch_pods(
             &client,
-            &kubeloupe::liveness::Prober::new(client.clone()),
+            &nauvi::liveness::Prober::new(client.clone()),
             Some(&ns),
         );
         // Wait for the initial (empty) snapshot so the pod is a live event.
@@ -1872,8 +1863,8 @@ async fn drain_scenario(client: &Client, ns: &str, node: &str) -> Result<()> {
 async fn overview_until(
     what: &str,
     updates: &mut futures::stream::BoxStream<'static, OverviewUpdate>,
-    pred: impl Fn(&kubeloupe::Overview) -> bool,
-) -> Result<kubeloupe::Overview> {
+    pred: impl Fn(&nauvi::Overview) -> bool,
+) -> Result<nauvi::Overview> {
     within(what, TIMEOUT, async {
         while let Some(u) = updates.next().await {
             if let OverviewUpdate::Summary(ov) = u {
@@ -1887,7 +1878,7 @@ async fn overview_until(
     .await
 }
 
-fn pods_in(ov: &kubeloupe::Overview, ns: &str) -> usize {
+fn pods_in(ov: &nauvi::Overview, ns: &str) -> usize {
     ov.pods
         .as_ref()
         .and_then(|p| p.by_namespace.iter().find(|(n, _)| n == ns))
@@ -1898,11 +1889,8 @@ fn pods_in(ov: &kubeloupe::Overview, ns: &str) -> usize {
 #[ignore]
 async fn live_overview_follows_a_pod_without_polling() -> Result<()> {
     in_temp_ns("kl-it-ov", |client, ns| async move {
-        let mut updates = watch_overview(
-            &client,
-            &kubeloupe::liveness::Prober::new(client.clone()),
-            None,
-        );
+        let mut updates =
+            watch_overview(&client, &nauvi::liveness::Prober::new(client.clone()), None);
         let first = overview_until("first summary", &mut updates, |_| true).await?;
         ensure!(first.notes.is_empty(), "{:?}", first.notes);
         ensure!(pods_in(&first, &ns) == 0);
@@ -1982,7 +1970,7 @@ async fn overview_events_are_warnings_linked_to_their_object() -> Result<()> {
         events
             .create(&PostParams::default(), &serde_json::from_value(normal)?)
             .await?;
-        let mut updates = watch_overview(&client, &kubeloupe::liveness::Prober::new(client.clone()), None);
+        let mut updates = watch_overview(&client, &nauvi::liveness::Prober::new(client.clone()), None);
         overview_until("first summary", &mut updates, |_| true).await?;
         events.create(&PostParams::default(), &event).await?;
         let ov = overview_until("warning listed", &mut updates, |ov| {
@@ -2027,7 +2015,7 @@ async fn pod_metrics_can_be_scoped_to_a_namespace() -> Result<()> {
 
 // ---------------------------------------------------------------------------
 // A namespace-scoped user (scripts/test-cluster/limited-user.sh): `edit` in
-// team-a only. These tests skip unless KUBELOUPE_LIMITED_KUBECONFIG points
+// team-a only. These tests skip unless NAUVI_LIMITED_KUBECONFIG points
 // at the kubeconfig that script writes.
 // ---------------------------------------------------------------------------
 
@@ -2035,8 +2023,8 @@ const LIMITED_NS: &str = "team-a";
 
 /// A client for the limited user, or `None` (skip) when not configured.
 async fn connect_limited() -> Result<Option<Client>> {
-    let Ok(path) = std::env::var("KUBELOUPE_LIMITED_KUBECONFIG") else {
-        eprintln!("KUBELOUPE_LIMITED_KUBECONFIG not set; skipping");
+    let Ok(path) = std::env::var("NAUVI_LIMITED_KUBECONFIG") else {
+        eprintln!("NAUVI_LIMITED_KUBECONFIG not set; skipping");
         return Ok(None);
     };
     let kubeconfig = kube::config::Kubeconfig::read_from(&path)
@@ -2149,9 +2137,9 @@ async fn limited_user_forbidden_watch_stops() -> Result<()> {
     let pods = kind_named(&client, "pods").await?;
 
     // In its namespace: the watch goes live.
-    let (_store, mut updates) = kubeloupe::watch::watch_resource(
+    let (_store, mut updates) = nauvi::watch::watch_resource(
         &client,
-        &kubeloupe::liveness::Prober::new(client.clone()),
+        &nauvi::liveness::Prober::new(client.clone()),
         &pods,
         Some(LIMITED_NS),
     );
@@ -2168,9 +2156,9 @@ async fn limited_user_forbidden_watch_stops() -> Result<()> {
     .await?;
 
     // Across the cluster: one Forbidden, then the stream ends (no retries).
-    let (_store, updates) = kubeloupe::watch::watch_resource(
+    let (_store, updates) = nauvi::watch::watch_resource(
         &client,
-        &kubeloupe::liveness::Prober::new(client.clone()),
+        &nauvi::liveness::Prober::new(client.clone()),
         &pods,
         None,
     );
@@ -2297,7 +2285,7 @@ async fn detail_watch_sends_updates_and_deleted() -> Result<()> {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let watch = tokio::spawn(resources::run_detail_watch(
             client.clone(),
-            kubeloupe::liveness::Prober::new(client.clone()),
+            nauvi::liveness::Prober::new(client.clone()),
             pod_ref(),
             ns.clone(),
             "p".into(),
@@ -2593,8 +2581,8 @@ fn now_ms() -> u64 {
 #[tokio::test]
 #[ignore]
 async fn usage_history_accumulates_for_a_demo_pod() -> Result<()> {
-    use kubeloupe::{get_one_node_metrics, get_one_pod_metrics, get_usage_reference};
-    use kubeloupe::{UsageHistory, MIN_SPACING_MS};
+    use nauvi::{get_one_node_metrics, get_one_pod_metrics, get_usage_reference};
+    use nauvi::{UsageHistory, MIN_SPACING_MS};
     let client = connect().await?;
     // The shared demo pod with two containers; only read here.
     wait_running(&client, "demo", "multi").await?;
@@ -2732,7 +2720,7 @@ async fn create_fake_prometheus(client: &Client, ns: &str) -> Result<()> {
 #[tokio::test]
 #[ignore]
 async fn prometheus_is_detected_and_queried_through_the_service_proxy() -> Result<()> {
-    use kubeloupe::{
+    use nauvi::{
         detect_prometheus, prometheus_usage, query_range, resolve_prometheus, PrometheusTarget,
         UsageRange,
     };
@@ -2818,7 +2806,7 @@ async fn limited_user_prometheus_detection_says_why() -> Result<()> {
     let Some(client) = connect_limited().await? else {
         return Ok(());
     };
-    let found = kubeloupe::detect_prometheus(&client).await;
+    let found = nauvi::detect_prometheus(&client).await;
     ensure!(found.target.is_none(), "{found:?}");
     ensure!(
         found.note.contains("Not allowed to list Services"),
@@ -2827,8 +2815,8 @@ async fn limited_user_prometheus_detection_says_why() -> Result<()> {
     );
     // No services/proxy outside team-a: the proxy is refused before the
     // Service is even looked up.
-    let target = kubeloupe::PrometheusTarget::parse("monitoring/prometheus-k8s:web").unwrap();
-    let e = kubeloupe::query_range(&client, &target, "up", 0, 30, 30)
+    let target = nauvi::PrometheusTarget::parse("monitoring/prometheus-k8s:web").unwrap();
+    let e = nauvi::query_range(&client, &target, "up", 0, 30, 30)
         .await
         .unwrap_err()
         .to_string();
@@ -2840,14 +2828,14 @@ async fn limited_user_prometheus_detection_says_why() -> Result<()> {
 }
 
 /// The real queries against a real Prometheus that scrapes the kubelets'
-/// cAdvisor, named by `KUBELOUPE_TEST_PROMETHEUS` (`namespace/service:port`).
+/// cAdvisor, named by `NAUVI_TEST_PROMETHEUS` (`namespace/service:port`).
 /// Skips when it is not set: the shared cluster has no Prometheus.
 #[tokio::test]
 #[ignore]
 async fn real_prometheus_has_pod_and_node_usage() -> Result<()> {
-    use kubeloupe::{prometheus_usage, PrometheusTarget, UsageRange};
-    let Ok(setting) = std::env::var("KUBELOUPE_TEST_PROMETHEUS") else {
-        eprintln!("KUBELOUPE_TEST_PROMETHEUS not set; skipping");
+    use nauvi::{prometheus_usage, PrometheusTarget, UsageRange};
+    let Ok(setting) = std::env::var("NAUVI_TEST_PROMETHEUS") else {
+        eprintln!("NAUVI_TEST_PROMETHEUS not set; skipping");
         return Ok(());
     };
     let target = PrometheusTarget::parse(&setting).context("not namespace/service:port")?;
@@ -2878,7 +2866,7 @@ async fn real_prometheus_has_pod_and_node_usage() -> Result<()> {
 }
 
 /// The count of `status` for `kind` in a Workloads overview.
-fn workload_count(ov: &kubeloupe::WorkloadsOverview, kind: &str, status: &str) -> usize {
+fn workload_count(ov: &nauvi::WorkloadsOverview, kind: &str, status: &str) -> usize {
     ov.kinds
         .iter()
         .find(|k| k.kind == kind)
@@ -2889,12 +2877,12 @@ fn workload_count(ov: &kubeloupe::WorkloadsOverview, kind: &str, status: &str) -
 /// The next Workloads overview summary that `pred` accepts.
 async fn workloads_until(
     what: &str,
-    updates: &mut futures::stream::BoxStream<'static, kubeloupe::WorkloadsUpdate>,
-    pred: impl Fn(&kubeloupe::WorkloadsOverview) -> bool,
-) -> Result<kubeloupe::WorkloadsOverview> {
+    updates: &mut futures::stream::BoxStream<'static, nauvi::WorkloadsUpdate>,
+    pred: impl Fn(&nauvi::WorkloadsOverview) -> bool,
+) -> Result<nauvi::WorkloadsOverview> {
     within(what, TIMEOUT, async {
         while let Some(u) = updates.next().await {
-            if let kubeloupe::WorkloadsUpdate::Summary(ov) = u {
+            if let nauvi::WorkloadsUpdate::Summary(ov) = u {
                 if pred(&ov) {
                     return Ok(*ov);
                 }
@@ -2911,7 +2899,7 @@ async fn workloads_until(
 #[ignore]
 async fn workloads_overview_counts_kinds_by_status() -> Result<()> {
     in_temp_ns("kl-it-wl", |client, ns| async move {
-        let mut updates = kubeloupe::watch_workloads(&client, &kubeloupe::liveness::Prober::new(client.clone()), std::slice::from_ref(&ns));
+        let mut updates = nauvi::watch_workloads(&client, &nauvi::liveness::Prober::new(client.clone()), std::slice::from_ref(&ns));
         let first = workloads_until("first summary", &mut updates, |_| true).await?;
         ensure!(first.notes.is_empty(), "{:?}", first.notes);
         ensure!(first.kinds.len() == 7, "{:?}", first.kinds);
@@ -2979,13 +2967,13 @@ async fn workloads_overview_counts_kinds_by_status() -> Result<()> {
         ensure!(ov.problems.iter().all(|p| p.namespace == ns));
 
         // The deployment's pods and their requests, for its charts.
-        let pods = kubeloupe::workload_pods(&client, WorkloadKind::Deployment, &ns, "web").await?;
+        let pods = nauvi::workload_pods(&client, WorkloadKind::Deployment, &ns, "web").await?;
         ensure!(pods.len() == 1, "{} pods", pods.len());
         let values = pods
             .iter()
             .map(serde_json::to_value)
             .collect::<Result<Vec<_>, _>>()?;
-        let reference = kubeloupe::workload_reference(&values);
+        let reference = nauvi::workload_reference(&values);
         ensure!(reference.cpu_request == 10, "{reference:?}");
 
         // Scaled to two: the new replica is counted as soon as it exists.

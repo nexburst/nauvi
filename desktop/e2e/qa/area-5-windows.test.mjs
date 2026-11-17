@@ -26,7 +26,7 @@ const contextValue = (app) => app.js(`return document.querySelector('select[aria
 
 const T = { timeout: 180_000 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const LABEL = "kubeloupe.dev/node-shell=true";
+const LABEL = "nauvi.dev/node-shell=true";
 const NODE = kubectl(["get", "nodes", "-o", "jsonpath={.items[0].metadata.name}"]);
 
 /** A pod that logs `word-<n>` every half second. */
@@ -181,10 +181,10 @@ describe("area 5: several windows", { timeout: 25 * 60_000 }, () => {
     const pod = await app.waitFor(() => nodeShellPods().find((p) => !before.has(p)), { message: "the node shell pod" });
     ours.add(pod);
     // A local shell in B.
-    const files0 = new Set(shellKubeconfigs(tmpdir()).filter((f) => f.startsWith(`kubeloupe-shell-${pid}-`)));
+    const files0 = new Set(shellKubeconfigs(tmpdir()).filter((f) => f.startsWith(`nauvi-shell-${pid}-`)));
     await dockControl(app, "New local terminal");
     const file = await app.waitFor(
-      () => shellKubeconfigs(tmpdir()).find((f) => f.startsWith(`kubeloupe-shell-${pid}-`) && !files0.has(f)),
+      () => shellKubeconfigs(tmpdir()).find((f) => f.startsWith(`nauvi-shell-${pid}-`) && !files0.has(f)),
       { message: "the local shell's temp kubeconfig" },
     );
     console.log(`node shell pod ${pod}, local shell kubeconfig ${file}`);

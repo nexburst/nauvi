@@ -17,7 +17,7 @@ const MAX_RELEASE_BYTES: u64 = 64 << 20;
 
 const GZIP_MAGIC: [u8; 3] = [0x1f, 0x8b, 0x08];
 
-/// The parts of Helm's release JSON that kubeloupe shows.
+/// The parts of Helm's release JSON that nauvi shows.
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub(crate) struct StoredRelease {

@@ -70,7 +70,7 @@ impl WorkloadKind {
     }
 }
 
-/// What `kubeloupe logs <ref>` refers to.
+/// What `nauvi logs <ref>` refers to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LogTarget {
     Pod(String),
@@ -811,11 +811,11 @@ pub async fn print_workload_logs(
                     StopReason::Ended => "log ended".to_string(),
                     StopReason::Failed(e) => format!("error: {e}"),
                 };
-                eprintln!("kubeloupe: [{pod}/{container}] {why}");
+                eprintln!("nauvi: [{pod}/{container}] {why}");
             }
             WorkloadEvent::Truncated { limit, skipped } => {
                 if skipped > 0 {
-                    eprintln!("kubeloupe: following {limit} containers, {skipped} more waiting");
+                    eprintln!("nauvi: following {limit} containers, {skipped} more waiting");
                 }
             }
         })
@@ -833,7 +833,7 @@ pub async fn print_workload_logs(
     .await?;
     if read.more {
         eprintln!(
-            "kubeloupe: {}/{name} has more than {MAX_WORKLOAD_STREAMS} pods: reading the first {MAX_WORKLOAD_STREAMS}",
+            "nauvi: {}/{name} has more than {MAX_WORKLOAD_STREAMS} pods: reading the first {MAX_WORKLOAD_STREAMS}",
             kind.as_str()
         );
     }
@@ -844,14 +844,14 @@ pub async fn print_workload_logs(
         .filter_map(|p| PodView::from_pod(p, opts.container.as_deref()))
         .collect();
     if views.is_empty() {
-        eprintln!("kubeloupe: no pods match {}/{name}", kind.as_str());
+        eprintln!("nauvi: no pods match {}/{name}", kind.as_str());
     }
     let mut remaining = MAX_WORKLOAD_STREAMS;
     for pod in &views {
         let with_container = pod.containers.len() > 1;
         for c in pod.containers.iter().filter(|c| c.has_logs) {
             if remaining == 0 {
-                eprintln!("kubeloupe: showing the first {MAX_WORKLOAD_STREAMS} containers only");
+                eprintln!("nauvi: showing the first {MAX_WORKLOAD_STREAMS} containers only");
                 return Ok(());
             }
             remaining -= 1;
@@ -865,7 +865,7 @@ pub async fn print_workload_logs(
                     }
                 }
                 Err(e) => eprintln!(
-                    "kubeloupe: [{}/{}] {}",
+                    "nauvi: [{}/{}] {}",
                     pod.name,
                     c.name,
                     crate::errors::error_text(&e)

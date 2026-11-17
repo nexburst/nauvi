@@ -40,7 +40,7 @@ import { appSession, waitLive } from "../lib/qa.mjs";
 import { resizeWindow, selectContext } from "../lib/window.mjs";
 
 const T = { timeout: 240_000 };
-const STAGING = "kind-kubeloupe-staging";
+const STAGING = "kind-nauvi-staging";
 
 const deployment = `
 apiVersion: apps/v1

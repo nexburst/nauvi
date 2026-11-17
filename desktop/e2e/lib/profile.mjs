@@ -1,6 +1,6 @@
 // A private home for one app (and its restarts): its settings, Downloads
 // and an "Open in browser" recorder, so a run never reads or changes the
-// developer's own ~/.config/com.kubeloupe.app or opens a real browser.
+// developer's own ~/.config/com.nauvi.app or opens a real browser.
 
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +13,7 @@ export class Profile {
     /** `HOME` of the app. */
     this.home = home;
     /** `app_config_dir()` on Linux: settings.json lives here. */
-    this.configDir = join(home, ".config", "com.kubeloupe.app");
+    this.configDir = join(home, ".config", "com.nauvi.app");
     this.settingsPath = join(this.configDir, "settings.json");
     /** Where log Download writes (`$HOME/Downloads`). */
     this.downloads = join(home, "Downloads");
@@ -96,5 +96,5 @@ export class Profile {
 }
 
 export function createProfile() {
-  return new Profile(mkdtempSync(join(tmpdir(), "kubeloupe-qa-home-")));
+  return new Profile(mkdtempSync(join(tmpdir(), "nauvi-qa-home-")));
 }

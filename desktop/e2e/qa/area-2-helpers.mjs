@@ -117,7 +117,7 @@ export async function editor(app, testid, timeout = 20_000) {
   return app.waitFor(
     async () => {
       const el = await app.driver.findElement(byTestId(testid));
-      return (await el.getAttribute("data-ready")) === "true" && (await app.js("return !!arguments[0].kubeloupeEditor", el))
+      return (await el.getAttribute("data-ready")) === "true" && (await app.js("return !!arguments[0].nauviEditor", el))
         ? el
         : null;
     },
@@ -125,8 +125,8 @@ export async function editor(app, testid, timeout = 20_000) {
   );
 }
 
-export const editorValue = (app, el) => app.js("return arguments[0].kubeloupeEditor.getValue()", el);
-export const setEditorValue = (app, el, text) => app.js("arguments[0].kubeloupeEditor.setValue(arguments[1])", el, text);
+export const editorValue = (app, el) => app.js("return arguments[0].nauviEditor.getValue()", el);
+export const setEditorValue = (app, el, text) => app.js("arguments[0].nauviEditor.setValue(arguments[1])", el, text);
 
 /**
  * Real key presses into CodeMirror, one WebDriver call per key so the

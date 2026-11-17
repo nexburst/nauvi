@@ -10,7 +10,7 @@ export const FAKE_DIAGNOSTICS: Diagnostics = {
   arch: "x86_64",
   webview: "WebKitGTK 2.48.0",
   debug_build: false,
-  text: "kubeloupe 0.1.0\nCommit: 0123456789ab\nOS: Ubuntu 24.04.1 LTS, Linux 6.8.0 (x86_64)\nWebview: WebKitGTK 2.48.0",
+  text: "nauvi 0.1.0\nCommit: 0123456789ab\nOS: Ubuntu 24.04.1 LTS, Linux 6.8.0 (x86_64)\nWebview: WebKitGTK 2.48.0",
 };
 
 export function helpHandlers(_s: FakeState) {

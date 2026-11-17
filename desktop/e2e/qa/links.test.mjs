@@ -1,4 +1,4 @@
-// #299: "Copy link" and opening kubeloupe:// links.
+// #299: "Copy link" and opening nauvi:// links.
 // - a second launch with a link (the single-instance path, #202) exits, and
 //   the running window shows the object; still one process and one window
 // - Copy link in the detail panel puts the same link on the clipboard
@@ -36,12 +36,12 @@ kind: ConfigMap
 metadata:
   name: linked
 data:
-  hello: from a kubeloupe link
+  hello: from a nauvi link
 `;
 
 const enc = (s) => encodeURIComponent(s);
 const linkTo = (context, group, version, kind, namespace, name) =>
-  `kubeloupe://${enc(context)}/${group || "core"}/${version}/${kind}/${namespace || "_"}/${enc(name)}`;
+  `nauvi://${enc(context)}/${group || "core"}/${version}/${kind}/${namespace || "_"}/${enc(name)}`;
 
 function noticeText(app) {
   return app.js(`return document.querySelector('.notice')?.innerText ?? ""`);
@@ -55,7 +55,7 @@ async function dismissNotice(app) {
   await app.js(`document.querySelector('.notice .x')?.click()`);
 }
 
-describe("#299: kubeloupe:// links", { timeout: 15 * 60_000, skip: cannotLaunchTwice() }, () => {
+describe("#299: nauvi:// links", { timeout: 15 * 60_000, skip: cannotLaunchTwice() }, () => {
   let bus;
   let alias;
   let namespace;
@@ -80,7 +80,7 @@ describe("#299: kubeloupe:// links", { timeout: 15 * 60_000, skip: cannotLaunchT
         ...process.env,
         ...app.profile.env(),
         KUBECONFIG: alias.path,
-        KUBELOUPE_NO_SHELL_ENV: "1",
+        NAUVI_NO_SHELL_ENV: "1",
         DBUS_SESSION_BUS_ADDRESS: bus.address,
       },
       [link],
@@ -97,14 +97,14 @@ describe("#299: kubeloupe:// links", { timeout: 15 * 60_000, skip: cannotLaunchT
     await openLink(app, linkTo(CONTEXT, "", "v1", "ConfigMap", namespace, "linked"));
     await waitPanelTitle(app, `${namespace}/linked`, 30_000);
     await app.waitFor(
-      async () => /from a kubeloupe link/.test(await app.js(`return document.querySelector('[data-testid="detail-panel"]')?.innerText ?? ""`)),
+      async () => /from a nauvi link/.test(await app.js(`return document.querySelector('[data-testid="detail-panel"]')?.innerText ?? ""`)),
       { message: "the ConfigMap's data in the panel" },
     );
-    assert.deepEqual(appPids(app.profile.home), [pid], "still one kubeloupe process");
+    assert.deepEqual(appPids(app.profile.home), [pid], "still one nauvi process");
     assert.equal(x11Windows(pid).length, 1, "still one window");
     assert.equal(await app.statusText(), "Live");
     const log = readFileSync(join(ARTIFACTS, `${NAME}-app.log`), "utf8");
-    assert.match(log, /opened with a kubeloupe:\/\/ link/);
+    assert.match(log, /opened with a nauvi:\/\/ link/);
   });
 
   it("Copy link in the detail panel copies the same link", T, async () => {
@@ -140,9 +140,9 @@ describe("#299: kubeloupe:// links", { timeout: 15 * 60_000, skip: cannotLaunchT
   it("a malformed link leaves a plain notice", T, async () => {
     const { app } = s;
     await dismissNotice(app);
-    await openLink(app, `kubeloupe://${CONTEXT}/core/v1/Pod/${namespace}/linked?exec=sh`);
-    await waitNotice(app, /This kubeloupe link can't be opened: it has a query or a fragment\. Nothing was opened\./);
-    await openLink(app, `kubeloupe://${CONTEXT}/core/v1/Pod/${namespace}/..`);
+    await openLink(app, `nauvi://${CONTEXT}/core/v1/Pod/${namespace}/linked?exec=sh`);
+    await waitNotice(app, /This nauvi link can't be opened: it has a query or a fragment\. Nothing was opened\./);
+    await openLink(app, `nauvi://${CONTEXT}/core/v1/Pod/${namespace}/..`);
     await waitNotice(app, /is not an object name/);
     const log = readFileSync(join(ARTIFACTS, `${NAME}-app.log`), "utf8");
     assert.match(log, /refused a link/);

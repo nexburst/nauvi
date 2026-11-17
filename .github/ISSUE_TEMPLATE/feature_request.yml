@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest something kubeloupe should do.
+description: Suggest something nauvi should do.
 labels: ["enhancement"]
 body:
   - type: textarea
@@ -13,7 +13,7 @@ body:
     id: proposal
     attributes:
       label: Proposal
-      description: What should kubeloupe do? How would you use it?
+      description: What should nauvi do? How would you use it?
     validations:
       required: true
   - type: textarea

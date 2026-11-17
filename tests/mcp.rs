@@ -1,9 +1,9 @@
-//! `kubeloupe mcp` driven over stdio, as an MCP client drives it (#298).
+//! `nauvi mcp` driven over stdio, as an MCP client drives it (#298).
 //!
 //! The protocol tests need no cluster: the server connects on the first
 //! tool call, so `initialize` and `tools/list` work with a missing
 //! kubeconfig. The `#[ignore]`d ones run against the kind cluster
-//! (`KUBELOUPE_TEST_CONTEXT`, default `kind-kubeloupe-test`) in a temporary
+//! (`NAUVI_TEST_CONTEXT`, default `kind-nauvi-test`) in a temporary
 //! namespace.
 
 mod common;
@@ -22,10 +22,10 @@ use serde_json::{json, Value};
 const REPLY_TIMEOUT: Duration = Duration::from_secs(60);
 
 fn context() -> String {
-    std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".into())
+    std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".into())
 }
 
-/// A running `kubeloupe mcp` and a reader thread for its stdout lines.
+/// A running `nauvi mcp` and a reader thread for its stdout lines.
 struct Server {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -35,13 +35,13 @@ struct Server {
 
 impl Server {
     fn start(args: &[&str]) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_kubeloupe"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_nauvi"))
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .expect("start kubeloupe mcp");
+            .expect("start nauvi mcp");
         let stdin = child.stdin.take();
         let stdout = child.stdout.take().unwrap();
         let (tx, lines) = channel();
@@ -108,7 +108,7 @@ impl Server {
             json!({
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": { "name": "kubeloupe-tests", "version": "1" }
+                "clientInfo": { "name": "nauvi-tests", "version": "1" }
             }),
         );
         self.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }));
@@ -174,7 +174,7 @@ fn initialize_lists_the_server_and_its_tools_capability() {
     let mut s = offline(&[]);
     let reply = s.initialize();
     let r = &reply["result"];
-    assert_eq!(r["serverInfo"]["name"], "kubeloupe", "{reply}");
+    assert_eq!(r["serverInfo"]["name"], "nauvi", "{reply}");
     assert_eq!(r["serverInfo"]["version"], env!("CARGO_PKG_VERSION"));
     assert_eq!(r["protocolVersion"], "2025-06-18", "{reply}");
     assert!(r["capabilities"]["tools"].is_object(), "{reply}");
@@ -246,7 +246,7 @@ fn unknown_methods_get_a_json_rpc_error() {
 async fn connect() -> Result<Client> {
     tokio::time::timeout(
         Duration::from_secs(20),
-        kubeloupe::client_for_context(Some(&context())),
+        nauvi::client_for_context(Some(&context())),
     )
     .await
     .context("timed out building client")?
@@ -431,12 +431,12 @@ async fn mcp_write_tools_on_the_cluster() -> Result<()> {
 
 /// RBAC applies: the limited user (`edit` in team-a only) may not read
 /// kube-system's Secrets or delete there. Skips unless
-/// `KUBELOUPE_LIMITED_KUBECONFIG` is set (scripts/test-cluster/limited-user.sh).
+/// `NAUVI_LIMITED_KUBECONFIG` is set (scripts/test-cluster/limited-user.sh).
 #[test]
 #[ignore]
 fn mcp_limited_user_is_bound_by_rbac() {
-    let Ok(kubeconfig) = std::env::var("KUBELOUPE_LIMITED_KUBECONFIG") else {
-        eprintln!("skipped: KUBELOUPE_LIMITED_KUBECONFIG is not set");
+    let Ok(kubeconfig) = std::env::var("NAUVI_LIMITED_KUBECONFIG") else {
+        eprintln!("skipped: NAUVI_LIMITED_KUBECONFIG is not set");
         return;
     };
     let mut s = Server::start(&["--kubeconfig", &kubeconfig, "mcp", "--allow-writes"]);

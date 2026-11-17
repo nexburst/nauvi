@@ -1,5 +1,5 @@
 name: Bug report
-description: Something in kubeloupe does not work as expected.
+description: Something in nauvi does not work as expected.
 labels: ["bug"]
 body:
   - type: markdown
@@ -9,8 +9,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: kubeloupe version
-      description: The release you installed, or the output of `kubeloupe --version` for the CLI.
+      label: nauvi version
+      description: The release you installed, or the output of `nauvi --version` for the CLI.
       placeholder: "0.1.0"
     validations:
       required: true

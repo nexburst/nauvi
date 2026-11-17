@@ -234,7 +234,7 @@
       {/each}
       <div class="label-row">
         <span>Values</span>
-        <span class="muted small">kubeloupe's starting values over the chart's defaults; change what you need.</span>
+        <span class="muted small">nauvi's starting values over the chart's defaults; change what you need.</span>
         <button type="button" class="btn small-btn" onclick={resetValues} disabled={values === addon.values}>Reset</button>
       </div>
       <div class="pane">

@@ -44,9 +44,9 @@
       const handle = createEditor(host, { value, readonly, label, onChange: (v) => onChange(v) });
       editor = handle;
       // For the real-app E2E tests (WebDriver can't type reliably into
-      // CodeMirror): `el.kubeloupeEditor.setValue(text)` on the root element
+      // CodeMirror): `el.nauviEditor.setValue(text)` on the root element
       // edits like typing does, `onChange` included.
-      (host as HTMLDivElement & { kubeloupeEditor?: unknown }).kubeloupeEditor = {
+      (host as HTMLDivElement & { nauviEditor?: unknown }).nauviEditor = {
         getValue: () => handle.getValue(),
         setValue: (v: string) => handle.setValue(v),
       };

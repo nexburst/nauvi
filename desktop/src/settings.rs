@@ -215,7 +215,7 @@ impl SearchHistory {
 pub(crate) struct SavedForward {
     /// Stable across restarts (`""` when the UI creates one).
     pub(crate) id: String,
-    pub(crate) target: kubeloupe::ForwardTarget,
+    pub(crate) target: nauvi::ForwardTarget,
     /// The remote port: a number or a port name.
     pub(crate) remote: String,
     /// The local port as typed: `""` automatic, `"0"` any free port, else
@@ -514,7 +514,7 @@ mod tests {
 
     fn temp_path(name: &str) -> PathBuf {
         let dir =
-            std::env::temp_dir().join(format!("kubeloupe-settings-{}-{name}", std::process::id()));
+            std::env::temp_dir().join(format!("nauvi-settings-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("settings.json")

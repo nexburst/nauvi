@@ -5,11 +5,11 @@
 //!
 //! One test in its own binary: it changes the process environment.
 
-use kubeloupe::catalog::{
+use nauvi::catalog::{
     default_kubeconfig_paths, expand_home, load_catalog, save_pasted_kubeconfig, CatalogInput,
     SourceKind,
 };
-use kubeloupe::{shell_kubeconfig, shell_kubeconfig_env_for};
+use nauvi::{shell_kubeconfig, shell_kubeconfig_env_for};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
@@ -35,7 +35,7 @@ fn catalog_in_a_temp_home_never_writes_kubeconfigs() {
     let real = home::home_dir().map(|h| h.join(".kube").join("config"));
     let real_before = real.as_deref().and_then(hash);
 
-    let home = std::env::temp_dir().join(format!("kubeloupe-catalog-home-{}", std::process::id()));
+    let home = std::env::temp_dir().join(format!("nauvi-catalog-home-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&home);
     std::fs::create_dir_all(home.join(".kube")).unwrap();
     std::fs::create_dir_all(home.join("work")).unwrap();

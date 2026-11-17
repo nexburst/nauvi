@@ -47,7 +47,7 @@ kind: Namespace
 metadata:
   name: ${fx.namespace}
   labels:
-    kubeloupe-e2e: "true"
+    nauvi-e2e: "true"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -101,7 +101,7 @@ export function tempNamespace(prefix, yaml = "") {
   const namespace = `${prefix}-${Date.now().toString(36)}${process.pid.toString(36)}`;
   kubectl(
     ["apply", "-f", "-"],
-    `apiVersion: v1\nkind: Namespace\nmetadata:\n  name: ${namespace}\n  labels:\n    kubeloupe-e2e: "true"\n`,
+    `apiVersion: v1\nkind: Namespace\nmetadata:\n  name: ${namespace}\n  labels:\n    nauvi-e2e: "true"\n`,
   );
   // Pods are refused until the controller manager has made the default
   // ServiceAccount, which can take a while on a busy cluster.
@@ -133,7 +133,7 @@ export function deleteNamespace(namespace) {
 }
 
 /** A busybox pod serving `text` over HTTP on `port`. */
-export function httpPodYaml(name, port = 8080, text = "hello from kubeloupe qa") {
+export function httpPodYaml(name, port = 8080, text = "hello from nauvi qa") {
   return `
 apiVersion: v1
 kind: Pod

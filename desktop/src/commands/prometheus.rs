@@ -5,7 +5,7 @@
 use crate::settings::SettingsStore;
 use crate::state::{Cluster, ClusterSession};
 use kube::Client;
-use kubeloupe::{
+use nauvi::{
     prometheus_node_disks, resolve_prometheus, NodeDisk, PrometheusDetection, PrometheusStatus,
 };
 use std::sync::Arc;

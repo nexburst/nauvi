@@ -156,7 +156,7 @@
           label: d.label,
           run: () => openDockTab(d.spec),
         })),
-        // A kubeloupe:// link to the object (#299).
+        // A nauvi:// link to the object (#299).
         { label: "Copy link", run: () => void copyLink(kind.resource, row.namespace, row.name) },
         ...kind.actions.map((a) => ({
           label: a.label,

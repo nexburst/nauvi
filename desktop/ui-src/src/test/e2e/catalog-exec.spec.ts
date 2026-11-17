@@ -54,7 +54,7 @@ test("a pasted kubeconfig's exec command is shown and runs only once allowed", a
   await expect(prompt(page)).toBeVisible();
   await expect(prompt(page).getByTestId("exec-command")).toHaveText("aws eks get-token --cluster-name prod");
   await expect(prompt(page)).toContainText("Used by eks-prod");
-  await expect(prompt(page)).toContainText("/home/user/.config/dev.kubeloupe.app/kubeconfigs/eks-prod.yaml");
+  await expect(prompt(page)).toContainText("/home/user/.config/dev.nauvi.app/kubeconfigs/eks-prod.yaml");
   const row = catalogRow(page, "eks-prod");
   await expect(row.getByTestId("catalog-status").getByRole("button", { name: "Check eks-prod" })).toBeVisible();
   expect(await fake.calls("cmdCheckContext")).toEqual(
@@ -74,7 +74,7 @@ test("a pasted kubeconfig's exec command is shown and runs only once allowed", a
   await prompt(page).getByRole("button", { name: "Allow and check" }).click();
   await expect(row.getByTestId("catalog-status")).toHaveText("Connected");
   expect(await fake.lastCall("cmdAnswerExecCommand")).toEqual({
-    source: "/home/user/.config/dev.kubeloupe.app/kubeconfigs/eks-prod.yaml",
+    source: "/home/user/.config/dev.nauvi.app/kubeconfigs/eks-prod.yaml",
     command: "aws eks get-token --cluster-name prod",
     allow: true,
   });

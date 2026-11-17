@@ -67,7 +67,7 @@ let profile;
 
 describe("area 5: helm releases on an added kubeconfig's context", { timeout: 25 * 60_000, skip }, () => {
   before(() => {
-    dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-area5-helm-"));
+    dir = mkdtempSync(join(tmpdir(), "nauvi-qa-area5-helm-"));
     // The test context, renamed, in a file of its own: only the catalog knows it.
     const file = join(dir, "added.yaml");
     writeFileSync(file, execFileSync("kubectl", ["config", "view", "--minify", "--flatten", "--context", CONTEXT], { encoding: "utf8" }), {

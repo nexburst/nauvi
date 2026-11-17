@@ -6,7 +6,7 @@
 use crate::catalog::{announce, ExecCommand, GateError, KubeconfigSources};
 use crate::settings::SettingsStore;
 use crate::state::AppState;
-use kubeloupe::catalog::{
+use nauvi::catalog::{
     check_source, check_with, expand_home, save_pasted_kubeconfig, ContextCheck, ContextState,
     SourceInfo,
 };
@@ -68,7 +68,7 @@ pub(crate) fn cmd_remove_kubeconfig_source(
     let saved = store.get().kubeconfig_sources;
     if !saved.iter().any(|p| p == &path) {
         return Err(format!(
-            "{path} was not added in kubeloupe, so it cannot be removed here. \
+            "{path} was not added in nauvi, so it cannot be removed here. \
              The default kubeconfig comes from KUBECONFIG or ~/.kube/config."
         ));
     }

@@ -1,4 +1,4 @@
-// kubeloupe:// links (#299): what an opened link points at, in the
+// nauvi:// links (#299): what an opened link points at, in the
 // discovered kinds. The backend has already checked every part of the link
 // and that its context is one of the user's.
 

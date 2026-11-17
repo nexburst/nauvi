@@ -16,7 +16,7 @@ use std::time::Duration;
 pub const NODE_SHELL_NAMESPACE: &str = "kube-system";
 pub const NODE_SHELL_IMAGE: &str = "busybox:1.37";
 /// Every node shell pod carries this label (value `true`).
-pub const NODE_SHELL_LABEL: &str = "kubeloupe.dev/node-shell";
+pub const NODE_SHELL_LABEL: &str = "nauvi.dev/node-shell";
 pub const MANAGED_BY: &str = "app.kubernetes.io/managed-by";
 /// The pod outlives a forgotten session by at most this long.
 const KEEP_ALIVE_SECS: u32 = 14400;
@@ -63,7 +63,7 @@ pub fn node_shell_pod(name: &str, node: &str, image: &str) -> Pod {
         "metadata": {
             "name": name,
             "labels": {
-                MANAGED_BY: "kubeloupe",
+                MANAGED_BY: "nauvi",
                 NODE_SHELL_LABEL: "true",
             },
         },
@@ -234,7 +234,7 @@ mod tests {
         let pod = node_shell_pod("node-shell-w-abcde", "w", "busybox:1.37");
         let v = serde_json::to_value(&pod).unwrap();
         let labels = &v["metadata"]["labels"];
-        assert_eq!(labels[MANAGED_BY], "kubeloupe");
+        assert_eq!(labels[MANAGED_BY], "nauvi");
         assert_eq!(labels[NODE_SHELL_LABEL], "true");
         let spec = &v["spec"];
         assert_eq!(spec["nodeName"], "w");

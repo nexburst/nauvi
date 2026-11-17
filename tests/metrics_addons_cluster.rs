@@ -10,12 +10,11 @@ use std::time::Duration;
 
 use anyhow::{ensure, Context, Result};
 use kube::Client;
-use kubeloupe::client_for_context;
-use kubeloupe::helm::{metrics_addon_access, MetricsAddonId};
+use nauvi::client_for_context;
+use nauvi::helm::{metrics_addon_access, MetricsAddonId};
 
 async fn connect() -> Result<Client> {
-    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
     tokio::time::timeout(Duration::from_secs(20), client_for_context(Some(&ctx)))
         .await
         .context("timed out building client")?
@@ -24,8 +23,8 @@ async fn connect() -> Result<Client> {
 
 /// The namespace-scoped user of `limited-user.sh`, or `None` (skip).
 async fn connect_limited() -> Result<Option<Client>> {
-    let Ok(path) = std::env::var("KUBELOUPE_LIMITED_KUBECONFIG") else {
-        eprintln!("KUBELOUPE_LIMITED_KUBECONFIG not set; skipping");
+    let Ok(path) = std::env::var("NAUVI_LIMITED_KUBECONFIG") else {
+        eprintln!("NAUVI_LIMITED_KUBECONFIG not set; skipping");
         return Ok(None);
     };
     let kubeconfig = kube::config::Kubeconfig::read_from(&path)

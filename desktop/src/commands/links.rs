@@ -1,9 +1,9 @@
-//! `kubeloupe://` links (#299): "Copy link" and taking an opened link
+//! `nauvi://` links (#299): "Copy link" and taking an opened link
 //! (see `links.rs`).
 
 use crate::links::{take, LinkRequest, ObjectLink};
 use crate::state::Cluster;
-use kubeloupe::resources::ResourceRef;
+use nauvi::resources::ResourceRef;
 use tauri::Webview;
 
 pub(crate) use crate::links::LinkPending;

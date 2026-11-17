@@ -251,7 +251,7 @@ spec:
 
 /** A kubeconfig whose only context points at a closed local port. */
 function unreachableKubeconfig() {
-  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-area1-"));
+  const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-area1-"));
   const path = join(dir, "kubeconfig");
   writeFileSync(
     path,

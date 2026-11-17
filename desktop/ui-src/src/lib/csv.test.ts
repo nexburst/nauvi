@@ -123,7 +123,7 @@ describe("tableCsv", () => {
 describe("csvFilename", () => {
   const at = new Date("2026-11-16T10:30:05.123Z");
   it("names the kind, the context and the time", () => {
-    expect(csvFilename("Pods", "kind-kubeloupe-test", at)).toBe("pods_kind-kubeloupe-test_2026-11-16T10-30-05Z.csv");
+    expect(csvFilename("Pods", "kind-nauvi-test", at)).toBe("pods_kind-nauvi-test_2026-11-16T10-30-05Z.csv");
   });
   it("replaces characters that are not safe in file names", () => {
     expect(csvFilename("HPAs", "arn:aws:eks:eu/prod", at)).toBe("hpas_arn-aws-eks-eu-prod_2026-11-16T10-30-05Z.csv");

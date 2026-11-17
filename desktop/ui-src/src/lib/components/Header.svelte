@@ -34,7 +34,7 @@
 </script>
 
 <header>
-  <div class="brand">kubeloupe</div>
+  <div class="brand">nauvi</div>
   <div class="history" role="group" aria-label="History">
     <button
       class="arrow"

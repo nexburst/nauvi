@@ -33,10 +33,10 @@ fn write_if_changed(path: &std::path::Path, bytes: &[u8]) {
 }
 
 /// The commit the app is built from, for About and the diagnostics (#208):
-/// `KUBELOUPE_COMMIT` if set, else git's, else CI's `GITHUB_SHA`, else
+/// `NAUVI_COMMIT` if set, else git's, else CI's `GITHUB_SHA`, else
 /// "unknown" (a source tarball).
 fn set_commit() {
-    println!("cargo:rerun-if-env-changed=KUBELOUPE_COMMIT");
+    println!("cargo:rerun-if-env-changed=NAUVI_COMMIT");
     println!("cargo:rerun-if-env-changed=GITHUB_SHA");
     let git = |args: &[&str]| {
         std::process::Command::new("git")
@@ -57,7 +57,7 @@ fn set_commit() {
             }
         }
     }
-    let commit = std::env::var("KUBELOUPE_COMMIT")
+    let commit = std::env::var("NAUVI_COMMIT")
         .ok()
         .filter(|s| !s.is_empty())
         .or_else(|| git(&["rev-parse", "--short=12", "HEAD"]))
@@ -78,7 +78,7 @@ fn set_commit() {
     } else {
         commit
     };
-    println!("cargo:rustc-env=KUBELOUPE_COMMIT={commit}");
+    println!("cargo:rustc-env=NAUVI_COMMIT={commit}");
 }
 
 fn main() {

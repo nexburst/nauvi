@@ -122,7 +122,7 @@ export interface FakeApi {
   emitUnsavedCloseRequested(quit?: boolean): Promise<void>;
   /** Send `exec-output`: `data` printed by the shell of `session` (`exec-1` is the first). */
   emitExecOutput(session: string, data: string): Promise<void>;
-  /** Queue a kubeloupe:// link request for the window (#299), as a launch with a link does. */
+  /** Queue a nauvi:// link request for the window (#299), as a launch with a link does. */
   queueLink(request: LinkRequest): void;
   /** Queue it and send `link-pending`, as a second launch with a link does. */
   openLink(request: LinkRequest): Promise<void>;

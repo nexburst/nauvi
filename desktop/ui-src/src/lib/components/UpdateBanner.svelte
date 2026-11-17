@@ -18,7 +18,7 @@
 {#if offered && check}
   <div class="update" role="status" data-testid="update-banner">
     <span class="text">
-      kubeloupe {check.version} is available —
+      nauvi {check.version} is available —
       <button type="button" class="link" onclick={openReleasePage}>Release notes</button>
       ·
       {#if check.can_install}

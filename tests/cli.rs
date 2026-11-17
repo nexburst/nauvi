@@ -1,7 +1,7 @@
-//! Tests of the `kubeloupe` binary: exit codes, stdout/stderr, and (the
+//! Tests of the `nauvi` binary: exit codes, stdout/stderr, and (the
 //! `#[ignore]`d ones) its output against the kind cluster. Run those with
 //! `cargo test --test cli -- --ignored`; the context comes from
-//! `KUBELOUPE_TEST_CONTEXT` (default `kind-kubeloupe-test`).
+//! `NAUVI_TEST_CONTEXT` (default `kind-nauvi-test`).
 
 mod common;
 
@@ -13,14 +13,14 @@ use kube::api::{Api, DeleteParams, PostParams};
 use serde_json::json;
 
 fn context() -> String {
-    std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".into())
+    std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".into())
 }
 
-fn kubeloupe(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_kubeloupe"))
+fn nauvi(args: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_nauvi"))
         .args(args)
         .output()
-        .expect("run kubeloupe")
+        .expect("run nauvi")
 }
 
 /// Run against the test cluster's context; panics unless it succeeds.
@@ -28,7 +28,7 @@ fn on_cluster(args: &[&str]) -> String {
     let ctx = context();
     let mut all = vec!["--context", &ctx];
     all.extend_from_slice(args);
-    let out = kubeloupe(&all);
+    let out = nauvi(&all);
     assert!(
         out.status.success(),
         "{args:?} failed: {}",
@@ -40,19 +40,19 @@ fn on_cluster(args: &[&str]) -> String {
 #[test]
 fn completions_need_no_cluster() {
     for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
-        let out = kubeloupe(&["--kubeconfig", "/nonexistent", "completions", shell]);
+        let out = nauvi(&["--kubeconfig", "/nonexistent", "completions", shell]);
         assert!(out.status.success(), "{shell}");
         let script = String::from_utf8_lossy(&out.stdout);
-        assert!(script.contains("kubeloupe"), "{shell}");
+        assert!(script.contains("nauvi"), "{shell}");
         assert!(script.contains("describe"), "{shell}");
     }
 }
 
 #[test]
 fn version_needs_no_cluster() {
-    let want = format!("kubeloupe {}\n", env!("CARGO_PKG_VERSION"));
+    let want = format!("nauvi {}\n", env!("CARGO_PKG_VERSION"));
     for flag in ["--version", "-V"] {
-        let out = kubeloupe(&["--kubeconfig", "/nonexistent", flag]);
+        let out = nauvi(&["--kubeconfig", "/nonexistent", flag]);
         assert!(out.status.success(), "{flag}");
         assert_eq!(String::from_utf8_lossy(&out.stdout), want, "{flag}");
     }
@@ -60,7 +60,7 @@ fn version_needs_no_cluster() {
 
 #[test]
 fn errors_go_to_stderr_with_a_failing_exit_code() {
-    let out = kubeloupe(&["--kubeconfig", "/nonexistent/kubeconfig", "get", "pods"]);
+    let out = nauvi(&["--kubeconfig", "/nonexistent/kubeconfig", "get", "pods"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(out.stdout.is_empty());
     let err = String::from_utf8_lossy(&out.stderr);
@@ -76,14 +76,14 @@ fn errors_go_to_stderr_with_a_failing_exit_code() {
 
 #[test]
 fn bad_arguments_exit_with_usage_error() {
-    let out = kubeloupe(&["get", "pods", "-o", "xml"]);
+    let out = nauvi(&["get", "pods", "-o", "xml"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
 }
 
 #[test]
 fn exec_help_documents_the_exit_code() {
-    let out = kubeloupe(&["exec", "--help"]);
+    let out = nauvi(&["exec", "--help"]);
     assert!(out.status.success());
     let help = String::from_utf8_lossy(&out.stdout);
     assert!(
@@ -111,7 +111,7 @@ fn cli_apply_dry_run_with_context_and_missing_file() {
     ]);
     assert_eq!(out, "configmap/kl-cli-dry-run created (dry run)\n");
     let ctx = context();
-    let out = kubeloupe(&["--context", &ctx, "apply", "-f", "/nonexistent.yaml"]);
+    let out = nauvi(&["--context", &ctx, "apply", "-f", "/nonexistent.yaml"]);
     assert_eq!(out.status.code(), Some(1));
     assert!(out.stdout.is_empty());
     assert!(
@@ -137,7 +137,7 @@ fn cli_kubeconfig_flag_reads_that_file() {
     let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cli-kubeconfig.yaml");
     std::fs::write(&path, serde_yaml::to_string(&kc).unwrap()).unwrap();
     let ctx = context();
-    let out = Command::new(env!("CARGO_BIN_EXE_kubeloupe"))
+    let out = Command::new(env!("CARGO_BIN_EXE_nauvi"))
         .args(["--kubeconfig", path.to_str().unwrap(), "--context", &ctx])
         .args(["get", "ns", "demo", "-o", "name"])
         // Make sure the file given is the only one it could have read.
@@ -181,7 +181,7 @@ fn cli_describe_shows_failed_scheduling() {
 #[ignore]
 fn cli_not_found_is_a_plain_error() {
     let ctx = context();
-    let out = kubeloupe(&[
+    let out = nauvi(&[
         "--context",
         &ctx,
         "describe",
@@ -200,7 +200,7 @@ fn cli_not_found_is_a_plain_error() {
 #[tokio::test]
 #[ignore]
 async fn cli_selectors_formats_and_secret_reveal() -> Result<()> {
-    let client = kubeloupe::client_for_context(Some(&context())).await?;
+    let client = nauvi::client_for_context(Some(&context())).await?;
     let suffix = common::unique_suffix();
     let ns = format!("kl-it-cli-{suffix:x}");
     let namespaces: Api<Namespace> = Api::all(client.clone());
@@ -254,7 +254,7 @@ async fn cli_selectors_formats_and_secret_reveal() -> Result<()> {
 
         // An empty list says so on stderr and leaves stdout empty.
         let ctx = context();
-        let out = kubeloupe(&["--context", &ctx, "get", "cm", "-n", &ns, "-l", "tier=none"]);
+        let out = nauvi(&["--context", &ctx, "get", "cm", "-n", &ns, "-l", "tier=none"]);
         assert!(out.status.success());
         assert!(out.stdout.is_empty());
         assert!(String::from_utf8_lossy(&out.stderr).contains("No resources found"));
@@ -267,15 +267,15 @@ async fn cli_selectors_formats_and_secret_reveal() -> Result<()> {
 
 /// `top pods -n` asks for that namespace's metrics only, so a user limited to
 /// it (scripts/test-cluster/limited-user.sh) can use it. Skips unless
-/// KUBELOUPE_LIMITED_KUBECONFIG is set.
+/// NAUVI_LIMITED_KUBECONFIG is set.
 #[test]
 #[ignore]
 fn cli_top_pods_in_a_namespace_works_for_a_limited_user() {
-    let Ok(kubeconfig) = std::env::var("KUBELOUPE_LIMITED_KUBECONFIG") else {
-        eprintln!("KUBELOUPE_LIMITED_KUBECONFIG not set; skipping");
+    let Ok(kubeconfig) = std::env::var("NAUVI_LIMITED_KUBECONFIG") else {
+        eprintln!("NAUVI_LIMITED_KUBECONFIG not set; skipping");
         return;
     };
-    let out = kubeloupe(&["--kubeconfig", &kubeconfig, "top", "pods", "-n", "team-a"]);
+    let out = nauvi(&["--kubeconfig", &kubeconfig, "top", "pods", "-n", "team-a"]);
     assert!(
         out.status.success(),
         "{}",

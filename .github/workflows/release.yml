@@ -67,7 +67,7 @@ jobs:
           done
           v=$(python3 -c "import json;print(json.load(open('desktop/tauri.conf.json'))['version'])")
           [ "$v" = "$version" ] || { echo "::error::tauri.conf.json version $v != Cargo.toml $version"; fail=1; }
-          for p in kubeloupe kubeloupe-desktop; do
+          for p in nauvi nauvi-desktop; do
             v=$(grep -A1 "^name = \"$p\"$" Cargo.lock | sed -nE 's/^version = "(.*)"/\1/p')
             [ "$v" = "$version" ] || { echo "::error::Cargo.lock $p version $v != Cargo.toml $version"; fail=1; }
           done
@@ -125,7 +125,7 @@ jobs:
             cat > notes.md <<'EOF'
           The builds are not signed yet, so the OS will warn you the first time:
 
-          - **macOS**: drag the app to Applications, then right-click it and choose Open (then Open again). If macOS says the app is damaged, run `xattr -dr com.apple.quarantine /Applications/kubeloupe.app`.
+          - **macOS**: drag the app to Applications, then right-click it and choose Open (then Open again). If macOS says the app is damaged, run `xattr -dr com.apple.quarantine /Applications/nauvi.app`.
           - **Windows**: SmartScreen shows "Windows protected your PC"; click More info, then Run anyway.
           - **Linux**: no workaround needed; the AppImage needs FUSE 2 (`libfuse2`) on recent Ubuntu.
 
@@ -134,7 +134,7 @@ jobs:
             pre=""
             case "$TAG" in *-*) pre="--prerelease";; esac
             gh release create "$TAG" --draft --verify-tag $pre \
-              --title "kubeloupe $TAG" --notes-file notes.md --generate-notes
+              --title "nauvi $TAG" --notes-file notes.md --generate-notes
             id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
               --jq ".[] | select(.tag_name == \"$TAG\" and .draft) | .id" | head -n1)
           fi
@@ -357,7 +357,7 @@ jobs:
         shell: bash
         env:
           TARGET: ${{ matrix.target }}
-        run: cargo build --release --locked -p kubeloupe --target "$TARGET"
+        run: cargo build --release --locked -p nauvi --target "$TARGET"
 
       # x86_64-apple-darwin runs under Rosetta on the arm64 macOS runner.
       - name: Smoke-check the CLI
@@ -365,7 +365,7 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
         run: |
-          bin="target/$TARGET/release/kubeloupe"
+          bin="target/$TARGET/release/nauvi"
           [ "$RUNNER_OS" = "Windows" ] && bin="$bin.exe"
           file "$bin" || true
           "$bin" --help
@@ -377,16 +377,16 @@ jobs:
           TAG: ${{ needs.prepare.outputs.tag }}
           TARGET: ${{ matrix.target }}
         run: |
-          name="kubeloupe-cli-${TAG}-${TARGET}"
+          name="nauvi-cli-${TAG}-${TARGET}"
           out="target/${TARGET}/release"
           mkdir "$name"
           cp README.md LICENSE "$name/"
           if [ "$RUNNER_OS" = "Windows" ]; then
-            cp "$out/kubeloupe.exe" "$name/"
+            cp "$out/nauvi.exe" "$name/"
             7z a "$name.zip" "$name"
             asset="$name.zip"
           else
-            cp "$out/kubeloupe" "$name/"
+            cp "$out/nauvi" "$name/"
             tar czf "$name.tar.gz" "$name"
             asset="$name.tar.gz"
           fi
@@ -450,10 +450,10 @@ jobs:
           for p in "*.AppImage" "*.deb" "*_universal.dmg" "*.msi" "*-setup.exe" \
                    "*.AppImage.sig" "*_universal.app.tar.gz" "*_universal.app.tar.gz.sig" \
                    "*.msi.sig" "*-setup.exe.sig" \
-                   "kubeloupe-cli-$TAG-x86_64-unknown-linux-gnu.tar.gz" \
-                   "kubeloupe-cli-$TAG-aarch64-apple-darwin.tar.gz" \
-                   "kubeloupe-cli-$TAG-x86_64-apple-darwin.tar.gz" \
-                   "kubeloupe-cli-$TAG-x86_64-pc-windows-msvc.zip"; do
+                   "nauvi-cli-$TAG-x86_64-unknown-linux-gnu.tar.gz" \
+                   "nauvi-cli-$TAG-aarch64-apple-darwin.tar.gz" \
+                   "nauvi-cli-$TAG-x86_64-apple-darwin.tar.gz" \
+                   "nauvi-cli-$TAG-x86_64-pc-windows-msvc.zip"; do
             compgen -G "$p" >/dev/null || { echo "::error::missing asset $p"; fail=1; }
           done
           [ "$fail" -eq 0 ] || exit 1

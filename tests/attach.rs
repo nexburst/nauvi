@@ -17,16 +17,16 @@ use futures::StreamExt;
 use k8s_openapi::api::core::v1::{Namespace, Pod};
 use kube::api::{Api, DeleteParams, PostParams};
 use kube::Client;
-use kubeloupe::attach::{attach_pod, describe_attach_error};
-use kubeloupe::resources::{discover, list_resources};
-use kubeloupe::watch::{watch_resource, Update};
-use kubeloupe::{client_for_context, stream_pod_containers_logs, LogOptions, WorkloadEvent};
+use nauvi::attach::{attach_pod, describe_attach_error};
+use nauvi::resources::{discover, list_resources};
+use nauvi::watch::{watch_resource, Update};
+use nauvi::{client_for_context, stream_pod_containers_logs, LogOptions, WorkloadEvent};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
 const TIMEOUT: Duration = Duration::from_secs(120);
 
 fn context() -> String {
-    std::env::var("KUBELOUPE_TEST_CONTEXT").unwrap_or_else(|_| "kind-kubeloupe-test".to_string())
+    std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string())
 }
 
 async fn connect() -> Result<Client> {
@@ -206,7 +206,7 @@ async fn attach_without_stdin_or_to_a_missing_container_fails_clearly() -> Resul
 async fn cli_attach_pipes_stdin_to_the_process() -> Result<()> {
     in_temp_ns("kl-it-cliattach", |client, ns| async move {
         shell_pod(&client, &ns, "pipe", true, false).await?;
-        let mut child = Command::new(env!("CARGO_BIN_EXE_kubeloupe"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_nauvi"))
             .args(["--context", &context(), "attach", "pipe", "-n", &ns])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -329,7 +329,7 @@ async fn pod_rows_mark_problems_from_the_watch() -> Result<()> {
     // The snapshot, or a later change of the pod, marks it too.
     let (_store, mut updates) = watch_resource(
         &client,
-        &kubeloupe::liveness::Prober::new(client.clone()),
+        &nauvi::liveness::Prober::new(client.clone()),
         pods,
         Some("demo"),
     );

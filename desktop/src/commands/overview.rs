@@ -2,8 +2,8 @@
 
 use crate::state::Cluster;
 use futures::StreamExt;
-use kubeloupe::watch::WatchState;
-use kubeloupe::{watch_overview, Overview, OverviewUpdate};
+use nauvi::watch::WatchState;
+use nauvi::{watch_overview, Overview, OverviewUpdate};
 use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;

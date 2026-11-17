@@ -135,8 +135,7 @@ contexts:
     }
 
     fn written(tag: &str) -> (Dir, std::path::PathBuf) {
-        let dir =
-            std::env::temp_dir().join(format!("kubeloupe-242-flat-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-242-flat-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("certs")).unwrap();
         std::fs::write(dir.join("ca.pem"), "CA").unwrap();

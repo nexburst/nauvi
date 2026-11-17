@@ -11,7 +11,7 @@ pub(crate) mod saved;
 use crate::settings::{SavedForward, SettingsStore};
 use crate::state::{next_session, AppState, Cluster, ForwardSession, SWITCHED};
 use kube::Client;
-use kubeloupe::{
+use nauvi::{
     service_ports, ForwardStatus, ForwardTarget, LocalPort, PortForward, RemotePort,
     ServicePortInfo,
 };

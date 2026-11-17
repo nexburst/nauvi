@@ -15,8 +15,7 @@ struct Added {
 
 impl Added {
     fn new(tag: &str) -> Self {
-        let dir =
-            std::env::temp_dir().join(format!("kubeloupe-201-gate-{tag}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-201-gate-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("eks.yaml");
@@ -210,10 +209,7 @@ fn helm_gets_a_copy_of_the_checked_context() {
     assert_ne!(path, added.file);
     assert_eq!(run.context.as_deref(), Some(id));
     let copy = kube::config::Kubeconfig::read_from(&path).unwrap();
-    assert_eq!(
-        kubeloupe::catalog::context_login_command(&copy, id),
-        command
-    );
+    assert_eq!(nauvi::catalog::context_login_command(&copy, id), command);
     assert!(!std::fs::read_to_string(&path).unwrap().contains("swapped"));
     #[cfg(unix)]
     {
@@ -246,10 +242,7 @@ fn a_local_shell_gets_only_a_copy_of_the_checked_context() {
         (id, "team-a")
     );
     let copy = kube::config::Kubeconfig::read_from(temp.path()).unwrap();
-    assert_eq!(
-        kubeloupe::catalog::context_login_command(&copy, id),
-        command
-    );
+    assert_eq!(nauvi::catalog::context_login_command(&copy, id), command);
     assert_eq!(copy.current_context.as_deref(), Some(id));
     assert!(!std::fs::read_to_string(temp.path())
         .unwrap()
@@ -299,7 +292,7 @@ fn local_files_come_from_the_file_as_it_was_checked() {
 #[test]
 fn the_default_kubeconfig_has_no_local_files_check() {
     let approved = super::Approved {
-        target: kubeloupe::ContextTarget {
+        target: nauvi::ContextTarget {
             id: "kind".to_string(),
             context: "kind".to_string(),
             kubeconfig: None,

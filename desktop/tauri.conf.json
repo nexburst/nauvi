@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "kubeloupe",
+  "productName": "nauvi",
   "version": "0.1.0",
-  "identifier": "com.kubeloupe.app",
+  "identifier": "com.nauvi.app",
   "build": {
     "beforeDevCommand": { "script": "npm run dev", "cwd": "ui-src" },
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "kubeloupe",
+        "title": "nauvi",
         "width": 1280,
         "height": 800,
         "dragDropEnabled": false
@@ -56,24 +56,24 @@
     ],
     "category": "DeveloperTool",
     "shortDescription": "A Lens alternative written in Rust - a Kubernetes IDE",
-    "publisher": "kubeloupe",
-    "copyright": "Copyright (c) 2026 the kubeloupe contributors",
+    "publisher": "nauvi",
+    "copyright": "Copyright (c) 2026 the nauvi contributors",
     "license": "MIT",
     "licenseFile": "bundle/license.txt",
     "createUpdaterArtifacts": true,
     "linux": {
       "deb": {
-        "desktopTemplate": "bundle/kubeloupe.desktop"
+        "desktopTemplate": "bundle/nauvi.desktop"
       }
     }
   },
   "plugins": {
     "deep-link": {
-      "desktop": { "schemes": ["kubeloupe"] }
+      "desktop": { "schemes": ["nauvi"] }
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA1N0Q5ODgzOUJFNjQwNDQKUldSRVFPYWJnNWg5QldYTGRpRTNiS0dvTjJnZGtTbXBXQmNrMC9VY2loSWNpSDZ1eUpHNllPVEoK",
-      "endpoints": ["https://github.com/pedrosanzmtz/kubeloupe/releases/latest/download/latest.json"]
+      "endpoints": ["https://github.com/nexburst/nauvi/releases/latest/download/latest.json"]
     }
   }
 }

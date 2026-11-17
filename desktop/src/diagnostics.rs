@@ -9,14 +9,14 @@ use specta::Type;
 use std::sync::OnceLock;
 
 /// The repository, for the Help menu's links.
-pub(crate) const REPO_URL: &str = "https://github.com/pedrosanzmtz/kubeloupe";
+pub(crate) const REPO_URL: &str = "https://github.com/nexburst/nauvi";
 /// Help → Documentation.
-pub(crate) const DOCS_URL: &str = "https://github.com/pedrosanzmtz/kubeloupe#readme";
+pub(crate) const DOCS_URL: &str = "https://github.com/nexburst/nauvi#readme";
 
 /// The app's version (Cargo's, the same as `tauri.conf.json`'s).
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The commit it was built from (`build.rs`), or "unknown".
-pub(crate) const COMMIT: &str = env!("KUBELOUPE_COMMIT");
+pub(crate) const COMMIT: &str = env!("NAUVI_COMMIT");
 
 /// The facts in About and in the copied diagnostics.
 #[derive(Debug, Clone, Serialize, Type)]
@@ -58,7 +58,7 @@ pub(crate) fn collect() -> Diagnostics {
 fn text(d: &Diagnostics) -> String {
     let build = if d.debug_build { " (debug build)" } else { "" };
     format!(
-        "kubeloupe {}{build}\nCommit: {}\nOS: {} ({})\nWebview: {}",
+        "nauvi {}{build}\nCommit: {}\nOS: {} ({})\nWebview: {}",
         d.version, d.commit, d.os, d.arch, d.webview
     )
 }
@@ -67,7 +67,7 @@ fn text(d: &Diagnostics) -> String {
 pub(crate) fn summary_line() -> String {
     let d = collect();
     format!(
-        "kubeloupe {} ({}) starting on {} ({}), webview {}",
+        "nauvi {} ({}) starting on {} ({}), webview {}",
         d.version, d.commit, d.os, d.arch, d.webview
     )
 }

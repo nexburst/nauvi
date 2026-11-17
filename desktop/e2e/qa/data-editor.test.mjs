@@ -215,7 +215,7 @@ describe("data editor (#224)", { timeout: 20 * 60_000 }, () => {
     assert.equal(secretValue(ns, "qa-creds", "username"), "admin", "the other keys are untouched");
     const managers = kubectl(["-n", ns, "get", "secret", "qa-creds", "--show-managed-fields", "-o", "jsonpath={.metadata.managedFields[*].manager}"]);
     console.log(`field managers: ${managers}`);
-    assert.match(managers, /kubeloupe/);
+    assert.match(managers, /nauvi/);
     assert.ok(!(await bodyText(app)).includes(NEW_PASSWORD), "the saved value is hidden again");
   });
 
@@ -315,7 +315,7 @@ describe("data editor (#224)", { timeout: 20 * 60_000 }, () => {
 
   it("writes no Secret value to the logs", T, async () => {
     const { app } = s;
-    const logFile = join(app.profile.home, ".local", "share", "com.kubeloupe.app", "logs", "kubeloupe.log");
+    const logFile = join(app.profile.home, ".local", "share", "com.nauvi.app", "logs", "nauvi.log");
     const driverLog = join(ARTIFACTS, "data-editor-app.log");
     for (const f of [logFile, driverLog]) {
       if (!existsSync(f)) {
@@ -352,8 +352,8 @@ describe("data editor: read but not patch (#224)", { timeout: 10 * 60_000 }, () 
   });
 });
 
-const limited = process.env.KUBELOUPE_LIMITED_KUBECONFIG;
-const skipLimited = limited && existsSync(limited) ? false : "set KUBELOUPE_LIMITED_KUBECONFIG (limited-user.sh)";
+const limited = process.env.NAUVI_LIMITED_KUBECONFIG;
+const skipLimited = limited && existsSync(limited) ? false : "set NAUVI_LIMITED_KUBECONFIG (limited-user.sh)";
 const LIMITED_NS = "team-a";
 const LIMITED_SECRET = `qa-224-${Date.now().toString(36)}`;
 

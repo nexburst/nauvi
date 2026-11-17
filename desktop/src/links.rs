@@ -1,5 +1,5 @@
-//! `kubeloupe://` links to one object (#299):
-//! `kubeloupe://<context>/<group>/<version>/<kind>/<namespace>/<name>`.
+//! `nauvi://` links to one object (#299):
+//! `nauvi://<context>/<group>/<version>/<kind>/<namespace>/<name>`.
 //!
 //! `core` stands for the core group and `_` for "no namespace" (a
 //! cluster-scoped object). The context is percent-encoded, as are the other
@@ -21,7 +21,7 @@ pub(crate) use route::{open_from_args, open_launch_link, take, LinkPending, Link
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-pub(crate) const SCHEME: &str = "kubeloupe";
+pub(crate) const SCHEME: &str = "nauvi";
 
 /// No link longer than this is read (the longest valid one is about 1.9 kB,
 /// with a context of 253 characters that all need percent-encoding).
@@ -97,7 +97,7 @@ pub(crate) fn parse(link: &str) -> Result<ObjectLink, String> {
     if link.len() > MAX_LINK {
         return Err(format!("the link is longer than {MAX_LINK} characters"));
     }
-    let rest = strip_scheme(link).ok_or("it does not start with kubeloupe://")?;
+    let rest = strip_scheme(link).ok_or("it does not start with nauvi://")?;
     // Only unreserved characters, `%` escapes and the separators: no
     // query, fragment, spaces or anything a URL parser might read its own
     // way.
@@ -222,7 +222,7 @@ fn check_context(context: &str) -> Result<(), String> {
         || context.ends_with(' ')
     {
         return Err(format!(
-            "its context is not a name kubeloupe can link to (printable ASCII, at most {MAX_CONTEXT} characters)"
+            "its context is not a name nauvi can link to (printable ASCII, at most {MAX_CONTEXT} characters)"
         ));
     }
     Ok(())
@@ -286,11 +286,11 @@ mod tests {
 
     #[test]
     fn round_trips() {
-        let p = pod("kind-kubeloupe-test");
+        let p = pod("kind-nauvi-test");
         let url = p.to_url().unwrap();
         assert_eq!(
             url,
-            "kubeloupe://kind-kubeloupe-test/core/v1/Pod/demo/web-7d9f-abcde"
+            "nauvi://kind-nauvi-test/core/v1/Pod/demo/web-7d9f-abcde"
         );
         assert_eq!(parse(&url).unwrap(), p);
 
@@ -305,7 +305,7 @@ mod tests {
         let url = node.to_url().unwrap();
         assert_eq!(
             url,
-            "kubeloupe://arn%3Aaws%3Aeks%3Aeu-west-1%3A123456789012%3Acluster%2Fprod%20one/\
+            "nauvi://arn%3Aaws%3Aeks%3Aeu-west-1%3A123456789012%3Acluster%2Fprod%20one/\
              rbac.authorization.k8s.io/v1/ClusterRole/_/system%3Akube-scheduler"
         );
         assert_eq!(parse(&url).unwrap(), node);
@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn reads_what_a_browser_or_shell_hands_over() {
         // Scheme in another case, lowercase escapes.
-        let p = parse("KubeLoupe://a%2fb/apps/v1/Deployment/demo/web").unwrap();
+        let p = parse("NaUvi://a%2fb/apps/v1/Deployment/demo/web").unwrap();
         assert_eq!(p.context, "a/b");
         assert_eq!(p.group, "apps");
     }
@@ -324,22 +324,22 @@ mod tests {
         let bad = [
             "",
             "https://kind/core/v1/Pod/demo/web",
-            "kubeloupe:kind/core/v1/Pod/demo/web",
-            "kubeloupe://kind/core/v1/Pod/demo",
-            "kubeloupe://kind/core/v1/Pod/demo/web/",
-            "kubeloupe://kind/core/v1/Pod/demo/web/extra",
-            "kubeloupe://kind/core/v1/Pod/demo/web?exec=sh",
-            "kubeloupe://kind/core/v1/Pod/demo/web#x",
-            "kubeloupe://kind/core/v1/Pod/demo/we b",
-            "kubeloupe://kind/core/v1/Pod/demo/wéb",
-            "kubeloupe://kind//v1/Pod/demo/web",
-            "kubeloupe://kind/core/v1/Pod//web",
-            "kubeloupe:///core/v1/Pod/demo/web",
-            "kubeloupe://kind/core/v1/Pod/demo/%",
-            "kubeloupe://kind/core/v1/Pod/demo/%zz",
-            "kubeloupe://kind/core/v1/Pod/demo/%ff",
-            "kubeloupe://kind/core/v1/Pod/demo/web;rm",
-            "kubeloupe://kind/core/v1/Pod/demo/web\n",
+            "nauvi:kind/core/v1/Pod/demo/web",
+            "nauvi://kind/core/v1/Pod/demo",
+            "nauvi://kind/core/v1/Pod/demo/web/",
+            "nauvi://kind/core/v1/Pod/demo/web/extra",
+            "nauvi://kind/core/v1/Pod/demo/web?exec=sh",
+            "nauvi://kind/core/v1/Pod/demo/web#x",
+            "nauvi://kind/core/v1/Pod/demo/we b",
+            "nauvi://kind/core/v1/Pod/demo/wéb",
+            "nauvi://kind//v1/Pod/demo/web",
+            "nauvi://kind/core/v1/Pod//web",
+            "nauvi:///core/v1/Pod/demo/web",
+            "nauvi://kind/core/v1/Pod/demo/%",
+            "nauvi://kind/core/v1/Pod/demo/%zz",
+            "nauvi://kind/core/v1/Pod/demo/%ff",
+            "nauvi://kind/core/v1/Pod/demo/web;rm",
+            "nauvi://kind/core/v1/Pod/demo/web\n",
         ];
         for link in bad {
             assert!(parse(link).is_err(), "{link:?} should be refused");
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn checks_every_part_by_its_rules() {
-        let base = "kubeloupe://kind";
+        let base = "nauvi://kind";
         let bad = [
             // Group, version, kind.
             "/Apps/v1/Deployment/demo/web",
@@ -377,12 +377,8 @@ mod tests {
         assert!(parse(&format!("{base}/core/v1/Pod/{long_label}/web")).is_err());
         assert!(parse(&format!("{base}/core/v1/Pod/demo/{}", "a".repeat(254))).is_err());
         assert!(parse(&format!("{base}/core/v1/Pod/demo/{}", "a".repeat(253))).is_ok());
-        assert!(parse(&format!(
-            "kubeloupe://{}/core/v1/Pod/demo/web",
-            "c".repeat(254)
-        ))
-        .is_err());
-        assert!(parse(&format!("kubeloupe://{}", "a/".repeat(2000))).is_err());
+        assert!(parse(&format!("nauvi://{}/core/v1/Pod/demo/web", "c".repeat(254))).is_err());
+        assert!(parse(&format!("nauvi://{}", "a/".repeat(2000))).is_err());
     }
 
     #[test]
@@ -395,7 +391,7 @@ mod tests {
             "trail%20",
             "a%7Fb",
         ] {
-            let link = format!("kubeloupe://{ctx}/core/v1/Pod/demo/web");
+            let link = format!("nauvi://{ctx}/core/v1/Pod/demo/web");
             assert!(parse(&link).is_err(), "{link:?} should be refused");
         }
         assert!(pod("a\u{202e}b").to_url().is_err());
@@ -404,9 +400,9 @@ mod tests {
 
     #[test]
     fn knows_a_link_argument() {
-        assert!(is_link("kubeloupe://x"));
-        assert!(is_link("KUBELOUPE://x"));
+        assert!(is_link("nauvi://x"));
+        assert!(is_link("NAUVI://x"));
         assert!(!is_link("--flag"));
-        assert!(!is_link("/usr/bin/kubeloupe"));
+        assert!(!is_link("/usr/bin/nauvi"));
     }
 }

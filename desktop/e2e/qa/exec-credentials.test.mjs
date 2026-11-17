@@ -15,7 +15,7 @@
 // and a token on stdout: the row shows its exit code and stderr, and
 // neither secret appears in the page or the app log.
 // #311: a third plugin that sleeps (waits for a login) is killed at the
-// timeout (KUBELOUPE_EXEC_TIMEOUT_SECS, short for the test) and its row says
+// timeout (NAUVI_EXEC_TIMEOUT_SECS, short for the test) and its row says
 // it did not finish and was stopped (light, dark).
 
 import assert from "node:assert/strict";
@@ -36,7 +36,7 @@ const ID = "qa-exec-201";
 const suffix = Date.now().toString(36);
 const NS = `qa-exec-${suffix}`;
 const BINDING = `qa-exec-201-${suffix}`;
-const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-exec-"));
+const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-exec-"));
 const plugin = join(dir, "count-and-login.sh");
 const runsFile = join(dir, "runs");
 const swappedPlugin = join(dir, "swapped.sh");
@@ -183,7 +183,7 @@ const PROMPT = '[data-testid="exec-prompt"]';
 const promptText = (app) => app.js(`return document.querySelector(arguments[0])?.innerText ?? ""`, PROMPT);
 
 describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () => {
-  const s = appSession("exec-credentials", { env: { KUBELOUPE_EXEC_TIMEOUT_SECS: String(TIMEOUT_SECS) } });
+  const s = appSession("exec-credentials", { env: { NAUVI_EXEC_TIMEOUT_SECS: String(TIMEOUT_SECS) } });
   after(() => {
     try {
       kubectl(["delete", "clusterrolebinding", BINDING, "--ignore-not-found"]);
@@ -382,7 +382,7 @@ describe("exec credential plugins in the catalog", { timeout: 10 * 60_000 }, () 
     const took = (Date.now() - started) / 1000;
     const status = await statusOf(app, SLOW_ID);
     console.log(`timed out after ${took.toFixed(1)} s: ${JSON.stringify(status)}`);
-    assert.ok(status.includes(`did not finish within ${TIMEOUT_SECS} s, so kubeloupe stopped it`), status);
+    assert.ok(status.includes(`did not finish within ${TIMEOUT_SECS} s, so nauvi stopped it`), status);
     // The row's two lines start with the reason, not the context or a path.
     const shown = await app.js(
       `return document.querySelector(arguments[0])?.querySelector('[data-testid="catalog-status-message"]')?.textContent.trim() ?? ""`,

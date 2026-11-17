@@ -1,11 +1,11 @@
-//! One-click metrics (#225): the add-ons kubeloupe can install when a
+//! One-click metrics (#225): the add-ons nauvi can install when a
 //! cluster has no metrics (metrics-server, a small Prometheus stack),
 //! whether the user may, and their `helm install` (dry run first).
 
 use super::helm::target;
 use crate::state::Cluster;
-use kubeloupe::action_access::ActionAccess;
-use kubeloupe::helm::{self, HelmDeployResult, MetricsAddon, MetricsAddonId, MetricsAddonRequest};
+use nauvi::action_access::ActionAccess;
+use nauvi::helm::{self, HelmDeployResult, MetricsAddon, MetricsAddonId, MetricsAddonRequest};
 
 /// Every add-on, with its pinned chart, repository and starting values.
 #[tauri::command]

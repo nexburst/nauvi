@@ -1,5 +1,5 @@
 // #208: the app log, the Help menu and About in WebKitGTK.
-// - the app writes kubeloupe.log in its log folder (0600, the folder 0700),
+// - the app writes nauvi.log in its log folder (0600, the folder 0700),
 //   starting with the version, commit, OS and webview
 // - Help (header) lists Documentation, Report a bug, Open log folder and
 //   About; each opens what it says (the xdg-open recorder sees the README,
@@ -22,11 +22,11 @@ import { appSession, waitLive } from "../lib/qa.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
-const README = "https://github.com/pedrosanzmtz/kubeloupe#readme";
-const NEW_ISSUE = "https://github.com/pedrosanzmtz/kubeloupe/issues/new?";
+const README = "https://github.com/nexburst/nauvi#readme";
+const NEW_ISSUE = "https://github.com/nexburst/nauvi/issues/new?";
 
-const logDir = (app) => join(app.profile.home, ".local", "share", "com.kubeloupe.app", "logs");
-const logText = (app) => readFileSync(join(logDir(app), "kubeloupe.log"), "utf8");
+const logDir = (app) => join(app.profile.home, ".local", "share", "com.nauvi.app", "logs");
+const logText = (app) => readFileSync(join(logDir(app), "nauvi.log"), "utf8");
 
 async function openHelp(app) {
   await (await app.find(byTestId("help-menu-button"))).click();
@@ -56,13 +56,13 @@ describe("diagnostics: app log, Help menu, About", { timeout: 8 * 60_000 }, () =
     await waitLive(app);
     await resizeWindow(app, 1280, 800);
     const dir = logDir(app);
-    const file = join(dir, "kubeloupe.log");
+    const file = join(dir, "nauvi.log");
     await app.waitFor(() => existsSync(file), { message: `${file} exists` });
     assert.equal(statSync(dir).mode & 0o777, 0o700, "the log folder is 0700");
     assert.equal(statSync(file).mode & 0o777, 0o600, "the log is 0600");
     const first = logText(app).split("\n")[0];
     console.log(`log line 1: ${first}`);
-    assert.match(first, /kubeloupe \d+\.\d+\.\d+ \([0-9a-z]+\) starting on .+, webview WebKitGTK/);
+    assert.match(first, /nauvi \d+\.\d+\.\d+ \([0-9a-z]+\) starting on .+, webview WebKitGTK/);
   });
 
   it("Help menu (dark)", T, async () => {
@@ -73,7 +73,7 @@ describe("diagnostics: app log, Help menu, About", { timeout: 8 * 60_000 }, () =
       "return Array.from(arguments[0].querySelectorAll('[role=menuitem]'), (b) => b.textContent.trim())",
       menu,
     );
-    assert.deepEqual(items, ["Documentation", "Report a bug…", "Open log folder", "About kubeloupe"]);
+    assert.deepEqual(items, ["Documentation", "Report a bug…", "Open log folder", "About nauvi"]);
     // In the window, under the header.
     const rect = await app.js("return arguments[0].getBoundingClientRect().toJSON()", menu);
     assert.ok(rect.right <= 1280 && rect.top >= 40, `menu at ${JSON.stringify(rect)}`);
@@ -103,7 +103,7 @@ describe("diagnostics: app log, Help menu, About", { timeout: 8 * 60_000 }, () =
 
   it("About (dark)", T, async () => {
     const { app } = s;
-    await pickHelp(app, "About kubeloupe");
+    await pickHelp(app, "About nauvi");
     const about = await app.find(byTestId("about-settings"));
     await app.waitFor(async () => (await about.getText()).includes("commit"), { message: "the version shown" });
     await app.waitFor(
@@ -131,7 +131,7 @@ describe("diagnostics: app log, Help menu, About", { timeout: 8 * 60_000 }, () =
     const text = sys !== null ? sys : (await hookedClipboard(app)).at(-1);
     console.log(`copied (${sys !== null ? "system" : "hook"}):\n${text}`);
     assert.equal(text.trim(), expected.trim());
-    for (const line of ["kubeloupe ", "Commit: ", "OS: ", "Webview: WebKitGTK"]) assert.ok(text.includes(line), line);
+    for (const line of ["nauvi ", "Commit: ", "OS: ", "Webview: WebKitGTK"]) assert.ok(text.includes(line), line);
     assert.ok(!text.includes(app.profile.home), "no home folder");
     assert.ok(!text.includes(CONTEXT), "no context name");
     assert.ok(!/https?:\/\//.test(text), "no server URL");
@@ -164,7 +164,7 @@ describe("diagnostics: app log, Help menu, About", { timeout: 8 * 60_000 }, () =
   // #264: a message can't forge a log line or hide text with bidi controls.
   it("an error with newlines, bidi overrides and line separators is one log line", T, async () => {
     const { app } = s;
-    const forged = "2026-01-01T00:00:00.000000Z  INFO kubeloupe: qa264 forged";
+    const forged = "2026-01-01T00:00:00.000000Z  INFO nauvi: qa264 forged";
     await app.js(
       `const e = new Error("qa264 start\\n" + arguments[0] + "\\r\\nqa264 \\u202Eevil\\u202C \\u2066iso\\u2069 \\u2028sep\\u2029end");
        e.stack = "Error: qa264\\n    at one (a.js:1:1)\\n    at two (b.js:2:2)";

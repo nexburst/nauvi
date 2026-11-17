@@ -5,8 +5,8 @@ use crate::commands::prometheus::prometheus_for;
 use crate::commands::usage::{now_ms, record, UsageHistoryView, UsageSource};
 use crate::settings::SettingsStore;
 use crate::state::Cluster;
-use kubeloupe::workload_logs::WorkloadKind;
-use kubeloupe::{
+use nauvi::workload_logs::WorkloadKind;
+use nauvi::{
     get_pod_metrics, pod_key, prometheus_workload_usage, sum_views, workload_pods,
     workload_reference, UsageRange, MIN_SPACING_MS,
 };

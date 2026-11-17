@@ -326,7 +326,7 @@ users:
 
     #[test]
     fn a_kubeconfig_that_exists_but_fails_says_why() {
-        let dir = std::env::temp_dir().join(format!("kubeloupe-131-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-131-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("config");
         std::fs::write(&file, "not: [valid").unwrap();

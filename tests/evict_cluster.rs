@@ -16,14 +16,13 @@ use k8s_openapi::api::core::v1::{Namespace, Pod};
 use k8s_openapi::api::policy::v1::PodDisruptionBudget;
 use kube::api::{Api, DeleteParams, ListParams, Patch, PatchParams, PostParams};
 use kube::Client;
-use kubeloupe::actions::{describe_error, evict_pod, run_action, ActionId};
-use kubeloupe::{client_for_context, pod_ref};
+use nauvi::actions::{describe_error, evict_pod, run_action, ActionId};
+use nauvi::{client_for_context, pod_ref};
 
 const TIMEOUT: Duration = Duration::from_secs(90);
 
 async fn connect() -> Result<Client> {
-    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
     tokio::time::timeout(Duration::from_secs(20), client_for_context(Some(&ctx)))
         .await
         .context("timed out building client")?

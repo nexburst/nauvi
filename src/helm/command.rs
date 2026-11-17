@@ -3,7 +3,7 @@
 //!
 //! Reading releases is native (see the parent module); writing them is left
 //! to Helm itself, which knows how to render, hook and record a revision.
-//! The binary is `helm` on `PATH`, or `KUBELOUPE_HELM` if set. Helm reads its
+//! The binary is `helm` on `PATH`, or `NAUVI_HELM` if set. Helm reads its
 //! repositories from its own configuration (`HELM_REPOSITORY_CONFIG`,
 //! `HELM_CONFIG_HOME`, ...), which the child process inherits. Commands on a
 //! release set `HELM_DRIVER` to where that release is stored (#122).
@@ -18,7 +18,7 @@ use tokio::process::Command;
 const HELM_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// The cluster helm should talk to: the same kubeconfig file and context as
-/// kubeloupe. `None` leaves helm's default (`KUBECONFIG`, then
+/// nauvi. `None` leaves helm's default (`KUBECONFIG`, then
 /// `~/.kube/config`; the current context).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HelmTarget {
@@ -42,7 +42,7 @@ impl HelmTarget {
 }
 
 fn helm_binary() -> String {
-    std::env::var("KUBELOUPE_HELM")
+    std::env::var("NAUVI_HELM")
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "helm".to_string())

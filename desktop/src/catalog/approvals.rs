@@ -129,7 +129,7 @@ pub(crate) fn not_allowed_message(
     format!(
         "{}{id}` was not started: it runs `{command}` (from {source}), and {why}. \
          Open the cluster catalog and choose Check to allow it.",
-        kubeloupe::auth::LOGIN_FAILED
+        nauvi::auth::LOGIN_FAILED
     )
 }
 
@@ -139,8 +139,7 @@ mod tests {
 
     #[test]
     fn answers_are_kept_per_source_and_command() {
-        let dir =
-            std::env::temp_dir().join(format!("kubeloupe-201-approvals-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-201-approvals-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("exec-approvals.json");
         let mut a = Approvals::load(Some(path.clone()));

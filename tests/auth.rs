@@ -1,9 +1,9 @@
-//! Exec credential plugins: a fake `kubeloupe-test-auth` plugin in a temp dir,
+//! Exec credential plugins: a fake `nauvi-test-auth` plugin in a temp dir,
 //! and a kubeconfig whose user logs in with it.
 //!
 //! The plugin runs before the first request, so the failure cases need no
 //! cluster and run in plain `cargo test`. The `#[ignore]`d test logs in to the
-//! kind cluster (`KUBELOUPE_TEST_CONTEXT`, default `kind-kubeloupe-test`) with
+//! kind cluster (`NAUVI_TEST_CONTEXT`, default `kind-nauvi-test`) with
 //! a ServiceAccount token the plugin prints.
 //!
 //! The plugin's directory is put on the `PATH` the kubeconfig's `exec.env`
@@ -18,18 +18,18 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use anyhow::{Context, Result};
 use kube::config::Kubeconfig;
-use kubeloupe::client_from_kubeconfig;
+use nauvi::client_from_kubeconfig;
 
-const PLUGIN: &str = "kubeloupe-test-auth";
+const PLUGIN: &str = "nauvi-test-auth";
 /// Nothing listens here, so a plugin that works ends in "Cannot reach".
 const NO_SERVER: &str = "https://127.0.0.1:1";
 
-/// A fresh temp dir holding an executable `kubeloupe-test-auth` script.
+/// A fresh temp dir holding an executable `nauvi-test-auth` script.
 fn plugin_dir(script: &str) -> Result<PathBuf> {
     use std::os::unix::fs::PermissionsExt;
     static N: AtomicU32 = AtomicU32::new(0);
     let dir = std::env::temp_dir().join(format!(
-        "kubeloupe-auth-{}-{}",
+        "nauvi-auth-{}-{}",
         std::process::id(),
         N.fetch_add(1, Ordering::Relaxed)
     ));
@@ -100,15 +100,15 @@ async fn plugin_on_path_is_run() -> Result<()> {
 
 #[tokio::test]
 async fn missing_plugin_is_reported() -> Result<()> {
-    let empty = std::env::temp_dir().join("kubeloupe-auth-does-not-exist");
+    let empty = std::env::temp_dir().join("nauvi-auth-does-not-exist");
     let msg = connect_error(kubeconfig(no_server(), &empty, serde_json::json!({}))).await;
     assert!(msg.starts_with("Login to `fake` failed"), "{msg}");
     assert!(
-        msg.contains("the `kubeloupe-test-auth` command it logs in with was not found"),
+        msg.contains("the `nauvi-test-auth` command it logs in with was not found"),
         "{msg}"
     );
     assert!(msg.contains(&empty.display().to_string()), "{msg}");
-    assert!(msg.contains("start kubeloupe from a terminal"), "{msg}");
+    assert!(msg.contains("start nauvi from a terminal"), "{msg}");
     Ok(())
 }
 
@@ -147,9 +147,8 @@ async fn plugin_token_lists_pods_on_kind() -> Result<()> {
     use k8s_openapi::api::rbac::v1::RoleBinding;
     use kube::api::{Api, DeleteParams, ListParams, PostParams};
 
-    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
-    let admin = kubeloupe::client_for_context(Some(&ctx)).await?;
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
+    let admin = nauvi::client_for_context(Some(&ctx)).await?;
 
     // The real cluster entry (server and CA) for the temp kubeconfig.
     let real = Kubeconfig::read()?;
@@ -244,11 +243,10 @@ async fn check_and_connect_share_one_plugin_run_on_kind() -> Result<()> {
     use k8s_openapi::api::authentication::v1::TokenRequest;
     use k8s_openapi::api::core::v1::{Namespace, ServiceAccount};
     use kube::api::{Api, DeleteParams, PostParams};
-    use kubeloupe::catalog::{check_context, ContextState};
+    use nauvi::catalog::{check_context, ContextState};
 
-    let ctx = std::env::var("KUBELOUPE_TEST_CONTEXT")
-        .unwrap_or_else(|_| "kind-kubeloupe-test".to_string());
-    let admin = kubeloupe::client_for_context(Some(&ctx)).await?;
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
+    let admin = nauvi::client_for_context(Some(&ctx)).await?;
     let real = Kubeconfig::read()?;
     let cluster_name = real
         .contexts
@@ -310,7 +308,7 @@ async fn check_and_connect_share_one_plugin_run_on_kind() -> Result<()> {
         let file = dir.join("kubeconfig.yaml");
         let kc = kubeconfig(cluster.clone(), &dir, serde_json::json!({}));
         std::fs::write(&file, serde_yaml::to_string(&kc)?)?;
-        let target = kubeloupe::ContextTarget {
+        let target = nauvi::ContextTarget {
             id: "fake".into(),
             context: "fake".into(),
             kubeconfig: Some(file),
@@ -323,7 +321,7 @@ async fn check_and_connect_share_one_plugin_run_on_kind() -> Result<()> {
 
         let check = check_context(&target).await;
         assert_eq!(check.state, ContextState::Connected, "{}", check.message);
-        let client = kubeloupe::client_for_target(&target, false).await?;
+        let client = nauvi::client_for_target(&target, false).await?;
         client.apiserver_version().await?;
         let again = check_context(&target).await;
         assert_eq!(again.state, ContextState::Connected, "{}", again.message);

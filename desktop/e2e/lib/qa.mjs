@@ -39,7 +39,7 @@ export function waitLive(app, timeout = 60_000) {
  * local port: for scenarios that need no cluster (startup, Windows).
  */
 export function unreachableKubeconfig() {
-  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-qa-kc-"));
+  const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-kc-"));
   const path = join(dir, "kubeconfig");
   writeFileSync(
     path,

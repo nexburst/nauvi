@@ -3,8 +3,8 @@
 use crate::state::{next_session, Cluster, ExecSession, SessionCleanup, WindowEmitter};
 use futures::SinkExt;
 use kube::api::{AttachedProcess, TerminalSize};
-use kubeloupe::attach::{attach_note, attach_pod, describe_attach_error};
-use kubeloupe::exec_pod;
+use nauvi::attach::{attach_note, attach_pod, describe_attach_error};
+use nauvi::exec_pod;
 use serde::Serialize;
 use specta::Type;
 use tauri_specta::Event;

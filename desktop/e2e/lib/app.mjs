@@ -3,11 +3,11 @@
 // scenarios in qa/.
 //
 // Environment (all optional):
-//   KUBELOUPE_APP   path to the built app (default: <target>/debug/kubeloupe-desktop)
+//   NAUVI_APP   path to the built app (default: <target>/debug/nauvi-desktop)
 //   TAURI_DRIVER    path to tauri-driver (default: on PATH)
 //   WEBKIT_DRIVER   path to WebKitWebDriver (default: tauri-driver's lookup on PATH)
 //   NATIVE_DRIVER   same, for any platform (Windows: msedgedriver.exe)
-//   E2E_CONTEXT     kube context to test against (default: kind-kubeloupe-test)
+//   E2E_CONTEXT     kube context to test against (default: kind-nauvi-test)
 //   E2E_ARTIFACTS   where screenshots and logs go (default: desktop/e2e/artifacts)
 //   E2E_DRIVER_PORT port for tauri-driver (default: 4444; the native driver gets +1)
 
@@ -23,15 +23,15 @@ import { createProfile } from "./profile.mjs";
 const here = dirname(fileURLToPath(import.meta.url));
 export const E2E_DIR = resolve(here, "..");
 export const REPO = resolve(E2E_DIR, "../..");
-export const CONTEXT = process.env.E2E_CONTEXT || "kind-kubeloupe-test";
+export const CONTEXT = process.env.E2E_CONTEXT || "kind-nauvi-test";
 export const ARTIFACTS = resolve(process.env.E2E_ARTIFACTS || join(E2E_DIR, "artifacts"));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function appBinary() {
-  if (process.env.KUBELOUPE_APP) return resolve(process.env.KUBELOUPE_APP);
+  if (process.env.NAUVI_APP) return resolve(process.env.NAUVI_APP);
   const target = process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : join(REPO, "target");
-  return join(target, "debug", process.platform === "win32" ? "kubeloupe-desktop.exe" : "kubeloupe-desktop");
+  return join(target, "debug", process.platform === "win32" ? "nauvi-desktop.exe" : "nauvi-desktop");
 }
 
 /**
@@ -41,7 +41,7 @@ function appBinary() {
  */
 function testKubeconfig(contexts = [CONTEXT]) {
   // Holds credentials: private directory, removed when the app stops.
-  const dir = mkdtempSync(join(tmpdir(), "kubeloupe-e2e-"));
+  const dir = mkdtempSync(join(tmpdir(), "nauvi-e2e-"));
   const parts = contexts.map((ctx, i) => {
     const part = join(dir, `part-${i}`);
     const yaml = execFileSync("kubectl", ["config", "view", "--minify", "--flatten", "--context", ctx], {
@@ -143,7 +143,7 @@ function waitForPortFree(port, timeoutMs) {
  *   env         extra environment for the app, e.g. { SHELL: "/bin/sh" }
  *   shellEnv    true to let the app import the login shell's environment
  *               (off by default, so the app sees exactly this environment)
- *   args        command-line arguments for the app (e.g. a kubeloupe:// link)
+ *   args        command-line arguments for the app (e.g. a nauvi:// link)
  */
 export async function launch(name, opts = {}) {
   const ownProfile = !opts.profile;
@@ -164,7 +164,7 @@ async function startSession(name, opts) {
     throw new Error(
       `${app} does not exist. Build it first:\n` +
         `  npm --prefix desktop/ui-src run build\n` +
-        `  cargo build -p kubeloupe-desktop --features tauri/custom-protocol`,
+        `  cargo build -p nauvi-desktop --features tauri/custom-protocol`,
     );
   }
   mkdirSync(ARTIFACTS, { recursive: true });
@@ -179,7 +179,7 @@ async function startSession(name, opts) {
     ...process.env,
     ...opts.profile.env(),
     KUBECONFIG: opts.kubeconfig ?? kubeconfig.path,
-    ...(opts.shellEnv ? {} : { KUBELOUPE_NO_SHELL_ENV: "1" }),
+    ...(opts.shellEnv ? {} : { NAUVI_NO_SHELL_ENV: "1" }),
     ...opts.env,
   };
   // Windows names are case-insensitive: a PATH from `opts.env` must replace

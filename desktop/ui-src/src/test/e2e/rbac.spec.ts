@@ -4,7 +4,7 @@ import { namespaceButton, namespacePopover, openApp, openKind, toggleNamespaces 
 // A namespace-scoped user: a RoleBinding in team-a, nothing cluster-wide
 // (scripts/test-cluster/limited-user.sh is the real-cluster version).
 const limited = (cluster: import("../fixtures/cluster").FakeCluster) => {
-  cluster.contexts = [{ name: "kind-kubeloupe-limited", current: true, namespace: "team-a" }];
+  cluster.contexts = [{ name: "kind-nauvi-limited", current: true, namespace: "team-a" }];
   cluster.namespaces = null;
   cluster.defaultNamespace = "team-a";
   cluster.deniedClusterWide = cluster.kinds.filter((k) => k.resource.namespaced).map((k) => k.id);

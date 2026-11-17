@@ -1,18 +1,14 @@
-//! Command-line arguments of the `kubeloupe` binary (not part of the
+//! Command-line arguments of the `nauvi` binary (not part of the
 //! library).
 
 use clap::{Parser, Subcommand};
 use clap_complete::Shell;
-use kubeloupe::helm::HelmSection;
-use kubeloupe::OutputFormat;
+use nauvi::helm::HelmSection;
+use nauvi::OutputFormat;
 use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
-#[command(
-    name = "kubeloupe",
-    version,
-    about = "A Lens alternative written in Rust"
-)]
+#[command(name = "nauvi", version, about = "A Lens alternative written in Rust")]
 pub struct Cli {
     /// Kubeconfig context to use (default: the current context)
     #[arg(long, global = true, value_name = "NAME")]
@@ -279,7 +275,7 @@ pub enum Commands {
         container: Option<String>,
         /// Image of the debug container, e.g. `nicolaka/netshoot` for
         /// network tools
-        #[arg(long, default_value = kubeloupe::debug::DEFAULT_DEBUG_IMAGE)]
+        #[arg(long, default_value = nauvi::debug::DEFAULT_DEBUG_IMAGE)]
         image: String,
     },
     /// Open a root shell on a node through a privileged pod (deleted when the
@@ -288,10 +284,10 @@ pub enum Commands {
     NodeShell {
         node: String,
         /// Namespace of the privileged pod; it must allow privileged pods
-        #[arg(short, long, default_value = kubeloupe::node_shell::NODE_SHELL_NAMESPACE)]
+        #[arg(short, long, default_value = nauvi::node_shell::NODE_SHELL_NAMESPACE)]
         namespace: String,
         /// Image of the pod; it needs `nsenter`
-        #[arg(long, default_value = kubeloupe::node_shell::NODE_SHELL_IMAGE)]
+        #[arg(long, default_value = nauvi::node_shell::NODE_SHELL_IMAGE)]
         image: String,
     },
     /// Helm releases, read from the cluster (no helm binary needed)
@@ -300,7 +296,7 @@ pub enum Commands {
         command: HelmCommand,
     },
     /// Print a shell completion script, e.g.
-    /// `kubeloupe completions bash > ~/.local/share/bash-completion/completions/kubeloupe`
+    /// `nauvi completions bash > ~/.local/share/bash-completion/completions/nauvi`
     Completions {
         #[arg(value_enum)]
         shell: Shell,
@@ -342,7 +338,7 @@ mod tests {
     use clap::CommandFactory;
 
     fn parse(args: &[&str]) -> Cli {
-        Cli::try_parse_from(std::iter::once("kubeloupe").chain(args.iter().copied()))
+        Cli::try_parse_from(std::iter::once("nauvi").chain(args.iter().copied()))
             .unwrap_or_else(|e| panic!("{args:?}: {e}"))
     }
 
@@ -394,7 +390,7 @@ mod tests {
         assert_eq!(selector.as_deref(), Some("app=web"));
         assert_eq!(field_selector.as_deref(), Some("status.phase=Running"));
         assert!(!reveal && !all_namespaces);
-        assert!(Cli::try_parse_from(["kubeloupe", "get", "pods", "-A", "-n", "x"]).is_err());
+        assert!(Cli::try_parse_from(["nauvi", "get", "pods", "-A", "-n", "x"]).is_err());
         let Commands::Get { output, name, .. } =
             parse(&["get", "deploy", "web", "-o", "yaml"]).command
         else {
@@ -435,7 +431,7 @@ mod tests {
         assert_eq!(target, "svc/api");
         assert_eq!(ports, vec!["8080:80", ":http"]);
         assert_eq!(namespace.as_deref(), Some("demo"));
-        assert!(Cli::try_parse_from(["kubeloupe", "port-forward", "svc/api"]).is_err());
+        assert!(Cli::try_parse_from(["nauvi", "port-forward", "svc/api"]).is_err());
     }
 
     #[test]
@@ -493,7 +489,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_output_format() {
-        assert!(Cli::try_parse_from(["kubeloupe", "get", "pods", "-o", "xml"]).is_err());
+        assert!(Cli::try_parse_from(["nauvi", "get", "pods", "-o", "xml"]).is_err());
     }
 
     #[test]

@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn write_file_never_replaces_a_file_when_asked_for_a_new_one() {
-        let dir = std::env::temp_dir().join(format!("kubeloupe-221-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("nauvi-221-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("report.csv");
         write_file(&path, b"old", true).unwrap();

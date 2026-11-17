@@ -48,7 +48,7 @@ export async function openHelpItem(item: HelpItem) {
   }
 }
 
-/** Help → About kubeloupe: Settings, at its About section. */
+/** Help → About nauvi: Settings, at its About section. */
 export function openAbout() {
   help.menuOpen = false;
   help.showAbout = true;
