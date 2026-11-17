@@ -24,6 +24,7 @@ import { deleteNamespace, kubectl, tempNamespace, waitPodReady } from "../lib/cl
 import { appPid, openPodLogs, pane, panelButton } from "../lib/dock.mjs";
 import { measured } from "../lib/perf.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { setTheme } from "../lib/theme.mjs";
 import { pickNamespaces } from "../lib/table.mjs";
 import { terminal } from "../lib/terminal.mjs";
 import { resizeWindow } from "../lib/window.mjs";
@@ -165,6 +166,10 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     const r = [...runs].sort((a, b) => a.ms - b.ms)[Math.floor(runs.length / 2)];
     results.logs = r;
     results.logRuns = runs;
+    // The same view in the light theme (the others are dark).
+    await setTheme(app, "light");
+    await app.shot("log-burst-light");
+    await setTheme(app, null);
     // What the cluster itself takes to hand over the same log.
     const t0 = Date.now();
     const text = execFileSync("kubectl", ["--context", CONTEXT, "-n", ns, "logs", "burst"], { encoding: "utf8", maxBuffer: 64 << 20 });
