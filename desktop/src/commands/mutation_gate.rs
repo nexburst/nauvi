@@ -56,6 +56,11 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdHelmCharts", "reads"),
     ("cmdHelmGet", "reads"),
     ("cmdHelmList", "reads"),
+    (
+        "cmdKubectlDownload",
+        "downloads kubectl to the app's data dir; nothing in the cluster",
+    ),
+    ("cmdKubectlMatch", "reads the server version"),
     ("cmdListContexts", "reads the kubeconfig"),
     ("cmdListNamespaces", "reads"),
     ("cmdLocalShellClose", "ends a shell the gate allowed"),

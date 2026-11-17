@@ -35,6 +35,7 @@ pub mod debug;
 pub mod errors;
 pub mod exec_credentials;
 pub mod helm;
+pub mod kubectl_download;
 pub mod liveness;
 #[cfg(feature = "mcp")]
 pub mod mcp;

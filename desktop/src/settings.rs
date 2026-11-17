@@ -184,6 +184,10 @@ pub(crate) struct Settings {
     #[serde(deserialize_with = "lenient_searches")]
     #[specta(type = SearchHistory)]
     pub(crate) searches: SearchHistory,
+    /// Offer a kubectl matching the cluster's version in the local
+    /// terminal when the installed one is too far from it (#331). Off by
+    /// default; nothing is downloaded without a click.
+    pub(crate) kubectl_match: bool,
 }
 
 /// `searches` as read from the file: each entry parsed on its own, so one
@@ -316,6 +320,7 @@ impl Default for Settings {
             idle_disconnect_minutes: 10,
             forwards: BTreeMap::new(),
             searches: SearchHistory::default(),
+            kubectl_match: false,
         }
     }
 }
@@ -389,6 +394,8 @@ pub(crate) struct SettingsPatch {
     /// The whole search history (#219).
     #[specta(optional)]
     pub(crate) searches: Option<SearchHistory>,
+    #[specta(optional)]
+    pub(crate) kubectl_match: Option<bool>,
 }
 
 impl Settings {
@@ -441,6 +448,9 @@ impl Settings {
         }
         if let Some(v) = patch.searches {
             self.searches = v.normalized();
+        }
+        if let Some(v) = patch.kubectl_match {
+            self.kubectl_match = v;
         }
         for (id, mut ctx) in patch.contexts.unwrap_or_default() {
             // The mode has its own command (#338).

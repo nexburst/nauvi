@@ -170,7 +170,7 @@ jobs:
           sudo apt-get install -y webkitgtk-webdriver || sudo apt-get install -y webkit2gtk-driver
           driver="$(command -v WebKitWebDriver || find /usr -name WebKitWebDriver -type f -perm -u+x 2>/dev/null | head -n 1)"
           echo "WEBKIT_DRIVER=$driver" >> "$GITHUB_ENV"
-      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
         with:
           version: v3.16.4
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0

@@ -128,6 +128,18 @@ export interface FakeCluster {
   autostart: boolean;
   /** The kubeconfig's own proxy-url by context id, as `cmd_get_cluster_proxy` masks it (#329); none by default. */
   kubeconfigProxies?: Record<string, string>;
+  /** The kubectl versions `cmd_kubectl_match` reports (#331); by default the
+   *  user's v1.28.0 against a v1.31.2 server, nothing downloaded. */
+  kubectl?: FakeKubectl;
+}
+
+/** The kubectl download (#331) in the fake. */
+export interface FakeKubectl {
+  server: string;
+  installed: string;
+  downloaded: boolean;
+  /** `cmd_kubectl_download` fails with this (`""`: it succeeds). */
+  downloadError: string;
 }
 
 /** Unix seconds, a fixed distance in the past so ages are stable. */
