@@ -11,11 +11,13 @@
 //! Nothing here writes a kubeconfig file the user owns; pasted kubeconfigs
 //! are saved in the app's own directory (see [`save_pasted_kubeconfig`]).
 
+mod browser_login;
 mod check;
 mod files;
 mod flat;
 mod local_files;
 
+pub use browser_login::*;
 pub use check::*;
 pub use files::*;
 pub use flat::*;
@@ -83,6 +85,9 @@ pub struct ContextInfo {
     /// Logging in runs a plugin or an auth provider (`exec` or
     /// `auth-provider`): the catalog checks it only when asked (#201).
     pub login_plugin: bool,
+    /// Logging in may open a browser (OIDC or SSO, [`browser_login`]): the
+    /// app never disconnects the cluster when it is idle (ADR 0007).
+    pub browser_login: bool,
     /// The `tokenFile`, `client-certificate` and `client-key` paths of an
     /// added file's context outside that file's folder: logging in sends
     /// them, so the catalog checks it only when asked (#244). `[]` for the
@@ -306,12 +311,13 @@ fn context_info(
         .iter()
         .find(|a| a.name == user)
         .and_then(|a| a.auth_info.as_ref());
-    let (login_command, login_plugin) = match auth {
+    let (login_command, login_plugin, browser) = match auth {
         Some(a) => (
             login_command(a),
             a.exec.is_some() || a.auth_provider.is_some(),
+            browser_login(a),
         ),
-        None => (String::new(), false),
+        None => (String::new(), false, false),
     };
     let local_files = match auth {
         Some(a) if !source.as_os_str().is_empty() => {
@@ -331,6 +337,7 @@ fn context_info(
         source: source.display().to_string(),
         login_command,
         login_plugin,
+        browser_login: browser,
         local_files,
     }
 }

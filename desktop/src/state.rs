@@ -23,6 +23,8 @@ use tauri::async_runtime::JoinHandle;
 use tauri::ipc::{CommandArg, CommandItem, InvokeError};
 use tauri::{AppHandle, EventTarget, Manager};
 
+pub(crate) mod idle;
+
 /// Why something started for a cluster is dropped: the window left it
 /// (switched to another context, disconnected it, closed or reloaded).
 pub(crate) const SWITCHED: &str = "the window is no longer connected to this cluster";
@@ -125,6 +127,8 @@ pub(crate) struct ClusterSession {
     pub(crate) prometheus: Mutex<Option<crate::commands::prometheus::PromCache>>,
     /// Answers of the action access checks (#340).
     pub(crate) access: nauvi::action_access::AccessCache,
+    /// When it was last used, and what the idle reaper reported (ADR 0007).
+    idle: idle::IdleMark,
     /// Set once the window left the cluster (switched, disconnected, closed
     /// or reloaded): whatever a command still in flight adds afterwards is
     /// stopped right away instead of leaking, and no client is built.
@@ -225,6 +229,7 @@ impl ClusterSession {
         let server = self.sources.server(selected);
         let c = (c.clone(), Prober::for_server(c, &server));
         *slot = Some(c.clone());
+        self.idle.connected();
         Ok(c)
     }
 
@@ -416,6 +421,8 @@ pub(crate) struct AppState {
     /// forwards are per context, so two windows on one context must not
     /// both start one.
     autostarting: Arc<Mutex<HashSet<String>>>,
+    /// What the idle reaper measures "untouched" with (ADR 0007).
+    clock: idle::Clock,
 }
 
 /// A window's right to auto-start one saved forward, released on drop
@@ -485,6 +492,7 @@ impl AppState {
     pub(crate) fn cluster(&self, label: &str, id: &str) -> Arc<ClusterSession> {
         self.with_window(label, |w| w.get(id))
             .flatten()
+            .inspect(|s| s.idle.touch(self.clock.now()))
             .unwrap_or_else(|| Arc::new(ClusterSession::closed(id, self.sources.clone())))
     }
 
@@ -507,6 +515,7 @@ impl AppState {
         self.with_window(label, |w| {
             w.clusters.entry(id.clone()).or_insert_with(session).clone()
         })
+        .inspect(|s| s.idle.touch(self.clock.now()))
         .unwrap_or_else(|| Arc::new(ClusterSession::closed(&id, self.sources.clone())))
     }
 
@@ -629,6 +638,15 @@ impl AppState {
     pub(crate) fn close_all(&self) -> Vec<ExecSession> {
         let labels: Vec<String> = self.windows.lock().unwrap().keys().cloned().collect();
         labels.iter().flat_map(|l| self.close(l)).collect()
+    }
+
+    /// How many sessions of all windows have a client (connected, not
+    /// idle-disconnected), the left ones included.
+    pub(crate) fn live_sessions(&self) -> usize {
+        self.all_sessions("")
+            .iter()
+            .filter(|s| s.client.try_lock().map_or(true, |c| c.is_some()))
+            .count()
     }
 
     /// Every session of every window (`except` one window), taken out of

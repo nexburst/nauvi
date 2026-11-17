@@ -157,6 +157,11 @@ pub(crate) struct Settings {
     pub(crate) editor_tab_size: u32,
     pub(crate) time_zone: TimeZone,
     pub(crate) row_height: RowHeight,
+    /// Disconnect a cluster the window does not show, that nothing keeps
+    /// connected (a port-forward, terminal, log stream or drain), after
+    /// this many minutes untouched (ADR 0007). `0`: never. Within
+    /// `IDLE_DISCONNECT_RANGE`.
+    pub(crate) idle_disconnect_minutes: u32,
     /// Saved port-forwards (#217), by context id. Changed only through the
     /// port-forward commands. Entries that do not parse or whose ports are
     /// invalid are skipped on load, keeping the others.
@@ -275,6 +280,8 @@ pub(crate) const TERMINAL_FONT_RANGE: (u32, u32) = (8, 32);
 pub(crate) const EDITOR_FONT_RANGE: (u32, u32) = (8, 32);
 /// What `editor_tab_size` may be, in columns.
 pub(crate) const EDITOR_TAB_RANGE: (u32, u32) = (1, 8);
+/// What `idle_disconnect_minutes` may be (`0`: never), up to a day.
+pub(crate) const IDLE_DISCONNECT_RANGE: (u32, u32) = (0, 24 * 60);
 
 impl Default for Settings {
     fn default() -> Self {
@@ -297,6 +304,7 @@ impl Default for Settings {
             editor_tab_size: 2,
             time_zone: TimeZone::Local,
             row_height: RowHeight::Normal,
+            idle_disconnect_minutes: 10,
             forwards: BTreeMap::new(),
             searches: SearchHistory::default(),
         }
@@ -367,6 +375,8 @@ pub(crate) struct SettingsPatch {
     pub(crate) time_zone: Option<TimeZone>,
     #[specta(optional)]
     pub(crate) row_height: Option<RowHeight>,
+    #[specta(optional)]
+    pub(crate) idle_disconnect_minutes: Option<u32>,
     /// The whole search history (#219).
     #[specta(optional)]
     pub(crate) searches: Option<SearchHistory>,
@@ -415,6 +425,10 @@ impl Settings {
         }
         if let Some(v) = patch.row_height {
             self.row_height = v;
+        }
+        if let Some(v) = patch.idle_disconnect_minutes {
+            self.idle_disconnect_minutes =
+                v.clamp(IDLE_DISCONNECT_RANGE.0, IDLE_DISCONNECT_RANGE.1);
         }
         if let Some(v) = patch.searches {
             self.searches = v.normalized();
@@ -765,6 +779,24 @@ mod tests {
             (s.time_zone, s.row_height, s.editor_tab_size),
             (TimeZone::Local, RowHeight::Compact, 4)
         );
+    }
+
+    #[test]
+    fn idle_disconnect_defaults_to_ten_minutes_and_zero_is_never() {
+        let mut s = Settings::default();
+        assert_eq!(s.idle_disconnect_minutes, 10);
+        s.apply(SettingsPatch {
+            idle_disconnect_minutes: Some(0),
+            ..Default::default()
+        });
+        assert_eq!(s.idle_disconnect_minutes, 0);
+        s.apply(SettingsPatch {
+            idle_disconnect_minutes: Some(100_000),
+            ..Default::default()
+        });
+        assert_eq!(s.idle_disconnect_minutes, 24 * 60);
+        // A file from before keeps the default.
+        assert_eq!(parse("{}").unwrap().idle_disconnect_minutes, 10);
     }
 
     #[test]

@@ -154,6 +154,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             applications::ApplicationsChanged,
             applications::ApplicationsStateChanged,
             crate::catalog::KubeconfigsChanged,
+            crate::state::idle::ClusterStateChanged,
             exec::ExecClosed,
             exec::ExecOutput,
             links::LinkPending,

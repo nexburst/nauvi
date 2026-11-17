@@ -423,12 +423,16 @@ contexts:
         "/usr/bin/gcloud config config-helper --format=json"
     );
     assert!(gke.login_plugin);
+    assert!(gke.browser_login, "gcloud");
+    assert!(eks.browser_login, "aws, maybe with SSO");
     let oidc = c.find("oidc").unwrap();
     assert_eq!(oidc.login_command, "");
     assert!(oidc.login_plugin);
     let plain = c.find("plain").unwrap();
     assert_eq!(plain.login_command, "");
     assert!(!plain.login_plugin);
+    assert!(!plain.browser_login);
+    assert!(!oidc.browser_login, "refreshes its token without a browser");
 }
 
 #[test]
