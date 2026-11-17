@@ -23,9 +23,10 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   cluster, access control, device resources, custom resources with their
   definitions). Admission policies and their bindings sit under Config.
   Device Resources holds the DRA kinds: DeviceClasses, ResourceClaims,
-  ResourceClaimTemplates and ResourceSlices. Kinds the cluster doesn't serve
-  stay in their group, greyed out, and so do kinds you aren't allowed to
-  list. Roles and bindings show their rules, the role they grant and their
+  ResourceClaimTemplates and ResourceSlices. Admission-policy and device
+  resource kinds that the cluster doesn't serve stay in their group, greyed
+  out; other kinds it doesn't serve are not listed. Kinds you aren't allowed
+  to list are greyed out too. Roles and bindings show their rules, the role they grant and their
   subjects, as links.
 - **Live tables**: lists are kept up to date by Kubernetes watches, not by
   polling, and stay smooth with thousands of rows. Show one namespace, several
@@ -106,8 +107,8 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
 - **Port forwards** to pods, Services and workloads, on a chosen or automatic
   local port. A Service forward picks a ready pod for each connection, so it
   keeps working when pods restart. Forwards are saved per cluster: they keep
-  running when you close panels, stop when you switch that window's context
-  or close it, and come back stopped, or running if you checked *Start
+  running when you close panels or show another cluster, stop when you
+  disconnect that cluster or close the window, and come back stopped, or running if you checked *Start
   automatically*. Network → Port Forwards lists them with their current pod
   and status, and starts, stops, edits and deletes them. Check *https* for
   targets that speak TLS (the URL becomes https://), and *Open in browser* to
@@ -151,6 +152,15 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   command ends. The tab shows
   `<context> · <namespace>`; changing the app's namespace later does not
   change shells that are already open.
+  **Matching kubectl (opt-in)**: Settings → Local terminal → "Offer a kubectl
+  that matches the cluster". When your kubectl is more than one minor version
+  from the cluster, a new local terminal offers to download the matching
+  release from dl.k8s.io. Nothing is downloaded until you click. The file is
+  checked against the SHA-256 that dl.k8s.io publishes next to it: that
+  proves the download is complete and is the file dl.k8s.io serves, not that
+  it is signed. It is saved in the app's data folder, and local terminals
+  opened later put it first on `PATH`. Your own kubectl is never replaced.
+  The download uses the cluster's proxy if one is set.
 - **YAML editor** with server-side apply. After saving, it tells you which
   fields it took over from other field managers (for example from
   `kubectl` or a controller). Secret values stay hidden until you reveal them.
@@ -166,8 +176,9 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   **Evict** on a pod goes through the Eviction API, as a drain does: if a
   PodDisruptionBudget would be violated, the eviction is refused and the
   dialog says why. It needs `create pods/eviction`. Actions you aren't
-  allowed to run (per RBAC) are greyed out in the row menu, the detail panel
-  and the selection bar, and the tooltip names the missing permission (for
+  allowed to run (per RBAC) are greyed out in the row menu, the detail panel,
+  the selection bar and the command palette, and the keyboard Delete refuses
+  them; the tooltip names the missing permission (for
   example *Not allowed: you can't delete pods in namespace demo*).
 - **Links to objects**: **Copy link** (in the detail panel's header and the
   right-click menu) copies a `nauvi://` link such as
@@ -216,12 +227,31 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   or upgrade a release from its detail with edited values and a chosen
   version; both show a server-side dry run first (the rendered manifest, or a
   diff against the current revision) and run nothing until you confirm.
-- **Multi-cluster**: switch between your kubeconfig contexts from the header,
-  or open a context in its own window (the button next to the context
-  selector, or the palette). Each window is connected to one cluster, titled
-  with its context, and has its own watches, logs, terminals and port
-  forwards: switching or closing one window leaves the others alone. The
-  windows open when you quit are reopened on the next start, where they were
+- **Multi-cluster**: the sidebar is a tree of every kubeconfig context,
+  grouped by file. Nothing connects until you use it: expand a cluster to
+  connect it in the background and see its resource types, and click its
+  name to show it. Several clusters stay connected in one window; tables and
+  the overview watch only the one shown. Logs, terminals and port-forwards
+  keep running when you show another cluster, and dock tabs, port-forwards,
+  notifications and the status bar name the cluster each one runs on, in the
+  cluster's colour. ✕ on a cluster's row disconnects it and stops what runs
+  there.
+  A cluster you are not looking at is disconnected after 10 minutes
+  untouched (Settings → Background clusters; Never turns this off). A
+  port-forward, terminal, local shell, log stream or drain keeps it
+  connected. So does a login plugin that may ask you something, unless the
+  kubeconfig sets `interactiveMode: Never` or the plugin is known not to ask
+  (aws eks get-token without a profile, aws-iam-authenticator,
+  gke-gcloud-auth-plugin, kubelogin with `--login`
+  spn/msi/workloadidentity/azurecli). Using the cluster again reconnects it,
+  without asking about its login command again.
+  **Hide** a cluster with the eye button in the tree or the catalog's ⋯
+  menu. It is only hidden in nauvi: your kubeconfig is never changed. The
+  catalog's Show hidden lists hidden clusters with an Unhide button.
+  You can also open a context in its own window (the button next to the
+  context selector, or the palette); each window has its own clusters,
+  watches, logs, terminals and port forwards, and closing one leaves the
+  others alone. The windows open when you quit are reopened on the next start, where they were
   and at their size; "New window" opens offset from the current window. On
   macOS, closing the last window keeps nauvi in the Dock (that window's
   port-forwards, shells and logs stop with it); click the Dock icon to open a
@@ -241,7 +271,8 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   name is already taken shows up as `name (file name)`. Pin clusters to put
   them first in the context selector and the palette. Each cluster's
   Settings page has its display name and colour, default and accessible
-  namespaces, Prometheus Service and the local terminal's working directory.
+  namespaces, Prometheus Service, the local terminal's working directory,
+  a proxy (Network) and a read-only or protected mode (Changes).
   nauvi only reads your kubeconfig files; removing an added file or
   folder leaves it as it is.
 - **Login commands** (exec credential plugins: EKS, GKE, AKS, kubelogin, …)
@@ -253,11 +284,20 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   only if you choose **Allow and check** (**Don't run** marks its contexts
   "Not allowed"). The answer is remembered per source and command (in
   `exec-approvals.json` in the app's config directory) until you remove the
-  source; a changed command asks again. Commands from your default
+  source; a changed command asks again. In the sidebar tree, such a cluster
+  asks inside its own row before the command runs. Commands from your default
   kubeconfig (`KUBECONFIG` or `~/.kube/config`) run without asking, as in
   kubectl. Contexts of an added kubeconfig that send a token file or client
   certificate/key from outside that kubeconfig's folder are also checked only
   when you click **Check**; the row lists them under "Sends local files".
+- **Read-only and protected clusters** (cluster Settings → Changes):
+  **Protected** asks you to type the context name before every change
+  (actions, deletes, edits, Helm, terminals, starting a port-forward).
+  **Read-only** refuses every change, terminals included. Logs and
+  port-forwards work in both. The backend enforces the mode, not only the
+  UI. The header and the catalog show a badge. Switching a cluster to
+  read-only closes its terminals in every window. `nauvi mcp` refuses its
+  write tools on such a context.
 - **Remembers where you were**: the last context, and per context the view
   and namespaces; per kind the table sort and hidden columns (Columns
   button); the detail panel width (drag its left edge); saved port forwards
@@ -265,7 +305,9 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   (gear in the header, Ctrl+, / Cmd+,) has the theme (System, Dark, Light),
   the log viewer defaults, and **Zoom and text**: the window zoom (50–200%)
   and the terminal font size (8–32 px), both remembered; a new font size
-  applies to open terminals at once. Saved in `settings.json` in the app's config
+  applies to open terminals at once. It also has the YAML editor's font size
+  and tab size, compact table rows, times in local time or UTC, Background
+  clusters (above) and **Start at login** (off by default). Saved in `settings.json` in the app's config
   directory (`~/.config/com.nauvi.app/` on Linux,
   `~/Library/Application Support/com.nauvi.app/` on macOS,
   `%APPDATA%\com.nauvi.app\` on Windows).
@@ -344,7 +386,9 @@ server over stdio. It offers the tools `list`, `get`, `describe`, `logs`
 (of a pod or of `deploy/`, `sts/`, `ds/`, `job/`, `rs/`), `events` and
 `top`. It uses the CLI's kubeconfig and current context (or `--context`,
 `--kubeconfig`, never the app's added kubeconfigs) and acts as that user,
-so RBAC applies. It connects on the first tool call.
+so RBAC applies. It connects on the first tool call. A context set to
+read-only or protected in the app refuses the write tools, even with
+`--allow-writes`.
 
 - **Read-only by default.** `--allow-writes` adds `scale`, `restart`,
   `delete` (one named object) and `apply` (server-side apply, with a
@@ -414,7 +458,10 @@ The builds are not signed yet, so the OS will warn you the first time:
   More info, then Run anyway.
 - Linux needs no workaround; the AppImage needs FUSE 2 (`libfuse2`) on
   recent Ubuntu. If the window stays blank (some GPU drivers), start it with
-  `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1`. On a machine without a GPU (VMs,
+  remote desktops) nauvi turns WebKitGTK's DMA-BUF renderer off by itself,
+  which saves about 170 MB; set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to keep
+  it.
 
 Each release also ships CycloneDX SBOMs (`nauvi-<tag>-*.cdx.json`) and is
 scanned for known vulnerabilities with Grype.
@@ -433,11 +480,19 @@ Download sizes of the v0.1.0 dry run:
 | CLI | .tar.gz / .zip | 7.6–9.1 MB |
 
 Idle memory on Linux (release build, 30 s idle on the Overview of a kind
-cluster): the app and its WebKitWebProcess use 611 MB RSS together, or
-426 MB PSS. PSS splits the shared libraries between the processes, so it is
-the fairer total. The numbers come from one CI run; macOS and Windows are not
-measured yet. Work to bring memory down is tracked in
-[#353](https://github.com/nexburst/nauvi/issues/353).
+cluster, no GPU):
+
+| Measure | Memory |
+| --- | ---: |
+| App process (RSS) | 136 MB |
+| App + WebKitWebProcess (RSS) | 335 MB |
+| All processes (PSS) | 234 MB |
+
+PSS splits the shared libraries between the processes, so it is the fairer
+total. The numbers come from one CI run; macOS and Windows are not measured
+yet. CI keeps them in check: the `idle-memory` QA scenario fails a release
+build above 159 MB, 389 MB and 274 MB (today's numbers plus 15%). Work on
+memory is tracked in [#353](https://github.com/nexburst/nauvi/issues/353).
 
 ### Proxies
 
@@ -445,8 +500,21 @@ The app and the CLI ignore `HTTPS_PROXY` (and `NO_PROXY`) from the
 environment when they talk to a cluster, so a machine-wide proxy doesn't
 break access to local or internal clusters. To reach a cluster through a
 proxy, set `proxy-url` (an `http://` proxy) on that cluster in the
-kubeconfig. `helm` and `kubectl` started from the app (Helm actions, the
-local terminal) still use the environment as usual.
+kubeconfig, or set one in the app.
+
+**Proxy per cluster** (cluster Settings → Network): an `http://` or
+`socks5://` proxy for that cluster's requests, watches, terminals and
+port-forwards. Use `http://user:password@host:port` for a proxy that wants a
+login; SOCKS5 works without one. `https://` proxies are not supported yet
+([#362](https://github.com/nexburst/nauvi/issues/362)). nauvi keeps the proxy
+in `proxies.json` in its config folder (readable only by you), never in your
+kubeconfig, and shows the password masked. It replaces the kubeconfig's
+`proxy-url` for that cluster. A cluster on your machine (kind, minikube) is
+reached directly unless you tick "Also for a cluster on this machine". It
+applies the next time a window connects (Reconnect now).
+
+`helm` and `kubectl` started from the app (Helm actions, the local terminal)
+don't use these proxies; they use the environment as usual.
 
 The app window itself loads nothing from the network: a strict Content
 Security Policy allows only the app's own files and its IPC.
