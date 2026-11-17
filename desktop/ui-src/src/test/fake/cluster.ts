@@ -1,7 +1,7 @@
 // Contexts, namespaces, discovery, access checks and metrics (`commands/cluster.rs`).
 
 import { fullContext } from "../fixtures/catalog";
-import { kindOf } from "./state";
+import { kindOf, served } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
 
 export function clusterHandlers(s: FakeState) {
@@ -10,14 +10,13 @@ export function clusterHandlers(s: FakeState) {
     cmdListContexts: () => cluster.contexts.map(fullContext),
     cmdSetContext: (name) => {
       cluster.contexts = cluster.contexts.map((c) => ({ ...c, current: c.name === name }));
-      // Like the backend: a context switch stops every log stream and forward.
-      s.logStreams.clear();
-      cluster.forwards = [];
+      // Like the backend (ADR 0007): the old cluster stays connected, its
+      // log streams and forwards run on.
       return null;
     },
-    cmdListNamespaces: () => cluster.namespaces,
+    cmdListNamespaces: () => served(s, "namespaces"),
     cmdDefaultNamespace: () => cluster.defaultNamespace,
-    cmdDiscover: () => cluster.kinds,
+    cmdDiscover: () => served(s, "kinds"),
     cmdCheckAccess: (kinds, namespace) =>
       kinds.map((r) => {
         const id = kindOf(s, r).id;

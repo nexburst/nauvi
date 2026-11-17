@@ -46,6 +46,12 @@ export interface FakeData {
 export interface FakeCluster {
   /** The catalog's contexts; fields left out get defaults (`fixtures/catalog.ts`). */
   contexts: FakeContext[];
+  /**
+   * What another cluster serves instead (ADR 0007), by cluster id: the
+   * calls that name it get these rows, namespaces and kinds. Left out:
+   * every cluster serves the same.
+   */
+  byCluster?: Record<string, Partial<Pick<FakeCluster, "rows" | "namespaces" | "kinds">>>;
   /** Kubeconfig sources and status checks (#78). */
   catalog: FakeCatalog;
   /** `null`: listing namespaces is forbidden (a namespace-scoped user). */

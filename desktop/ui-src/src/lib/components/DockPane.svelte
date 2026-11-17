@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import LogViewer from "./LogViewer.svelte";
   import type { TerminalTarget } from "./Terminal.svelte";
-  import { api, visibleCluster } from "../cluster";
+  import { api } from "../cluster";
   import type { LogContainer } from "../bindings";
   import type { DockTab } from "../dock";
 
@@ -42,7 +42,7 @@
       return;
     }
     try {
-      const d = await api(visibleCluster()).cmdGetResourceDetail(tab.pod.resource, tab.pod.namespace, tab.pod.name);
+      const d = await api(tab.cluster).cmdGetResourceDetail(tab.pod.resource, tab.pod.namespace, tab.pod.name);
       containers = d.pod.log_containers;
       shell = d.pod.containers.find((c) => c.kind === "regular")?.name ?? null;
     } catch {
@@ -52,14 +52,14 @@
   });
 </script>
 
-<div class="pane" class:hidden={!active} data-testid="dock-pane" data-tab={tab.id}>
+<div class="pane" class:hidden={!active} data-testid="dock-pane" data-tab={tab.key} data-cluster={tab.cluster}>
   {#if tab.type === "podLogs"}
-    <LogViewer pod={tab.pod} {containers} {ready} hidden={!active} />
+    <LogViewer pod={tab.pod} {containers} {ready} hidden={!active} cluster={tab.cluster} />
   {:else if tab.type === "workloadLogs"}
-    <LogViewer workload={tab.workload} hidden={!active} />
+    <LogViewer workload={tab.workload} hidden={!active} cluster={tab.cluster} />
   {:else if terminalTarget}
     {#await import("./Terminal.svelte") then { default: Terminal }}
-      <Terminal target={terminalTarget} {active} />
+      <Terminal target={terminalTarget} {active} cluster={tab.cluster} />
     {/await}
   {/if}
 </div>

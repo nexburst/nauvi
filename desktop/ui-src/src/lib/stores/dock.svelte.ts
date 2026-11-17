@@ -1,6 +1,8 @@
 // The bottom dock: log streams and terminals in tabs. Tabs outlive the
-// detail panel and view changes; a context switch closes them all.
+// detail panel, view changes and switching to another cluster (ADR 0007):
+// each runs on the cluster it was opened on.
 
+import { visibleCluster } from "../cluster";
 import { DOCK_DEFAULT_HEIGHT, closeTab as closeIn, openTab as openIn } from "../dock";
 import type { DockTab, DockTabSpec } from "../dock";
 
@@ -15,9 +17,9 @@ export const dock = $state({
   height: DOCK_DEFAULT_HEIGHT,
 });
 
-/** Open a tab for `spec`, or focus it if it is already open. */
+/** Open a tab for `spec` on the cluster shown, or focus it if it is already open. */
 export function openDockTab(spec: DockTabSpec) {
-  const next = openIn(dock.tabs, spec);
+  const next = openIn(dock.tabs, spec, visibleCluster());
   if (next.tabs !== dock.tabs) dock.tabs = next.tabs;
   dock.active = next.active;
   dock.expanded = true;
@@ -40,6 +42,11 @@ export function closeAllDockTabs() {
   dock.tabs = [];
   dock.active = null;
   dock.maximized = false;
+}
+
+/** Close the tabs of `cluster` (it was disconnected: their streams ended). */
+export function closeDockTabsOf(cluster: string) {
+  for (const t of dock.tabs.filter((t) => t.cluster === cluster)) closeDockTab(t.id);
 }
 
 /** Ctrl+` or Mod+J: show or hide the dock's contents. */

@@ -4,8 +4,9 @@
 // (`stty size`), and at the default height the last row is fully visible
 // (#181); Ctrl+` and Ctrl+(dead Backquote) inside a shell toggle the dock
 // and send nothing to it, while Ctrl+J reaches the shell (#175); an 11th
-// log tab shows the cap message; switching context closes every
-// tab and no stream or session keeps running.
+// log tab shows the cap message; switching context keeps every tab,
+// labelled with its cluster (ADR 0007), and disconnecting the old cluster
+// closes them all with no stream or session left running.
 // Checks (#19): close a terminal tab and open it again; switching views
 // keeps the dock (the panel and its streams were replaced by dock tabs in #67).
 // Checks (#43): Ctrl+Shift+` opens a local shell; its temp kubeconfig
@@ -44,6 +45,7 @@ import {
 import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { terminal } from "../lib/terminal.mjs";
+import { disconnectCluster, dockTabClusters, waitNodeState } from "../lib/tree.mjs";
 import { selectContext } from "../lib/window.mjs";
 
 const T = { timeout: 180_000 };
@@ -352,14 +354,22 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     await app.waitFor(() => shellKubeconfigs(tmp).length === 1, { message: "the closed shell's temp kubeconfig removed" });
   });
 
-  it("switching context closes every tab and stops every stream and session", { timeout: 300_000 }, async () => {
+  it("switching context keeps the tabs; disconnecting the old cluster stops every stream and session", { timeout: 300_000 }, async () => {
     const { app } = s;
     assert.equal(shellKubeconfigs(tmp).length, 1);
     shellsAtSwitch = execShells();
-    console.log(`tabs before the switch: ${(await dockTabs(app)).length}; exec shells in the pod: ${shellsAtSwitch}`);
+    const before = (await dockTabs(app)).length;
+    console.log(`tabs before the switch: ${before}; exec shells in the pod: ${shellsAtSwitch}`);
     await selectContext(app, kc.alias);
-    await app.waitFor(async () => (await dockTabs(app)).length === 0, { message: "no dock tabs after the context switch" });
     await waitLive(app);
+    assert.equal((await dockTabs(app)).length, before, "every tab stays");
+    const labels = await dockTabClusters(app);
+    console.log(`tab clusters after the switch: ${JSON.stringify(labels)}`);
+    assert.ok(labels.length > 0 && labels.every((l) => l === CONTEXT), "labelled with their cluster");
+    await app.shot("tabs-after-context-switch");
+    await waitNodeState(app, CONTEXT, "connected");
+    await disconnectCluster(app, CONTEXT);
+    await app.waitFor(async () => (await dockTabs(app)).length === 0, { message: "no dock tabs after the disconnect" });
     await app.waitFor(() => shellKubeconfigs(tmp).length === 0, { message: "the local shell's temp kubeconfig removed" });
     await app.shot("after-context-switch");
     // Ten new log streams fit: the old ten were stopped.
@@ -376,7 +386,9 @@ describe("area 4: dock with terminals and logs", { timeout: 30 * 60_000 }, () =>
     }
     await app.shot("ten-tabs-after-switch");
     await selectContext(app, CONTEXT);
-    await app.waitFor(async () => (await dockTabs(app)).length === 0, { message: "no dock tabs after switching back" });
+    await waitLive(app);
+    // The alias's tabs run on, labelled.
+    assert.ok((await dockTabClusters(app)).every((l) => l === kc.alias));
   });
 
   it("after the context switch no terminal's /bin/sh is left in the pod", T, async () => {

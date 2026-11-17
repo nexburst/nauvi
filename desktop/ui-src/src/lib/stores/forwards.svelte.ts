@@ -1,5 +1,5 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { api, visibleCluster } from "../cluster";
+import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import type { ForwardInfo, ForwardTarget, SavedForward } from "../bindings";
 import { forwardLabel, isLocalUrl, parseLocalPort, parseRemotePort } from "../forwards";
 import { setNotice } from "./actions.svelte";
@@ -20,6 +20,13 @@ class Forwards {
   errors = $state.raw<Record<string, string>>({});
 }
 export const forwards = new Forwards();
+
+// The list is of the cluster shown; the old one's forwards run on (ADR 0007).
+onClusterSwitch(() => {
+  forwards.list = [];
+  forwards.saved = [];
+  forwards.errors = {};
+});
 
 export async function refreshForwards() {
   try {

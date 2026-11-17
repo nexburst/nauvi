@@ -1,6 +1,8 @@
 <script lang="ts">
   import DockPane from "./DockPane.svelte";
-  import { clampHeight } from "../dock";
+  import { clampHeight, labelClusters } from "../dock";
+  import { currentContextName } from "../stores/app.svelte";
+  import { contextLabel } from "../stores/catalog.svelte";
   import { activateDockTab, closeDockTab, dock, toggleDock, toggleMaximized } from "../stores/dock.svelte";
   import { setDockHeight } from "../stores/settings.svelte";
   import { openLocalShell } from "../stores/localShell";
@@ -12,6 +14,13 @@
   const SHORTCUT = shortcutHint("toggleDock", isMacPlatform());
 
   let drag: { y: number; height: number } | null = null;
+
+  // Each tab runs on its own cluster (ADR 0007): name it once tabs of more
+  // than one, or of another than the one shown, are open.
+  const named = $derived.by(() => {
+    return labelClusters(dock.tabs, currentContextName());
+  });
+  const onCluster = (cluster: string) => (cluster ? ` on ${contextLabel(cluster)}` : "");
 
   function startResize(e: PointerEvent) {
     if (e.button !== 0) return;
@@ -57,6 +66,17 @@
       <div class="tabs" role="tablist">
         {#each dock.tabs as t (t.id)}
           <div class="tab" class:active={t.id === dock.active} role="presentation">
+            {#if named && t.cluster && t.type !== "localShell"}
+              <!-- Its cluster (ADR 0007); a part of the tab, not of its name. -->
+              <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+              <span
+                class="cluster"
+                class:other={t.cluster !== currentContextName()}
+                data-testid="dock-tab-cluster"
+                title={`Runs on ${contextLabel(t.cluster)}`}
+                onclick={() => activateDockTab(t.id)}>{contextLabel(t.cluster)}</span
+              >
+            {/if}
             <button
               type="button"
               role="tab"
@@ -64,7 +84,7 @@
               aria-selected={t.id === dock.active}
               title={t.type === "localShell"
                 ? `Local shell: kubectl uses ${t.title}. Changing the app's namespace does not change it. (double-click to maximize)`
-                : `${t.title} (double-click to maximize)`}
+                : `${t.title}${onCluster(t.cluster)} (double-click to maximize)`}
               onclick={() => activateDockTab(t.id)}
               ondblclick={() => {
                 activateDockTab(t.id);
@@ -189,6 +209,24 @@
   }
   .tab.active .label {
     color: var(--text);
+  }
+  /* The tab's cluster (ADR 0007); stronger when the window shows another. */
+  .cluster {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-left: 8px;
+    cursor: pointer;
+    padding: 0 5px;
+    border-radius: 4px;
+    font-size: 11px;
+    background: var(--bg-hover);
+    color: var(--text-muted);
+  }
+  .cluster.other {
+    color: var(--text);
+    box-shadow: inset 0 0 0 1px var(--border);
   }
   .close,
   .ctl {

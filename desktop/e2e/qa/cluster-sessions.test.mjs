@@ -3,8 +3,9 @@
 // background (`cmd_cluster_connect`), whose commands and port-forwards are
 // its own; disconnecting it stops its forward; the visible cluster cannot
 // be disconnected; switching context in the UI opens another session and
-// leaves the old one (its forward stops, late calls for it are refused);
-// switching back (A -> B -> A) starts the first cluster over.
+// keeps the old one connected (PR 3: its forward runs on, its commands
+// still answer); switching back (A -> B -> A) shows it again, with its
+// remembered view; disconnecting the one left stops its forward.
 //
 // The second context is the admin context under another name (same kind
 // cluster), so both answer. Forwards go to demo/web, which is only read.
@@ -128,13 +129,14 @@ describe("sessions per (window, cluster)", { timeout: 10 * 60_000 }, () => {
     await waitLive(app);
   });
 
-  it(`switching to ${SECOND} opens another session and leaves ${CONTEXT}`, T, async () => {
+  it(`switching to ${SECOND} opens another session and keeps ${CONTEXT} connected`, T, async () => {
     const { app } = s;
     await switchTo(app, SECOND);
     await waitLive(app);
-    await app.waitFor(async () => !(await answers(firstPort)), { message: "the old cluster's forward stopped" });
-    const late = await ipc(app, "cmd_list_namespaces", { cluster: CONTEXT });
-    assert.match(late.err ?? "", /no longer connected to this cluster/);
+    // ADR 0007: the old cluster's forward runs on, and it still answers.
+    assert.ok(await answers(firstPort), "the old cluster's forward still answers");
+    assert.deepEqual((await ok(app, "cmd_portforward_list", { cluster: CONTEXT })).map((f) => f.local_port), [firstPort]);
+    assert.ok((await ok(app, "cmd_list_namespaces", { cluster: CONTEXT })).some((n) => n.name === "demo"));
     // The new one answers, and names itself.
     const namespaces = await ok(app, "cmd_list_namespaces", { cluster: SECOND });
     assert.ok(namespaces.some((n) => n.name === "demo"));
@@ -144,11 +146,17 @@ describe("sessions per (window, cluster)", { timeout: 10 * 60_000 }, () => {
     await app.waitFor(async () => (await app.rows()).length > 0, { timeout: 30_000, message: "pods listed" });
   });
 
-  it(`switching back to ${CONTEXT} starts it over (A -> B -> A)`, T, async () => {
+  it(`switching back to ${CONTEXT} shows it again (A -> B -> A)`, T, async () => {
     const { app } = s;
     await switchTo(app, CONTEXT);
     await waitLive(app);
-    assert.deepEqual(await ok(app, "cmd_portforward_list", { cluster: CONTEXT }), []);
+    // The same session: its forward is still listed and answers.
+    assert.deepEqual((await ok(app, "cmd_portforward_list", { cluster: CONTEXT })).map((f) => f.local_port), [firstPort]);
+    assert.ok(await answers(firstPort));
+    await ok(app, "cmd_portforward_stop", { cluster: CONTEXT, id: (await ok(app, "cmd_portforward_list", { cluster: CONTEXT }))[0].id });
+    // The one left is still connected until disconnected.
+    assert.ok((await ok(app, "cmd_list_namespaces", { cluster: SECOND })).some((n) => n.name === "demo"));
+    await ok(app, "cmd_cluster_disconnect", { cluster: SECOND });
     const late = await ipc(app, "cmd_list_namespaces", { cluster: SECOND });
     assert.match(late.err ?? "", /no longer connected to this cluster/);
     // The view it remembers (#70) is Pods, opened again on the new session.

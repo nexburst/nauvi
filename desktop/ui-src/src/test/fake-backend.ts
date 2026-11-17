@@ -70,6 +70,11 @@ export interface FakeApi {
   cluster: FakeCluster;
   /** Arguments of every call of `cmd` so far, oldest first. */
   calls(cmd: CommandName): CallArgs[];
+  /** `[command, cluster]` of every cluster-scoped call so far, oldest first
+   *  (ADR 0007): which cluster each one asked. */
+  clusterCalls(): [CommandName, string][];
+  /** The clusters connected in the background (`cmd_cluster_connect`). */
+  connected(): string[];
   /** Make the next call of `cmd` fail with `error` (a Rust `Err(String)`). */
   failNext(cmd: CommandName, error: string): void;
   /** Id of the most recent watch (`cmd_watch_start`), or null. */
@@ -145,6 +150,7 @@ const toCamel = (cmd: string) => cmd.replace(/_([a-z])/g, (_, c: string) => c.to
 export function installFakeBackend(cluster: FakeCluster = defaultCluster()): FakeApi {
   const calls = new Map<CommandName, CallArgs[]>();
   const failures = new Map<CommandName, string[]>();
+  const clusterCalls: [CommandName, string][] = [];
   const st = newState(cluster);
   const HANDLERS = allHandlers(st);
 
@@ -176,6 +182,8 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       if (refused) throw refused;
     }
     list.push(JSON.parse(JSON.stringify(rest)) as CallArgs);
+    st.target = typeof target === "string" ? target : "";
+    if (typeof target === "string") clusterCalls.push([name, target]);
     const fail = failures.get(name)?.shift();
     if (fail !== undefined) throw fail;
     // `bindings.ts` builds the argument object in parameter order.
@@ -188,6 +196,8 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
   const api: FakeApi = {
     cluster,
     calls: (cmd) => calls.get(cmd) ?? [],
+    clusterCalls: () => clusterCalls.map(([c, t]) => [c, t]),
+    connected: () => [...st.connected],
     failNext: (cmd, error) => {
       const list = failures.get(cmd) ?? [];
       list.push(error);

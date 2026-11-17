@@ -37,6 +37,7 @@ import {
   waitUsagePoints,
 } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { disconnectCluster, waitNodeState } from "../lib/tree.mjs";
 import { resizeWindow, selectContext } from "../lib/window.mjs";
 
 const T = { timeout: 240_000 };
@@ -274,14 +275,19 @@ describe("area 3: usage history charts (#73, #92)", { timeout: 30 * 60_000 }, ()
     assert.ok(Math.abs(Number(card) - deploys) <= 2, `Deployments card ${card} vs kubectl ${deploys}`);
   });
 
-  it("switching context drops the usage history", T, async () => {
+  it("disconnecting the cluster drops its usage history", T, async () => {
     const { app } = s;
     await app.openDetail("Pods", "demo", "multi");
     await useLiveRange(app);
     const before = await waitUsagePoints(app, 3, { series: "pod", timeout: 90_000 });
     console.log(`before switch: ${before.since} ${maxPoints(before.cpu)} points`);
+    // A switch keeps the old cluster connected (ADR 0007); disconnecting
+    // it drops its history.
     await selectContext(app, kube.second);
     await waitLive(app);
+    await waitNodeState(app, CONTEXT, "connected");
+    await disconnectCluster(app, CONTEXT);
+    await waitNodeState(app, CONTEXT, "idle");
     await selectContext(app, CONTEXT);
     await waitLive(app);
     await app.openDetail("Pods", "demo", "multi");

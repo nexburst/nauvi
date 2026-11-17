@@ -12,8 +12,8 @@
  * stay on `commands`. `cluster.test.ts` checks this list against
  * `bindings.ts`.
  *
- * A cluster's id is its context name. For now each window still has one
- * session, so the backend only requires the value.
+ * A cluster's id is its context name. A window can be connected to several
+ * (the cluster tree, `stores/clusters.svelte.ts`) and shows one.
  */
 
 import { commands } from "./bindings";
@@ -166,4 +166,20 @@ export function visibleCluster(): string {
 /** Set by the app store whenever it (re)loads the contexts. */
 export function setVisibleCluster(id: string) {
   visible = id;
+}
+
+const switchHooks: (() => void)[] = [];
+
+/**
+ * Run `reset` whenever the window shows another cluster: a store that
+ * holds what one cluster sent forgets it, so nothing of it shows for the
+ * next one (ADR 0007).
+ */
+export function onClusterSwitch(reset: () => void) {
+  switchHooks.push(reset);
+}
+
+/** The window shows another cluster now: reset every store that asked. */
+export function clusterSwitched() {
+  for (const reset of switchHooks) reset();
 }

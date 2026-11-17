@@ -2,7 +2,7 @@
   import { commands } from "../../bindings";
   import type { ClusterProxyInfo } from "../../bindings";
   import { visibleCluster } from "../../cluster";
-  import { switchContext } from "../../stores/app.svelte";
+  import { reconnectCluster } from "../../stores/app.svelte";
   import { closeClusterSettings } from "../../stores/catalog.svelte";
   import { live } from "../../stores/live.svelte";
   import { confirmDiscard } from "../../stores/unsaved.svelte";
@@ -74,8 +74,8 @@
     const cluster = id;
     if (!(await confirmDiscard())) return;
     closeClusterSettings();
-    live.stop();
-    await switchContext(cluster);
+    if (cluster === visibleCluster()) live.stop();
+    await reconnectCluster(cluster);
   }
 </script>
 

@@ -2,7 +2,7 @@
 //! Each connected cluster has its own session in the window; the one it
 //! shows changes with `cmd_set_context`.
 
-use crate::state::{spawn_closes, AppState};
+use crate::state::{spawn_closes, AppState, Cluster};
 use tauri::{Manager, State, Webview};
 
 /// Connect the calling window to `cluster` (a context id from
@@ -35,6 +35,20 @@ pub(crate) async fn cmd_cluster_disconnect(
 ) -> Result<(), String> {
     spawn_closes(state.disconnect(webview.label(), &cluster)?);
     crate::state::idle::disconnected(webview.app_handle(), webview.label(), &cluster);
+    Ok(())
+}
+
+/// Start `cluster` over in the calling window, as asked (e.g. after its
+/// proxy changed): a fresh session with a new client, shown or not as
+/// before. Everything the old one ran (log streams, terminals, forwards,
+/// watches) stops; running drains finish. Not connected: nothing happens.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_cluster_reconnect(
+    cluster: Cluster,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    spawn_closes(state.reconnect(cluster.label(), cluster.id()));
     Ok(())
 }
 
