@@ -330,6 +330,9 @@
       return;
     }
     if (trimmed > 0 && scrollEl) {
+      // A scroll to a match may still be settling on its index, which now
+      // names a line `trimmed` further on (#317).
+      list?.cancelScroll();
       // Read before the list shrinks: near its end the browser clamps
       // scrollTop to the new height first.
       const el = scrollEl;

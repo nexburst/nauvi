@@ -113,7 +113,7 @@ async function bothThemes(app, label) {
   await setTheme(app, null);
 }
 
-const POD_LABELS = ["Logs", "Shell", "Port forward…", "Attach", "Debug…", "Edit", "Evict", "Delete", "Force delete…"];
+const POD_LABELS = ["Logs", "Shell", "Port forward…", "Attach", "Debug…", "Edit", "Copy link", "Evict", "Delete", "Force delete…"];
 
 let ns = "";
 let pod = "";
@@ -199,7 +199,7 @@ describe("detail panel action header (admin)", { timeout: 15 * 60_000 }, () => {
   it("Deployment: Logs, Scale, Rollout restart; Edit opens the YAML tab", T, async () => {
     const { app } = s;
     await app.openDetail("Deployments", ns, "qa-act");
-    const b = await waitBar(app, ["Logs", "Scale…", "Rollout restart", "Port forward…", "Edit", "Delete"]);
+    const b = await waitBar(app, ["Logs", "Scale…", "Rollout restart", "Port forward…", "Edit", "Copy link", "Delete"]);
     assert.ok(b.every((x) => x.icon === 16 && !x.denied));
     await bothThemes(app, "deployment-panel");
     await (await headerButton(app, "Edit")).click();
@@ -214,7 +214,7 @@ describe("detail panel action header (admin)", { timeout: 15 * 60_000 }, () => {
     const { app } = s;
     await closePanel(app);
     await openClusterDetail(app, "Nodes", WORKER);
-    const b = await waitBar(app, ["Shell", "Cordon", "Uncordon", "Edit", "Drain…", "Delete"]);
+    const b = await waitBar(app, ["Shell", "Cordon", "Uncordon", "Edit", "Copy link", "Drain…", "Delete"]);
     assert.ok(b.every((x) => x.icon === 16 && !x.denied));
     await focusButton(app, "Drain…");
     await app.waitFor(async () => (await tipText(app)) === "Drain", { message: 'the "Drain" tooltip' });

@@ -370,7 +370,19 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       // scroll the match away (nor do trims of the oldest lines).
       const followBox = await app.find(By.xpath(`//*[@data-tab='${sid}']//label[normalize-space()='Follow']/input`));
       assert.equal(await followBox.isSelected(), false, "Follow is off after stepping");
-      await app.driver.sleep(3000);
+      // Wait for a trim above the match (its number drops), not a fixed
+      // time: the busy pod writes more than the 50,000-line buffer in about
+      // 3 s on CI, after which the match itself is trimmed away (#317).
+      const steppedTo = Number(at.replace(/[^\d]/g, ""));
+      const after = await app.waitFor(
+        async () => {
+          const m = (await text(app, sid, "log-match-count")).match(/^([\d,.   ]+) of /);
+          const n = m ? Number(m[1].replace(/[^\d]/g, "")) : NaN;
+          return n < steppedTo ? n : null;
+        },
+        { timeout: 30_000, interval: 50, message: "a trim of the lines above the match" },
+      );
+      console.log(`after a trim the current match is ${after}`);
       const kept = await app.js(
         `const l = document.querySelector(arguments[0] + ' [data-testid="log-line"].current');
          if (!l) return null;
@@ -378,7 +390,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
          return { text: l.textContent, inView: r.top >= o.top - 1 && r.bottom <= o.bottom + 1 };`,
         pane(sid),
       );
-      console.log(`3 s later the current match: ${JSON.stringify(kept)}`);
+      console.log(`after the trim the current match: ${JSON.stringify(kept)}`);
       assert.ok(kept?.inView, `the current match stays in view: ${JSON.stringify(kept)}`);
       await shots(app, "busy-highlight");
       await followBox.click();
