@@ -16,11 +16,11 @@
 
 <style>
   nav {
-    width: 220px;
+    width: 200px;
     flex-shrink: 0;
     background: var(--bg-raised);
     border-right: 1px solid var(--border);
-    padding: 10px 6px;
+    padding: 12px 8px;
     display: flex;
     flex-direction: column;
     gap: 2px;

@@ -168,6 +168,8 @@ describe("the cluster tree", { timeout: 15 * 60_000 }, () => {
     });
     await app.nav("Pods");
     await waitLive(app);
+    // Opening the logger's panel filtered the table by its name.
+    await app.filter("");
     await app.waitFor(async () => (await app.rows()).length > 0, { timeout: 30_000, message: `pods of ${SECOND}` });
     const rows = await app.rows();
     if (hasStaging) {
