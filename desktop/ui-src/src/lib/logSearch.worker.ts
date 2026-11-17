@@ -7,13 +7,18 @@ import { regexRanges, testHit } from "./logFilter";
 import type { Hits, SearchReply, WorkerRequest } from "./logSearch";
 import { Corpus } from "./logSearchCorpus";
 
-let cached: { key: string; re: RegExp } | null = null;
+// Two: the search and the exclude pattern (#339) take turns, chunk by chunk.
+const cached = new Map<string, RegExp>();
 const corpus = new Corpus();
 
 function regex(source: string, flags: string): RegExp {
   const key = flags + "/" + source;
-  if (cached?.key !== key) cached = { key, re: new RegExp(source, flags) };
-  return cached.re;
+  let re = cached.get(key);
+  if (!re) {
+    if (cached.size >= 2) cached.delete(cached.keys().next().value as string);
+    cached.set(key, (re = new RegExp(source, flags)));
+  }
+  return re;
 }
 
 self.onmessage = (e: MessageEvent<WorkerRequest>) => {

@@ -14,7 +14,7 @@ test.use({ timezoneId: "UTC" });
 const panel = (page: Page) => page.getByTestId("detail-panel");
 const logs = (page: Page) => page.getByTestId("dock");
 const logLines = (page: Page) => logs(page).getByTestId("log-line");
-const search = (page: Page) => logs(page).getByRole("searchbox");
+const search = (page: Page) => logs(page).getByRole("searchbox", { name: /^(Filter|Find in) logs$/ });
 const count = (page: Page) => logs(page).getByTestId("log-match-count");
 const toggle = (page: Page, title: string) => logs(page).getByTitle(title, { exact: true });
 
