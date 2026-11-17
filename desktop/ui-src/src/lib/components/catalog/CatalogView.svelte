@@ -382,7 +382,7 @@
     color: var(--text-muted);
     white-space: nowrap;
   }
-  tr.hidden-row td {
+  tr.hidden-row td:not(:last-child) {
     opacity: 0.7;
   }
   .message,

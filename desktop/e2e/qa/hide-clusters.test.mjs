@@ -186,7 +186,7 @@ describe("hide clusters and cluster labels", { timeout: 12 * 60_000 }, () => {
     });
     assert.equal(await text(app, row), "", "hidden: not listed yet");
     await app.js(`document.querySelector('[data-testid="catalog-show-hidden"]').click()`);
-    await app.waitFor(async () => (await text(app, row)).includes("hidden"), { message: "the hidden row" });
+    await app.waitFor(async () => /hidden/i.test(await text(app, row)), { message: "the hidden row" });
     await shots(app, "catalog-hidden");
     await clickIn(app, row, `Unhide ${CONTEXT}`);
     await app.waitFor(async () => (await nodeState(app, CONTEXT)) !== "", { message: "back in the tree" });
