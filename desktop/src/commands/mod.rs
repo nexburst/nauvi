@@ -30,6 +30,7 @@ pub(crate) mod prometheus;
 pub(crate) mod proxy;
 pub(crate) mod resources;
 pub(crate) mod settings;
+pub(crate) mod term_frame;
 pub(crate) mod updater;
 pub(crate) mod usage;
 pub(crate) mod watch;
@@ -168,8 +169,6 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             applications::ApplicationsStateChanged,
             crate::catalog::KubeconfigsChanged,
             crate::state::idle::ClusterStateChanged,
-            exec::ExecClosed,
-            exec::ExecOutput,
             links::LinkPending,
             overview::OverviewChanged,
             overview::OverviewStateChanged,

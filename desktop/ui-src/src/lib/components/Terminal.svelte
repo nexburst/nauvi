@@ -5,6 +5,8 @@
   import type { PodRef } from "../stores/detail.svelte";
   import { orderedInput } from "../orderedInput";
   import { kubectlIntro } from "../kubectlMatch";
+  import type { TermMessage } from "../bindings";
+  import type { Channel } from "@tauri-apps/api/core";
 
   /** A shell in a pod, one on this machine pointed at `namespace`, an
    *  ephemeral debug container, or a root shell on a node. */
@@ -19,17 +21,18 @@
     /** A privileged pod on `node` in `namespace`, deleted when the session ends. */
     | { kind: "nodeShell"; node: string; namespace: string };
 
-  /** The session commands of a target. Both kinds stream through the
-   *  `exec-output` and `exec-closed` events. */
+  /** The session commands of a target. Every kind streams to the channel
+   *  `start` gets (#115): output as raw bytes, then `closed`. */
   interface Backend {
     /** The session id, and a note to show before the shell's output. */
-    start(cols: number, rows: number): Promise<{ id: string; intro: string; kubectl?: string }>;
+    start(
+      cols: number,
+      rows: number,
+      out: Channel<TermMessage>,
+    ): Promise<{ id: string; intro: string; kubectl?: string }>;
     input(id: string, data: string): Promise<unknown>;
     resize(id: string, cols: number, rows: number): Promise<unknown>;
     close(id: string): Promise<unknown>;
-    /** The session id `start` runs under when the UI picks it: its output
-     *  (progress while a container or pod starts) shows before `start` resolves. */
-    pending?: string;
   }
 
   function randomId(): string {
@@ -41,12 +44,11 @@
     if (t.kind === "debug" || t.kind === "nodeShell") {
       const pending = `ui-${randomId()}`;
       return {
-        pending,
-        start: async (cols, rows) => ({
+        start: async (cols, rows, out) => ({
           id:
             t.kind === "debug"
-              ? await c.cmdDebugStart(pending, t.pod.namespace, t.pod.name, t.target, t.image, cols, rows)
-              : await c.cmdNodeShellStart(pending, t.node, t.namespace, cols, rows),
+              ? await c.cmdDebugStart(pending, t.pod.namespace, t.pod.name, t.target, t.image, cols, rows, out)
+              : await c.cmdNodeShellStart(pending, t.node, t.namespace, cols, rows, out),
           intro: "",
         }),
         input: c.cmdExecInput,
@@ -57,8 +59,8 @@
     if (t.kind === "pod" || t.kind === "attach") {
       const start = t.kind === "pod" ? c.cmdExecStart : c.cmdAttachStart;
       return {
-        start: async (cols, rows) => ({
-          id: await start(t.pod.namespace, t.pod.name, t.container, cols, rows),
+        start: async (cols, rows, out) => ({
+          id: await start(t.pod.namespace, t.pod.name, t.container, cols, rows, out),
           intro: "",
         }),
         input: c.cmdExecInput,
@@ -67,8 +69,8 @@
       };
     }
     return {
-      start: async (cols, rows) => {
-        const s = await c.cmdLocalShellStart(t.namespace, cols, rows);
+      start: async (cols, rows, out) => {
+        const s = await c.cmdLocalShellStart(t.namespace, cols, rows, out);
         return {
           id: s.session,
           intro:
@@ -96,8 +98,7 @@
   import { registerTerminalSearch } from "../stores/keyboard.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { webLink } from "../terminalLinks";
-  import { events } from "../bindings";
-  import { thisWindow } from "../window";
+  import { TermWriter, termChannel } from "../termOutput";
   import { settings } from "../stores/settings.svelte";
   import KubectlOffer from "./KubectlOffer.svelte";
 
@@ -123,12 +124,9 @@
   let box: HTMLDivElement;
   let session: string | null = null;
   let resizeObserver: ResizeObserver | null = null;
-  let unlisteners: (() => void)[] = [];
   let destroyed = false;
-  /** Output that arrived before the start command told us our session id,
-   *  by session: other terminals are open too, so it is not all ours. */
-  let early = new Map<string, string[]>();
-  let closedEarly = new Set<string>();
+  /** Writes the session's output into xterm, a frame at a time (#115). */
+  let writer: TermWriter | null = null;
   let lastSize = "";
   /** A local shell, once started: the downloaded kubectl it uses (#331). */
   let localKubectl = $state<string | null>(null);
@@ -204,33 +202,25 @@
     resizeObserver = new ResizeObserver(() => sendResize());
     resizeObserver.observe(host);
 
-    // Output can arrive before the start command resolves and `session` is set:
-    // keep it by session until we know which one is ours.
-    const un = await Promise.all([
-      events.execOutput(thisWindow()).listen((e) => {
-        const { session: id, data } = e.payload;
-        if (!term) return;
-        if (id === session || (id === backend?.pending && !session)) term.write(data);
-        else if (!session) early.set(id, [...(early.get(id) ?? []), data]);
-      }),
-      events.execClosed(thisWindow()).listen((e) => {
-        if (!term) return;
-        // Keep `session`: a failure message can arrive just after the close,
-        // and the output handler drops messages for a session it no longer
-        // knows.
-        if (e.payload === session) term.write(closedNote);
-        else if (!session) closedEarly.add(e.payload);
-      }),
-    ]);
-    if (destroyed) {
-      un.forEach((f) => f());
-      return;
-    }
-    unlisteners = un;
+    // The session's own channel (#115): what arrives on it is ours, in
+    // order, also before `start` resolves (progress while a debug container
+    // or node shell pod starts, an attach note). xterm gets it once per
+    // frame, a bounded amount at a time, so a flood never keeps the page
+    // from drawing or taking keys.
+    const w = new TermWriter((data, done) => (term ? term.write(data, done) : done()));
+    writer = w;
+    // A local shell's intro (from `start`'s answer) goes before its prompt.
+    if (target.kind === "local") w.pause();
+    const out = termChannel({
+      output: (bytes) => w.push(bytes),
+      event: (e) => {
+        if (e.type === "closed") w.push(closedNote);
+      },
+    });
 
     try {
       lastSize = `${t.cols}x${t.rows}`;
-      const { id, intro, kubectl } = await b.start(t.cols, t.rows);
+      const { id, intro, kubectl } = await b.start(t.cols, t.rows, out);
       if (destroyed) {
         b.close(id).catch(() => {});
         return;
@@ -238,16 +228,15 @@
       session = id;
       if (target.kind === "local") localKubectl = kubectl ?? "";
       if (intro) t.write(intro);
-      for (const data of early.get(id) ?? []) t.write(data);
-      if (closedEarly.has(id)) t.write(closedNote);
-      early = new Map();
-      closedEarly = new Set();
+      w.resume();
       sendResize();
       // In order: concurrent input calls can overtake each other.
       t.onData(orderedInput((data) => b.input(id, data)));
       if (active) t.focus();
     } catch (e) {
-      t.write("\r\n\x1b[31mCould not open terminal: " + e + "\x1b[0m\r\n");
+      // After what the start wrote (its progress).
+      w.push("\r\n\x1b[31mCould not open terminal: " + e + "\x1b[0m\r\n");
+      w.resume();
     }
   });
 
@@ -255,7 +244,8 @@
     destroyed = true;
     unregisterSearch();
     resizeObserver?.disconnect();
-    unlisteners.forEach((f) => f());
+    writer?.dispose();
+    writer = null;
     if (session) backend?.close(session).catch(() => {});
     session = null;
     term?.dispose();

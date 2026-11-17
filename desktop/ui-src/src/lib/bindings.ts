@@ -156,7 +156,7 @@ export const commands = {
 	 *  the UI picks, `ui-…`, so it can show the progress written into the
 	 *  session while this runs). Returns the session id.
 	 */
-	cmdDebugStart: (cluster: MutationTarget, session: string, namespace: string, name: string, target: string, image: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_debug_start", { cluster, session, namespace, name, target, image, cols, rows }, options),
+	cmdDebugStart: (cluster: MutationTarget, session: string, namespace: string, name: string, target: string, image: string, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_debug_start", { cluster, session, namespace, name, target, image, cols, rows, onOutput }, options),
 	/**
 	 *  Delete the node shell pods [`cmd_node_shell_leftovers`] lists. Returns
 	 *  how many were deleted; fails with the first error after trying them all.
@@ -174,22 +174,24 @@ export const commands = {
 	 *  when the session closes or ends, on a context switch, when its window
 	 *  closes and when the app quits.
 	 */
-	cmdNodeShellStart: (cluster: MutationTarget, session: string, node: string, namespace: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_node_shell_start", { cluster, session, node, namespace, cols, rows }, options),
+	cmdNodeShellStart: (cluster: MutationTarget, session: string, node: string, namespace: string, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_node_shell_start", { cluster, session, node, namespace, cols, rows, onOutput }, options),
 	/**
 	 *  Attach to the main process of a pod's container (`container`: `None` for
 	 *  the default one). Returns the session id; the session works like a shell's
-	 *  (`exec-*` events). Closing it detaches and leaves the process running.
-	 *  Fails, in plain words, when the container has no stdin or is not running.
+	 *  (output on `on_output`). Closing it detaches and leaves the process
+	 *  running. Fails, in plain words, when the container has no stdin or is not
+	 *  running.
 	 */
-	cmdAttachStart: (cluster: MutationTarget, namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_attach_start", { cluster, namespace, name, container, cols, rows }, options),
+	cmdAttachStart: (cluster: MutationTarget, namespace: string, name: string, container: string | null, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_attach_start", { cluster, namespace, name, container, cols, rows, onOutput }, options),
 	cmdExecClose: (cluster: string, session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_close", { cluster, session }, options),
 	cmdExecInput: (cluster: string, session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_input", { cluster, session, data }, options),
 	cmdExecResize: (cluster: string, session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_resize", { cluster, session, cols, rows }, options),
 	/**
-	 *  Open an interactive shell in a pod. Returns the session id; output
-	 *  arrives as `exec-output` events, `exec-closed` when the shell exits.
+	 *  Open an interactive shell in a pod. Returns the session id; the output
+	 *  arrives on `on_output` (this session's own channel, #115), then `closed`
+	 *  when the shell exits.
 	 */
-	cmdExecStart: (cluster: MutationTarget, namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { cluster, namespace, name, container, cols, rows }, options),
+	cmdExecStart: (cluster: MutationTarget, namespace: string, name: string, container: string | null, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { cluster, namespace, name, container, cols, rows, onOutput }, options),
 	/**
 	 *  Ask where to save a CSV file (starting in Downloads, with `filename`
 	 *  suggested) and write `content` there. Returns the path written, or `None`
@@ -299,7 +301,7 @@ export const commands = {
 	 *  It starts in the cluster's working directory from its settings (#78),
 	 *  else the home directory. The user's kubeconfig files are not changed.
 	 */
-	cmdLocalShellStart: (cluster: MutationTarget, namespace: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<LocalShellStarted>("cmd_local_shell_start", { cluster, namespace, cols, rows }, options),
+	cmdLocalShellStart: (cluster: MutationTarget, namespace: string | null, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<LocalShellStarted>("cmd_local_shell_start", { cluster, namespace, cols, rows, onOutput }, options),
 	/**
 	 *  Save log text to the user's Downloads folder and return the path. A
 	 *  webview Blob download is not reliable across the platforms Tauri targets
@@ -560,8 +562,6 @@ export const events = {
 	detailWatch: makeEvent<DetailWatchEvent, DetailWatchEvent>("detail-watch"),
 	drainFinished: makeEvent<DrainFinished, DrainFinished>("drain-finished"),
 	drainProgress: makeEvent<DrainProgress, DrainProgress>("drain-progress"),
-	execClosed: makeEvent<ExecClosed, ExecClosed>("exec-closed"),
-	execOutput: makeEvent<ExecOutput, ExecOutput>("exec-output"),
 	kubeconfigsChanged: makeEvent<KubeconfigsChanged, KubeconfigsChanged>("kubeconfigs-changed"),
 	linkPending: makeEvent<LinkPending, LinkPending>("link-pending"),
 	overviewState: makeEvent<OverviewStateChanged, OverviewStateChanged>("overview-state"),
@@ -1318,9 +1318,6 @@ export type ExecAnswer =
 /**  Not asked yet (or the source was added again). */
 "unanswered" | "allowed" | "denied";
 
-/**  The shell of a terminal session exited (payload: the session id). */
-export type ExecClosed = string;
-
 /**  A login command of an added source, and the contexts that run it. */
 export type ExecCommand = {
 	/**  The command line, as it runs. */
@@ -1328,13 +1325,6 @@ export type ExecCommand = {
 	/**  The ids of the contexts that log in with it. */
 	contexts: string[],
 	answer: ExecAnswer,
-};
-
-/**  Output of a terminal session. */
-export type ExecOutput = {
-	session: string,
-	stream: string,
-	data: string,
 };
 
 export type Fact = {
@@ -2697,6 +2687,18 @@ export type TaggedLine = {
 	container: string,
 	line: string,
 };
+
+/**  A message about a terminal session, other than its output. */
+export type TermEvent = 
+/**  The shell exited, or the session was closed or detached. */
+{ type: "closed" };
+
+/**
+ *  A message on a terminal channel as the UI sees it: output
+ *  (`ArrayBuffer`) or a `TermEvent`. Only for `bindings.ts`; the backend
+ *  sends a `TermFrame`.
+ */
+export type TermMessage = ArrayBuffer | TermEvent;
 
 export type Theme = 
 /**  Follow the system's light or dark preference. */

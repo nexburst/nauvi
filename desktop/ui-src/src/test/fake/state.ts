@@ -7,7 +7,7 @@
 import type { Channel } from "@tauri-apps/api/core";
 import type { commands } from "../../lib/bindings";
 import { events } from "../../lib/bindings";
-import type { LinkRequest, LogMessage, ResourceKind, ResourceRef, ResourceRow } from "../../lib/bindings";
+import type { LinkRequest, LogMessage, ResourceKind, ResourceRef, ResourceRow, TermMessage } from "../../lib/bindings";
 import type { ClusterCommand } from "../../lib/cluster";
 import type { FakeCluster } from "../fixtures/cluster";
 
@@ -49,6 +49,8 @@ export interface FakeState {
   logStreams: Set<number>;
   /** The channel of every log stream started, stopped or not (stragglers can still be sent). */
   logChannels: Map<number, Channel<LogMessage>>;
+  /** The channel of every terminal session started, by session id (#115). */
+  termChannels: Map<string, Channel<TermMessage>>;
   /** Running overview feeds, and the id of the latest one. */
   overviewFeeds: Set<number>;
   lastOverview: number | null;
@@ -84,6 +86,7 @@ export function newState(cluster: FakeCluster): FakeState {
     streamId: null,
     logStreams: new Set(),
     logChannels: new Map(),
+    termChannels: new Map(),
     overviewFeeds: new Set(),
     lastOverview: null,
     workloadsFeeds: new Map(),
@@ -164,6 +167,18 @@ export function startStream(s: FakeState, id: number, channel: Channel<LogMessag
   s.logChannels.set(id, channel);
   s.streamId = id;
   return null;
+}
+
+/** Start terminal session `session` on `channel` (#115); returns the id. */
+export function startTerm(s: FakeState, session: string, channel: Channel<TermMessage>) {
+  s.termChannels.set(session, channel);
+  return session;
+}
+
+/** Write `data` into terminal session `session`, as raw bytes like the backend. */
+export function sendTerm(s: FakeState, session: string, data: string | Uint8Array) {
+  const bytes = typeof data === "string" ? new TextEncoder().encode(data) : data;
+  s.termChannels.get(session)?.onmessage(bytes.slice().buffer);
 }
 
 export function saveSettings(s: FakeState, next: FakeCluster["settings"]) {

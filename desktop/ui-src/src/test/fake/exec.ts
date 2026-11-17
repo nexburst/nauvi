@@ -1,21 +1,22 @@
 // Exec and attach sessions (`commands/exec.rs`).
 
-import { events } from "../../lib/bindings";
+import { sendTerm, startTerm } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
 
 export function execHandlers(s: FakeState) {
   const { cluster } = s;
   return {
-    cmdExecStart: () => `exec-${++s.sessionSeq}`,
+    cmdExecStart: (_namespace, _name, _container, _cols, _rows, onOutput) =>
+      startTerm(s, `exec-${++s.sessionSeq}`, onOutput),
     // Writes its note into the session before returning the id, like the backend.
-    cmdAttachStart: async (namespace, name, container) => {
+    cmdAttachStart: (namespace, name, container, _cols, _rows, onOutput) => {
       if (cluster.attachError) throw cluster.attachError;
-      const session = `attach-${++s.sessionSeq}`;
-      await events.execOutput.emit({
+      const session = startTerm(s, `attach-${++s.sessionSeq}`, onOutput);
+      sendTerm(
+        s,
         session,
-        stream: "stderr",
-        data: `Attached to ${name}/${container ?? "app"} in ${namespace}. Closing this tab detaches. The process keeps running.\r\n`,
-      });
+        `Attached to ${name}/${container ?? "app"} in ${namespace}. Closing this tab detaches. The process keeps running.\r\n`,
+      );
       return session;
     },
     cmdExecInput: () => null,

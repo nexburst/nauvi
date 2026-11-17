@@ -7,6 +7,7 @@
 //! cluster they name through the [`Cluster`] argument.
 
 use crate::catalog::{Approved, KubeconfigSources};
+use crate::commands::term_frame::TermChannel;
 use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
 use kube::api::TerminalSize;
@@ -50,6 +51,14 @@ pub(crate) struct ExecSession {
     /// Off for attach, where closing detaches and the main process keeps
     /// running (#88), and for node shells, whose pod is deleted anyway.
     pub(crate) end_on_close: bool,
+    /// The tab's channel, for notes (a context turned read-only).
+    pub(crate) out: TermChannel,
+}
+
+/// A local shell (dropping it kills the shell) and its tab's channel.
+pub(crate) struct LocalShellSession {
+    pub(crate) shell: LocalShell,
+    pub(crate) out: TermChannel,
 }
 
 impl ExecSession {
@@ -113,7 +122,7 @@ pub(crate) struct ClusterSession {
     pub(crate) exec_sessions: Mutex<HashMap<String, ExecSession>>,
     /// Local shells (dock tabs), by session id. Dropping one kills the
     /// shell and deletes its temp kubeconfig.
-    pub(crate) local_shells: Mutex<HashMap<String, LocalShell>>,
+    pub(crate) local_shells: Mutex<HashMap<String, LocalShellSession>>,
     /// Active port-forwards, by session id.
     pub(crate) forwards: Mutex<HashMap<String, ForwardSession>>,
     /// Running resource watchers (and overview feeds), by watch id.
@@ -296,7 +305,10 @@ impl ClusterSession {
     /// stop when dropped). For a context that turned read-only (#338).
     pub(crate) fn take_terminals(
         &self,
-    ) -> (HashMap<String, ExecSession>, HashMap<String, LocalShell>) {
+    ) -> (
+        HashMap<String, ExecSession>,
+        HashMap<String, LocalShellSession>,
+    ) {
         (take_all(&self.exec_sessions), take_all(&self.local_shells))
     }
 
@@ -380,7 +392,7 @@ impl ClusterSession {
         true
     }
 
-    pub(crate) fn add_local_shell(&self, id: String, shell: LocalShell) {
+    pub(crate) fn add_local_shell(&self, id: String, shell: LocalShellSession) {
         drop(self.insert(&self.local_shells, id, shell));
     }
 
@@ -1444,6 +1456,7 @@ mod tests {
             task,
             cleanup: None,
             end_on_close,
+            out: tauri::ipc::Channel::new(|_| Ok(())),
         };
         (session, typed)
     }

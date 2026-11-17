@@ -106,6 +106,24 @@ export class Terminal {
     return screen.match(re)[1].trim();
   }
 
+  /**
+   * Press `key` `times` times, `everyMs` apart; returns how long each press
+   * took to be taken by the page, ms (WebDriver waits for the key events to
+   * be handled, so a busy main thread shows here). For typing while output
+   * floods (#115).
+   */
+  async keyLatencies(key, times = 5, everyMs = 150) {
+    const input = await this.#input();
+    const out = [];
+    for (let i = 0; i < times; i++) {
+      const t0 = performance.now();
+      await input.sendKeys(key);
+      out.push(Math.round(performance.now() - t0));
+      await new Promise((r) => setTimeout(r, everyMs));
+    }
+    return out;
+  }
+
   /** The PTY's `[rows, columns]` as the shell sees them (`stty size`). */
   async size() {
     const out = await this.run("stty size");
