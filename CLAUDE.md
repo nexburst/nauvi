@@ -199,7 +199,8 @@ set it to the measured value plus 15% and open an issue about the gap.
   plus WebKitWebProcess (QA `multicluster`, release build).
 - **Start-up with 50 contexts** in 3 files, 49 of them unreachable: the
   cluster tree shows within 1.5 s of the app's start, and at most 200 ms
-  later than with 1 context (QA `multicluster`).
+  later than with 1 context, counted from the page's start (QA
+  `multicluster`; the scenario explains why).
 - **Idle memory** on the Overview (QA `idle-memory`, release build): see
   `BUDGET` in that scenario.
 
