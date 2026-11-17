@@ -31,6 +31,7 @@
   const prometheusError = $derived(prometheusSettingError(prometheus));
   const color = $derived(contextSettings(id).color);
   const pinned = $derived(isPinned(id));
+  const hideMetrics = $derived(contextSettings(id).hide_metrics);
 
   function save(change: Partial<ContextSettings>) {
     void updateContext(id, change);
@@ -149,6 +150,19 @@
         />
       </label>
       {#if prometheusError}<p class="hint error-text">{prometheusError}</p>{/if}
+      <label class="choice">
+        <input
+          type="checkbox"
+          aria-label="Hide metrics"
+          checked={hideMetrics}
+          onchange={(e) => save({ hide_metrics: e.currentTarget.checked })}
+        />
+        Hide metrics
+      </label>
+      <p class="muted hint">
+        Hides CPU and memory usage for this cluster (table columns, usage charts, the overview's usage) and stops asking
+        its metrics API.
+      </p>
     </fieldset>
 
     <fieldset>

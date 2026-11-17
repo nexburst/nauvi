@@ -16,6 +16,8 @@
   import { NODE_KIND_ID, POD_KIND_ID, overviewBadges } from "../problems";
   import { reportProblems, staleProblems } from "../stores/problems.svelte";
   import MetricsOffer from "./helm/MetricsOffer.svelte";
+  import MetricsHiddenNote from "./MetricsHiddenNote.svelte";
+  import { metricsHidden } from "../stores/metricsHidden.svelte";
 
   /** Retry a failed start after this long. */
   const RETRY_MS = 5_000;
@@ -107,8 +109,12 @@
   // matters to users who cannot see the whole cluster; with several
   // selected, the first one is the fallback.
   const fallback = $derived(primaryNamespace());
+  // Hiding metrics (#327) restarts the feed: the backend then stops (or
+  // starts) polling node usage.
+  const hideMetrics = $derived(metricsHidden());
   $effect(() => {
     void app.refreshNonce;
+    void hideMetrics;
     const ns = fallback;
     untrack(() => start(ns));
   });
@@ -179,10 +185,12 @@
               <div class="fill" class:high={bar.high} style:width="{bar.percent}%"></div>
             </div>
             <span class="bar-text">{bar.text}</span>
-            <span class="bar-usage muted">{bar.usage}</span>
+            <span class="bar-usage muted">{hideMetrics ? "" : bar.usage}</span>
           </div>
         {/each}
-        {#if !overview.capacity.metrics}
+        {#if hideMetrics}
+          <MetricsHiddenNote inline />
+        {:else if !overview.capacity.metrics}
           <p class="muted small">No usage: the metrics API (metrics-server) is not available.</p>
           <MetricsOffer
             addon="metrics-server"

@@ -1,11 +1,15 @@
 //! The live overview, pushed to the webview as events while it is open.
 
+use crate::commands::cluster::metrics_hidden;
+use crate::settings::SettingsStore;
 use crate::state::Cluster;
 use futures::StreamExt;
 use nauvi::watch::WatchState;
-use nauvi::{watch_overview, Overview, OverviewUpdate};
+use nauvi::{watch_overview_with, Overview, OverviewUpdate};
 use serde::Serialize;
 use specta::Type;
+use std::sync::Arc;
+use tauri::State;
 use tauri_specta::Event;
 
 /// A new overview for the overview feed `id` (sent when it changed, at
@@ -40,12 +44,15 @@ fn key(id: u32) -> String {
 #[specta::specta]
 pub(crate) async fn cmd_overview_start(
     cluster: Cluster,
+    settings: State<'_, Arc<SettingsStore>>,
     id: u32,
     namespace: Option<String>,
 ) -> Result<(), String> {
     let (client, prober) = cluster.watch_client().await?;
     let out = cluster.emitter();
-    let mut updates = watch_overview(&client, &prober, namespace.as_deref());
+    // Metrics hidden for the cluster (#327): no node usage polling.
+    let usage = !metrics_hidden(&cluster, &settings);
+    let mut updates = watch_overview_with(&client, &prober, namespace.as_deref(), usage);
     let task = tauri::async_runtime::spawn(async move {
         while let Some(update) = updates.next().await {
             match update {

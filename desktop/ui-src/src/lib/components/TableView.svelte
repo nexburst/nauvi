@@ -8,8 +8,19 @@
   import { live } from "../stores/live.svelte";
   import { countProblems, scopeText } from "../problems";
   import { reportProblems, staleProblems } from "../stores/problems.svelte";
+  import { metricsHidden } from "../stores/metricsHidden.svelte";
+  import { isNode, isPod } from "../columns";
+  import MetricsHiddenNote from "./MetricsHiddenNote.svelte";
 
   let { kind }: { kind: ResourceKind } = $props();
+
+  // Before the watches start, so a cluster with hidden metrics (#327) is
+  // never polled; toggled in its settings, polling stops or starts again.
+  const hideMetrics = $derived(metricsHidden());
+  $effect(() => {
+    const hidden = hideMetrics;
+    untrack(() => live.setMetricsHidden(hidden));
+  });
 
   // Start the watches on mount and on Refresh. The view itself is switched
   // by remounting this component.
@@ -48,6 +59,9 @@
   }
 </script>
 
+{#if hideMetrics && (isPod(kind) || isNode(kind))}
+  <MetricsHiddenNote />
+{/if}
 <ResourceTable
   {kind}
   store={live.store}

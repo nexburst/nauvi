@@ -17,7 +17,7 @@ mod workloads;
 mod workloads_live;
 
 pub use applications_live::{watch_applications, ApplicationsUpdate};
-pub use live::{watch_overview, OverviewUpdate};
+pub use live::{watch_overview, watch_overview_with, OverviewUpdate};
 pub use summary::{pod_problem, pod_status, PENDING_TOO_LONG_SECS};
 pub use workloads::{KindCounts, ProblemWorkload, StatusCount, WorkloadsOverview};
 pub use workloads_live::{watch_workloads, WorkloadsUpdate};

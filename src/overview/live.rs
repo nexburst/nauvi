@@ -52,8 +52,20 @@ pub fn watch_overview(
     prober: &Prober,
     namespace: Option<&str>,
 ) -> BoxStream<'static, OverviewUpdate> {
+    watch_overview_with(client, prober, namespace, true)
+}
+
+/// [`watch_overview`], polling node usage from the metrics API only if
+/// `usage` (#327: metrics hidden for the cluster). Without it the capacity
+/// has no usage (`metrics: false`) and the metrics API is never asked.
+pub fn watch_overview_with(
+    client: &Client,
+    prober: &Prober,
+    namespace: Option<&str>,
+    usage: bool,
+) -> BoxStream<'static, OverviewUpdate> {
     let fallback = namespace.unwrap_or(client.default_namespace()).to_string();
-    let live = Live::new(client.clone(), prober.clone(), fallback);
+    let live = Live::new(client.clone(), prober.clone(), fallback, usage);
     stream::unfold(live, |mut live| async move {
         let next = live.next().await;
         Some((next, live))
@@ -300,14 +312,16 @@ struct Live {
 }
 
 impl Live {
-    fn new(client: Client, prober: Prober, fallback: String) -> Self {
-        let streams = stream::select_all([
+    fn new(client: Client, prober: Prober, fallback: String, usage: bool) -> Self {
+        let mut streams = stream::select_all([
             pods_stream(&client, &prober, None),
             events_stream(&client, &prober, None),
             namespaces_stream(&client, &prober),
             nodes_stream(&client, &prober),
-            usage_stream(&client),
         ]);
+        if usage {
+            streams.push(usage_stream(&client));
+        }
         Self {
             client,
             prober,

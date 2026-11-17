@@ -84,6 +84,7 @@ export const EMPTY_CONTEXT: ContextSettings = {
   default_namespace: "",
   shell_cwd: "",
   last_used: 0,
+  hide_metrics: false,
 };
 export const EMPTY_KIND: KindSettings = { sort_key: "", sort_desc: false, hidden: [] };
 

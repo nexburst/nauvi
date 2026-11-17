@@ -1,7 +1,8 @@
 //! Contexts, namespaces, metrics, discovery and access checks.
 
 use crate::commands::usage;
-use crate::state::{spawn_closes, Cluster};
+use crate::settings::SettingsStore;
+use crate::state::{spawn_closes, Cluster, ClusterSession};
 use crate::windows;
 use nauvi::resources::{self, AccessResult, ResourceKind, ResourceRef};
 use nauvi::{
@@ -11,6 +12,8 @@ use nauvi::{
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
+use std::sync::Arc;
+use tauri::State;
 
 #[tauri::command]
 #[specta::specta]
@@ -62,9 +65,20 @@ pub(crate) enum MetricsKind {
 #[specta::specta]
 pub(crate) async fn cmd_get_metrics(
     cluster: Cluster,
+    settings: State<'_, Arc<SettingsStore>>,
     namespace: Option<String>,
     what: MetricsKind,
 ) -> Result<MetricsSnapshot, String> {
+    if metrics_hidden(&cluster, &settings) {
+        // Hidden for this cluster (#327): the metrics API is not asked.
+        return Ok(MetricsSnapshot {
+            available: false,
+            pods: Vec::new(),
+            nodes: Vec::new(),
+            sparks: HashMap::new(),
+            since: 0,
+        });
+    }
     let ctx = cluster.selected_context();
     let client = cluster.client().await?;
     let (pods, nodes) = match what {
@@ -86,6 +100,13 @@ pub(crate) async fn cmd_get_metrics(
         sparks,
         since,
     })
+}
+
+/// Whether the user hid metrics for the cluster's context (#327).
+pub(crate) fn metrics_hidden(cluster: &ClusterSession, settings: &SettingsStore) -> bool {
+    cluster
+        .context_id()
+        .is_ok_and(|id| settings.get().metrics_hidden(&id))
 }
 
 /// Discover every kind the cluster serves (including CRDs) with its columns.

@@ -89,6 +89,7 @@ test("what no longer exists falls back safely", async ({ page }) => {
       default_namespace: "",
       shell_cwd: "",
       last_used: 0,
+      hide_metrics: false,
     };
   });
   // No switch to a context that is gone, the overview instead of a kind
