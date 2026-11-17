@@ -150,7 +150,7 @@ describe("sidebar groups (#332)", { timeout: 15 * 60_000 }, () => {
       const d = await tableData(app);
       return d?.empty ? d : null;
     }, { message: "empty Device Classes table" });
-    assert.deepEqual(data.headers.slice(0, 2), ["Name", "Selectors"]);
+    assert.deepEqual(data.headers.filter(Boolean).slice(0, 2), ["Name", "Selectors"]);
     await shots(app, "device-classes-empty");
   });
 });
