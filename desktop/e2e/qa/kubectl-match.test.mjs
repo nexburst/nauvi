@@ -89,7 +89,11 @@ async function startServer() {
   base = `https://127.0.0.1:${server.address().port}`;
 }
 
-const offerText = (app) => app.js(`return document.querySelector('[data-testid="kubectl-offer"]')?.innerText ?? ""`);
+/** The offer above the shown terminal (hidden dock tabs keep theirs). */
+const offerText = (app) =>
+  app.js(
+    `return Array.from(document.querySelectorAll('[data-testid="kubectl-offer"]')).find((el) => el.offsetParent !== null)?.innerText ?? ""`,
+  );
 
 async function newLocalTerminal(app) {
   await app.palette("local term", "New local terminal");
