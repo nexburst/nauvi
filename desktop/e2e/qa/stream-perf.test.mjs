@@ -58,7 +58,10 @@ const LOG_BUDGET = RELEASE
 /**
  * 10 MB in a terminal, pod or local. What the app's part costs: frames and
  * CPU, not the time until shown (that is the cluster's pace for a pod).
- * TODO(#115): numbers from CI.
+ * Release on a qa.yml runner (#115): pod p95 28 ms, 13.5% frame time lost,
+ * core 0.4 s, web 1.3 s CPU; local p95 15 ms, 1% lost (the old global
+ * events: p95 40-125 ms, 27-75% lost). The limits leave room for slow
+ * runners but fail what the old path did on one (59% lost).
  */
 const TERM_BUDGET = RELEASE
   ? { p95Frame: 100, blockedPct: 40, coreCpuS: 2, webCpuS: 4 }
