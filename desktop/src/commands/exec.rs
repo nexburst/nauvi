@@ -1,5 +1,6 @@
 //! Interactive terminal sessions in pods.
 
+use crate::state::mutation::Mutation;
 use crate::state::{next_session, Cluster, ExecSession, SessionCleanup, WindowEmitter};
 use futures::SinkExt;
 use kube::api::{AttachedProcess, TerminalSize};
@@ -38,7 +39,7 @@ impl ExecOutput {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_exec_start(
-    cluster: Cluster,
+    cluster: Mutation,
     namespace: String,
     name: String,
     container: Option<String>,
@@ -65,7 +66,7 @@ pub(crate) async fn cmd_exec_start(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_attach_start(
-    cluster: Cluster,
+    cluster: Mutation,
     namespace: String,
     name: String,
     container: Option<String>,

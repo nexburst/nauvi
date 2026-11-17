@@ -10,7 +10,7 @@ export const commands = {
 	 *  Delete many objects of one kind. Every object is attempted; the result
 	 *  has one entry per object with its error, if any.
 	 */
-	cmdBulkDelete: (cluster: string, resource: ResourceRef, items: ObjectId[], options?: InvokeOptions) => __TAURI_INVOKE<BulkItemResult[]>("cmd_bulk_delete", { cluster, resource, items }, options),
+	cmdBulkDelete: (cluster: MutationTarget, resource: ResourceRef, items: ObjectId[], options?: InvokeOptions) => __TAURI_INVOKE<BulkItemResult[]>("cmd_bulk_delete", { cluster, resource, items }, options),
 	/**
 	 *  Stop following a drain. Pods already evicted stay evicted and the node
 	 *  stays cordoned. `cluster` is the drain's own cluster: it is found even
@@ -29,13 +29,13 @@ export const commands = {
 	 *  Cordon a node and evict its pods in the background. Progress arrives as
 	 *  `DrainProgress` events and the end as `DrainFinished`; returns the drain id.
 	 */
-	cmdDrainNode: (cluster: string, node: string, timeoutSecs: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_drain_node", { cluster, node, timeoutSecs }, options),
+	cmdDrainNode: (cluster: MutationTarget, node: string, timeoutSecs: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_drain_node", { cluster, node, timeoutSecs }, options),
 	/**
 	 *  Run one action (everything except drain) on one object. Returns a short
 	 *  summary. The change reaches the table through the live watch. Errors are
 	 *  plain-words sentences ready to show inline.
 	 */
-	cmdRunAction: (cluster: string, resource: ResourceRef, namespace: string, name: string, action: ActionId, replicas: number | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_run_action", { cluster, resource, namespace, name, action, replicas }, options),
+	cmdRunAction: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, action: ActionId, replicas: number | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_run_action", { cluster, resource, namespace, name, action, replicas }, options),
 	/**
 	 *  Start the applications feed `id` (chosen by the UI) for `namespaces`
 	 *  (empty: all namespaces). Replaces a feed with the same id; the UI starts
@@ -147,12 +147,12 @@ export const commands = {
 	 *  the UI picks, `ui-…`, so it can show the progress written into the
 	 *  session while this runs). Returns the session id.
 	 */
-	cmdDebugStart: (cluster: string, session: string, namespace: string, name: string, target: string, image: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_debug_start", { cluster, session, namespace, name, target, image, cols, rows }, options),
+	cmdDebugStart: (cluster: MutationTarget, session: string, namespace: string, name: string, target: string, image: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_debug_start", { cluster, session, namespace, name, target, image, cols, rows }, options),
 	/**
 	 *  Delete the node shell pods [`cmd_node_shell_leftovers`] lists. Returns
 	 *  how many were deleted; fails with the first error after trying them all.
 	 */
-	cmdNodeShellCleanup: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<number>("cmd_node_shell_cleanup", { cluster }, options),
+	cmdNodeShellCleanup: (cluster: MutationTarget, options?: InvokeOptions) => __TAURI_INVOKE<number>("cmd_node_shell_cleanup", { cluster }, options),
 	/**
 	 *  Node shell pods in the cluster that no window of this app owns: left
 	 *  behind by a crash or by another copy of the app. Empty when the
@@ -165,14 +165,14 @@ export const commands = {
 	 *  when the session closes or ends, on a context switch, when its window
 	 *  closes and when the app quits.
 	 */
-	cmdNodeShellStart: (cluster: string, session: string, node: string, namespace: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_node_shell_start", { cluster, session, node, namespace, cols, rows }, options),
+	cmdNodeShellStart: (cluster: MutationTarget, session: string, node: string, namespace: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_node_shell_start", { cluster, session, node, namespace, cols, rows }, options),
 	/**
 	 *  Attach to the main process of a pod's container (`container`: `None` for
 	 *  the default one). Returns the session id; the session works like a shell's
 	 *  (`exec-*` events). Closing it detaches and leaves the process running.
 	 *  Fails, in plain words, when the container has no stdin or is not running.
 	 */
-	cmdAttachStart: (cluster: string, namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_attach_start", { cluster, namespace, name, container, cols, rows }, options),
+	cmdAttachStart: (cluster: MutationTarget, namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_attach_start", { cluster, namespace, name, container, cols, rows }, options),
 	cmdExecClose: (cluster: string, session: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_close", { cluster, session }, options),
 	cmdExecInput: (cluster: string, session: string, data: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_input", { cluster, session, data }, options),
 	cmdExecResize: (cluster: string, session: string, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_exec_resize", { cluster, session, cols, rows }, options),
@@ -180,7 +180,7 @@ export const commands = {
 	 *  Open an interactive shell in a pod. Returns the session id; output
 	 *  arrives as `exec-output` events, `exec-closed` when the shell exits.
 	 */
-	cmdExecStart: (cluster: string, namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { cluster, namespace, name, container, cols, rows }, options),
+	cmdExecStart: (cluster: MutationTarget, namespace: string, name: string, container: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_exec_start", { cluster, namespace, name, container, cols, rows }, options),
 	/**
 	 *  Ask where to save a CSV file (starting in Downloads, with `filename`
 	 *  suggested) and write `content` there. Returns the path written, or `None`
@@ -206,12 +206,12 @@ export const commands = {
 	 *  `helm rollback <name> <revision>` of a release kept in `storage`
 	 *  (`HelmRelease.storage`); returns a short summary.
 	 */
-	cmdHelmRollback: (cluster: string, namespace: string, name: string, revision: number, storage: HelmStorage, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_rollback", { cluster, namespace, name, revision, storage }, options),
+	cmdHelmRollback: (cluster: MutationTarget, namespace: string, name: string, revision: number, storage: HelmStorage, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_rollback", { cluster, namespace, name, revision, storage }, options),
 	/**
 	 *  `helm uninstall <name>` of a release kept in `storage`; returns a short
 	 *  summary.
 	 */
-	cmdHelmUninstall: (cluster: string, namespace: string, name: string, storage: HelmStorage, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_uninstall", { cluster, namespace, name, storage }, options),
+	cmdHelmUninstall: (cluster: MutationTarget, namespace: string, name: string, storage: HelmStorage, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_uninstall", { cluster, namespace, name, storage }, options),
 	/**  The installed helm's version; an error says how to install it. */
 	cmdHelmVersion: (options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_version", undefined, options),
 	/**
@@ -225,7 +225,7 @@ export const commands = {
 	 */
 	cmdHelmChartVersions: (chart: string, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_chart_versions", { chart }, options),
 	/**  `helm install` (or its dry run) into the window's cluster. */
-	cmdHelmInstall: (cluster: string, request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_install", { cluster, request }, options),
+	cmdHelmInstall: (cluster: MutationTarget, request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_install", { cluster, request }, options),
 	/**  `helm repo add`; returns a short summary. */
 	cmdHelmRepoAdd: (name: string, url: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_helm_repo_add", { name, url }, options),
 	/**  The configured chart repositories. */
@@ -243,7 +243,7 @@ export const commands = {
 	 */
 	cmdHelmSearch: (query: string, allVersions: boolean, options?: InvokeOptions) => __TAURI_INVOKE<HelmChartVersion[]>("cmd_helm_search", { query, allVersions }, options),
 	/**  `helm upgrade` (or its dry run) of a release in the window's cluster. */
-	cmdHelmUpgrade: (cluster: string, request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_upgrade", { cluster, request }, options),
+	cmdHelmUpgrade: (cluster: MutationTarget, request: HelmDeployRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_helm_upgrade", { cluster, request }, options),
 	/**
 	 *  The version, commit, OS and webview, and the text "Copy diagnostics"
 	 *  copies.
@@ -277,7 +277,7 @@ export const commands = {
 	 *  It starts in the cluster's working directory from its settings (#78),
 	 *  else the home directory. The user's kubeconfig files are not changed.
 	 */
-	cmdLocalShellStart: (cluster: string, namespace: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<LocalShellStarted>("cmd_local_shell_start", { cluster, namespace, cols, rows }, options),
+	cmdLocalShellStart: (cluster: MutationTarget, namespace: string | null, cols: number, rows: number, options?: InvokeOptions) => __TAURI_INVOKE<LocalShellStarted>("cmd_local_shell_start", { cluster, namespace, cols, rows }, options),
 	/**
 	 *  Save log text to the user's Downloads folder and return the path. A
 	 *  webview Blob download is not reliable across the platforms Tauri targets
@@ -310,7 +310,7 @@ export const commands = {
 	 */
 	cmdMetricsAddonAccess: (cluster: string, addon: MetricsAddonId, namespace: string, options?: InvokeOptions) => __TAURI_INVOKE<ActionAccess>("cmd_metrics_addon_access", { cluster, addon, namespace }, options),
 	/**  `helm install` (or its dry run) of an add-on into the window's cluster. */
-	cmdMetricsAddonInstall: (cluster: string, request: MetricsAddonRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_metrics_addon_install", { cluster, request }, options),
+	cmdMetricsAddonInstall: (cluster: MutationTarget, request: MetricsAddonRequest, options?: InvokeOptions) => __TAURI_INVOKE<HelmDeployResult>("cmd_metrics_addon_install", { cluster, request }, options),
 	/**  Every add-on, with its pinned chart, repository and starting values. */
 	cmdMetricsAddons: (options?: InvokeOptions) => __TAURI_INVOKE<MetricsAddon[]>("cmd_metrics_addons", undefined, options),
 	/**
@@ -390,14 +390,14 @@ export const commands = {
 	 *  if every document passed, or with `skip_invalid` the ones that did.
 	 *  Objects without a namespace go to `namespace` ("" = "default").
 	 */
-	cmdApplyManifests: (cluster: string, yaml: string, namespace: string, dryRun: boolean, skipInvalid: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyResult[]>("cmd_apply_manifests", { cluster, yaml, namespace, dryRun, skipInvalid }, options),
+	cmdApplyManifests: (cluster: MutationTarget, yaml: string, namespace: string, dryRun: boolean, skipInvalid: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyResult[]>("cmd_apply_manifests", { cluster, yaml, namespace, dryRun, skipInvalid }, options),
 	/**
 	 *  Server-side apply of edited YAML. `resource_version` is the version the
 	 *  YAML was loaded at (empty: don't check); if the object changed since,
 	 *  nothing is applied and the outcome says so. `dry_run` validates only.
 	 */
-	cmdApplyResourceYaml: (cluster: string, resource: ResourceRef, namespace: string, name: string, yaml: string, resourceVersion: string, dryRun: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_apply_resource_yaml", { cluster, resource, namespace, name, yaml, resourceVersion, dryRun }, options),
-	cmdDeleteResource: (cluster: string, resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_delete_resource", { cluster, resource, namespace, name }, options),
+	cmdApplyResourceYaml: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, yaml: string, resourceVersion: string, dryRun: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_apply_resource_yaml", { cluster, resource, namespace, name, yaml, resourceVersion, dryRun }, options),
+	cmdDeleteResource: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_delete_resource", { cluster, resource, namespace, name }, options),
 	/**
 	 *  The keys of a Secret (values hidden) or ConfigMap (with values), for the
 	 *  detail panel's data editor.
@@ -418,11 +418,17 @@ export const commands = {
 	 *  (empty: don't check); if the object changed since, nothing is saved and
 	 *  the outcome says so.
 	 */
-	cmdPatchData: (cluster: string, resource: ResourceRef, namespace: string, name: string, changes: DataChange[], resourceVersion: string, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_patch_data", { cluster, resource, namespace, name, changes, resourceVersion }, options),
+	cmdPatchData: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, changes: DataChange[], resourceVersion: string, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_patch_data", { cluster, resource, namespace, name, changes, resourceVersion }, options),
 	/**  One Secret value, on an explicit reveal of that key. Never logged. */
 	cmdRevealDataValue: (cluster: string, resource: ResourceRef, namespace: string, name: string, key: string, options?: InvokeOptions) => __TAURI_INVOKE<RevealedValue>("cmd_reveal_data_value", { cluster, resource, namespace, name, key }, options),
 	/**  The settings, as loaded on start and changed since. */
 	cmdGetSettings: (options?: InvokeOptions) => __TAURI_INVOKE<Settings_Serialize>("cmd_get_settings", undefined, options),
+	/**
+	 *  Make the context `id` read-only, protected or normal again (#338).
+	 *  Its own command, not part of a settings patch, so a window with an
+	 *  older copy of the settings cannot undo it.
+	 */
+	cmdSetContextMode: (id: string, mode: ContextMode, options?: InvokeOptions) => __TAURI_INVOKE<Settings_Serialize>("cmd_set_context_mode", { id, mode }, options),
 	/**
 	 *  Apply `patch` (fields left out are kept) and return the new settings.
 	 *  The file is written shortly after, once changes stop.
@@ -830,6 +836,11 @@ export type ConditionInfo = {
 	age: string,
 };
 
+export type Confirmed = {
+	id: string,
+	confirm: string,
+};
+
 export type ContainerDetail = {
 	name: string,
 	kind: ContainerKind,
@@ -969,6 +980,13 @@ export type ContextInfo_Serialize = {
 	local_files: string[],
 };
 
+/**  How much a context lets the app change. */
+export type ContextMode = "normal" | 
+/**  Every change is refused. */
+"readOnly" | 
+/**  Every change needs the context's name typed as a confirmation. */
+"protected";
+
 /**
  *  What is remembered per kubeconfig context, by context id (#78), and set
  *  on its cluster settings page.
@@ -1010,6 +1028,12 @@ export type ContextSettings_Deserialize = {
 	 *  polled.
 	 */
 	hide_metrics?: boolean,
+	/**
+	 *  Read-only or protected (#338). Changed only through
+	 *  `cmd_set_context_mode`: a settings patch keeps it, so a window with
+	 *  an older copy of the settings cannot turn the protection off.
+	 */
+	mode?: ContextMode,
 };
 
 /**
@@ -1047,6 +1071,12 @@ export type ContextSettings_Serialize = {
 	 *  polled.
 	 */
 	hide_metrics: boolean,
+	/**
+	 *  Read-only or protected (#338). Changed only through
+	 *  `cmd_set_context_mode`: a settings patch keeps it, so a window with
+	 *  an older copy of the settings cannot turn the protection off.
+	 */
+	mode: ContextMode,
 };
 
 export type ContextState = "connected" | 
@@ -1658,6 +1688,13 @@ export type MountInfo = {
 	sub_path: string,
 	read_only: boolean,
 };
+
+/**  The `cluster` argument of a mutating command. */
+export type MutationTarget = 
+/**  The cluster id: enough unless the context is protected. */
+string | 
+/**  The cluster id and what the user typed to confirm the change. */
+Confirmed;
 
 export type NamespaceInfo = {
 	/**  Creation time (unix seconds) so a UI can keep `age` fresh itself. */

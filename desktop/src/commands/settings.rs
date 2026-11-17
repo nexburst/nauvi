@@ -21,3 +21,20 @@ pub(crate) fn cmd_update_settings(
 ) -> Result<Settings, String> {
     Ok(store.update(patch))
 }
+
+/// Make the context `id` read-only, protected or normal again (#338).
+/// Its own command, not part of a settings patch, so a window with an
+/// older copy of the settings cannot undo it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_set_context_mode(
+    store: State<'_, Arc<SettingsStore>>,
+    id: String,
+    mode: nauvi::context_mode::ContextMode,
+) -> Result<Settings, String> {
+    if id.is_empty() {
+        return Err("No context is selected".into());
+    }
+    tracing::info!("context {id} is now {}", mode.label());
+    Ok(store.set_context_mode(&id, mode))
+}

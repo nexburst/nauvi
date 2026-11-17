@@ -35,8 +35,18 @@ struct Server {
 
 impl Server {
     fn start(args: &[&str]) -> Self {
+        // Not the developer's own app settings: a context they marked
+        // read-only or protected there would refuse the write tools (#338).
+        let config = std::env::temp_dir().join(format!("nauvi-mcp-cfg-{}", std::process::id()));
+        Self::start_with_config(args, &config)
+    }
+
+    /// A server that reads the app's settings from `config/com.nauvi.app`
+    /// (Linux: `XDG_CONFIG_HOME`).
+    fn start_with_config(args: &[&str], config: &std::path::Path) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_nauvi"))
             .args(args)
+            .env("XDG_CONFIG_HOME", config)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -422,6 +432,59 @@ async fn mcp_write_tools_on_the_cluster() -> Result<()> {
         assert!(deleted.starts_with("Deleted ConfigMap"), "{deleted}");
         let (err, text) = s.call("apply", json!({ "manifest": "kind: [", "namespace": ns }));
         assert!(err, "{text}");
+        Ok(())
+    }
+    .await;
+    drop_ns(&client, &ns).await;
+    result
+}
+
+/// Write tools follow the app's per-context mode (#338): refused on a
+/// read-only or protected context, as the app's settings file says, before
+/// anything reaches the cluster. Linux only (the file is found through
+/// `XDG_CONFIG_HOME`).
+#[tokio::test]
+#[ignore]
+async fn mcp_write_tools_follow_the_context_mode() -> Result<()> {
+    if !cfg!(target_os = "linux") {
+        eprintln!("skipped: the app's settings are found through XDG_CONFIG_HOME on Linux");
+        return Ok(());
+    }
+    let client = connect().await?;
+    let ns = temp_ns(&client, "it-mcp-mode").await?;
+    let result = async {
+        let ctx = context();
+        let manifest =
+            "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: from-mcp\ndata:\n  k: v\n";
+        for (mode, words) in [
+            ("readOnly", "is read-only"),
+            ("protected", "is protected"),
+            ("bogus", "is read-only"),
+        ] {
+            let config =
+                std::env::temp_dir().join(format!("nauvi-mcp-mode-{}-{mode}", std::process::id()));
+            let dir = config.join("com.nauvi.app");
+            std::fs::create_dir_all(&dir)?;
+            let settings = json!({ "contexts": { ctx.clone(): { "mode": mode } } });
+            std::fs::write(dir.join("settings.json"), settings.to_string())?;
+            let mut s = Server::start_with_config(
+                &["--context", ctx.as_str(), "mcp", "--allow-writes"],
+                &config,
+            );
+            s.initialize();
+            let (err, text) = s.call("apply", json!({ "manifest": manifest, "namespace": ns }));
+            assert!(err && text.contains(words), "{mode}: {text}");
+            let (err, text) = s.call("delete", json!({ "kind": "cm/x", "namespace": ns }));
+            assert!(err && text.contains(words), "{mode}: {text}");
+            // Reads still work.
+            s.ok("list", json!({ "kind": "configmaps", "namespace": ns }));
+            let _ = std::fs::remove_dir_all(&config);
+        }
+        let cms: Api<k8s_openapi::api::core::v1::ConfigMap> = Api::namespaced(client.clone(), &ns);
+        assert!(
+            cms.get_opt("from-mcp").await?.is_none(),
+            "a refused apply stored it"
+        );
         Ok(())
     }
     .await;

@@ -3,6 +3,7 @@
 //! whether the user may, and their `helm install` (dry run first).
 
 use super::helm::target;
+use crate::state::mutation::Mutation;
 use crate::state::Cluster;
 use nauvi::action_access::ActionAccess;
 use nauvi::helm::{self, HelmDeployResult, MetricsAddon, MetricsAddonId, MetricsAddonRequest};
@@ -20,9 +21,21 @@ pub(crate) fn cmd_metrics_addons() -> Vec<MetricsAddon> {
 #[specta::specta]
 pub(crate) async fn cmd_metrics_addon_access(
     cluster: Cluster,
+    store: tauri::State<'_, std::sync::Arc<crate::settings::SettingsStore>>,
     addon: MetricsAddonId,
     namespace: String,
 ) -> Result<ActionAccess, String> {
+    let mode = store.context_mode(cluster.id());
+    // A read-only context refuses the install whatever RBAC says (#338).
+    if mode == nauvi::context_mode::ContextMode::ReadOnly {
+        return Ok(ActionAccess {
+            id: addon.as_str().to_string(),
+            allowed: false,
+            reason: nauvi::context_mode::read_only_reason(&crate::state::mutation::context_name(
+                &cluster,
+            )),
+        });
+    }
     let client = cluster.client().await?;
     helm::metrics_addon_access(&client, addon, &namespace)
         .await
@@ -33,7 +46,7 @@ pub(crate) async fn cmd_metrics_addon_access(
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_metrics_addon_install(
-    cluster: Cluster,
+    cluster: Mutation,
     request: MetricsAddonRequest,
 ) -> Result<HelmDeployResult, String> {
     helm::install_metrics_addon(&*target(&cluster)?, &request)

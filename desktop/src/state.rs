@@ -24,6 +24,7 @@ use tauri::ipc::{CommandArg, CommandItem, InvokeError};
 use tauri::{AppHandle, EventTarget, Manager};
 
 pub(crate) mod idle;
+pub(crate) mod mutation;
 
 /// Why something started for a cluster is dropped: the window left it
 /// (switched to another context, disconnected it, closed or reloaded).
@@ -812,20 +813,27 @@ impl<'de> CommandArg<'de, tauri::Wry> for Cluster {
             key: CLUSTER_KEY,
             ..command
         })?;
+        Ok(Cluster::of_call(&command, &cluster))
+    }
+}
+
+impl Cluster {
+    /// The session of cluster `id` in the window that made the call.
+    pub(crate) fn of_call(command: &CommandItem<'_, tauri::Wry>, id: &str) -> Self {
         let webview = command.message.webview();
         let label = webview.label().to_string();
         let app = webview.app_handle().clone();
-        let session = app.state::<AppState>().cluster(&label, &cluster);
-        Ok(Cluster {
+        let session = app.state::<AppState>().cluster(&label, id);
+        Cluster {
             session,
             label,
             app,
-        })
+        }
     }
 }
 
 /// The payload key that names the cluster of a call.
-const CLUSTER_KEY: &str = "cluster";
+pub(crate) const CLUSTER_KEY: &str = "cluster";
 
 /// In the bindings as the `cluster: string` parameter. Every command names
 /// it `cluster` and takes it first; `lib/cluster.test.ts` checks both.

@@ -94,6 +94,7 @@ async fn run(cli: Cli) -> Result<()> {
             allow_writes,
             kubeconfig: cli.kubeconfig,
             context: cli.context,
+            app_settings: None,
         };
         return nauvi::mcp::serve_stdio(opts).await;
     }

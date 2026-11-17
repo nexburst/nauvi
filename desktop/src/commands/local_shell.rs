@@ -6,6 +6,7 @@ use crate::catalog::Approved;
 use crate::commands::exec::{ExecClosed, ExecOutput};
 use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::SettingsStore;
+use crate::state::mutation::Mutation;
 use crate::state::{next_session, Cluster};
 use nauvi::catalog::expand_home;
 use nauvi::{
@@ -35,7 +36,7 @@ pub(crate) struct LocalShellStarted {
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_local_shell_start(
-    cluster: Cluster,
+    cluster: Mutation,
     settings: State<'_, Arc<SettingsStore>>,
     namespace: Option<String>,
     cols: u16,

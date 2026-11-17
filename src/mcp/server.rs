@@ -5,6 +5,7 @@
 use super::tools::{self, ToolSpec};
 use super::McpOptions;
 use crate::client_with;
+use crate::context_mode::ContextMode;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
     ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig, Tool,
@@ -54,10 +55,55 @@ impl NauviMcp {
     ) -> Result<String, String> {
         let text = |e: anyhow::Error| crate::error_text(&e);
         tools::check(name, self.opts.allow_writes).map_err(text)?;
+        if tools::writes(name) {
+            self.check_mode()?;
+        }
         let client = self.client().await.map_err(text)?;
         tools::call(client, name, arguments, self.opts.allow_writes)
             .await
             .map_err(text)
+    }
+}
+
+impl NauviMcp {
+    /// Refuse a write tool on a context the app marks read-only or
+    /// protected (#338): the server cannot ask the person to type the
+    /// context name, so protected refuses too.
+    fn check_mode(&self) -> Result<(), String> {
+        let Some(context) = self.context_name() else {
+            return Ok(());
+        };
+        let path = match &self.opts.app_settings {
+            Some(p) => p.clone(),
+            None => match crate::context_mode::app_settings_path() {
+                Some(p) => p,
+                None => return Ok(()),
+            },
+        };
+        match crate::context_mode::mode_in_settings(&path, &context) {
+            ContextMode::Normal => Ok(()),
+            ContextMode::ReadOnly => Err(format!(
+                "{}; nauvi mcp follows the app's setting",
+                crate::context_mode::read_only_reason(&context)
+            )),
+            ContextMode::Protected => Err(format!(
+                "{context} is protected: changes need the context name typed in the app, \
+                 so nauvi mcp does not change it"
+            )),
+        }
+    }
+
+    /// The context the server talks to: `--context`, else the kubeconfig's
+    /// current-context (`None`: none, e.g. in-cluster config).
+    fn context_name(&self) -> Option<String> {
+        if let Some(c) = self.opts.context.as_ref().filter(|c| !c.is_empty()) {
+            return Some(c.clone());
+        }
+        let kc = match &self.opts.kubeconfig {
+            Some(p) => kube::config::Kubeconfig::read_from(p).ok()?,
+            None => kube::config::Kubeconfig::read().ok()?,
+        };
+        kc.current_context.filter(|c| !c.is_empty())
     }
 }
 

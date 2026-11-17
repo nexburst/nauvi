@@ -100,9 +100,18 @@ pub(crate) struct ContextSettings {
     /// columns, usage charts or overview usage, and the metrics API is not
     /// polled.
     pub(crate) hide_metrics: bool,
+    /// Read-only or protected (#338). Changed only through
+    /// `cmd_set_context_mode`: a settings patch keeps it, so a window with
+    /// an older copy of the settings cannot turn the protection off.
+    pub(crate) mode: nauvi::context_mode::ContextMode,
 }
 
 impl Settings {
+    /// The read-only or protected mode of the context `id` (#338).
+    pub(crate) fn context_mode(&self, id: &str) -> nauvi::context_mode::ContextMode {
+        self.contexts.get(id).map(|c| c.mode).unwrap_or_default()
+    }
+
     /// Whether metrics are hidden for the context `id` (#327).
     pub(crate) fn metrics_hidden(&self, id: &str) -> bool {
         self.contexts.get(id).is_some_and(|c| c.hide_metrics)
@@ -433,7 +442,11 @@ impl Settings {
         if let Some(v) = patch.searches {
             self.searches = v.normalized();
         }
-        self.contexts.extend(patch.contexts.unwrap_or_default());
+        for (id, mut ctx) in patch.contexts.unwrap_or_default() {
+            // The mode has its own command (#338).
+            ctx.mode = self.context_mode(&id);
+            self.contexts.insert(id, ctx);
+        }
         self.kinds.extend(patch.kinds.unwrap_or_default());
     }
 }
@@ -549,6 +562,20 @@ impl SettingsStore {
         self.current.lock().unwrap().clone()
     }
 
+    /// The mode of the context `id` (#338), without copying the settings.
+    pub(crate) fn context_mode(&self, id: &str) -> nauvi::context_mode::ContextMode {
+        self.current.lock().unwrap().context_mode(id)
+    }
+
+    /// Set the mode of the context `id` (#338).
+    pub(crate) fn set_context_mode(
+        self: &Arc<Self>,
+        id: &str,
+        mode: nauvi::context_mode::ContextMode,
+    ) -> Settings {
+        self.modify(|s| s.contexts.entry(id.to_string()).or_default().mode = mode)
+    }
+
     /// Apply `patch` now; the file follows after `WRITE_DELAY` without
     /// further changes.
     pub(crate) fn update(self: &Arc<Self>, patch: SettingsPatch) -> Settings {
@@ -620,6 +647,36 @@ mod tests {
         assert!(s.metrics_hidden("prod"));
         assert!(!s.metrics_hidden("dev"));
         assert!(!s.metrics_hidden("unknown"));
+    }
+
+    #[test]
+    fn a_settings_patch_keeps_the_context_mode() {
+        use nauvi::context_mode::ContextMode;
+        let mut s =
+            parse(r#"{"contexts":{"prod":{"mode":"protected","view":"v1/pods"}}}"#).unwrap();
+        assert_eq!(s.context_mode("prod"), ContextMode::Protected);
+        assert_eq!(s.context_mode("dev"), ContextMode::Normal);
+        // A window with an older copy writes the entry back without it.
+        s.apply(SettingsPatch {
+            contexts: Some(BTreeMap::from([
+                ("prod".to_string(), ContextSettings::default()),
+                (
+                    "dev".to_string(),
+                    ContextSettings {
+                        mode: ContextMode::ReadOnly,
+                        ..Default::default()
+                    },
+                ),
+            ])),
+            ..Default::default()
+        });
+        assert_eq!(s.context_mode("prod"), ContextMode::Protected);
+        assert_eq!(s.contexts["prod"].view, "");
+        assert_eq!(s.context_mode("dev"), ContextMode::Normal);
+        // A mode this version does not know is read-only, and costs no other field.
+        let s = parse(r#"{"contexts":{"x":{"mode":"locked","view":"v1/pods"}}}"#).unwrap();
+        assert_eq!(s.context_mode("x"), ContextMode::ReadOnly);
+        assert_eq!(s.contexts["x"].view, "v1/pods");
     }
 
     #[test]
@@ -698,6 +755,7 @@ mod tests {
                     shell_cwd: "~/src".into(),
                     last_used: 1_700_000_000_000,
                     hide_metrics: true,
+                    mode: Default::default(),
                 },
             )])),
             favourites: Some(vec!["kind".into(), "prod (work.yaml)".into()]),
