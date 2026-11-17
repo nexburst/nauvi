@@ -72,7 +72,7 @@ export class TermWriter {
     this.o = {
       startBytes: 64 * 1024,
       minBytes: 16 * 1024,
-      maxBytes: 1024 * 1024,
+      maxBytes: 512 * 1024,
       targetMs: 8,
       fallbackMs: 100,
       raf: (cb) => requestAnimationFrame(cb),

@@ -7,7 +7,7 @@
 //! cluster they name through the [`Cluster`] argument.
 
 use crate::catalog::{Approved, KubeconfigSources};
-use crate::commands::term_frame::TermChannel;
+use crate::commands::term_frame::TermOut;
 use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
 use kube::api::TerminalSize;
@@ -52,13 +52,13 @@ pub(crate) struct ExecSession {
     /// running (#88), and for node shells, whose pod is deleted anyway.
     pub(crate) end_on_close: bool,
     /// The tab's channel, for notes (a context turned read-only).
-    pub(crate) out: TermChannel,
+    pub(crate) out: TermOut,
 }
 
 /// A local shell (dropping it kills the shell) and its tab's channel.
 pub(crate) struct LocalShellSession {
     pub(crate) shell: LocalShell,
-    pub(crate) out: TermChannel,
+    pub(crate) out: TermOut,
 }
 
 impl ExecSession {
@@ -1456,7 +1456,7 @@ mod tests {
             task,
             cleanup: None,
             end_on_close,
-            out: tauri::ipc::Channel::new(|_| Ok(())),
+            out: crate::commands::term_frame::TermOut::detached(),
         };
         (session, typed)
     }

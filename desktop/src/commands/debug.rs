@@ -3,7 +3,7 @@
 //! channel the tab passes in).
 
 use crate::commands::exec::{emit_note, start_session, SessionClose, SessionOut};
-use crate::commands::term_frame::TermChannel;
+use crate::commands::term_frame::{TermChannel, TermOut};
 use crate::state::mutation::Mutation;
 use crate::state::{AppState, Cluster, ClusterSession, SessionCleanup};
 use nauvi::debug::{add_debug_container, attach_container, describe_debug_error};
@@ -42,7 +42,7 @@ pub(crate) async fn cmd_debug_start(
 ) -> Result<String, String> {
     let session = claim_session(&cluster, session)?;
     let client = cluster.client().await?;
-    let out = on_output;
+    let out = TermOut::new(on_output);
     emit_note(&out, &format!("Adding a debug container ({image})…"));
     let container = add_debug_container(
         &client,
@@ -93,7 +93,7 @@ pub(crate) async fn cmd_node_shell_start(
 ) -> Result<String, String> {
     let session = claim_session(&cluster, session)?;
     let client = cluster.client().await?;
-    let out = on_output;
+    let out = TermOut::new(on_output);
     let pod = new_node_shell_name(&node);
     emit_note(&out, &format!("Starting pod {namespace}/{pod} on {node}…"));
     let started = create_node_shell(&client, &node, &namespace, &pod, NODE_SHELL_IMAGE, |r| {

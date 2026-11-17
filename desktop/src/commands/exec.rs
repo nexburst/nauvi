@@ -1,6 +1,6 @@
 //! Interactive terminal sessions in pods.
 
-use super::term_frame::{send_closed, send_data, TermChannel, Utf8Cut};
+use super::term_frame::{send_closed, send_data, TermChannel, TermOut, Utf8Cut};
 use crate::state::mutation::Mutation;
 use crate::state::{next_session, Cluster, ExecSession, SessionCleanup};
 use futures::SinkExt;
@@ -39,7 +39,7 @@ pub(crate) async fn cmd_exec_start(
     let out = SessionOut {
         cols,
         rows,
-        on_output,
+        on_output: TermOut::new(on_output),
     };
     start_session(&cluster, session.clone(), attached, out, close).await;
     Ok(session)
@@ -66,6 +66,7 @@ pub(crate) async fn cmd_attach_start(
         .await
         .map_err(|e| describe_attach_error(&e))?;
     let session = next_session("attach");
+    let on_output = TermOut::new(on_output);
     // Arrives before the UI knows the id: the channel is the tab's own.
     emit_note(
         &on_output,
@@ -89,7 +90,7 @@ pub(crate) async fn cmd_attach_start(
 pub(crate) struct SessionOut {
     pub(crate) cols: u16,
     pub(crate) rows: u16,
-    pub(crate) on_output: TermChannel,
+    pub(crate) on_output: TermOut,
 }
 
 /// What closing a terminal session does.
@@ -102,12 +103,12 @@ pub(crate) struct SessionClose {
 }
 
 /// Write a line of text into a terminal session (progress, notes).
-pub(crate) fn emit_note(out: &TermChannel, text: &str) {
+pub(crate) fn emit_note(out: &TermOut, text: &str) {
     send_data(out, format!("\x1b[90m{text}\x1b[0m\r\n").into_bytes());
 }
 
 /// Send what `r` reads to `out` until it ends.
-async fn pump(r: Option<impl AsyncRead + Unpin>, out: &TermChannel) {
+async fn pump(r: Option<impl AsyncRead + Unpin>, out: &TermOut) {
     let Some(mut r) = r else { return };
     let mut buf = vec![0u8; READ_BUF];
     let mut cut = Utf8Cut::default();

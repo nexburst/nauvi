@@ -3,7 +3,7 @@
 //! shell exits, like pod terminals.
 
 use crate::catalog::Approved;
-use crate::commands::term_frame::{send_closed, send_data, TermChannel};
+use crate::commands::term_frame::{send_closed, send_data, TermChannel, TermOut};
 use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::SettingsStore;
 use crate::state::mutation::Mutation;
@@ -78,6 +78,7 @@ pub(crate) async fn cmd_local_shell_start(
     }
 
     let session = next_session("local");
+    let on_output = TermOut::new(on_output);
     let (out, exit_out) = (on_output.clone(), on_output.clone());
     let shell = LocalShell::spawn(
         &spec,
