@@ -4,7 +4,10 @@
 
 A Lens alternative written in Rust: a Kubernetes IDE that stays fast while
 streaming logs and watching cluster state. It comes as a desktop app (Tauri +
-Svelte) and a CLI, both built on the same Rust core.
+Svelte) and a CLI, both built on the same Rust core. It lives at
+[nexburst/nauvi](https://github.com/nexburst/nauvi).
+
+Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)).
 
 > **Status:** early. The desktop app browses every resource type the cluster
 > serves (CRDs included) with live watches, shows logs for pods and whole
@@ -17,9 +20,13 @@ Svelte) and a CLI, both built on the same Rust core.
 
 - **Every resource type**, built-in or custom, found through API discovery
   and grouped in a Lens-style sidebar (workloads, network, config, storage,
-  cluster, access control, custom resources with their definitions). Kinds
-  you aren't allowed to list are greyed out. Roles and bindings show their
-  rules, the role they grant and their subjects, as links.
+  cluster, access control, device resources, custom resources with their
+  definitions). Admission policies and their bindings sit under Config.
+  Device Resources holds the DRA kinds: DeviceClasses, ResourceClaims,
+  ResourceClaimTemplates and ResourceSlices. Kinds the cluster doesn't serve
+  stay in their group, greyed out, and so do kinds you aren't allowed to
+  list. Roles and bindings show their rules, the role they grant and their
+  subjects, as links.
 - **Live tables**: lists are kept up to date by Kubernetes watches, not by
   polling, and stay smooth with thousands of rows. Show one namespace, several
   at once (up to 10, one watch each) or all of them.
@@ -43,11 +50,18 @@ Svelte) and a CLI, both built on the same Rust core.
   metrics-server history. Without a Prometheus, Settings → Prometheus offers
   to install a small one (Prometheus, kube-state-metrics, node-exporter, in
   `monitoring`, no persistent volume by default). With Prometheus and
-  node-exporter, Nodes get a Disk column.
+  node-exporter, Nodes get a Disk column. **Hide metrics** (the cluster's
+  Settings → Metrics) hides CPU and memory usage for that cluster (table
+  columns, charts, the Overview's usage) and stops polling its metrics API;
+  a note with a link to the setting shows where the metrics would be.
 - **Overview**: pod counts (crash-looping pods count as errors, not as
   running), problem pods, CPU/memory/pod capacity against requests and usage,
-  and the newest warning events, each linking to its object. Kept live by
-  watches, not by re-listing the cluster. Without metrics-server it offers to
+  and the newest warning events, each linking to its object. The CPU and
+  Memory bars show limits next to requests, with a marker, and turn red when
+  the limits exceed what the nodes can allocate. Below them, a 1-hour CPU and
+  memory chart comes from Prometheus when one is found or set in Settings,
+  otherwise from metrics-server samples taken while the window is open. Kept
+  live by watches, not by re-listing the cluster. Without metrics-server it offers to
   install it (in `kube-system`). "Skip kubelet TLS verification" makes
   metrics-server trust any kubelet certificate: it is meant for kind and
   other local clusters with self-signed kubelet certificates, so leave it off
@@ -75,12 +89,14 @@ Svelte) and a CLI, both built on the same Rust core.
   previous instance of a crashed one) and an interactive terminal (pod exec).
   The panel's header has icon buttons for the object's actions (Logs, Shell,
   Edit, Delete, and for example Scale and Restart on workloads or Cordon and
-  Drain on nodes). Actions your RBAC does not allow are greyed out, and the
-  tooltip says which permission is missing.
+  Drain on nodes).
 - **Log search**: match case (Aa) and regex (.\*); Highlight keeps every line
   and steps through the matches with Enter / Shift+Enter, or n / N in the
   log. Going to a match turns Follow off; check Follow to go back to the
   newest line. Jump to time goes to a time of day or date (needs Timestamps).
+  **Exclude** hides the lines that match its text. **Context** shows ±N
+  lines around each match. A downloaded log starts with a `#` header that
+  says where the lines came from and which filter was on.
 - **Secret and ConfigMap data**: the detail panel lists the keys. Secret
   values stay hidden until you reveal one key. Copy, edit, add or remove
   keys, then Save: only the changed keys are sent (a merge patch). If
@@ -149,7 +165,10 @@ Svelte) and a CLI, both built on the same Rust core.
   delete. Destructive ones ask for confirmation and list the exact objects.
   **Evict** on a pod goes through the Eviction API, as a drain does: if a
   PodDisruptionBudget would be violated, the eviction is refused and the
-  dialog says why. It needs `create pods/eviction`.
+  dialog says why. It needs `create pods/eviction`. Actions you aren't
+  allowed to run (per RBAC) are greyed out in the row menu, the detail panel
+  and the selection bar, and the tooltip names the missing permission (for
+  example *Not allowed: you can't delete pods in namespace demo*).
 - **Links to objects**: **Copy link** (in the detail panel's header and the
   right-click menu) copies a `nauvi://` link such as
   `nauvi://my-context/apps/v1/Deployment/shop/web` (`core` for the core
@@ -250,6 +269,9 @@ Svelte) and a CLI, both built on the same Rust core.
   directory (`~/.config/com.nauvi.app/` on Linux,
   `~/Library/Application Support/com.nauvi.app/` on macOS,
   `%APPDATA%\com.nauvi.app\` on Windows).
+- **Notifications**: the bell in the title bar keeps the notices and errors
+  this window has shown (the last 200, until the window closes), with their
+  time, context and a link to the object. **Clear all** empties it.
 - **Help and diagnostics**: the Help menu (the `?` in the header; on macOS
   also in the menu bar) has Documentation, Report a bug (opens a GitHub issue
   with the version, commit, OS and webview filled in), Open log folder and
@@ -393,6 +415,29 @@ The builds are not signed yet, so the OS will warn you the first time:
 - Linux needs no workaround; the AppImage needs FUSE 2 (`libfuse2`) on
   recent Ubuntu. If the window stays blank (some GPU drivers), start it with
   `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
+
+Each release also ships CycloneDX SBOMs (`nauvi-<tag>-*.cdx.json`) and is
+scanned for known vulnerabilities with Grype.
+
+### Size and memory
+
+Download sizes of the v0.1.0 dry run:
+
+| Platform | Download | Size |
+| --- | --- | ---: |
+| Linux | AppImage | 88.7 MB |
+| Linux | .deb | 15.6 MB |
+| macOS (universal) | .dmg | 26.8 MB |
+| Windows | NSIS installer (`-setup.exe`) | 8.8 MB |
+| Windows | .msi | 13.2 MB |
+| CLI | .tar.gz / .zip | 7.6–9.1 MB |
+
+Idle memory on Linux (release build, 30 s idle on the Overview of a kind
+cluster): the app and its WebKitWebProcess use 611 MB RSS together, or
+426 MB PSS. PSS splits the shared libraries between the processes, so it is
+the fairer total. The numbers come from one CI run; macOS and Windows are not
+measured yet. Work to bring memory down is tracked in
+[#353](https://github.com/nexburst/nauvi/issues/353).
 
 ### Proxies
 
