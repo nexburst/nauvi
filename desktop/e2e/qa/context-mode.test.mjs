@@ -21,6 +21,7 @@ import { CONTEXT, byTestId, xq } from "../lib/app.mjs";
 import { deleteNamespace, httpPodYaml, kubectl, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { setTheme } from "../lib/theme.mjs";
+import { closeTab } from "../lib/dock.mjs";
 import { terminal } from "../lib/terminal.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 import { closeMenu, contextMenu, dialogButton, openKind, waitActionDialogClosed } from "./area-2-helpers.mjs";
@@ -207,6 +208,8 @@ describe("read-only and protected contexts", { timeout: 15 * 60_000 }, () => {
   it("protected: a pod shell asks for the context name too (light)", T, async () => {
     const { app } = s;
     await setTheme(app, "light");
+    // The shell closed by read-only keeps its tab; a new one opens fresh.
+    await closeTab(app, `Shell: ${POD}`);
     await openKind(app, "Pods", ns, POD);
     await contextMenu(app, POD, ns);
     await (await app.find(By.xpath(`//*[@data-testid='context-menu']//*[@role='menuitem'][normalize-space()='Shell']`))).click();

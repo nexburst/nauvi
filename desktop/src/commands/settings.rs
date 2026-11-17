@@ -2,7 +2,7 @@
 
 use crate::commands::exec::{emit_note, ExecClosed};
 use crate::settings::{Settings, SettingsPatch, SettingsStore};
-use crate::state::{spawn_closes, AppState, WindowEmitter};
+use crate::state::{AppState, WindowEmitter};
 use nauvi::context_mode::ContextMode;
 use std::sync::Arc;
 use tauri::State;
@@ -56,15 +56,24 @@ fn close_terminals(app: &tauri::AppHandle, state: &AppState, id: &str) {
     for (label, session) in state.sessions_of(id) {
         let out = WindowEmitter::new(app.clone(), label);
         let (execs, shells) = session.take_terminals();
-        for sid in execs.keys() {
-            emit_note(&out, sid, &note);
-            out.emit(ExecClosed(sid.clone()));
-        }
         for sid in shells.keys() {
             emit_note(&out, sid, &note);
         }
         // Dropping a local shell kills it; its exit sends `ExecClosed`.
         drop(shells);
-        spawn_closes(execs.into_values().collect());
+        let note = note.clone();
+        tauri::async_runtime::spawn(async move {
+            for (sid, exec) in execs {
+                // A shell that ends sends `ExecClosed` itself; an attach
+                // only detaches, so it is sent here.
+                let ends = exec.end_on_close;
+                exec.close().await;
+                // After the shell's last words, so it reads as the reason.
+                emit_note(&out, &sid, &note);
+                if !ends {
+                    out.emit(ExecClosed(sid));
+                }
+            }
+        });
     }
 }
