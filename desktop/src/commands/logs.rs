@@ -1,44 +1,22 @@
 //! Pod and workload log streams, and saving logs.
 
-use crate::state::{Cluster, WindowEmitter};
+use super::log_frame::{send, LogChannel, LogEvent, LogFrame};
+use crate::state::Cluster;
 use nauvi::{
     batch_lines, stream_pod_containers_logs, stream_pod_logs, stream_workload_logs, LogOptions,
-    StopReason, TaggedLine, WorkloadEvent, WorkloadKind,
+    StopReason, WorkloadEvent, WorkloadKind,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::time::Duration;
-use tauri_specta::Event;
-
-/// A batch of log lines. Log events carry the id of the stream that produced
-/// them: several streams run at once (one per dock tab), and a tab drops
-/// stragglers from a stream it has already replaced.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PodLog {
-    stream_id: u64,
-    data: Vec<String>,
-}
-
-/// The log stream failed.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PodLogError {
-    stream_id: u64,
-    data: String,
-}
-
-/// The log stream ended.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct PodLogDone {
-    stream_id: u64,
-}
 
 /// Flush a log batch after this many lines or this long, whichever is first.
-const LOG_BATCH_LINES: usize = 500;
+const LOG_BATCH_LINES: usize = 1000;
 const LOG_BATCH_INTERVAL: Duration = Duration::from_millis(50);
 
+/// Follow one container of a pod. Lines, errors and the end go to
+/// `on_event`, the channel of the tab that asked (#115); `stream_id` names
+/// the stream for `cmd_stop_logs`.
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
@@ -52,9 +30,10 @@ pub(crate) async fn cmd_stream_pod_logs(
     since_seconds: Option<i64>,
     timestamps: Option<bool>,
     stream_id: u64,
+    on_event: LogChannel,
 ) -> Result<(), String> {
     let client = cluster.client().await?;
-    let out = cluster.emitter();
+    let out = on_event;
     let opts = LogOptions {
         container,
         previous: previous.unwrap_or(false),
@@ -70,12 +49,7 @@ pub(crate) async fn cmd_stream_pod_logs(
                 rx,
                 LOG_BATCH_LINES,
                 LOG_BATCH_INTERVAL,
-                move |batch| {
-                    emitter.emit(PodLog {
-                        stream_id,
-                        data: batch,
-                    });
-                },
+                move |batch: Vec<String>| send(&emitter, LogFrame::lines(&batch)),
             ));
             let result = stream_pod_logs(&client, &namespace, &name, &opts, move |line| {
                 let _ = tx.send(line);
@@ -83,28 +57,9 @@ pub(crate) async fn cmd_stream_pod_logs(
             .await;
             // The sender was dropped with the closure, so the batcher flushes and exits.
             let _ = batcher.await;
-            if let Err(e) = result {
-                let msg = format!(
-                    "Log stream ended with an error: {}",
-                    nauvi::errors::error_text(&e)
-                );
-                out.emit(PodLogError {
-                    stream_id,
-                    data: msg,
-                });
-            }
-            out.emit(PodLogDone { stream_id });
+            end_stream(&out, result);
         })
     })
-}
-
-/// A batch of merged log lines from the pods of a workload. Same `streamId`
-/// scheme as [`PodLog`]; every line says which pod and container it is from.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct WorkloadLog {
-    stream_id: u64,
-    data: Vec<TaggedLine>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Type)]
@@ -122,11 +77,10 @@ pub(crate) enum WorkloadNoticeKind {
     Truncated,
 }
 
-/// A change in which pods a workload stream is following.
-#[derive(Debug, Clone, Serialize, Type, Event)]
+/// A change in which pods a merged stream is following.
+#[derive(Debug, Clone, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct WorkloadNotice {
-    stream_id: u64,
     kind: WorkloadNoticeKind,
     /// Empty for `truncated`.
     pod: String,
@@ -150,7 +104,7 @@ pub(crate) struct WorkloadLogOptions {
     timestamps: Option<bool>,
 }
 
-fn workload_notice(stream_id: u64, ev: WorkloadEvent) -> Option<WorkloadNotice> {
+fn workload_notice(ev: WorkloadEvent) -> Option<WorkloadNotice> {
     let (kind, pod, container, message, limit, skipped) = match ev {
         WorkloadEvent::Lines(_) => return None,
         WorkloadEvent::Started { pod, container } => (
@@ -183,7 +137,6 @@ fn workload_notice(stream_id: u64, ev: WorkloadEvent) -> Option<WorkloadNotice> 
         ),
     };
     Some(WorkloadNotice {
-        stream_id,
         kind,
         pod,
         container,
@@ -206,10 +159,11 @@ pub(crate) async fn cmd_stream_workload_logs(
     name: String,
     options: WorkloadLogOptions,
     stream_id: u64,
+    on_event: LogChannel,
 ) -> Result<(), String> {
     let kind = kind.parse::<WorkloadKind>().map_err(|e| e.to_string())?;
     let client = cluster.client().await?;
-    let out = cluster.emitter();
+    let out = on_event;
     let opts = LogOptions {
         container: options.container,
         previous: false,
@@ -221,10 +175,10 @@ pub(crate) async fn cmd_stream_workload_logs(
         tauri::async_runtime::spawn(async move {
             let emitter = out.clone();
             let result = stream_workload_logs(&client, kind, &namespace, &name, &opts, move |ev| {
-                emit_tagged(&emitter, stream_id, ev)
+                emit_tagged(&emitter, ev)
             })
             .await;
-            end_tagged(&out, stream_id, result);
+            end_stream(&out, result);
         })
     })
 }
@@ -241,9 +195,10 @@ pub(crate) async fn cmd_stream_pod_all_logs(
     name: String,
     options: WorkloadLogOptions,
     stream_id: u64,
+    on_event: LogChannel,
 ) -> Result<(), String> {
     let client = cluster.client().await?;
-    let out = cluster.emitter();
+    let out = on_event;
     let opts = LogOptions {
         container: options.container,
         previous: false,
@@ -255,38 +210,36 @@ pub(crate) async fn cmd_stream_pod_all_logs(
         tauri::async_runtime::spawn(async move {
             let emitter = out.clone();
             let result = stream_pod_containers_logs(&client, &namespace, &name, &opts, move |ev| {
-                emit_tagged(&emitter, stream_id, ev)
+                emit_tagged(&emitter, ev)
             })
             .await;
-            end_tagged(&out, stream_id, result);
+            end_stream(&out, result);
         })
     })
 }
 
 /// Send one event of a merged (tagged) log stream.
-fn emit_tagged(out: &WindowEmitter, stream_id: u64, ev: WorkloadEvent) {
+fn emit_tagged(out: &LogChannel, ev: WorkloadEvent) {
     match ev {
-        WorkloadEvent::Lines(data) => out.emit(WorkloadLog { stream_id, data }),
+        WorkloadEvent::Lines(data) => send(out, LogFrame::Event(LogEvent::Tagged { data })),
         ev => {
-            if let Some(n) = workload_notice(stream_id, ev) {
-                out.emit(n);
+            if let Some(n) = workload_notice(ev) {
+                send(out, LogFrame::Event(LogEvent::Notice(n)));
             }
         }
     }
 }
 
-/// Report how a merged log stream ended.
-fn end_tagged(out: &WindowEmitter, stream_id: u64, result: anyhow::Result<()>) {
+/// Report how a log stream ended.
+fn end_stream(out: &LogChannel, result: anyhow::Result<()>) {
     if let Err(e) = result {
-        out.emit(PodLogError {
-            stream_id,
-            data: format!(
-                "Log stream ended with an error: {}",
-                nauvi::errors::error_text(&e)
-            ),
-        });
+        let message = format!(
+            "Log stream ended with an error: {}",
+            nauvi::errors::error_text(&e)
+        );
+        send(out, LogFrame::Event(LogEvent::Error { message }));
     }
-    out.emit(PodLogDone { stream_id });
+    send(out, LogFrame::Event(LogEvent::Done));
 }
 
 /// Save log text to the user's Downloads folder and return the path. A

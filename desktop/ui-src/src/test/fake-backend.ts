@@ -37,6 +37,12 @@
  * arrive with a `cluster` argument: the fake checks that it is there and
  * gives the handler the other arguments.
  *
+ * ## Streams over a channel
+ *
+ * Log streams get a `Channel` (#115): the handler keeps it (`logChannels`)
+ * and `sendLog` calls its `onmessage` directly, the way the real one is
+ * called for each message (lines as a raw `ArrayBuffer`, the rest as JSON).
+ *
  * ## Adding an event
  *
  * Emit it with `events.<name>.emit(payload)` from `bindings.ts` (typed), and
@@ -47,7 +53,7 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { events } from "../lib/bindings";
 import { isClusterCommand, isMutatingCommand } from "../lib/cluster";
 import { gateRefusal } from "./fake/gate";
-import type { DetailState, LinkRequest, Overview_Serialize, TaggedLine, WatchBatch, WatchState } from "../lib/bindings";
+import type { DetailState, LinkRequest, LogMessage, Overview_Serialize, TaggedLine, WatchBatch, WatchState } from "../lib/bindings";
 import type { ClusterStateChanged } from "../lib/bindings";
 import { defaultCluster } from "./fixtures/cluster";
 import type { FakeCluster } from "./fixtures/cluster";
@@ -107,11 +113,11 @@ export interface FakeApi {
   workloadsFeeds(): { id: number; namespaces: string[] }[];
   /** Recompute the Workloads overview of the latest feed from `cluster.rows` and send it. */
   emitWorkloads(): Promise<void>;
-  /** Send `pod-log` lines; `streamId` defaults to the latest stream. */
+  /** Send lines on a log stream's channel; `streamId` defaults to the latest stream. */
   emitLogLines(lines: string[], streamId?: number): Promise<void>;
-  /** Send `workload-log` lines (merged streams: workloads, all containers of a pod). */
+  /** Send tagged lines (merged streams: workloads, all containers of a pod). */
   emitTaggedLines(lines: TaggedLine[], streamId?: number): Promise<void>;
-  /** Send `pod-log-error`, then (if `done`) `pod-log-done`. */
+  /** Send an error, then (if `done`) the end, on a log stream's channel. */
   emitLogEnd(error: string, done?: boolean, streamId?: number): Promise<void>;
   /** URLs the app asked `tauri-plugin-opener` to open. */
   opened(): string[];
@@ -190,6 +196,12 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     return handler(...Object.values(rest));
   }
 
+  /** One message to the channel of log stream `id` (default: the latest). */
+  function sendLog(id: number | undefined, message: LogMessage) {
+    const ch = st.logChannels.get(id ?? st.streamId ?? -1);
+    ch?.onmessage(message);
+  }
+
   mockIPC((cmd, args) => handle(cmd, args as CallArgs | undefined), { shouldMockEvents: true });
   mockWindows(new URLSearchParams(location.search).get("window") ?? "main");
 
@@ -230,8 +242,8 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       const id = st.lastWorkloads ?? -1;
       return events.workloadsUpdate.emit({ id, overview: workloadsOverview(cluster, st.workloadsFeeds.get(id) ?? []) });
     },
-    emitLogLines: (lines, id) => events.podLog.emit({ streamId: id ?? st.streamId ?? -1, data: lines }),
-    emitTaggedLines: (lines, id) => events.workloadLog.emit({ streamId: id ?? st.streamId ?? -1, data: lines }),
+    emitLogLines: async (lines, id) => sendLog(id, new TextEncoder().encode(lines.join("\n")).buffer as ArrayBuffer),
+    emitTaggedLines: async (lines, id) => sendLog(id, { type: "tagged", data: lines }),
     opened: () => [...opened],
     installPrometheus: () => {
       cluster.prometheus = prometheusFixture();
@@ -247,9 +259,8 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     emitKubeconfigsChanged: () => events.kubeconfigsChanged.emit({ generation: 1 }),
     emitClusterState: (change) => events.clusterStateChanged.emit(change),
     emitLogEnd: async (error, done = true, id) => {
-      const sid = id ?? st.streamId ?? -1;
-      if (error) await events.podLogError.emit({ streamId: sid, data: error });
-      if (done) await events.podLogDone.emit({ streamId: sid });
+      if (error) sendLog(id, { type: "error", message: error });
+      if (done) sendLog(id, { type: "done" });
     },
     emitUnsavedCloseRequested: (quit = false) => events.unsavedCloseRequested.emit({ quit }),
     emitExecOutput: (session, data) => events.execOutput.emit({ session, stream: "stdout", data }),
