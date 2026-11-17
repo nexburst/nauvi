@@ -197,7 +197,7 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     await app.nav("Deployments");
     await app.filter("");
     await pickNamespaces(app, [watchNs]);
-    const rows = (n) => ({ selector: '[data-testid="resource-table"]', attr: "aria-rowcount", value: String(n + 1) });
+    const rows = (n) => ({ selector: '[data-testid="resource-table"] [role="grid"]', attr: "aria-rowcount", value: String(n + 1) });
     results.watchSnapshot = await measured(app, pid, rows(PODS), () => app.nav("Pods"), {
       timeout: 180_000,
       message: `${PODS} pod rows`,

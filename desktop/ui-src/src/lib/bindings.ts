@@ -1726,7 +1726,10 @@ export type LogEvent =
 /**  The stream ended. */
 ({ type: "done" }) & { data?: never; message?: never };
 
-/**  How `bindings.ts` types a [`LogFrame`]: `ArrayBuffer | LogEvent`. */
+/**
+ *  A message on a log channel as the UI sees it: raw lines (`ArrayBuffer`)
+ *  or a `LogEvent`. Only for `bindings.ts`; the backend sends a `LogFrame`.
+ */
 export type LogMessage = ArrayBuffer | LogEvent;
 
 /**  One add-on: what it installs, from where, and its starting values. */
