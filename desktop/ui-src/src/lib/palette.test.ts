@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_RESULTS, parseQuery, pushRecent, rankItems } from "./palette";
+import { MAX_RESULTS, parseQuery, pushRecent, rankItems, reasonsByItem, withReasons } from "./palette";
 import type { PaletteItem } from "./palette";
 
 describe("parseQuery", () => {
@@ -84,5 +84,32 @@ describe("pushRecent", () => {
     expect(r).toHaveLength(10);
     expect(r[0]).toBe("x11");
     expect(pushRecent(["a", "b", "c"], "c")).toEqual(["c", "a", "b"]);
+  });
+});
+
+describe("access reasons (#349)", () => {
+  const items: PaletteItem[] = [
+    { id: "dock:Shell", group: "Action", label: "Shell", access: "shell", run: () => {} },
+    { id: "action:delete", group: "Action", label: "Delete", access: "delete", run: () => {} },
+    { id: "action:scale", group: "Action", label: "Scale", access: "scale", run: () => {} },
+    { id: "cmd:refresh", group: "Command", label: "Refresh", run: () => {} },
+  ];
+  const no = "Not allowed: you can't delete pods in namespace demo";
+
+  it("maps the refused access ids to their entries", () => {
+    const r = reasonsByItem(
+      items,
+      new Map([
+        ["delete", no],
+        ["refresh", "x"],
+      ]),
+    );
+    expect([...r]).toEqual([["action:delete", no]]);
+  });
+
+  it("sets the reason on the refused entries only", () => {
+    const out = withReasons(items, new Map([["action:delete", no]]));
+    expect(out.map((i) => i.reason)).toEqual([undefined, no, undefined, undefined]);
+    expect(withReasons(items, new Map())).toBe(items);
   });
 });

@@ -9,8 +9,9 @@
   import type { MenuItem } from "./ContextMenu.svelte";
   import { replicasFromRow } from "../actions";
   import { rangeKeys } from "../selection";
-  import { requestAction } from "../stores/actions.svelte";
-  import { deniedActions, firstDenied, namespacesOf } from "../access";
+  import { requestAction, setNotice } from "../stores/actions.svelte";
+  import { deleteDenied, deniedActions, namespacesOf } from "../access";
+  import { visibleCluster } from "../cluster";
   import { dockMenuFor } from "../dock";
   import { openDockTab } from "../stores/dock.svelte";
   import { copyLink, prefetchLink } from "../stores/links.svelte";
@@ -197,8 +198,11 @@
     const id = deleteAction?.id;
     const namespaces = selectedNamespaces !== null && id ? selectedNamespaces.split("\n") : [];
     let live = true;
-    void Promise.all(namespaces.map((ns) => deniedActions(kind.resource, ns, [id!]))).then((answers) => {
-      if (live) bulkDenied = firstDenied(answers.map((a) => a.get(id!)));
+    void deleteDenied(
+      kind.resource,
+      namespaces.map((namespace) => ({ namespace })),
+    ).then((reason) => {
+      if (live) bulkDenied = reason;
     });
     return () => (live = false);
   });
@@ -251,11 +255,29 @@
     openMenuAt(rect ? rect.left + 40 : 100, rect ? rect.bottom : 100, entry.row);
   }
 
-  function deleteRows() {
-    if (!deleteAction) return;
-    if (selected.size > 0) return deleteSelected();
+  // The keyboard Delete (#349): asks the access check first, like the menu
+  // and the bulk bar, and says why instead of opening a dialog the API
+  // server would refuse (a read-only context's reason comes first).
+  let deleteCheck = 0;
+  async function deleteRows() {
+    const del = deleteAction;
+    if (!del) return;
     const entry = focusedEntry();
-    if (entry) requestAction(kind, [{ namespace: entry.row.namespace, name: entry.row.name }], deleteAction);
+    const targets =
+      selected.size > 0
+        ? targetsOf(selected)
+        : entry
+          ? [{ namespace: entry.row.namespace, name: entry.row.name }]
+          : [];
+    if (targets.length === 0) return;
+    const token = ++deleteCheck;
+    const asked = visibleCluster();
+    const reason = await deleteDenied(kind.resource, targets);
+    // Pressed again meanwhile, or the window switched cluster: these rows
+    // are not the ones it shows any more.
+    if (token !== deleteCheck || visibleCluster() !== asked) return;
+    if (reason) setNotice(false, reason, { level: "warning" });
+    else requestAction(kind, targets, del);
   }
 
   onMount(() =>

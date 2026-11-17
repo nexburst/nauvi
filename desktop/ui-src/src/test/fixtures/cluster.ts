@@ -92,6 +92,8 @@ export interface FakeCluster {
   /** `cmd_check_actions` refuses these action ids ("logs", "shell", "edit" or an ActionId), with the given reason;
    *  a key `<namespace>/<id>` refuses the action in that namespace only. */
   deniedActions: Record<string, string>;
+  /** `cmd_check_actions` answers after this long (ms), to switch cluster meanwhile (#349). */
+  checkActionsDelayMs: number;
   /** What `cmd_get_related` returns, by `kindId|rowKey` (default: nothing related). */
   related: Record<string, Related>;
   /** `cmd_apply_manifests` rejects objects with these names (dry run included), with the given reason. */
@@ -439,6 +441,7 @@ export function defaultCluster(): FakeCluster {
     bulkErrors: {},
     evictErrors: {},
     deniedActions: {},
+    checkActionsDelayMs: 0,
     related: relatedFixtures(),
     applyErrors: {},
     forwards: [],

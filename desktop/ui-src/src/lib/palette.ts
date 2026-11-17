@@ -24,6 +24,11 @@ export interface PaletteItem {
   detail?: string;
   /** What the query is matched against; the label is always included. */
   terms?: string[];
+  /** The id the access check knows the entry by (an action's, "logs",
+   *  "shell"), for entries RBAC or a read-only context may refuse (#349). */
+  access?: string;
+  /** Not offered: why (the access check's "Not allowed: …"). */
+  reason?: string;
   run: () => void;
 }
 
@@ -103,4 +108,21 @@ export function rankItems(items: PaletteItem[], raw: string, recent: string[]): 
 /** Remember `id` as the most recent pick (keeps the 10 newest). */
 export function pushRecent(recent: string[], id: string): string[] {
   return [id, ...recent.filter((r) => r !== id)].slice(0, 10);
+}
+
+/** The reason of each gated item (by item id) from the refused access ids
+ *  (`denied`: access id -> reason), for one object. */
+export function reasonsByItem(items: PaletteItem[], denied: Map<string, string>): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const it of items) {
+    const reason = it.access ? denied.get(it.access) : undefined;
+    if (reason) out.set(it.id, reason);
+  }
+  return out;
+}
+
+/** `items` with the reasons of the refused ones set. */
+export function withReasons(items: PaletteItem[], reasons: Map<string, string>): PaletteItem[] {
+  if (reasons.size === 0) return items;
+  return items.map((it) => (reasons.has(it.id) ? { ...it, reason: reasons.get(it.id) } : it));
 }

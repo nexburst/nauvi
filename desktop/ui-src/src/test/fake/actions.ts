@@ -60,12 +60,15 @@ export function actionsHandlers(s: FakeState) {
       return drainId;
     },
     cmdCancelDrain: () => null,
-    cmdCheckActions: (_resource, namespace, ids) =>
-      ids.map((id) => {
+    cmdCheckActions: async (_resource, namespace, ids) => {
+      const out = ids.map((id) => {
         // A read-only context refuses every change, whatever RBAC says (#338).
         const ro = id === "logs" || id === "portForward" ? undefined : readOnlyReason(s);
         const reason = ro ?? cluster.deniedActions[`${namespace}/${id}`] ?? cluster.deniedActions[id];
         return { id, allowed: reason === undefined, reason: reason ?? "" };
-      }),
+      });
+      if (cluster.checkActionsDelayMs > 0) await new Promise((r) => setTimeout(r, cluster.checkActionsDelayMs));
+      return out;
+    },
   } satisfies AreaHandlers;
 }

@@ -1,23 +1,31 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { rankItems } from "../palette";
+  import { rankItems, withReasons } from "../palette";
+  import { visibleCluster } from "../cluster";
   import type { Ranked } from "../palette";
   import { reloadNamespaces } from "../stores/app.svelte";
   import { activeTable, closePalette, keyboard } from "../stores/keyboard.svelte";
-  import { paletteItems, recentIds, rememberPick } from "../stores/palette.svelte";
+  import { paletteAccess, paletteItems, recentIds, rememberPick } from "../stores/palette.svelte";
 
   /** Ctrl/Cmd+K: fuzzy search over kinds, namespaces, contexts, objects and actions. */
 
   // Built once per opening: the palette is remounted every time. Built
   // again if listing the namespaces finds new ones (#177).
   let items = $state.raw(paletteItems());
+  // The actions RBAC or a read-only context refuses (#349), by item id:
+  // offered until the check answers (cached in the backend, so at once).
+  let reasons = $state.raw(new Map<string, string>());
+  // svelte-ignore state_referenced_locally
+  const access = paletteAccess(items);
+  // The cluster its actions are about.
+  const openedOn = visibleCluster();
   // svelte-ignore state_referenced_locally
   let query = $state(keyboard.paletteQuery);
   let active = $state(0);
   let input = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement | null>(null);
 
-  const results: Ranked[] = $derived(rankItems(items, query, recentIds()));
+  const results: Ranked[] = $derived(rankItems(withReasons(items, reasons), query, recentIds()));
 
   $effect(() => {
     void query;
@@ -32,6 +40,9 @@
   onMount(() => {
     const before = document.activeElement as HTMLElement | null;
     input?.focus();
+    void access.then((r) => {
+      if (keyboard.palette) reasons = r;
+    });
     void reloadNamespaces().then((changed) => {
       if (changed && keyboard.palette) items = paletteItems();
     });
@@ -45,8 +56,21 @@
     };
   });
 
-  function run(r: Ranked | undefined) {
-    if (!r) return;
+  async function run(r: Ranked | undefined) {
+    if (!r || r.item.reason) return;
+    // Picked before the check answered: wait for it, unless the window
+    // switched cluster meanwhile (the entry is about the old one).
+    if (r.item.access) {
+      const refused = await access;
+      if (visibleCluster() !== openedOn) {
+        closePalette();
+        return;
+      }
+      if (refused.has(r.item.id)) {
+        reasons = refused;
+        return;
+      }
+    }
     rememberPick(r.item.id);
     closePalette();
     r.item.run();
@@ -71,7 +95,7 @@
         if (n) active = Math.max(active - 8, 0);
         break;
       case "Enter":
-        run(results[active]);
+        void run(results[active]);
         break;
       default:
         return;
@@ -110,13 +134,21 @@
           id="palette-option-{i}"
           role="option"
           aria-selected={i === active}
+          aria-disabled={r.item.reason ? "true" : undefined}
+          aria-describedby={r.item.reason ? `palette-deny-${i}` : undefined}
+          title={r.item.reason || undefined}
           class:active={i === active}
+          class:denied={!!r.item.reason}
           onmousemove={() => (active = i)}
-          onclick={() => run(r)}
+          onmousedown={(e) => e.preventDefault()}
+          onclick={() => void run(r)}
         >
           <span class="label">{r.item.label}</span>
           {#if r.item.detail}<span class="detail">{r.item.detail}</span>{/if}
           {#if r.group === "Recent"}<span class="tag">{r.item.group}</span>{/if}
+          {#if r.item.reason}
+            <span class="reason" id="palette-deny-{i}" data-testid="palette-reason">{r.item.reason}</span>
+          {/if}
         </li>
       {:else}
         <li class="none" role="presentation">No matches</li>
@@ -168,6 +200,19 @@
   }
   li.active {
     background: var(--bg-hover);
+  }
+  li.denied {
+    flex-wrap: wrap;
+    cursor: default;
+  }
+  li.denied .label {
+    color: var(--text-muted);
+  }
+  .reason {
+    flex-basis: 100%;
+    font-size: 11px;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
   }
   .group {
     padding: 8px 10px 2px;
