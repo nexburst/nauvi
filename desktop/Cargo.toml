@@ -35,6 +35,10 @@ specta = { version = "=2.0.0-rc.28", features = ["derive"] }
 specta-typescript = "=0.0.15"
 tauri-specta = { version = "=2.0.0-rc.29", features = ["derive", "typescript"] }
 auto-launch = "0.6"
+# The kubectl download (#331): the reqwest and rustls the updater already
+# builds (rustls with ring), plus SOCKS5 for the cluster's proxy setting.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "socks"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 
 [dev-dependencies]
 # `PortForward::idle`, for the tests of the session maps.

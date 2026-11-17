@@ -56,6 +56,8 @@ export interface SettingsPatch {
   idle_disconnect_minutes?: number;
   /** The table filter's whole search history (#219). */
   searches?: SearchHistory;
+  /** Offer a kubectl matching the cluster in local terminals (#331). */
+  kubectl_match?: boolean;
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -82,6 +84,7 @@ export function defaultSettings(): Settings {
     idle_disconnect_minutes: DEFAULT_IDLE_MINUTES,
     forwards: {},
     searches: { recent: [], starred: [] },
+    kubectl_match: false,
   };
 }
 
@@ -138,6 +141,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.idle_disconnect_minutes != null)
     next.idle_disconnect_minutes = clampIdleMinutes(patch.idle_disconnect_minutes);
   if (patch.searches != null) next.searches = normalizeHistory(patch.searches);
+  if (patch.kubectl_match != null) next.kubectl_match = patch.kubectl_match;
   return next;
 }
 

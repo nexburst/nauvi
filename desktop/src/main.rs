@@ -10,6 +10,7 @@ mod catalog;
 mod close_guard;
 mod commands;
 mod diagnostics;
+mod kubectl_fetch;
 mod links;
 mod local_shell;
 mod log_streams;
