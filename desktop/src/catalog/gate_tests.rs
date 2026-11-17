@@ -298,6 +298,7 @@ fn the_default_kubeconfig_has_no_local_files_check() {
             kubeconfig: None,
         },
         kubeconfig: None,
+        proxy: None,
     };
     assert!(approved.local_files().is_empty());
 }

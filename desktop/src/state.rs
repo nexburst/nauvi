@@ -11,7 +11,7 @@ use crate::local_shell::LocalShell;
 use crate::log_streams::LogStreams;
 use kube::api::TerminalSize;
 use kube::Client;
-use nauvi::client_for_context_with;
+use nauvi::client_for_context_via;
 use nauvi::liveness::Prober;
 use nauvi::resources::ResourceKind;
 use nauvi::UsageHistory;
@@ -22,6 +22,8 @@ use std::sync::{Arc, Mutex};
 use tauri::async_runtime::JoinHandle;
 use tauri::ipc::{CommandArg, CommandItem, InvokeError};
 use tauri::{AppHandle, EventTarget, Manager};
+
+pub(crate) mod idle;
 
 /// Why something started for a cluster is dropped: the window left it
 /// (switched to another context, disconnected it, closed or reloaded).
@@ -125,6 +127,8 @@ pub(crate) struct ClusterSession {
     pub(crate) prometheus: Mutex<Option<crate::commands::prometheus::PromCache>>,
     /// Answers of the action access checks (#340).
     pub(crate) access: nauvi::action_access::AccessCache,
+    /// When it was last used, and what the idle reaper reported (ADR 0007).
+    idle: idle::IdleMark,
     /// Set once the window left the cluster (switched, disconnected, closed
     /// or reloaded): whatever a command still in flight adds afterwards is
     /// stopped right away instead of leaking, and no client is built.
@@ -219,7 +223,10 @@ impl ClusterSession {
         let selected = self.context.as_deref();
         let c = match selected {
             // The default kubeconfig's current-context, or in-cluster config.
-            None => client_for_context_with(None, false).await,
+            // Through the proxy set for it (#329), by its catalog id.
+            None => {
+                client_for_context_via(None, false, self.sources.proxy(&self.id).as_ref()).await
+            }
             // An added kubeconfig's login command runs once allowed (#201),
             // from the file as it was read for that check (#242).
             Some(id) => self.sources.approved(Some(id))?.client().await,
@@ -228,6 +235,7 @@ impl ClusterSession {
         let server = self.sources.server(selected);
         let c = (c.clone(), Prober::for_server(c, &server));
         *slot = Some(c.clone());
+        self.idle.connected();
         Ok(c)
     }
 
@@ -337,6 +345,14 @@ impl ClusterSession {
         self.hidden.store(false, Ordering::SeqCst);
     }
 
+    /// Whether a drain still runs. Forgets the ones that ended without
+    /// removing themselves (a panic, or an end before `add_drain`).
+    pub(crate) fn has_live_drain(&self) -> bool {
+        let mut drains = self.drains.lock().unwrap();
+        drains.retain(|_, t| !t.inner().is_finished());
+        !drains.is_empty()
+    }
+
     pub(crate) fn add_drain(&self, id: String, task: JoinHandle<()>) {
         if let Some(old) = self.insert(&self.drains, id, task) {
             old.abort();
@@ -430,7 +446,7 @@ impl WindowClusters {
 
     /// Forget the left sessions whose drains have all ended.
     fn prune_left(&mut self) {
-        self.left.retain(|s| !s.drains.lock().unwrap().is_empty());
+        self.left.retain(|s| s.has_live_drain());
     }
 }
 
@@ -447,6 +463,8 @@ pub(crate) struct AppState {
     /// forwards are per context, so two windows on one context must not
     /// both start one.
     autostarting: Arc<Mutex<HashSet<String>>>,
+    /// What the idle reaper measures "untouched" with (ADR 0007).
+    clock: idle::Clock,
 }
 
 /// A window's right to auto-start one saved forward, released on drop
@@ -516,6 +534,7 @@ impl AppState {
     pub(crate) fn cluster(&self, label: &str, id: &str) -> Arc<ClusterSession> {
         self.with_window(label, |w| w.get(id))
             .flatten()
+            .inspect(|s| s.idle.touch(self.clock.now()))
             .unwrap_or_else(|| Arc::new(ClusterSession::closed(id, self.sources.clone())))
     }
 
@@ -536,6 +555,7 @@ impl AppState {
         self.with_window(label, |w| {
             w.clusters.entry(id.clone()).or_insert_with(session).clone()
         })
+        .inspect(|s| s.idle.touch(self.clock.now()))
         .unwrap_or_else(|| Arc::new(ClusterSession::closed(&id, self.sources.clone())))
     }
 
@@ -665,6 +685,15 @@ impl AppState {
     pub(crate) fn close_all(&self) -> Vec<ExecSession> {
         let labels: Vec<String> = self.windows.lock().unwrap().keys().cloned().collect();
         labels.iter().flat_map(|l| self.close(l)).collect()
+    }
+
+    /// How many sessions of all windows have a client (connected, not
+    /// idle-disconnected), the left ones included.
+    pub(crate) fn live_sessions(&self) -> usize {
+        self.all_sessions("")
+            .iter()
+            .filter(|s| s.client.try_lock().map_or(true, |c| c.is_some()))
+            .count()
     }
 
     /// Every session of every window (`except` one window), taken out of

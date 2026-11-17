@@ -8,6 +8,7 @@
 
 pub(crate) mod actions;
 pub(crate) mod applications;
+pub(crate) mod autostart;
 pub(crate) mod catalog;
 pub(crate) mod cluster;
 pub(crate) mod clusters;
@@ -24,6 +25,7 @@ pub(crate) mod metrics_addons;
 pub(crate) mod overview;
 pub(crate) mod portforward;
 pub(crate) mod prometheus;
+pub(crate) mod proxy;
 pub(crate) mod resources;
 pub(crate) mod settings;
 pub(crate) mod updater;
@@ -47,6 +49,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             actions::cmd_run_action,
             applications::cmd_applications_start,
             applications::cmd_applications_stop,
+            autostart::cmd_autostart_enabled,
+            autostart::cmd_autostart_set,
             catalog::cmd_add_kubeconfig_source,
             catalog::cmd_answer_exec_command,
             catalog::cmd_check_context,
@@ -120,6 +124,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             portforward::cmd_service_ports,
             prometheus::cmd_node_disk_usage,
             prometheus::cmd_prometheus_status,
+            proxy::cmd_get_cluster_proxy,
+            proxy::cmd_set_cluster_proxy,
             resources::cmd_apply_manifests,
             resources::cmd_apply_resource_yaml,
             resources::cmd_delete_resource,
@@ -151,6 +157,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             applications::ApplicationsChanged,
             applications::ApplicationsStateChanged,
             crate::catalog::KubeconfigsChanged,
+            crate::state::idle::ClusterStateChanged,
             exec::ExecClosed,
             exec::ExecOutput,
             links::LinkPending,

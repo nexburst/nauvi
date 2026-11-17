@@ -56,7 +56,9 @@ export const app = $state({
   error: "",
   /** Footer: item count and last update, set by the active view. */
   count: "",
-  updated: "",
+  /** When the view last updated, epoch ms (0: not yet); the footer shows
+   *  it in the display zone (#330), so a zone change shows at once. */
+  updatedAt: 0,
   /** Bumped by the Refresh button; views re-request their data on change. */
   refreshNonce: 0,
   /** The remembered context and namespaces are restored (`startApp`). */
@@ -89,7 +91,7 @@ onClusterSwitch(() => {
   app.namespacesForbidden = false;
   app.knownNamespaces = [];
   app.count = "";
-  app.updated = "";
+  app.updatedAt = 0;
   app.error = "";
   pendingView = null;
 });
@@ -222,7 +224,7 @@ export function showError(message: string) {
 }
 
 export function stamp() {
-  app.updated = "Updated " + new Date().toLocaleTimeString();
+  app.updatedAt = Date.now();
 }
 
 export async function loadContexts() {
@@ -378,7 +380,7 @@ export function setView(view: View) {
     pendingView = null;
     updateContext(currentContextName(), { view });
     app.count = "";
-    app.updated = "";
+    app.updatedAt = 0;
     showError("");
   });
 }

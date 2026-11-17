@@ -23,7 +23,7 @@ http = "1"
 k8s-openapi = { version = "0.29", features = ["latest"] }
 # The official Model Context Protocol SDK, for `nauvi mcp` (#298).
 rmcp = { version = "3.10", default-features = false, features = ["server", "transport-io"], optional = true }
-kube = { version = "5", features = ["runtime", "http-proxy", "ws", "oidc", "gzip"] }
+kube = { version = "5", features = ["runtime", "http-proxy", "socks5", "ws", "oidc", "gzip"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
@@ -70,3 +70,11 @@ debug = false
 
 [profile.test]
 debug = "line-tables-only"
+
+# Release builds (#353): one codegen unit and fat LTO make the app's code
+# about a fifth smaller (40 -> 31 MB of text), which is resident memory of
+# every running app and the size of the installers. They take longer to
+# build (about 12 -> 18 min for the desktop app on a 4-core machine).
+[profile.release]
+lto = "fat"
+codegen-units = 1

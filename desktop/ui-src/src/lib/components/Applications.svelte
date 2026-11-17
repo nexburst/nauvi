@@ -4,6 +4,8 @@
 </script>
 
 <script lang="ts">
+  import { rowHeightPx } from "../preferences";
+  import { settings } from "../stores/settings.svelte";
   import { onDestroy, untrack } from "svelte";
   import VirtualList from "./VirtualList.svelte";
   import { events } from "../bindings";
@@ -24,7 +26,8 @@
 
   const RETRY_MS = 5_000;
   const AGE_TICK_MS = 15_000;
-  const ROW_HEIGHT = 32;
+  // Settings → Tables (#330): normal or compact.
+  const ROW_HEIGHT = $derived(rowHeightPx(32, settings.current.row_height));
   const template =
     "minmax(140px, 1.6fr) minmax(100px, 1fr) 110px minmax(130px, 1.2fr) minmax(100px, 1fr) 80px 124px 64px";
   const HEADERS: { label: string; sort?: AppSortKey }[] = [

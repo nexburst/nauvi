@@ -17,6 +17,7 @@
     tree,
     visibleChanged,
   } from "../stores/clusters.svelte";
+  import { clusterStates } from "../stores/clusterStates.svelte";
   import ExecPrompt from "./catalog/ExecPrompt.svelte";
   import SidebarKinds from "./SidebarKinds.svelte";
 
@@ -53,13 +54,15 @@
   {@const n = nodeOf(id)}
   {@const isVisible = id === visible}
   {@const open = isExpanded(id)}
-  {@const state = isVisible ? "connected" : n.state}
+  <!-- Disconnected by the idle reaper (PR 4): its next command connects again. -->
+  {@const idled = !isVisible && n.state === "connected" && clusterStates.byId.get(id)?.state === "idle"}
+  {@const state = isVisible ? "connected" : idled ? "idle" : n.state}
   <div
     class="node"
     class:visible={isVisible}
     data-testid="cluster-node"
     data-cluster={id}
-    data-state={isVisible ? "visible" : n.state}
+    data-state={isVisible ? "visible" : state}
   >
     <div class="row">
       <button
@@ -74,7 +77,7 @@
         type="button"
         class="name"
         aria-current={isVisible ? "true" : undefined}
-        title={`${label(id)}: ${stateText(n.state, isVisible)}`}
+        title={`${label(id)}: ${idled ? "Disconnected while idle: it connects again when used" : stateText(n.state, isVisible)}`}
         onclick={() => void showNode(id)}
       >
         <span

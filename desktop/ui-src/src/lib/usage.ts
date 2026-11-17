@@ -1,7 +1,8 @@
 // Usage history (#47): geometry for the table sparklines and the detail
 // panel charts. Plain SVG, no chart library.
 
-import type { UsageHistoryView, UsageRange, UsageReference, UsageSample } from "./bindings";
+import type { TimeZone, UsageHistoryView, UsageRange, UsageReference, UsageSample } from "./bindings";
+import { displayZone, hhmm } from "./timeZone";
 
 /**
  * `points` for an SVG polyline of `values` in a `w`×`h` box: left to right,
@@ -122,10 +123,9 @@ export function linePoints(frame: ChartFrame, samples: readonly UsageSample[], r
   return samples.map((s) => `${round(((s.t - frame.t0) / span) * frame.w)},${yOf(frame, valueOf(s, r))}`).join(" ");
 }
 
-/** "10:42", local time, for "collecting since". */
-export function clockTime(ms: number): string {
-  const d = new Date(ms);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+/** "10:42", in the display zone (#330), for "collecting since". */
+export function clockTime(ms: number, zone: TimeZone = displayZone()): string {
+  return hhmm(ms, zone);
 }
 
 /** The ranges a chart offers when the context has a Prometheus. */

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { rowHeightPx } from "../preferences";
   import { onMount } from "svelte";
   import VirtualList from "./VirtualList.svelte";
   import ContextMenu from "./ContextMenu.svelte";
@@ -24,7 +25,7 @@
   import { ListFilter } from "../stores/tableFilter.svelte";
   import { rawHay } from "../tableFilter";
   import { sortOf, withSort } from "../settings";
-  import { kindSettings, updateSettings } from "../stores/settings.svelte";
+  import { kindSettings, settings, updateSettings } from "../stores/settings.svelte";
   import { registerTableExport } from "../stores/tableExport.svelte";
   import { tableCsv } from "../csv";
 
@@ -55,7 +56,8 @@
     scrollEl = $bindable(null),
   }: Props = $props();
 
-  const ROW_HEIGHT = 28;
+  // Settings → Tables (#330): normal or compact.
+  const ROW_HEIGHT = $derived(rowHeightPx(28, settings.current.row_height));
 
   // The header leaves the width of the scroller's scrollbar, so its columns
   // stay over the cells: 15 px in Chromium, 0 with WebKitGTK's overlay

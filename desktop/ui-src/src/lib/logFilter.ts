@@ -2,6 +2,9 @@
 // filter or highlight, and "Jump to time". Pure functions; the regex itself
 // runs in a worker (logSearch.ts), never on the UI thread.
 
+import type { TimeZone } from "./bindings";
+import { clockParts, displayZone, fromClock } from "./timeZone";
+
 /** What the user typed in the search box, and the two toggles. */
 export interface LogQuery {
   text: string;
@@ -185,11 +188,11 @@ const CLOCK = /^(\d{1,2}):(\d\d)(?::(\d\d)(?:\.(\d{1,3}))?)?$/;
 
 /**
  * The time the user typed in "Jump to time": a full timestamp (`2026-11-16
- * 10:30`, `2026-11-16T10:30:00Z`), or a clock time `HH:MM[:SS]` in local
- * time on the day of `latest` (the newest line), or the day before when
+ * 10:30`, `2026-11-16T10:30:00Z`), or a clock time `HH:MM[:SS]` in `zone`
+ * (#330) on the day of `latest` (the newest line), or the day before when
  * that would be later than it. NaN when it cannot be read.
  */
-export function parseJumpTime(input: string, latest: number): number {
+export function parseJumpTime(input: string, latest: number, zone: TimeZone = displayZone()): number {
   const s = input.trim();
   if (!s) return NaN;
   const full = lineTime(s);
@@ -199,12 +202,11 @@ export function parseJumpTime(input: string, latest: number): number {
   const [h, mi, sec] = [Number(m[1]), Number(m[2]), Number(m[3] ?? 0)];
   if (h > 23 || mi > 59 || sec > 59) return NaN;
   const ms = Number((m[4] ?? "0").padEnd(3, "0"));
-  const base = new Date(Number.isNaN(latest) ? Date.now() : latest);
-  const at = new Date(base.getFullYear(), base.getMonth(), base.getDate(), h, mi, sec, ms).getTime();
+  const base = clockParts(Number.isNaN(latest) ? Date.now() : latest, zone);
+  const at = fromClock(base.year, base.month, base.day, h, mi, sec, ms, zone);
   // A minute of slack: "10:30" while the newest line is 10:29:59.
   if (!Number.isNaN(latest) && at > latest + 60_000) {
-    const prev = new Date(base.getFullYear(), base.getMonth(), base.getDate() - 1, h, mi, sec, ms);
-    return prev.getTime();
+    return fromClock(base.year, base.month, base.day - 1, h, mi, sec, ms, zone);
   }
   return at;
 }

@@ -7,6 +7,7 @@
 
 import { actionsHandlers } from "./actions";
 import { applicationsHandlers } from "./applications";
+import { autostartHandlers } from "./autostart";
 import { catalogHandlers } from "./catalog";
 import { clusterHandlers } from "./cluster";
 import { clustersHandlers } from "./clusters";
@@ -23,6 +24,7 @@ import { metricsAddonsHandlers } from "./metrics-addons";
 import { overviewHandlers } from "./overview";
 import { portforwardHandlers } from "./portforward";
 import { prometheusHandlers } from "./prometheus";
+import { proxyHandlers } from "./proxy";
 import { resourcesHandlers } from "./resources";
 import { settingsHandlers } from "./settings";
 import type { FakeState, Handlers } from "./state";
@@ -38,6 +40,7 @@ export function allHandlers(s: FakeState): Handlers {
   return {
     ...actionsHandlers(s),
     ...applicationsHandlers(s),
+    ...autostartHandlers(s),
     ...catalogHandlers(s),
     ...clusterHandlers(s),
     ...clustersHandlers(s),
@@ -54,6 +57,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...overviewHandlers(s),
     ...portforwardHandlers(s),
     ...prometheusHandlers(s),
+    ...proxyHandlers(s),
     ...resourcesHandlers(s),
     ...settingsHandlers(s),
     ...updaterHandlers(s),

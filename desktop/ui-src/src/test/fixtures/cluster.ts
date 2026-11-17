@@ -130,6 +130,10 @@ export interface FakeCluster {
   update: FakeUpdate;
   /** The save dialog (`cmd_save_csv`) is cancelled by the user this many more times. */
   saveDialogCancels: number;
+  /** Whether the OS starts the app at login (#330); off by default. */
+  autostart: boolean;
+  /** The kubeconfig's own proxy-url by context id, as `cmd_get_cluster_proxy` masks it (#329); none by default. */
+  kubeconfigProxies?: Record<string, string>;
 }
 
 /** Unix seconds, a fixed distance in the past so ages are stable. */
@@ -538,6 +542,7 @@ export function defaultCluster(): FakeCluster {
     settings: defaultSettings(),
     update: upToDate(),
     saveDialogCancels: 0,
+    autostart: false,
   };
 }
 

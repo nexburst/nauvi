@@ -15,6 +15,7 @@ function ctx(name: string, source = "", file = "/home/u/.kube/config"): ContextI
     source,
     login_command: "",
     login_plugin: false,
+    plugin_login: false,
     local_files: [],
   };
 }
