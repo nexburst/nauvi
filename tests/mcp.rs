@@ -44,8 +44,14 @@ impl Server {
     /// A server that reads the app's settings from `config/com.nauvi.app`
     /// (Linux: `XDG_CONFIG_HOME`).
     fn start_with_config(args: &[&str], config: &std::path::Path) -> Self {
+        Self::start_with_env(args, config, &[])
+    }
+
+    /// [`Self::start_with_config`] with extra environment variables.
+    fn start_with_env(args: &[&str], config: &std::path::Path, env: &[(&str, &str)]) -> Self {
         let mut child = Command::new(env!("CARGO_BIN_EXE_nauvi"))
             .args(args)
+            .envs(env.iter().copied())
             .env("XDG_CONFIG_HOME", config)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -518,13 +524,19 @@ async fn mcp_mode_of_a_non_default_kubeconfig() -> Result<()> {
         std::fs::write(&work, serde_yaml::to_string(&kc)?)?;
         std::fs::write(&stray, serde_yaml::to_string(&kc)?)?;
         let work_str = work.display().to_string();
-        let id = nauvi::context_mode::app_context_id(
+        let ids = nauvi::context_mode::app_context_ids(
             std::slice::from_ref(&work),
             None,
             Some(&work),
             &ctx,
-        )
-        .context("the copy is in the catalog")?;
+        );
+        // The copy's own id when the default kubeconfig has `ctx` too.
+        let id = ids
+            .iter()
+            .find(|i| **i != ctx)
+            .or(ids.first())
+            .cloned()
+            .context("the copy is in the catalog")?;
         // The bare name stays normal (when it is another context's id).
         let mut contexts = serde_json::Map::new();
         contexts.insert(ctx.clone(), json!({ "mode": "normal" }));
@@ -555,6 +567,20 @@ async fn mcp_mode_of_a_non_default_kubeconfig() -> Result<()> {
             assert!(err && text.contains(words), "{file} ({id}): {text}");
             s.ok("list", json!({ "kind": "configmaps", "namespace": ns }));
         }
+        // KUBECONFIG = the added file: the CLI reads it as its default
+        // kubeconfig, so its own catalog calls the context `ctx`; the app
+        // calls it by the added file's id. The strictest mode counts.
+        let mut s = Server::start_with_env(
+            &["--context", &ctx, "mcp", "--allow-writes"],
+            &config,
+            &[("KUBECONFIG", work_str.as_str())],
+        );
+        s.initialize();
+        let (err, text) = s.call("apply", json!({ "manifest": manifest, "namespace": ns }));
+        assert!(
+            err && text.contains("is read-only"),
+            "KUBECONFIG={work_str} ({id}): {text}"
+        );
         let cms: Api<k8s_openapi::api::core::v1::ConfigMap> = Api::namespaced(client.clone(), &ns);
         assert!(
             cms.get_opt("from-mcp").await?.is_none(),

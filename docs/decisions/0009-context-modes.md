@@ -56,7 +56,10 @@ their own clusters.
   confirmation for the person). It finds the context's mode by its catalog
   id, built exactly as the app builds it (`load_catalog` over the default
   kubeconfig and the app's added sources), so `--kubeconfig work.yaml
-  --context prod` gets the mode of `prod (work.yaml)`. A context the app's
+  --context prod` gets the mode of `prod (work.yaml)`. Which id a file gets
+  depends on the app's own default kubeconfig, which the CLI can't see (its
+  `KUBECONFIG` may be an added file), so the catalog is built several ways
+  and the strictest mode of every matching id applies. A context the app's
   catalog does not have is refused writes; with no app settings at all,
   nothing is marked and writes follow `--allow-writes`.
 
