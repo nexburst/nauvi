@@ -909,10 +909,10 @@ export type ContextInfo_Deserialize = {
 	 */
 	login_plugin: boolean,
 	/**
-	 *  Logging in may open a browser (OIDC or SSO, [`browser_login`]): the
-	 *  app never disconnects the cluster when it is idle (ADR 0007).
+	 *  Logging in runs a plugin that may ask the user ([`plugin_login`]):
+	 *  the app never disconnects the cluster when it is idle (ADR 0007).
 	 */
-	browser_login: boolean,
+	plugin_login: boolean,
 	/**
 	 *  The `tokenFile`, `client-certificate` and `client-key` paths of an
 	 *  added file's context outside that file's folder: logging in sends
@@ -956,10 +956,10 @@ export type ContextInfo_Serialize = {
 	 */
 	login_plugin: boolean,
 	/**
-	 *  Logging in may open a browser (OIDC or SSO, [`browser_login`]): the
-	 *  app never disconnects the cluster when it is idle (ADR 0007).
+	 *  Logging in runs a plugin that may ask the user ([`plugin_login`]):
+	 *  the app never disconnects the cluster when it is idle (ADR 0007).
 	 */
-	browser_login: boolean,
+	plugin_login: boolean,
 	/**
 	 *  The `tokenFile`, `client-certificate` and `client-key` paths of an
 	 *  added file's context outside that file's folder: logging in sends
@@ -1835,8 +1835,11 @@ export type OwnerLink = {
 export type Pin = "port-forward" | 
 /**  An exec, attach, debug or node shell. */
 "terminal" | "local-shell" | "log-stream" | "drain" | 
-/**  Its login may open a browser (OIDC or SSO): never disconnected. */
-"browser-login";
+/**
+ *  It signs in through a plugin that may ask the user (a browser for
+ *  OIDC or SSO, say): never disconnected.
+ */
+"plugin-login";
 
 /**
  *  Pod counts, across the cluster or in one namespace. A pod counts once:

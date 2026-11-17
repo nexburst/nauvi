@@ -5,8 +5,8 @@
 //! client and prober, its discovered kinds, its usage history and its
 //! caches are dropped. The session stays, so the next command for that
 //! cluster connects it again (with the stored answer about its login
-//! command, #201). Clusters whose login may open a browser are never
-//! disconnected. Each window hears about its clusters through
+//! command, #201). Clusters that sign in through a plugin that may ask
+//! the user are never disconnected (`nauvi::plugin_login`). Each window hears about its clusters through
 //! [`ClusterStateChanged`].
 //!
 //! The reaper also forgets sessions a window left whose drains are gone (a
@@ -35,8 +35,9 @@ pub(crate) enum Pin {
     LocalShell,
     LogStream,
     Drain,
-    /// Its login may open a browser (OIDC or SSO): never disconnected.
-    BrowserLogin,
+    /// It signs in through a plugin that may ask the user (a browser for
+    /// OIDC or SSO, say): never disconnected.
+    PluginLogin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -133,7 +134,7 @@ fn wake() -> &'static tokio::sync::Notify {
 }
 
 impl ClusterSession {
-    /// What keeps it connected (browser logins aside).
+    /// What keeps it connected (plugin logins aside).
     pub(crate) fn pinned_by(&self) -> Vec<Pin> {
         let mut pins = Vec::new();
         if !self.forwards.lock().unwrap().is_empty() {
@@ -148,7 +149,7 @@ impl ClusterSession {
         if self.log_streams.running() > 0 {
             pins.push(Pin::LogStream);
         }
-        if !self.drains.lock().unwrap().is_empty() {
+        if self.has_live_drain() {
             pins.push(Pin::Drain);
         }
         pins
@@ -189,8 +190,8 @@ pub(crate) struct Reap<'a> {
     /// Untouched this long, a cluster nothing keeps connected is
     /// disconnected (`None`: never, only report).
     pub(crate) idle_after: Option<Duration>,
-    /// Whether the login of cluster `id` may open a browser.
-    pub(crate) browser_login: &'a dyn Fn(&str) -> bool,
+    /// Whether cluster `id` signs in through a plugin that may ask.
+    pub(crate) plugin_login: &'a dyn Fn(&str) -> bool,
 }
 
 impl AppState {
@@ -241,8 +242,8 @@ fn reap_one(session: &ClusterSession, pass: &Reap) -> Option<ClusterStateChanged
         return None;
     }
     let mut pinned_by = session.pinned_by();
-    if (pass.browser_login)(session.id()) {
-        pinned_by.push(Pin::BrowserLogin);
+    if (pass.plugin_login)(session.id()) {
+        pinned_by.push(Pin::PluginLogin);
     }
     let untouched = Duration::from_millis(session.idle.untouched(pass.now));
     let state = match session.has_client()? {
@@ -301,12 +302,12 @@ fn run_pass(app: &AppHandle, disconnect: bool) {
         .try_state::<Arc<SettingsStore>>()
         .map_or(0, |s| s.get().idle_disconnect_minutes);
     let catalog = state.sources.catalog();
-    let browser_login = |id: &str| catalog.find(id).is_some_and(|c| c.browser_login);
+    let plugin_login = |id: &str| catalog.find(id).is_some_and(|c| c.plugin_login);
     let pass = Reap {
         now: state.clock.now(),
         idle_after: (disconnect && minutes > 0)
             .then(|| Duration::from_secs(u64::from(minutes) * 60)),
-        browser_login: &browser_login,
+        plugin_login: &plugin_login,
     };
     for (label, change) in state.reap(&pass) {
         if change.state == ClusterState::Idle {

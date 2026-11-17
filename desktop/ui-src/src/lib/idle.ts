@@ -30,7 +30,7 @@ const PINS: Record<Pin, string> = {
   "local-shell": "a local shell",
   "log-stream": "a log stream",
   drain: "a drain",
-  "browser-login": "its browser login",
+  "plugin-login": "its sign-in plugin",
 };
 
 /** "a port-forward and a log stream". */

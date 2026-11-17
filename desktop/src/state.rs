@@ -311,6 +311,14 @@ impl ClusterSession {
         }
     }
 
+    /// Whether a drain still runs. Forgets the ones that ended without
+    /// removing themselves (a panic, or an end before `add_drain`).
+    pub(crate) fn has_live_drain(&self) -> bool {
+        let mut drains = self.drains.lock().unwrap();
+        drains.retain(|_, t| !t.inner().is_finished());
+        !drains.is_empty()
+    }
+
     pub(crate) fn add_drain(&self, id: String, task: JoinHandle<()>) {
         if let Some(old) = self.insert(&self.drains, id, task) {
             old.abort();
@@ -404,7 +412,7 @@ impl WindowClusters {
 
     /// Forget the left sessions whose drains have all ended.
     fn prune_left(&mut self) {
-        self.left.retain(|s| !s.drains.lock().unwrap().is_empty());
+        self.left.retain(|s| s.has_live_drain());
     }
 }
 

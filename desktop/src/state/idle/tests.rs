@@ -21,7 +21,7 @@ fn at(now: &AtomicU64, minutes: u64) {
     now.store(minutes * MIN + 1, Ordering::SeqCst);
 }
 
-fn never_browser(_: &str) -> bool {
+fn no_plugin(_: &str) -> bool {
     false
 }
 
@@ -30,7 +30,7 @@ fn reap(state: &AppState, minutes: u64) -> Vec<(String, ClusterStateChanged)> {
     state.reap(&Reap {
         now: state.clock.now(),
         idle_after: Some(Duration::from_secs(minutes * 60)),
-        browser_login: &never_browser,
+        plugin_login: &no_plugin,
     })
 }
 
@@ -171,7 +171,7 @@ fn zero_minutes_is_never() {
     let pass = Reap {
         now: state.clock.now(),
         idle_after: None,
-        browser_login: &never_browser,
+        plugin_login: &no_plugin,
     };
     state.reap(&pass);
     assert_eq!(state.live_sessions(), 1);
@@ -212,7 +212,7 @@ fn what_runs_in_a_cluster_keeps_it_connected() {
 }
 
 #[test]
-fn a_browser_login_is_never_disconnected() {
+fn a_plugin_login_is_never_disconnected() {
     let (state, now) = state();
     state.open(MAIN_WINDOW, Some("a".into()));
     fake_connect(&state.connect(MAIN_WINDOW, Some("sso".into())));
@@ -220,14 +220,14 @@ fn a_browser_login_is_never_disconnected() {
     let pass = Reap {
         now: state.clock.now(),
         idle_after: Some(Duration::from_secs(60)),
-        browser_login: &|id: &str| id == "sso",
+        plugin_login: &|id: &str| id == "sso",
     };
     assert_eq!(
         state.reap(&pass),
         vec![changed(
             "sso",
             ClusterState::Connected,
-            vec![Pin::BrowserLogin]
+            vec![Pin::PluginLogin]
         )]
     );
     assert_eq!(state.live_sessions(), 1);
@@ -242,22 +242,73 @@ fn a_cluster_never_connected_is_not_reported() {
     assert!(reap(&state, 10).is_empty());
 }
 
+/// A drain task that panics once `go` is sent; its handle stays in the map.
+fn panicking_drain() -> (
+    tauri::async_runtime::JoinHandle<()>,
+    tokio::sync::oneshot::Sender<()>,
+) {
+    let (go, wait) = tokio::sync::oneshot::channel::<()>();
+    let task = tauri::async_runtime::spawn(async move {
+        let _ = wait.await;
+        panic!("drain failed");
+    });
+    (task, go)
+}
+
+fn wait_finished(task: &tauri::async_runtime::JoinHandle<()>) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !task.inner().is_finished() {
+        assert!(std::time::Instant::now() < deadline, "the task did not end");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 #[test]
-fn left_sessions_without_a_drain_are_forgotten() {
+fn a_left_session_whose_drain_panicked_is_forgotten() {
     let (state, _now) = state();
     state.open(MAIN_WINDOW, Some("a".into()));
     let a = state.session(MAIN_WINDOW);
-    a.add_drain("d1".into(), forever());
+    let (task, go) = panicking_drain();
+    a.add_drain("d1".into(), task);
     // Starting the cluster over leaves the session, kept for its drain.
     state.switch(MAIN_WINDOW, Some("a".into()));
     assert_eq!(state.all_sessions("").len(), 2);
-    // A drain that ended without `drain_ended` (it failed or panicked).
-    a.drains.lock().unwrap().clear();
-    assert_eq!(state.all_sessions("").len(), 2);
+    assert!(a.has_live_drain());
+    go.send(()).unwrap();
+    wait_finished(a.drains.lock().unwrap().get("d1").unwrap());
+    // Its handle is still there (no `drain_ended`), but it counts for nothing.
+    assert_eq!(a.drains.lock().unwrap().len(), 1);
     reap(&state, 10);
     assert_eq!(state.all_sessions("").len(), 1);
     drop(state);
     assert_eq!(Arc::strong_count(&a), 1, "nothing holds the left session");
+}
+
+#[test]
+fn a_drain_that_ended_before_it_was_added_pins_nothing() {
+    let (state, now) = state();
+    state.open(MAIN_WINDOW, Some("a".into()));
+    let b = state.connect(MAIN_WINDOW, Some("b".into()));
+    fake_connect(&b);
+    // It failed at once, before the command registered it.
+    let task = tauri::async_runtime::spawn(async {});
+    wait_finished(&task);
+    b.add_drain("d1".into(), task);
+    at(&now, 30);
+    assert_eq!(
+        reap(&state, 10),
+        vec![changed("b", ClusterState::Idle, vec![])]
+    );
+    assert_eq!(state.live_sessions(), 0);
+
+    // The same in a left session: switching away does not keep it.
+    let a = state.session(MAIN_WINDOW);
+    let task = tauri::async_runtime::spawn(async {});
+    wait_finished(&task);
+    a.add_drain("d2".into(), task);
+    state.switch(MAIN_WINDOW, Some("a".into()));
+    assert_eq!(state.all_sessions("").len(), 2, "b, and the new a");
+    assert!(state.all_sessions("").iter().all(|s| !Arc::ptr_eq(s, &a)));
 }
 
 /// An added kubeconfig whose login command prints a token and counts its

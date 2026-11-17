@@ -319,8 +319,8 @@
       {/if}
       <p class="muted hint">
         A cluster this window is connected to but does not show is disconnected after this long untouched, unless a
-        port-forward, terminal, log stream or drain runs there. Using it connects it again. Clusters whose login opens
-        a browser stay connected.
+        port-forward, terminal, log stream or drain runs there. Using it connects it again. Clusters that sign in
+        through a plugin stay connected.
       </p>
     </fieldset>
 

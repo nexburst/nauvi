@@ -28,8 +28,8 @@ describe("idle disconnect helpers (#333)", () => {
     expect(pinsText(["drain"])).toBe("a drain");
     expect(pinsText(["port-forward", "terminal", "log-stream"])).toBe("a port-forward, a terminal and a log stream");
     expect(clusterStateText({ state: "connected", pinnedBy: [] })).toBe("Connected.");
-    expect(clusterStateText({ state: "connected", pinnedBy: ["browser-login"] })).toBe(
-      "Connected, kept by its browser login.",
+    expect(clusterStateText({ state: "connected", pinnedBy: ["plugin-login"] })).toBe(
+      "Connected, kept by its sign-in plugin.",
     );
     expect(clusterStateText({ state: "idle", pinnedBy: [] })).toMatch(/^Disconnected while idle/);
     expect(clusterStateText({ state: "disconnected", pinnedBy: [] })).toBe("Disconnected.");

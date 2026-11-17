@@ -77,11 +77,11 @@ test("Settings lists the background clusters and what keeps them connected", asy
   await emit(page, {
     cluster: "staging",
     state: "connected",
-    pinnedBy: ["browser-login"],
+    pinnedBy: ["plugin-login"],
   });
   await expect(list.locator("li")).toHaveText([
     /^prod Disconnected while idle/,
-    /^staging Connected, kept by its browser login/,
+    /^staging Connected, kept by its sign-in plugin/,
   ]);
 
   // The window's own cluster is never listed; a disconnected one goes.

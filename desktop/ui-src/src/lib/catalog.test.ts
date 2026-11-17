@@ -26,7 +26,7 @@ const ctx = (name: string, extra: Partial<ContextInfo> = {}): ContextInfo => ({
   source: "",
   login_command: "",
   login_plugin: false,
-  browser_login: false,
+  plugin_login: false,
   local_files: [],
   ...extra,
 });
