@@ -53,7 +53,7 @@ test("denied kinds are greyed out and do not open", async ({ page }) => {
 test("a failed discovery says so and leaves only the overview", async ({ page }) => {
   await openApp(page, (_cluster, fake) => fake.failNext("cmdDiscover", "403 forbidden"), { waitForKinds: false });
   await expect(page.getByRole("alert")).toHaveText("Could not discover the cluster's resource types: 403 forbidden");
-  await expect(page.getByRole("navigation").getByRole("button")).toHaveText(["Overview"]);
+  await expect(page.getByTestId("sidebar-kinds").getByRole("button")).toHaveText(["Overview"]);
 });
 
 test("the overview shows the cluster summary", async ({ page }) => {

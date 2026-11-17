@@ -1,6 +1,7 @@
 <script module lang="ts">
   import { commands } from "../bindings";
   import { api, visibleCluster } from "../cluster";
+  import type { ClusterApi } from "../cluster";
   import type { PodRef } from "../stores/detail.svelte";
   import { orderedInput } from "../orderedInput";
   import { kubectlIntro } from "../kubectlMatch";
@@ -36,7 +37,7 @@
     return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   }
 
-  function backendFor(t: TerminalTarget): Backend {
+  function backendFor(t: TerminalTarget, c: ClusterApi): Backend {
     if (t.kind === "debug" || t.kind === "nodeShell") {
       const pending = `ui-${randomId()}`;
       return {
@@ -44,30 +45,30 @@
         start: async (cols, rows) => ({
           id:
             t.kind === "debug"
-              ? await api(visibleCluster()).cmdDebugStart(pending, t.pod.namespace, t.pod.name, t.target, t.image, cols, rows)
-              : await api(visibleCluster()).cmdNodeShellStart(pending, t.node, t.namespace, cols, rows),
+              ? await c.cmdDebugStart(pending, t.pod.namespace, t.pod.name, t.target, t.image, cols, rows)
+              : await c.cmdNodeShellStart(pending, t.node, t.namespace, cols, rows),
           intro: "",
         }),
-        input: api(visibleCluster()).cmdExecInput,
-        resize: api(visibleCluster()).cmdExecResize,
-        close: api(visibleCluster()).cmdExecClose,
+        input: c.cmdExecInput,
+        resize: c.cmdExecResize,
+        close: c.cmdExecClose,
       };
     }
     if (t.kind === "pod" || t.kind === "attach") {
-      const start = t.kind === "pod" ? api(visibleCluster()).cmdExecStart : api(visibleCluster()).cmdAttachStart;
+      const start = t.kind === "pod" ? c.cmdExecStart : c.cmdAttachStart;
       return {
         start: async (cols, rows) => ({
           id: await start(t.pod.namespace, t.pod.name, t.container, cols, rows),
           intro: "",
         }),
-        input: api(visibleCluster()).cmdExecInput,
-        resize: api(visibleCluster()).cmdExecResize,
-        close: api(visibleCluster()).cmdExecClose,
+        input: c.cmdExecInput,
+        resize: c.cmdExecResize,
+        close: c.cmdExecClose,
       };
     }
     return {
       start: async (cols, rows) => {
-        const s = await api(visibleCluster()).cmdLocalShellStart(t.namespace, cols, rows);
+        const s = await c.cmdLocalShellStart(t.namespace, cols, rows);
         return {
           id: s.session,
           intro:
@@ -77,9 +78,9 @@
           kubectl: s.kubectl,
         };
       },
-      input: api(visibleCluster()).cmdLocalShellInput,
-      resize: api(visibleCluster()).cmdLocalShellResize,
-      close: api(visibleCluster()).cmdLocalShellClose,
+      input: c.cmdLocalShellInput,
+      resize: c.cmdLocalShellResize,
+      close: c.cmdLocalShellClose,
     };
   }
 </script>
@@ -104,9 +105,11 @@
     target: TerminalTarget;
     /** The shown dock tab: it gets the focus. Hidden tabs keep their session. */
     active?: boolean;
+    /** The cluster it runs on (ADR 0007): by default the one shown. */
+    cluster?: string;
   }
 
-  let { target, active = true }: Props = $props();
+  let { target, active = true, cluster = visibleCluster() }: Props = $props();
 
   // Picked once: a tab's target never changes.
   let backend: Backend | null = null;
@@ -163,7 +166,7 @@
   });
 
   onMount(async () => {
-    const b = backendFor(target);
+    const b = backendFor(target, api(cluster));
     backend = b;
     const t = new Terminal({
       cursorBlink: true,

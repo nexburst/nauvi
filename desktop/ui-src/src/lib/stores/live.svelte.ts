@@ -1,5 +1,5 @@
 import { events } from "../bindings";
-import { api, visibleCluster } from "../cluster";
+import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import { thisWindow } from "../window";
 import type { WatchBatch, WatchStateChanged } from "../bindings";
 import type { MetricsKind, MetricsSnapshot, ResourceKind } from "../bindings";
@@ -279,3 +279,10 @@ function earliest(times: number[]): number {
 }
 
 export const live = new LiveTable();
+
+// The rows of one cluster never show for the next (ADR 0007).
+onClusterSwitch(() => {
+  live.stop();
+  live.store.clear();
+  live.synced = false;
+});

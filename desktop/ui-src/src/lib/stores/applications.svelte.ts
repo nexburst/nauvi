@@ -5,6 +5,7 @@
 import type { Application, ApplicationsList } from "../bindings";
 import { appRow } from "../applications";
 import type { AppRow } from "../applications";
+import { onClusterSwitch } from "../cluster";
 import { KeyedStore } from "./keyed.svelte";
 
 class ApplicationsStore {
@@ -18,6 +19,9 @@ class ApplicationsStore {
   current = $state.raw<Application | null>(null);
 }
 export const apps = new ApplicationsStore();
+
+// The applications of one cluster never show for the next (ADR 0007).
+onClusterSwitch(() => resetApplications());
 
 /** Replace the list with a new one from the feed. */
 export function applyApplications(list: ApplicationsList) {

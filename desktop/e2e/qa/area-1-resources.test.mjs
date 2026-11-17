@@ -103,7 +103,7 @@ function waitListed(app, timeout) {
 
 /** Open a kind and return what is wrong with its table, or "". */
 async function kindProblem(app, label) {
-  await app.js(`document.querySelectorAll("nav details").forEach((d) => (d.open = true))`);
+  await app.js(`document.querySelectorAll("[data-testid=sidebar-kinds] details").forEach((d) => (d.open = true))`);
   await app.nav(label);
   try {
     await app.find(By.css(`[data-testid="resource-table"] [role="grid"][aria-label=${JSON.stringify(label)}]`));
@@ -194,10 +194,10 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     // on its own below), Port Forwards and the Helm section.
     const labels = await app.js(
       `const views = arguments[0];
-       document.querySelectorAll("nav details").forEach((d) => (d.open = true));
+       document.querySelectorAll("[data-testid=sidebar-kinds] details").forEach((d) => (d.open = true));
        let section = "";
        const all = [];
-       for (const el of document.querySelectorAll("nav h4, nav button")) {
+       for (const el of document.querySelectorAll("[data-testid=sidebar-kinds] h4, [data-testid=sidebar-kinds] button")) {
          if (el.tagName === "H4") { section = el.textContent.trim(); continue; }
          const label = el.childNodes[0]?.textContent.trim() ?? "";
          if (label && section !== "Helm" && !views.includes(label)) all.push(label);
@@ -236,8 +236,8 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     const { app } = s;
     // Matches the label before and after the sidebar-name fix (#96).
     const label = await app.js(
-      `document.querySelectorAll("nav details").forEach((d) => (d.open = true));
-       return [...document.querySelectorAll("nav button")]
+      `document.querySelectorAll("[data-testid=sidebar-kinds] details").forEach((d) => (d.open = true));
+       return [...document.querySelectorAll("[data-testid=sidebar-kinds] button")]
          .map((b) => b.childNodes[0]?.textContent.trim() ?? "")
          .find((l) => /^component ?statuses$/i.test(l)) ?? "";`,
     );
@@ -253,10 +253,10 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
 
   it("sidebar names are readable, unique and fit the sidebar (#96)", T, async () => {
     const { app } = s;
-    await app.js(`document.querySelectorAll("nav details").forEach((d) => (d.open = true))`);
+    await app.js(`document.querySelectorAll("[data-testid=sidebar-kinds] details").forEach((d) => (d.open = true))`);
     const kinds = await app.js(
       `const nav = document.querySelector("nav").getBoundingClientRect();
-       return Array.from(document.querySelectorAll("nav button.kind"), (b) => {
+       return Array.from(document.querySelectorAll("[data-testid=sidebar-kinds] button.kind"), (b) => {
          const label = b.querySelector(".label");
          return {
            label: label.textContent.trim(),

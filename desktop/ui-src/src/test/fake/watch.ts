@@ -11,6 +11,8 @@ export function watchHandlers(s: FakeState) {
       const kind = kindOf(s, resource);
       const id = `watch-${++s.watchSeq}`;
       s.watches.push({ id, kind, namespace });
+      // Of the cluster the call names (`byCluster`), looked up now.
+      const rows = rowsOf(s, kind);
       // Like the backend: the full list first, then "live". Sent after the
       // reply so the store knows the id (it also buffers early events).
       setTimeout(() => {
@@ -22,7 +24,7 @@ export function watchHandlers(s: FakeState) {
           void events.watchState.emit({ id, state: "forbidden", error: `${kind.resource.plural} is forbidden` });
           return;
         }
-        const applied = rowsOf(s, kind).filter((r) => !namespace || r.namespace === namespace);
+        const applied = rows.filter((r) => !namespace || r.namespace === namespace);
         void events.watchBatch.emit({ id, snapshot: true, applied, deleted: [] });
         // Like the backend: a kind without the watch verb is polled.
         if (kind.verbs.includes("watch")) void events.watchState.emit({ id, state: "live" });

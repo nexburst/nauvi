@@ -157,7 +157,9 @@ test("Reconnect now opens a fresh session on the same cluster", async ({
   await section(page).getByRole("button", { name: "Save proxy" }).click();
   await section(page).getByRole("button", { name: "Reconnect now" }).click();
   await expect(dialog(page)).toHaveCount(0);
-  expect(await fake.lastCall("cmdSetContext")).toEqual({ name: "kind-dev" });
+  // A reconnect of its own, not a switch to the cluster shown.
+  await expect.poll(() => fake.calls("cmdClusterReconnect")).toEqual([{}]);
+  expect(await fake.calls("cmdSetContext")).toEqual([]);
   // Still on kind-dev, with its contexts loaded again.
   await expect(page.getByTestId("open-in-new-window")).toBeVisible();
   await expect(

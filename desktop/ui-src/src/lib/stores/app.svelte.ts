@@ -1,4 +1,4 @@
-import { api, setVisibleCluster, visibleCluster } from "../cluster";
+import { api, clusterSwitched, onClusterSwitch, setVisibleCluster, visibleCluster } from "../cluster";
 import { commands } from "../bindings";
 import type { ContextInfo, NamespaceInfo, ResourceKind } from "../bindings";
 import { joinNames, normalizeNamespaces, sameNamespaces } from "../namespaces";
@@ -14,7 +14,7 @@ import { isMainWindow } from "../window";
 import { closeDetail, detail, openDetail } from "./detail.svelte";
 import { checkLeftovers } from "./debug.svelte";
 import { contextSettings, loadSettings, settings, updateContext, updateSettings } from "./settings.svelte";
-import { closeAllDockTabs, dock } from "./dock.svelte";
+import { closeDockTabsOf, dock } from "./dock.svelte";
 import { autoStartForwards } from "./forwards.svelte";
 import { clearProblems } from "./problems.svelte";
 import { whenDiscarded } from "./unsaved.svelte";
@@ -81,6 +81,21 @@ class Kinds {
 }
 export const kinds = new Kinds();
 
+// What one cluster sent never shows for the next (ADR 0007).
+onClusterSwitch(() => {
+  kinds.all = [];
+  kinds.denied = new Set();
+  kinds.deniedScope = [];
+  kinds.loaded = false;
+  app.namespaces = [];
+  app.namespacesForbidden = false;
+  app.knownNamespaces = [];
+  app.count = "";
+  app.updatedAt = 0;
+  app.error = "";
+  pendingView = null;
+});
+
 /** The kind of the current view, if it is one. */
 export function currentKind(): ResourceKind | undefined {
   return kinds.all.find((k) => k.id === app.view);
@@ -97,16 +112,20 @@ export function kindOf(apiVersion: string, kind: string): ResourceKind | undefin
 
 /** Ask the cluster what it serves; the sidebar is built from the answer. */
 export async function loadKinds() {
+  const cluster = visibleCluster();
   let found: ResourceKind[];
   try {
-    found = await api(visibleCluster()).cmdDiscover();
+    found = await api(cluster).cmdDiscover();
   } catch (e) {
+    // The window shows another cluster now: its own discovery runs.
+    if (cluster !== visibleCluster()) return;
     kinds.all = [];
     kinds.loaded = true;
     showError("Could not discover the cluster's resource types: " + e);
     settleHistory();
     return;
   }
+  if (cluster !== visibleCluster()) return;
   kinds.all = found;
   kinds.denied = new Set();
   kinds.loaded = true;
@@ -232,14 +251,16 @@ export function rememberNamespace(ns: string) {
 }
 
 export async function loadNamespaces() {
+  const cluster = visibleCluster();
   let listed: NamespaceInfo[] | null;
   try {
-    listed = await api(visibleCluster()).cmdListNamespaces();
+    listed = await api(cluster).cmdListNamespaces();
   } catch {
     // Namespaces failing usually means the cluster is unreachable;
     // the main view load will surface the error.
     return;
   }
+  if (cluster !== visibleCluster()) return;
   app.namespaces = listed ?? [];
   app.namespacesForbidden = listed === null;
   const ctx = app.contexts.find((c) => c.current);
@@ -378,6 +399,9 @@ export function refresh() {
 }
 
 export async function switchContext(name: string) {
+  // Showing the cluster shown already changes nothing: its streams,
+  // terminals and forwards run on (a fresh session is `reconnectCluster`).
+  if (name && name === currentContextName()) return;
   try {
     await api(visibleCluster()).cmdSetContext(name || null);
   } catch (e) {
@@ -386,11 +410,18 @@ export async function switchContext(name: string) {
   }
   // The window shows another cluster now, in a session of its own (ADR
   // 0007); `""` (the current-context) names the one shown until the
-  // contexts are loaded again below.
+  // contexts are loaded again below. The old cluster stays connected: its
+  // log streams, terminals and forwards run on (the dock tabs name their
+  // cluster), its watches have stopped.
   setVisibleCluster(name);
-  // The backend has stopped every stream and session this window started
-  // in the old context; other windows keep theirs.
-  closeAllDockTabs();
+  // The other windows' contexts are remembered by the backend.
+  if (isMainWindow()) updateSettings({ last_context: name });
+  await showFresh();
+}
+
+/** Show the visible cluster from nothing: nothing the window showed before stays. */
+async function showFresh() {
+  clusterSwitched();
   clearProblems();
   // Places in the old context mean nothing in the new one.
   history.reset();
@@ -398,13 +429,36 @@ export async function switchContext(name: string) {
   app.selectedNamespaces = [];
   app.view = "overview";
   app.statusFilter = "";
-  // The other windows' contexts are remembered by the backend.
-  if (isMainWindow()) updateSettings({ last_context: name });
   await loadContexts();
   await loadNamespaces();
   await restoreScope();
   refresh();
   void checkLeftovers();
+}
+
+/**
+ * Start cluster `id` over, as asked (Reconnect now after a proxy change): a
+ * fresh session and client. Its log streams, terminals and forwards end, so
+ * its dock tabs close, with a notice; the cluster shown starts over as on a
+ * switch.
+ */
+export async function reconnectCluster(id: string) {
+  try {
+    await api(id).cmdClusterReconnect();
+  } catch (e) {
+    showError(`Could not reconnect ${id}: ${e}`);
+    return;
+  }
+  const closed = dock.tabs.filter((t) => t.cluster === id).length;
+  closeDockTabsOf(id);
+  notify(
+    "info",
+    closed
+      ? `Reconnected to ${id}. Its ${closed === 1 ? "dock tab was" : `${closed} dock tabs were`} closed: their logs and terminals ended.`
+      : `Reconnected to ${id}.`,
+    id,
+  );
+  if (id === currentContextName()) await showFresh();
 }
 
 /**

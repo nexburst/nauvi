@@ -122,8 +122,10 @@ export const commands = {
 	/**
 	 *  Show context `name` (`null`: the kubeconfig's current-context) in the
 	 *  calling window: its own session, opened unless the window is connected
-	 *  to it already (ADR 0007). The window leaves the cluster it showed, which
-	 *  stops everything it started there; other windows are not affected.
+	 *  to it already (ADR 0007). The cluster it showed stays connected: its
+	 *  watches stop, its log streams, terminals and forwards run on. Showing
+	 *  the cluster shown changes nothing (`cmd_cluster_reconnect` starts it
+	 *  over). Other windows are not affected.
 	 */
 	cmdSetContext: (cluster: string, name: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_set_context", { cluster, name }, options),
 	/**
@@ -141,6 +143,13 @@ export const commands = {
 	 *  not connected to does nothing.
 	 */
 	cmdClusterDisconnect: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cluster_disconnect", { cluster }, options),
+	/**
+	 *  Start `cluster` over in the calling window, as asked (e.g. after its
+	 *  proxy changed): a fresh session with a new client, shown or not as
+	 *  before. Everything the old one ran (log streams, terminals, forwards,
+	 *  watches) stops; running drains finish. Not connected: nothing happens.
+	 */
+	cmdClusterReconnect: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_cluster_reconnect", { cluster }, options),
 	/**
 	 *  Add an ephemeral debug container to a pod, targeting `target` (empty: the
 	 *  first container), and attach to it, as terminal session `session` (an id
@@ -313,7 +322,7 @@ export const commands = {
 	/**
 	 *  Follow the logs of all pods of a Deployment, StatefulSet, DaemonSet, Job
 	 *  or ReplicaSet (`kind` is case-insensitive). Runs next to the other log
-	 *  streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs`, a context switch or
+	 *  streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs`, its cluster is disconnected or
 	 *  its window closes.
 	 */
 	cmdStreamWorkloadLogs: (cluster: string, kind: string, namespace: string, name: string, options: WorkloadLogOptions_Deserialize, streamId: number, _options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_workload_logs", { cluster, kind, namespace, name, options, streamId }, _options),

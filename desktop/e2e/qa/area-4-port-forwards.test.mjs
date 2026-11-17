@@ -1,17 +1,19 @@
 // QA area 4 (#83): the Port Forwards view (#65) beyond port-forward.test.mjs.
 // Checks (#65): a pod forward outlives its detail panel (forwards live in
-// the backend), the Port Forwards view lists it, and switching context
-// stops it and empties the view.
+// the backend), the Port Forwards view lists it; switching context keeps it
+// running (ADR 0007) and the view lists the shown cluster's forwards only;
+// disconnecting the old cluster in the tree stops it.
 // Checks (#19): Forward on a pod port works with an HTTP client, Stop ends it
 // (Open / Copy URL / Stop from the view are in port-forward.test.mjs).
 
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
-import { byTestId, xq } from "../lib/app.mjs";
+import { CONTEXT, byTestId, xq } from "../lib/app.mjs";
 import { deleteNamespace, httpPodYaml, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
 import { aliasKubeconfig } from "../lib/dock.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { disconnectCluster, waitNodeState } from "../lib/tree.mjs";
 import { selectContext } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
@@ -60,12 +62,28 @@ describe("area 4: port forwards and context switches", { timeout: 10 * 60_000 },
     await app.shot("port-forwards-view");
   });
 
-  it("switching context stops it and empties Port Forwards", T, async () => {
+  it("switching context keeps it running; disconnecting the old cluster stops it", T, async () => {
     const { app } = s;
     await selectContext(app, kc.alias);
     await waitLive(app);
     await app.nav("Port Forwards");
+    // The view lists the shown cluster's forwards: none on the alias.
     await app.find(By.xpath(`//*[@data-testid='port-forwards']//*[contains(normalize-space(), ${xq("No port-forwards.")})]`));
-    await assert.rejects(fetch(url), "the old forward's port is closed");
+    const res = await fetch(url);
+    assert.equal(res.status, 200, "the old cluster's forward still answers");
+    await waitNodeState(app, CONTEXT, "connected");
+    await disconnectCluster(app, CONTEXT);
+    await waitNodeState(app, CONTEXT, "idle");
+    await app.waitFor(
+      async () => {
+        try {
+          await fetch(url, { signal: AbortSignal.timeout(3000) });
+          return false;
+        } catch {
+          return true;
+        }
+      },
+      { message: "the old forward's port closed" },
+    );
   });
 });

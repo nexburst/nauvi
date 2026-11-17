@@ -195,7 +195,7 @@ fn workload_notice(stream_id: u64, ev: WorkloadEvent) -> Option<WorkloadNotice> 
 
 /// Follow the logs of all pods of a Deployment, StatefulSet, DaemonSet, Job
 /// or ReplicaSet (`kind` is case-insensitive). Runs next to the other log
-/// streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs`, a context switch or
+/// streams (up to `MAX_LOG_STREAMS`) until `cmd_stop_logs`, its cluster is disconnected or
 /// its window closes.
 #[tauri::command]
 #[specta::specta]
