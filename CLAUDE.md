@@ -185,8 +185,11 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
 
 ## Budgets
 
-CI fails a change that breaks one (ADR 0007, #353). Each check writes its
-numbers to the job summary. Don't loosen a budget quietly: fix the cause, or
+The backend budget runs on every PR (integration.yml). The whole-app and
+start-up budgets, and idle memory, run only in the nightly and manual
+qa.yml runs (`gh workflow run qa.yml --ref <branch> -f
+scenario='multicluster'`), not on every PR (ADR 0007, #353). Each check
+writes its numbers to the job summary. Don't loosen a budget quietly: fix the cause, or
 set it to the measured value plus 15% and open an issue about the gap.
 
 - **Backend, per idle connected cluster: at most 5 MB RSS.**
