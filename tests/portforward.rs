@@ -293,6 +293,12 @@ async fn pod_forward_by_port_name_and_clear_errors() -> Result<()> {
 
 /// An echo server on port 7000 of pod `echo` (each connection gets its own
 /// `cat`), and a forward to it on a random local port.
+///
+/// `tcpsvd`, not `nc -lk -e cat`: busybox `nc` listens with a backlog of 1,
+/// so 20 connections at once overflow its accept queue, the kernel falls
+/// back to SYN cookies and now and then resets a connection on its first
+/// data. kubectl port-forward and kube-rs's `Portforwarder` lost
+/// connections to that server the same way (#316).
 async fn start_echo(client: &Client, ns: &str) -> Result<PortForward> {
     let pod: Pod = serde_json::from_value(serde_json::json!({
         "apiVersion": "v1", "kind": "Pod",
@@ -301,7 +307,7 @@ async fn start_echo(client: &Client, ns: &str) -> Result<PortForward> {
             "terminationGracePeriodSeconds": 0,
             "containers": [{
                 "name": "echo", "image": "busybox:1.36",
-                "command": ["nc", "-lk", "-p", "7000", "-e", "cat"],
+                "command": ["tcpsvd", "-b", "64", "-c", "64", "0.0.0.0", "7000", "cat"],
                 "ports": [{ "containerPort": 7000 }],
                 "readinessProbe": { "exec": { "command": ["true"] }, "periodSeconds": 1 }
             }]
