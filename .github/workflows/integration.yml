@@ -154,7 +154,8 @@ jobs:
           bash scripts/test-cluster/wait-demo.sh
 
       # The desktop's own cluster tests (`cluster_*`, #[ignore]d): the idle
-      # disconnect against kind (ADR 0007).
+      # disconnect against kind and the backend memory budget per idle
+      # cluster (ADR 0007; its numbers go to the job summary).
       - name: Desktop cluster tests
         run: cargo test -p nauvi-desktop --locked --features tauri/custom-protocol -- --ignored cluster_
 

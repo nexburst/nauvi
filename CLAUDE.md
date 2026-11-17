@@ -183,6 +183,26 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
   `KUBECONFIG=~/.kube/nauvi-limited.yaml cargo tauri dev`. The token
   lasts 24h; re-run the script to refresh it.
 
+## Budgets
+
+CI fails a change that breaks one (ADR 0007, #353). Each check writes its
+numbers to the job summary. Don't loosen a budget quietly: fix the cause, or
+set it to the measured value plus 15% and open an issue about the gap.
+
+- **Backend, per idle connected cluster: at most 5 MB RSS.**
+  `cluster_budget_per_idle_cluster` (`desktop/src/state/idle/budget.rs`,
+  integration.yml) connects 1, then 6 contexts that point at kind
+  (`scripts/test-cluster/multi-kubeconfig.sh`), takes (RSS6 - RSS1) / 5 as
+  the median of 3 runs, and checks that no session is still connected once
+  the idle timeout passes.
+- **Whole app, per idle connected cluster: at most 15 MB PSS** of the core
+  plus WebKitWebProcess (QA `multicluster`, release build).
+- **Start-up with 50 contexts** in 3 files, 49 of them unreachable: the
+  cluster tree shows within 1.5 s of the app's start, and at most 200 ms
+  later than with 1 context (QA `multicluster`).
+- **Idle memory** on the Overview (QA `idle-memory`, release build): see
+  `BUDGET` in that scenario.
+
 ## Parallel agents
 
 - Work in your own git worktree (`.claude/` is git-ignored for this). Don't

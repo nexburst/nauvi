@@ -74,10 +74,11 @@ jobs:
           cargo build -p nauvi --locked
           mkdir -p "$RUNNER_TEMP/qa-app"
           cp target/debug/nauvi-desktop target/debug/nauvi ~/.cargo/bin/tauri-driver "$RUNNER_TEMP/qa-app/"
-      # The idle-memory scenario measures a release build (#341): a debug one
-      # takes more memory. Only when that scenario runs.
-      - name: Build the app (release, for idle-memory)
-        if: ${{ !inputs.scenario || contains(inputs.scenario, 'idle-memory') }}
+      # The idle-memory and multicluster scenarios measure a release build
+      # (#341, ADR 0007): a debug one takes more memory and starts slower.
+      # Only when one of them runs.
+      - name: Build the app (release, for idle-memory and multicluster)
+        if: ${{ !inputs.scenario || contains(inputs.scenario, 'idle-memory') || contains(inputs.scenario, 'multicluster') }}
         run: |
           cargo build -p nauvi-desktop --locked --release --features tauri/custom-protocol
           cp target/release/nauvi-desktop "$RUNNER_TEMP/qa-app/nauvi-desktop-release"

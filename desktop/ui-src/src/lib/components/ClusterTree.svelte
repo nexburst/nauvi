@@ -45,6 +45,15 @@
     }
   });
 
+  // The tree first shows its contexts: the start-up budget (QA
+  // `multicluster`) reads this mark.
+  let marked = false;
+  $effect(() => {
+    if (marked || groups.length === 0) return;
+    marked = true;
+    performance.mark("nauvi:cluster-tree");
+  });
+
   const label = (id: string) => contextLabel(id);
   const colorOf = (id: string) => contextSettings(id).color;
 </script>
