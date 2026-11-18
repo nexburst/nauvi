@@ -30,6 +30,8 @@ pub(crate) mod prometheus;
 pub(crate) mod proxy;
 pub(crate) mod resources;
 pub(crate) mod settings;
+pub(crate) mod term_frame;
+pub(crate) mod term_out;
 pub(crate) mod updater;
 pub(crate) mod usage;
 pub(crate) mod watch;
@@ -78,6 +80,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             debug::cmd_node_shell_leftovers,
             debug::cmd_node_shell_start,
             exec::cmd_attach_start,
+            exec::cmd_exec_ack,
             exec::cmd_exec_close,
             exec::cmd_exec_input,
             exec::cmd_exec_resize,
@@ -105,6 +108,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             kubectl::cmd_kubectl_match,
             links::cmd_object_link,
             links::cmd_take_link,
+            local_shell::cmd_local_shell_ack,
             local_shell::cmd_local_shell_close,
             local_shell::cmd_local_shell_input,
             local_shell::cmd_local_shell_resize,
@@ -168,8 +172,6 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             applications::ApplicationsStateChanged,
             crate::catalog::KubeconfigsChanged,
             crate::state::idle::ClusterStateChanged,
-            exec::ExecClosed,
-            exec::ExecOutput,
             links::LinkPending,
             overview::OverviewChanged,
             overview::OverviewStateChanged,

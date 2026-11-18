@@ -1,8 +1,9 @@
 //! Reading and changing the remembered settings (`settings.rs`).
 
-use crate::commands::exec::{emit_note, ExecClosed};
+use crate::commands::exec::emit_note;
+use crate::commands::term_out::send_closed;
 use crate::settings::{Settings, SettingsPatch, SettingsStore};
-use crate::state::{AppState, WindowEmitter};
+use crate::state::AppState;
 use nauvi::context_mode::{ContextMode, ModeSource};
 use std::sync::Arc;
 use tauri::State;
@@ -31,7 +32,6 @@ pub(crate) fn cmd_update_settings(
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn cmd_set_context_mode(
-    app: tauri::AppHandle,
     store: State<'_, Arc<SettingsStore>>,
     state: State<'_, AppState>,
     id: String,
@@ -51,7 +51,7 @@ pub(crate) fn cmd_set_context_mode(
         .unwrap_or_default();
     let settings = store.set_context_mode_from(&id, mode, source);
     if mode == ContextMode::ReadOnly {
-        close_terminals(&app, &state, &id);
+        close_terminals(&state, &id);
     }
     Ok(settings)
 }
@@ -59,27 +59,27 @@ pub(crate) fn cmd_set_context_mode(
 /// A context turned read-only: close the terminals open on it in every
 /// window (exec, attach, debug and node shells, local shells), each with a
 /// note saying why. Port-forwards, logs and watches go on.
-fn close_terminals(app: &tauri::AppHandle, state: &AppState, id: &str) {
+fn close_terminals(state: &AppState, id: &str) {
     let note = format!("{id} is now read-only: this terminal was closed");
-    for (label, session) in state.sessions_of(id) {
-        let out = WindowEmitter::new(app.clone(), label);
+    for (_, session) in state.sessions_of(id) {
         let (execs, shells) = session.take_terminals();
-        for sid in shells.keys() {
-            emit_note(&out, sid, &note);
+        for s in shells.values() {
+            emit_note(&s.out, &note);
         }
-        // Dropping a local shell kills it; its exit sends `ExecClosed`.
+        // Dropping a local shell kills it; its exit sends `closed`.
         drop(shells);
         let note = note.clone();
         tauri::async_runtime::spawn(async move {
-            for (sid, exec) in execs {
-                // A shell that ends sends `ExecClosed` itself; an attach
+            for exec in execs.into_values() {
+                // A shell that ends sends `closed` itself; an attach
                 // only detaches, so it is sent here.
                 let ends = exec.end_on_close;
+                let out = exec.out.clone();
                 exec.close().await;
                 // After the shell's last words, so it reads as the reason.
-                emit_note(&out, &sid, &note);
+                emit_note(&out, &note);
                 if !ends {
-                    out.emit(ExecClosed(sid));
+                    send_closed(&out);
                 }
             }
         });

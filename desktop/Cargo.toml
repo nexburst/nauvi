@@ -43,6 +43,8 @@ rustls = { version = "0.23", default-features = false, features = ["ring"] }
 [dev-dependencies]
 # `PortForward::idle`, for the tests of the session maps.
 nauvi = { path = "..", default-features = false, features = ["specta", "test-util"] }
+# Paused time, for the terminal output batches.
+tokio = { version = "1", features = ["test-util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # Quit confirmation (#173): answers `applicationShouldTerminate:`. The same

@@ -1,13 +1,14 @@
 //! Local shells in the dock, pointed at the app's context and namespace.
-//! Output arrives as `exec-output` events and `exec-closed` when the shell
-//! exits, like pod terminals.
+//! Output arrives on the channel the tab passes in, then `closed` when the
+//! shell exits, like pod terminals.
 
 use crate::catalog::Approved;
-use crate::commands::exec::{ExecClosed, ExecOutput};
+use crate::commands::term_frame::TermChannel;
+use crate::commands::term_out::{send_closed, send_data, TermOut};
 use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::SettingsStore;
 use crate::state::mutation::Mutation;
-use crate::state::{next_session, Cluster};
+use crate::state::{next_session, Cluster, LocalShellSession};
 use nauvi::catalog::expand_home;
 use nauvi::kubectl_download::path_with_first;
 use nauvi::{
@@ -45,6 +46,7 @@ pub(crate) async fn cmd_local_shell_start(
     namespace: Option<String>,
     cols: u16,
     rows: u16,
+    on_output: TermChannel,
 ) -> Result<LocalShellStarted, String> {
     let approved = cluster.target()?;
     let target = &approved.target;
@@ -77,21 +79,27 @@ pub(crate) async fn cmd_local_shell_start(
     }
 
     let session = next_session("local");
-    let (out_app, out_session) = (cluster.emitter(), session.clone());
-    let (exit_app, exit_session) = (cluster.emitter(), session.clone());
+    let on_output = TermOut::new(on_output);
+    let (out, exit_out) = (on_output.clone(), on_output.clone());
     let shell = LocalShell::spawn(
         &spec,
         cols,
         rows,
         Some(temp),
         move |data| {
-            out_app.emit(ExecOutput::stdout(out_session.clone(), data));
+            send_data(&out, data.into_bytes());
         },
         move || {
-            exit_app.emit(ExecClosed(exit_session));
+            send_closed(&exit_out);
         },
     )?;
-    cluster.add_local_shell(session.clone(), shell);
+    cluster.add_local_shell(
+        session.clone(),
+        LocalShellSession {
+            shell,
+            out: on_output,
+        },
+    );
     Ok(LocalShellStarted {
         session,
         context: generated.context,
@@ -131,18 +139,38 @@ pub(crate) fn shell_kubeconfig_for(
     Ok((generated, temp, env))
 }
 
+/// Type `data` into the shell (`clear`: see `cmd_exec_input`).
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_local_shell_input(
     cluster: Cluster,
     session: String,
     data: String,
+    clear: bool,
 ) -> Result<(), String> {
     let shells = cluster.local_shells.lock().unwrap();
     let shell = shells
         .get(&session)
         .ok_or_else(|| "local shell not found".to_string())?;
-    shell.write(data.into_bytes())
+    if clear {
+        shell.out.clear();
+    }
+    shell.shell.write(data.into_bytes())
+}
+
+/// The tab wrote (or dropped) `bytes` of the shell's output (#115, see
+/// `cmd_exec_ack`).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_local_shell_ack(
+    cluster: Cluster,
+    session: String,
+    bytes: u32,
+) -> Result<(), String> {
+    if let Some(s) = cluster.local_shells.lock().unwrap().get(&session) {
+        s.out.ack(bytes as usize);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -155,7 +183,7 @@ pub(crate) async fn cmd_local_shell_resize(
 ) -> Result<(), String> {
     let shells = cluster.local_shells.lock().unwrap();
     match shells.get(&session) {
-        Some(shell) => shell.resize(cols, rows),
+        Some(s) => s.shell.resize(cols, rows),
         None => Ok(()),
     }
 }

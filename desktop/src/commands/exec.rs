@@ -1,41 +1,22 @@
 //! Interactive terminal sessions in pods.
 
+use super::term_frame::{TermChannel, Utf8Cut};
+use super::term_out::{send_closed, send_data, TermOut};
 use crate::state::mutation::Mutation;
-use crate::state::{next_session, Cluster, ExecSession, SessionCleanup, WindowEmitter};
+use crate::state::{next_session, Cluster, ExecSession, SessionCleanup};
 use futures::SinkExt;
 use kube::api::{AttachedProcess, TerminalSize};
 use nauvi::attach::{attach_note, attach_pod, describe_attach_error};
 use nauvi::exec_pod;
-use serde::Serialize;
-use specta::Type;
-use tauri_specta::Event;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 
-/// The shell of a terminal session exited (payload: the session id).
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub(crate) struct ExecClosed(pub(crate) String);
+/// The most one read of a session's output takes: under a flood the reads
+/// fill up, so the tab gets fewer, bigger messages (#115).
+const READ_BUF: usize = 64 * 1024;
 
-/// Output of a terminal session.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub(crate) struct ExecOutput {
-    session: String,
-    stream: String,
-    data: String,
-}
-
-impl ExecOutput {
-    /// Output of a local shell, which has a single stream.
-    pub(crate) fn stdout(session: String, data: String) -> Self {
-        ExecOutput {
-            session,
-            stream: "stdout".to_string(),
-            data,
-        }
-    }
-}
-
-/// Open an interactive shell in a pod. Returns the session id; output
-/// arrives as `exec-output` events, `exec-closed` when the shell exits.
+/// Open an interactive shell in a pod. Returns the session id; the output
+/// arrives on `on_output` (this session's own channel, #115), then `closed`
+/// when the shell exits.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_exec_start(
@@ -45,6 +26,7 @@ pub(crate) async fn cmd_exec_start(
     container: Option<String>,
     cols: u16,
     rows: u16,
+    on_output: TermChannel,
 ) -> Result<String, String> {
     let client = cluster.client().await?;
     let attached = exec_pod(&client, &namespace, &name, container.as_deref())
@@ -55,14 +37,20 @@ pub(crate) async fn cmd_exec_start(
         end_shell: true,
         cleanup: None,
     };
-    start_session(&cluster, session.clone(), attached, cols, rows, close).await;
+    let out = SessionOut {
+        cols,
+        rows,
+        on_output: TermOut::new(on_output),
+    };
+    start_session(&cluster, session.clone(), attached, out, close).await;
     Ok(session)
 }
 
 /// Attach to the main process of a pod's container (`container`: `None` for
 /// the default one). Returns the session id; the session works like a shell's
-/// (`exec-*` events). Closing it detaches and leaves the process running.
-/// Fails, in plain words, when the container has no stdin or is not running.
+/// (output on `on_output`). Closing it detaches and leaves the process
+/// running. Fails, in plain words, when the container has no stdin or is not
+/// running.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_attach_start(
@@ -72,16 +60,17 @@ pub(crate) async fn cmd_attach_start(
     container: Option<String>,
     cols: u16,
     rows: u16,
+    on_output: TermChannel,
 ) -> Result<String, String> {
     let client = cluster.client().await?;
     let (target, attached) = attach_pod(&client, &namespace, &name, container.as_deref())
         .await
         .map_err(|e| describe_attach_error(&e))?;
     let session = next_session("attach");
-    // Arrives before the UI knows the id; the terminal keeps it until then.
+    let on_output = TermOut::new(on_output);
+    // Arrives before the UI knows the id: the channel is the tab's own.
     emit_note(
-        &cluster.emitter(),
-        &session,
+        &on_output,
         &attach_note(&name, &target, "Closing this tab detaches."),
     );
     // Closing detaches (#88): the main process keeps running.
@@ -89,8 +78,20 @@ pub(crate) async fn cmd_attach_start(
         end_shell: false,
         cleanup: None,
     };
-    start_session(&cluster, session.clone(), attached, cols, rows, close).await;
+    let out = SessionOut {
+        cols,
+        rows,
+        on_output,
+    };
+    start_session(&cluster, session.clone(), attached, out, close).await;
     Ok(session)
+}
+
+/// Where a terminal session's output goes, and the size it starts with.
+pub(crate) struct SessionOut {
+    pub(crate) cols: u16,
+    pub(crate) rows: u16,
+    pub(crate) on_output: TermOut,
 }
 
 /// What closing a terminal session does.
@@ -103,31 +104,43 @@ pub(crate) struct SessionClose {
 }
 
 /// Write a line of text into a terminal session (progress, notes).
-pub(crate) fn emit_note(out: &WindowEmitter, session: &str, text: &str) {
-    out.emit(ExecOutput {
-        session: session.to_string(),
-        stream: "stderr".to_string(),
-        data: format!("\x1b[90m{text}\x1b[0m\r\n"),
-    });
+pub(crate) fn emit_note(out: &TermOut, text: &str) {
+    send_data(out, format!("\x1b[90m{text}\x1b[0m\r\n").into_bytes());
 }
 
-/// Pump an attached or exec'd process to `exec-output` events and register
-/// it as `session`, so `cmd_exec_input`, `cmd_exec_resize` and
+/// Send what `r` reads to `out` until it ends.
+async fn pump(r: Option<impl AsyncRead + Unpin>, out: &TermOut) {
+    let Some(mut r) = r else { return };
+    let mut buf = vec![0u8; READ_BUF];
+    let mut cut = Utf8Cut::default();
+    loop {
+        match r.read(&mut buf).await {
+            Ok(0) | Err(_) => break,
+            Ok(n) => send_data(out, cut.push(&buf[..n])),
+        }
+    }
+}
+
+/// Pump an attached or exec'd process to its session's channel and
+/// register it as `session`, so `cmd_exec_input`, `cmd_exec_resize` and
 /// `cmd_exec_close` drive it. `close` says what closing it does.
 pub(crate) async fn start_session(
     cluster: &Cluster,
     session: String,
     mut attached: AttachedProcess,
-    cols: u16,
-    rows: u16,
+    out: SessionOut,
     close: SessionClose,
 ) {
     let SessionClose { end_shell, cleanup } = close;
-    let app = cluster.emitter();
+    let SessionOut {
+        cols,
+        rows,
+        on_output,
+    } = out;
     let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(64);
     let mut stdin_writer = attached.stdin();
-    let mut stdout_reader = attached.stdout();
-    let mut stderr_reader = attached.stderr();
+    let stdout_reader = attached.stdout();
+    let stderr_reader = attached.stderr();
     let mut size_tx = attached.terminal_size();
     if let Some(tx) = size_tx.as_mut() {
         let _ = tx
@@ -137,28 +150,22 @@ pub(crate) async fn start_session(
             })
             .await;
     }
-    let session_id = session.clone();
-    let app_out = app.clone();
     // Surface a failed exec (e.g. no kubelet) in the terminal: join() alone
     // returns Ok even on failure; the Status channel carries the error.
     if let Some(status_fut) = attached.take_status() {
-        let app_status = app.clone();
-        let session_status = session.clone();
+        let status_out = on_output.clone();
         tauri::async_runtime::spawn(async move {
             if let Some(status) = status_fut.await {
                 if status.status.as_deref() == Some("Failure") {
                     if let Some(msg) = status.message {
-                        app_status.emit(ExecOutput {
-                            session: session_status,
-                            stream: "stderr".to_string(),
-                            data: format!("\r\n{msg}\r\n"),
-                        });
+                        send_data(&status_out, format!("\r\n{msg}\r\n").into_bytes());
                     }
                 }
             }
         });
     }
     let task_cleanup = cleanup.clone();
+    let task_out = on_output.clone();
     let task = tauri::async_runtime::spawn(async move {
         let stdin_pump = async {
             if let Some(mut w) = stdin_writer.take() {
@@ -170,40 +177,8 @@ pub(crate) async fn start_session(
                 let _ = w.shutdown().await;
             }
         };
-        let stdout_pump = async {
-            if let Some(mut r) = stdout_reader.take() {
-                let mut buf = [0u8; 4096];
-                loop {
-                    match r.read(&mut buf).await {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => {
-                            app_out.emit(ExecOutput {
-                                session: session_id.clone(),
-                                stream: "stdout".to_string(),
-                                data: String::from_utf8_lossy(&buf[..n]).into_owned(),
-                            });
-                        }
-                    }
-                }
-            }
-        };
-        let stderr_pump = async {
-            if let Some(mut r) = stderr_reader.take() {
-                let mut buf = [0u8; 4096];
-                loop {
-                    match r.read(&mut buf).await {
-                        Ok(0) | Err(_) => break,
-                        Ok(n) => {
-                            app_out.emit(ExecOutput {
-                                session: session_id.clone(),
-                                stream: "stderr".to_string(),
-                                data: String::from_utf8_lossy(&buf[..n]).into_owned(),
-                            });
-                        }
-                    }
-                }
-            }
-        };
+        let stdout_pump = pump(stdout_reader, &task_out);
+        let stderr_pump = pump(stderr_reader, &task_out);
         // The stdin pump waits on its channel, so it would outlive the shell;
         // finish when either all pumps end or the process itself exits.
         tokio::select! {
@@ -213,7 +188,7 @@ pub(crate) async fn start_session(
         if let Some(c) = task_cleanup {
             c.run().await;
         }
-        app.emit(ExecClosed(session_id));
+        send_closed(&task_out);
     });
     let stopped = cluster.add_exec(
         session,
@@ -223,6 +198,7 @@ pub(crate) async fn start_session(
             task,
             cleanup,
             end_on_close: end_shell,
+            out: on_output,
         },
     );
     if let Some(s) = stopped {
@@ -230,18 +206,26 @@ pub(crate) async fn start_session(
     }
 }
 
+/// Type `data` into the session. `clear`: it is a Ctrl-C the tab wants to
+/// cut the backlog with (a lone keystroke at a shell, not in a full-screen
+/// app): the output still waiting is dropped first (#115).
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_exec_input(
     cluster: Cluster,
     session: String,
     data: String,
+    clear: bool,
 ) -> Result<(), String> {
     // Clone the sender under the lock, then await outside it: holding a
     // std MutexGuard across an await would make this future non-Send.
     let tx = {
         let sessions = cluster.exec_sessions.lock().unwrap();
-        sessions.get(&session).map(|entry| entry.stdin_tx.clone())
+        let entry = sessions.get(&session);
+        if let Some(e) = entry.filter(|_| clear) {
+            e.out.clear();
+        }
+        entry.map(|e| e.stdin_tx.clone())
     };
     let Some(tx) = tx else {
         return Err("exec session not found".to_string());
@@ -249,6 +233,21 @@ pub(crate) async fn cmd_exec_input(
     tx.send(data.into_bytes())
         .await
         .map_err(|_| "exec session closed".to_string())
+}
+
+/// The tab wrote (or dropped) `bytes` of the session's output: that much
+/// more may be sent (#115). A session already gone is no error.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_exec_ack(
+    cluster: Cluster,
+    session: String,
+    bytes: u32,
+) -> Result<(), String> {
+    if let Some(e) = cluster.exec_sessions.lock().unwrap().get(&session) {
+        e.out.ack(bytes as usize);
+    }
+    Ok(())
 }
 
 #[tauri::command]

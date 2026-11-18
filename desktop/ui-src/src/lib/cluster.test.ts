@@ -53,9 +53,9 @@ describe("the cluster contract (ADR 0007)", () => {
 
   it("api(id) sends id as the cluster", async () => {
     await api("kind-dev").cmdListNamespaces();
-    await api("prod").cmdExecInput("exec-1", "x");
+    await api("prod").cmdExecInput("exec-1", "x", false);
     expect(invoke.mock.calls[0].slice(0, 2)).toEqual(["cmd_list_namespaces", { cluster: "kind-dev" }]);
-    expect(invoke.mock.calls[1].slice(0, 2)).toEqual(["cmd_exec_input", { cluster: "prod", session: "exec-1", data: "x" }]);
+    expect(invoke.mock.calls[1].slice(0, 2)).toEqual(["cmd_exec_input", { cluster: "prod", session: "exec-1", data: "x", clear: false }]);
     expect(api("prod")).toBe(api("prod"));
     expect("cmdGetSettings" in api("prod")).toBe(false);
   });

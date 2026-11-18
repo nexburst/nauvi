@@ -156,7 +156,8 @@ impl LocalShell {
         let (read_done, read_done_rx) = mpsc::channel::<()>();
         std::thread::spawn(move || {
             let mut pending = Vec::new();
-            let mut buf = [0u8; 8192];
+            // Big reads under a flood: fewer messages to the tab (#115).
+            let mut buf = vec![0u8; 64 * 1024];
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,

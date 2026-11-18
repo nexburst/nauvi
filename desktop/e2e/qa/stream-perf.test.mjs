@@ -1,13 +1,16 @@
 // Stream throughput in the real app (#115): how long the UI takes to show
 //   - a burst of 50k log lines in a pod's log tab,
-//   - 10 MB printed in a pod terminal,
+//   - 10 MB printed in a pod terminal, and in a local shell (no cluster in
+//     the way: only the app's part), with how long key presses take to be
+//     handled while it floods,
 //   - the first snapshot of a watch of 5k pods,
 // with the frame times of the page, the CPU time of the core and of the
 // WebKitWebProcess, and their peak memory.
 //
 // The numbers go to the console, artifacts/stream-perf.json and, on GitHub
-// Actions, the job summary. The log burst has a budget (LOG_BUDGET, per
-// build); the other two are report-only. QA_PERF_BUDGET=off turns it off.
+// Actions, the job summary. The log burst and the two terminals have budgets
+// (LOG_BUDGET, TERM_BUDGET, per build); the watch is report-only.
+// QA_PERF_BUDGET=off turns them off.
 //
 // qa.yml builds a release binary when idle-memory runs; with
 // QA_RELEASE_APP set this scenario measures it too (run it as
@@ -22,7 +25,7 @@ import { By } from "selenium-webdriver";
 import { ARTIFACTS, CONTEXT, xq } from "../lib/app.mjs";
 import { deleteNamespace, kubectl, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
 import { appPid, openPodLogs, pane, panelButton } from "../lib/dock.mjs";
-import { measured } from "../lib/perf.mjs";
+import { measured, peakMemory } from "../lib/perf.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { setTheme } from "../lib/theme.mjs";
 import { pickNamespaces } from "../lib/table.mjs";
@@ -51,6 +54,46 @@ const BURSTS = 3;
 const LOG_BUDGET = RELEASE
   ? { ms: 6000, p95Frame: 200, coreCpuS: 2, webCpuS: 5, coreAndWebRssMb: 900 }
   : { ms: 20_000, p95Frame: 400, coreCpuS: 12, webCpuS: 15, coreAndWebRssMb: 1200 };
+
+/**
+ * 10 MB in a terminal, pod or local. What the app's part costs: frames and
+ * CPU, not the time until shown (that is the cluster's pace for a pod).
+ * Release on a qa.yml runner (#115): pod p95 28 ms, 13.5% frame time lost,
+ * core 0.4 s, web 1.3 s CPU; local p95 15 ms, 1% lost (the old global
+ * events: p95 40-125 ms, 27-75% lost). The limits leave room for slow
+ * runners but fail what the old path did on one (59% lost). A pod's flood
+ * goes at the cluster's pace (4.5 s where `kubectl logs` took 2.9 s), and
+ * the page's CPU grows with the time drawn: its web CPU limit is higher
+ * (4.4 s seen on that slow runner).
+ */
+const TERM_BUDGET = RELEASE
+  ? { p95Frame: 100, blockedPct: 40, coreCpuS: 2, webCpuS: 4 }
+  : { p95Frame: 300, blockedPct: 80, coreCpuS: 12, webCpuS: 15 };
+const POD_TERM_BUDGET = { ...TERM_BUDGET, webCpuS: RELEASE ? 6 : 20 };
+
+/**
+ * `yes` in a local shell, faster than the screen can draw: past the
+ * backend's window and queue the oldest output is dropped and
+ * "[… N MB of output skipped]" shows; memory stays bounded. After YES_MS,
+ * Ctrl-C drops the backlog ("… skipped at Ctrl-C") and the next command's
+ * output shows within about a second.
+ */
+const YES_MS = 5000;
+const YES_BUDGET = RELEASE
+  ? { promptMs: 1500, coreAndWebRssMb: 900 }
+  : { promptMs: 5000, coreAndWebRssMb: 1200 };
+
+/** The keys `over` its budget, as "key value > limit" (none: budgets off). */
+function overBudget(r, budget) {
+  if (process.env.QA_PERF_BUDGET === "off") return [];
+  return Object.entries(budget)
+    .filter(([k, limit]) => r[k] > limit)
+    .map(([k, limit]) => `${k} ${r[k]} > ${limit}`);
+}
+
+/** The command that prints TERM_BYTES and then `marker`, which the command line itself does not show. */
+const floodCommand = (marker) =>
+  `head -c ${TERM_BYTES} /dev/zero | tr '\\0' x | fold -w 100; echo ${marker}$((40+2))`;
 
 const skip = process.platform !== "linux" ? "reads /proc (Linux only)" : false;
 const T = { timeout: 300_000 };
@@ -112,8 +155,21 @@ function report() {
     "| Stream | Until shown | fps | Frame p95 | Frame max | Frames > 50 ms | Frame time lost | Core CPU | WebKitWebProcess CPU | Peak RSS core / web |",
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     row(`Log burst, ${LOG_LINES.toLocaleString("en")} lines (median of ${BURSTS})`, results.logs),
-    row("Terminal, 10 MB", results.terminal),
+    row("Pod terminal, 10 MB", results.terminal),
+    row("Local shell, 10 MB", results.localShell),
     row(`Watch snapshot, ${PODS.toLocaleString("en")} pods`, results.watchSnapshot),
+    "",
+    ...[
+      ["pod terminal", results.terminal],
+      ["local shell", results.localShell],
+    ]
+      .filter(([, r]) => r?.keyMs)
+      .map(([label, r]) => `Key presses while the ${label} floods: ${r.keyMs.join(", ")} ms.`),
+    results.yesInterrupt
+      ? `\`yes\` for ${YES_MS / 1000} s in a local shell, then Ctrl-C: the next command's output after ${results.yesInterrupt.promptMs} ms; ` +
+        `peak RSS core / web ${results.yesInterrupt.coreRssMb} / ${results.yesInterrupt.webRssMb} MB; ` +
+        `notices: skipped ${results.yesInterrupt.skippedNotice}, at Ctrl-C ${results.yesInterrupt.clearedNotice}.`
+      : "",
     "",
     results.kubectlLogsMs ? `\`kubectl logs\` of the same pod (whole log, no follow): ${(results.kubectlLogsMs / 1000).toFixed(2)} s.` : "",
     "",
@@ -136,7 +192,8 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     deleteNamespace(ns);
     deleteNamespace(watchNs);
   });
-  const s = appSession("stream-perf");
+  // bash for the local shell, so its prompt is the one `waitForPrompt` knows.
+  const s = appSession("stream-perf", { env: { SHELL: existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh" } });
 
   it(`shows a burst of ${LOG_LINES} log lines`, T, async () => {
     const { app } = s;
@@ -177,36 +234,101 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     const text = execFileSync("kubectl", ["--context", CONTEXT, "-n", ns, "logs", "burst"], { encoding: "utf8", maxBuffer: 64 << 20 });
     results.kubectlLogsMs = Date.now() - t0;
     assert.ok(text.includes(`BURST-END-${BURSTS}`), "kubectl logs has every burst");
-    if (process.env.QA_PERF_BUDGET !== "off") {
-      const over = Object.entries(LOG_BUDGET)
-        .filter(([k, limit]) => r[k] > limit)
-        .map(([k, limit]) => `${k} ${r[k]} > ${limit}`);
-      assert.deepEqual(over, [], `the 50k-line log burst (${BUILD}) is over its budget`);
-    }
+    assert.deepEqual(overBudget(r, LOG_BUDGET), [], `the 50k-line log burst (${BUILD}) is over its budget`);
   });
 
-  it("shows 10 MB printed in a terminal", T, async () => {
-    const { app } = s;
+  /** Type `command` in `term` and measure until `marker`42 shows, with key presses timed while it floods. */
+  async function flood(app, term, command, marker) {
     const pid = appPid(app.profile.home);
-    // A script, so the typed command is short and the marker is not on the screen yet.
-    kubectl(
-      ["-n", ns, "exec", "burst", "--", "sh", "-c", "printf '%s\\n' \"$1\" > /tmp/b", "_",
-       `head -c ${TERM_BYTES} /dev/zero | tr '\\0' x | fold -w 100; echo END$((40+2))`],
+    let keyMs = [];
+    const r = await measured(
+      app,
+      pid,
+      { selector: '[data-testid="terminal"] .xterm-rows > *', text: `${marker}42` },
+      async () => {
+        await term.type(command);
+        // A comment character: harmless when the shell reads it later.
+        keyMs = await term.keyLatencies("#", 5, 100);
+      },
+      { timeout: 240_000, message: `the end of the 10 MB output (${marker})` },
     );
+    return { ...r, keyMs };
+  }
+
+  it("shows 10 MB printed in a pod terminal", T, async () => {
+    const { app } = s;
+    // A script, so the typed command is short and the marker is not on the screen yet.
+    kubectl(["-n", ns, "exec", "burst", "--", "sh", "-c", "printf '%s\\n' \"$1\" > /tmp/b", "_", floodCommand("END")]);
     await app.openDetail("Pods", ns, "burst");
     await panelButton(app, "Shell");
     const term = terminal(app);
     await term.waitForPrompt();
-    const r = await measured(
-      app,
-      pid,
-      { selector: '[data-testid="terminal"] .xterm-rows > *', text: "END42" },
-      () => term.type("sh /tmp/b"),
-      { timeout: 240_000, message: "the end of the 10 MB output" },
-    );
+    const r = await flood(app, term, "sh /tmp/b", "END");
     results.terminal = r;
-    console.log("terminal", JSON.stringify(r));
+    console.log("pod terminal", JSON.stringify(r));
     await app.shot("terminal-10mb-shown");
+    assert.deepEqual(overBudget(r, POD_TERM_BUDGET), [], `10 MB in a pod terminal (${BUILD}) is over its budget`);
+  });
+
+  it("shows 10 MB printed in a local shell", T, async () => {
+    const { app } = s;
+    await app.palette("local term", "New local terminal");
+    const term = terminal(app);
+    await term.waitForPrompt();
+    const script = join(app.profile.home, "flood.sh");
+    writeFileSync(script, `${floodCommand("LOCALEND")}\n`);
+    const r = await flood(app, term, `sh ${script}`, "LOCALEND");
+    results.localShell = r;
+    console.log("local shell", JSON.stringify(r));
+    await app.shot("local-shell-10mb-shown");
+    await setTheme(app, "light");
+    await app.shot("local-shell-10mb-light");
+    await setTheme(app, null);
+    assert.deepEqual(overBudget(r, TERM_BUDGET), [], `10 MB in a local shell (${BUILD}) is over its budget`);
+  });
+
+  it("drops what it cannot show under `yes`, with a notice, and Ctrl-C clears the backlog", T, async () => {
+    const { app } = s;
+    const pid = appPid(app.profile.home);
+    const term = terminal(app);
+    // Each line draws on the top row and puts the cursor back where it was
+    // (save, home, digits, restore, up; the PTY's newline comes back down),
+    // so the flood never scrolls: the notices, written at the cursor, stay
+    // on the screen.
+    const script = join(app.profile.home, "yes.sh");
+    writeFileSync(script, "yes \"$(printf '\\0337\\033[H%080d\\0338\\033[A' 0)\"\n");
+    const mem = peakMemory(pid);
+    const skipped = /\[… [\d.]+ [KM]B of output skipped\]/;
+    const atCtrlC = /\[… [\d.]+ [KM]B of output skipped at Ctrl-C\]/;
+    let r = {};
+    try {
+      // The keys pressed during the last flood are still on the line.
+      await term.interrupt();
+      await term.waitFor(/\$\s*$/, { message: "an empty prompt" });
+      const t0 = performance.now();
+      await term.type(`bash ${script}`);
+      await term.waitFor(skipped, { timeout: 60_000, message: "a notice of skipped output" });
+      r.skippedAfterMs = Math.round(performance.now() - t0);
+      await new Promise((done) => setTimeout(done, YES_MS));
+      await app.shot("yes-skipped-notice");
+      const t1 = performance.now();
+      await term.interrupt();
+      // Typed ahead: the shell runs it once `yes` has stopped.
+      await term.type("echo YES$((40+2))DONE");
+      await term.waitFor("YES42DONE", { timeout: 60_000, message: "the command typed after Ctrl-C" });
+      r.promptMs = Math.round(performance.now() - t1);
+    } finally {
+      r = { ...r, ...mem.stop() };
+    }
+    const screen = await term.screen();
+    r.skippedNotice = skipped.test(screen);
+    r.clearedNotice = atCtrlC.test(screen);
+    results.yesInterrupt = r;
+    console.log("yes then Ctrl-C", JSON.stringify(r));
+    await app.shot("yes-interrupted");
+    assert.ok(r.skippedNotice, "the flood's output was dropped, with a notice");
+    assert.ok(r.clearedNotice, "Ctrl-C dropped the backlog, with a notice");
+    assert.deepEqual(overBudget(r, YES_BUDGET), [], `\`yes\` then Ctrl-C (${BUILD}) is over its budget`);
   });
 
   it(`watches ${PODS} pods`, { timeout: 900_000 }, async () => {

@@ -42,6 +42,8 @@
  * Log streams get a `Channel` (#115): the handler keeps it (`logChannels`)
  * and `sendLog` calls its `onmessage` directly, the way the real one is
  * called for each message (lines as a raw `ArrayBuffer`, the rest as JSON).
+ * Terminal sessions do the same (`termChannels`, `sendTerm`): output as a
+ * raw `ArrayBuffer`, `{ type: "closed" }` at the end.
  *
  * ## Adding an event
  *
@@ -61,7 +63,7 @@ import { available } from "./fixtures/updates";
 import { prometheusFixture } from "./fixtures/usage";
 import { workloadsOverview } from "./fixtures/workloads";
 import { allHandlers } from "./fake";
-import { copy, newState } from "./fake/state";
+import { copy, newState, sendTerm } from "./fake/state";
 import type { CommandName } from "./fake/state";
 
 export type { CommandName } from "./fake/state";
@@ -135,8 +137,11 @@ export interface FakeApi {
   emitClusterState(change: ClusterStateChanged): Promise<void>;
   /** Send `unsaved-close-requested`, as the backend does when closing (or, `quit`, quitting) meets unsaved edits. */
   emitUnsavedCloseRequested(quit?: boolean): Promise<void>;
-  /** Send `exec-output`: `data` printed by the shell of `session` (`exec-1` is the first). */
-  emitExecOutput(session: string, data: string): Promise<void>;
+  /** `data` printed by the shell of `session` (`exec-1` is the first), on its
+   *  channel; bytes may end inside a character, like a real read. */
+  emitExecOutput(session: string, data: string | number[]): Promise<void>;
+  /** The shell of `session` exited. */
+  emitExecClosed(session: string): Promise<void>;
   /** Queue a nauvi:// link request for the window (#299), as a launch with a link does. */
   queueLink(request: LinkRequest): void;
   /** Queue it and send `link-pending`, as a second launch with a link does. */
@@ -263,7 +268,8 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
       if (done) sendLog(id, { type: "done" });
     },
     emitUnsavedCloseRequested: (quit = false) => events.unsavedCloseRequested.emit({ quit }),
-    emitExecOutput: (session, data) => events.execOutput.emit({ session, stream: "stdout", data }),
+    emitExecOutput: async (session, data) => sendTerm(st, session, typeof data === "string" ? data : new Uint8Array(data)),
+    emitExecClosed: async (session) => st.termChannels.get(session)?.onmessage({ type: "closed" }),
     queueLink: (request) => {
       st.link = request;
     },

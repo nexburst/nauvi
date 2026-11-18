@@ -1,7 +1,10 @@
 //! Debug containers and node shells, opened as terminal sessions (the
-//! `exec-*` events and commands drive them once started).
+//! `cmd_exec_*` commands drive them once started; output goes to the
+//! channel the tab passes in).
 
-use crate::commands::exec::{emit_note, start_session, SessionClose};
+use crate::commands::exec::{emit_note, start_session, SessionClose, SessionOut};
+use crate::commands::term_frame::TermChannel;
+use crate::commands::term_out::TermOut;
 use crate::state::mutation::Mutation;
 use crate::state::{AppState, Cluster, ClusterSession, SessionCleanup};
 use nauvi::debug::{add_debug_container, attach_container, describe_debug_error};
@@ -36,15 +39,12 @@ pub(crate) async fn cmd_debug_start(
     image: String,
     cols: u16,
     rows: u16,
+    on_output: TermChannel,
 ) -> Result<String, String> {
     let session = claim_session(&cluster, session)?;
     let client = cluster.client().await?;
-    let out = cluster.emitter();
-    emit_note(
-        &out,
-        &session,
-        &format!("Adding a debug container ({image})…"),
-    );
+    let out = TermOut::new(on_output);
+    emit_note(&out, &format!("Adding a debug container ({image})…"));
     let container = add_debug_container(
         &client,
         &namespace,
@@ -52,7 +52,7 @@ pub(crate) async fn cmd_debug_start(
         &target,
         &image,
         true,
-        |reason| emit_note(&out, &session, &format!("Debug container: {reason}")),
+        |reason| emit_note(&out, &format!("Debug container: {reason}")),
     )
     .await
     .map_err(|e| describe_debug_error(&e))?;
@@ -61,7 +61,6 @@ pub(crate) async fn cmd_debug_start(
         .map_err(|e| describe_debug_error(&e))?;
     emit_note(
         &out,
-        &session,
         &format!("Attached to {container}. If you don't see a prompt, press Enter."),
     );
     // Closing ends the debug shell, as `exit` would.
@@ -69,7 +68,12 @@ pub(crate) async fn cmd_debug_start(
         end_shell: true,
         cleanup: None,
     };
-    start_session(&cluster, session.clone(), attached, cols, rows, close).await;
+    let out = SessionOut {
+        cols,
+        rows,
+        on_output: out,
+    };
+    start_session(&cluster, session.clone(), attached, out, close).await;
     Ok(session)
 }
 
@@ -86,18 +90,15 @@ pub(crate) async fn cmd_node_shell_start(
     namespace: String,
     cols: u16,
     rows: u16,
+    on_output: TermChannel,
 ) -> Result<String, String> {
     let session = claim_session(&cluster, session)?;
     let client = cluster.client().await?;
-    let out = cluster.emitter();
+    let out = TermOut::new(on_output);
     let pod = new_node_shell_name(&node);
-    emit_note(
-        &out,
-        &session,
-        &format!("Starting pod {namespace}/{pod} on {node}…"),
-    );
+    emit_note(&out, &format!("Starting pod {namespace}/{pod} on {node}…"));
     let started = create_node_shell(&client, &node, &namespace, &pod, NODE_SHELL_IMAGE, |r| {
-        emit_note(&out, &session, &format!("Node shell pod: {r}"))
+        emit_note(&out, &format!("Node shell pod: {r}"))
     })
     .await;
     if let Err(e) = started {
@@ -112,7 +113,6 @@ pub(crate) async fn cmd_node_shell_start(
     };
     emit_note(
         &out,
-        &session,
         &format!("Shell on {node}. The pod is deleted when this tab closes."),
     );
     let cleanup = SessionCleanup {
@@ -125,7 +125,12 @@ pub(crate) async fn cmd_node_shell_start(
         end_shell: false,
         cleanup: Some(cleanup),
     };
-    start_session(&cluster, session.clone(), attached, cols, rows, close).await;
+    let out = SessionOut {
+        cols,
+        rows,
+        on_output: out,
+    };
+    start_session(&cluster, session.clone(), attached, out, close).await;
     Ok(session)
 }
 
