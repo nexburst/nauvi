@@ -8,6 +8,7 @@
   import { settings } from "../stores/settings.svelte";
   import { hhmmss, zoneSuffix } from "../timeZone";
   import ClusterLabel from "./ClusterLabel.svelte";
+  import WakeLine from "./WakeLine.svelte";
 
   const zone = $derived(settings.current.time_zone);
   const visible = $derived(currentContextName());
@@ -38,6 +39,8 @@
     <span class="here" data-testid="status-cluster"><ClusterLabel id={visible} title={`Shown: ${contextLabel(visible)}`} /></span>
   {/if}
   <span>{app.count}</span>
+  <!-- Before the time, so the footer's text still ends with it. -->
+  <WakeLine />
   <span>{app.updatedAt ? `Updated ${hhmmss(app.updatedAt, zone)}${zoneSuffix(zone)}` : ""}</span
   >{#if others.length}
     <span class="others" data-testid="status-background">

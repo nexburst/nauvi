@@ -16,6 +16,7 @@ import { charts, selectChart } from "./helmCharts.svelte";
 import { createUi } from "./create.svelte";
 import { closeDetail, detail } from "./detail.svelte";
 import { toggleDock } from "./dock.svelte";
+import { chart, closeChart, toggleChart } from "./chart.svelte";
 import { openLocalShell } from "./localShell";
 import { zoomIn, zoomOut, zoomReset } from "./settings.svelte";
 import { unsaved } from "./unsaved.svelte";
@@ -180,7 +181,11 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
+  if (chart.open && command === "escape") return done(e, closeChart);
+
   switch (command) {
+    case "chart":
+      return done(e, toggleChart);
     case "palette":
       return done(e, openPalette);
     case "help":

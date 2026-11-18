@@ -4,7 +4,10 @@
   import { shownContexts } from "../hidden";
   import { contextSettings, settings } from "../stores/settings.svelte";
   import { live } from "../stores/live.svelte";
-  import { openSettings } from "../stores/keyboard.svelte";
+  import { openPalette, openSettings } from "../stores/keyboard.svelte";
+  import { calmFor, streakText } from "../watch";
+  import { scope, watch } from "../stores/watch.svelte";
+  import WatchPanel from "./WatchPanel.svelte";
   import { confirmDiscard } from "../stores/unsaved.svelte";
   import { isMacPlatform, shortcutHint } from "../keys";
   import HelpMenu from "./HelpMenu.svelte";
@@ -15,6 +18,12 @@
   import { goBack, goForward } from "../stores/navigation.svelte";
 
   const REFRESH_SHORTCUT = shortcutHint("refresh", isMacPlatform());
+  const PALETTE_SHORTCUT = shortcutHint("palette", isMacPlatform());
+  // The watch dial: the calm streak as of the last Overview update.
+  const calm = $derived(watch.log.calmSince !== null);
+  const dial = $derived(
+    calm ? `calm ${streakText(calmFor(watch.log, watch.log.lastSeen))}` : `${scope.blips.length || ""} to look at`.trim(),
+  );
   const BACK_SHORTCUT = shortcutHint("back", isMacPlatform());
   const FORWARD_SHORTCUT = shortcutHint("forward", isMacPlatform());
 
@@ -145,8 +154,49 @@
     </button>
   {/if}
   <button
+    class="goto"
+    type="button"
+    title={`Go anywhere: kinds, objects, actions, namespaces (${PALETTE_SHORTCUT})`}
+    aria-label="Go to"
+    data-testid="rail-goto"
+    onclick={() => openPalette()}
+  >
+    <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+      <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
+      <path d="M16 16l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+    </svg>
+    <span class="hint">Go to a kind, an object, an action…</span>
+    <kbd>{PALETTE_SHORTCUT.split(" or ")[0]}</kbd>
+  </button>
+  {#if watch.context}
+    <button
+      type="button"
+      class="dial"
+      class:calm
+      aria-label="Watch"
+      aria-expanded={watch.panel}
+      title={calm ? `Calm on deck for ${dial}. Open the watch.` : "The deck is busy: the calm streak waits. Open the watch."}
+      data-testid="watch-dial"
+      onclick={() => (watch.panel = !watch.panel)}
+    >
+      <!-- A sonar the size of a letter: a blip per problem, a ring per change. -->
+      <svg class="mini" viewBox="-10 -10 20 20" width="18" height="18" aria-hidden="true">
+        <circle r="9" />
+        <circle r="4.5" />
+        {#each scope.blips.slice(0, 6) as b (b.key)}
+          <circle class="blip {b.tone}" cx={(b.x / 92) * 9} cy={(b.y / 92) * 9} r="1.6" />
+        {/each}
+        {#key scope.sweep}<circle class="ring" r="9" />{/key}
+        <circle class="hub" r="1.3" />
+      </svg>
+      {dial}
+    </button>
+    {#if watch.panel}<WatchPanel />{/if}
+  {/if}
+  <button
     class="refresh"
     type="button"
+    aria-label="Refresh"
     title={`Refresh (${REFRESH_SHORTCUT})`}
     onclick={() => {
       spins++;
@@ -154,15 +204,14 @@
     }}
   >
     {#key spins}
-      <svg class="turn" class:spun={spins > 0} viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+      <svg class="turn" class:spun={spins > 0} viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
         <path
           fill="currentColor"
           d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
         />
       </svg>
     {/key}
-    Refresh</button
-  >
+  </button>
   <NotificationBell />
   <HelpMenu />
   <button class="gear" type="button" aria-label="Settings" title="Settings" onclick={openSettings}>
@@ -180,9 +229,9 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 0 14px;
-    height: 48px;
+    gap: 12px;
+    padding: 0 12px;
+    height: 40px;
     background: var(--bg-sunken);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
@@ -309,25 +358,118 @@
     color: var(--text);
     background: var(--bg-hover);
   }
-  .refresh {
-    margin-left: auto;
+  /* The way anywhere: the palette, as the rail's centre. */
+  .goto {
+    flex: 1;
+    max-width: 420px;
+    min-width: 120px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 26px;
+    padding: 0 8px 0 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: text;
+    transition: border-color 140ms ease;
+  }
+  .goto:hover {
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+  .hint {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  kbd {
+    font-family: var(--font-num);
+    font-size: 10.5px;
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+  }
+  .dial {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: var(--accent);
-    color: var(--on-accent);
-    border: none;
-    border-radius: 7px;
-    padding: 6px 12px 6px 10px;
-    font-size: 13px;
-    font-weight: 600;
+    font-family: var(--font-num);
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 10px 2px 4px;
     cursor: pointer;
     transition:
-      filter 140ms ease,
+      border-color 140ms ease,
+      background-color 140ms ease;
+  }
+  .dial:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-strong);
+    color: var(--text);
+  }
+  .mini {
+    fill: none;
+    stroke: var(--border-strong);
+    stroke-width: 1;
+  }
+  .mini .hub {
+    fill: var(--accent);
+    stroke: none;
+  }
+  .mini .blip {
+    fill: var(--amber);
+    stroke: none;
+  }
+  .mini .blip.error {
+    fill: var(--red);
+  }
+  .mini .ring {
+    stroke: var(--accent);
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: dial-ring 1200ms var(--ease-out) both;
+  }
+  @keyframes dial-ring {
+    from {
+      transform: scale(0.2);
+      opacity: 1;
+    }
+    to {
+      transform: scale(1);
+      opacity: 0;
+    }
+  }
+  .dial.calm {
+    color: var(--accent);
+  }
+  .refresh {
+    display: inline-flex;
+    align-items: center;
+    background: transparent;
+    color: var(--text-muted);
+    border: none;
+    border-radius: 6px;
+    padding: 6px;
+    cursor: pointer;
+    transition:
+      color 140ms ease,
+      background-color 140ms ease,
       transform 140ms var(--ease-out);
   }
   .refresh:hover {
-    filter: brightness(1.08);
+    color: var(--text);
+    background: var(--bg-hover);
   }
   .refresh:active {
     transform: scale(0.97);

@@ -98,10 +98,6 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    padding: 14px 16px;
-    border-radius: 12px;
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
     min-width: 0;
   }
   .top {

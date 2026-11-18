@@ -20,12 +20,23 @@ export interface WatchLog {
   hours: Record<string, HourMark>;
   /** Badge id → when it was earned. */
   badges: Record<string, number>;
+  /** The problems cleared lately, newest last: the knots on the wake line. */
+  knots: Knot[];
   /** The problem pods of the last update ("ns/name"). */
   last: string[];
   /** The last list was cut short, so who left it is unknown. */
   lastPartial: boolean;
   lastSeen: number;
 }
+
+export interface Knot {
+  /** "ns/name" of the pod that cleared. */
+  key: string;
+  at: number;
+}
+
+/** How many knots the log keeps. */
+export const KNOTS_MAX = 24;
 
 export interface Badge {
   id: string;
@@ -96,6 +107,7 @@ export function emptyLog(now: number): WatchLog {
     day: dayOf(now),
     hours: {},
     badges: {},
+    knots: [],
     last: [],
     lastPartial: true,
     lastSeen: 0,
@@ -107,7 +119,9 @@ export function parseLog(raw: string | null, now: number): WatchLog {
   if (!raw) return emptyLog(now);
   try {
     const l = { ...emptyLog(now), ...JSON.parse(raw) } as WatchLog;
-    return typeof l.cleared === "number" && typeof l.hours === "object" ? l : emptyLog(now);
+    return typeof l.cleared === "number" && typeof l.hours === "object" && Array.isArray(l.knots)
+      ? l
+      : emptyLog(now);
   } catch {
     return emptyLog(now);
   }
@@ -143,6 +157,9 @@ export function observe(prev: WatchLog, problems: string[], total: number, now: 
   }
   log.cleared += cleared.length;
   log.clearedToday += cleared.length;
+  if (cleared.length > 0) {
+    log.knots = [...prev.knots, ...cleared.map((key) => ({ key, at: now }))].slice(-KNOTS_MAX);
+  }
 
   // The calm streak: broken by a problem, or by nobody watching for a while.
   if (total > 0) {
@@ -178,6 +195,13 @@ export function recentHours(log: WatchLog, now: number, n = 12): { start: number
     const start = current - (n - 1 - i) * HOUR;
     return { start, mark: log.hours[String(start)] ?? null };
   });
+}
+
+/** The knots of the last `n` hours, each with where it sits on the line (0–1). */
+export function recentKnots(log: WatchLog, now: number, n = 12): (Knot & { at01: number })[] {
+  const end = (Math.floor(now / HOUR) + 1) * HOUR;
+  const start = end - n * HOUR;
+  return log.knots.filter((k) => k.at >= start && k.at <= end).map((k) => ({ ...k, at01: (k.at - start) / (end - start) }));
 }
 
 /** "42m", "3h 05m", "2d 4h". */

@@ -23,9 +23,7 @@
   import { formatAge } from "../format";
   import { capacityBars, deckHeadline, eventKind, overviewCount, podCards } from "../overview";
   import { blips as toBlips, type Blip } from "../sonar";
-  import { observeOverview } from "../stores/watch.svelte";
-  import Sonar from "./Sonar.svelte";
-  import WatchLog from "./WatchLog.svelte";
+  import { observeOverview, scope } from "../stores/watch.svelte";
   import CalmWater from "./CalmWater.svelte";
   import { NODE_KIND_ID, POD_KIND_ID, overviewBadges } from "../problems";
   import { reportProblems, staleProblems } from "../stores/problems.svelte";
@@ -60,10 +58,16 @@
     const keys = pods.problems.map((p) => `${p.namespace}/${p.name}`);
     const gone = observeOverview(currentContextName(), keys, pods.problems_total, fresh);
     fresh = false;
+    scope.blips = toBlips(pods.problems, SCOPE_R);
+    scope.healthy = pods.running;
     if (gone.length === 0 || !prev?.pods) return;
     recovered = toBlips(prev.pods.problems, SCOPE_R).filter((b) => gone.includes(b.key));
+    scope.recovered = recovered;
     if (clearedTimer) clearTimeout(clearedTimer);
-    clearedTimer = setTimeout(() => (recovered = []), CLEARED_MS);
+    clearedTimer = setTimeout(() => {
+      recovered = [];
+      scope.recovered = [];
+    }, CLEARED_MS);
   }
   let retry: ReturnType<typeof setTimeout> | null = null;
 
@@ -175,7 +179,6 @@
 
   const podKind = $derived(kinds.all.find((k) => k.id === "v1/pods"));
   const head = $derived(deckHeadline(overview?.pods ?? null));
-  const blipList = $derived(overview?.pods ? toBlips(overview.pods.problems, SCOPE_R) : []);
   /**
    * What the sonar shows; a change sweeps it once. At most one sweep per
    * SWEEP_EVERY_MS, so a busy cluster never keeps the beam turning.
@@ -189,6 +192,7 @@
     const at = Date.now();
     if (key === sweepKey || at - lastSweep < SWEEP_EVERY_MS) return;
     sweepKey = key;
+    scope.sweep = key;
     lastSweep = at;
   }
 
@@ -209,9 +213,6 @@
       </ul>
     {/if}
     <div class="deck">
-      <div class="scope">
-        <Sonar blips={blipList} {recovered} healthy={pods?.running ?? 0} sweep={sweepKey} />
-      </div>
       <div class="summary">
         <span class="eyebrow">Watch report{pods?.namespace ? ` · ${pods.namespace}` : ""}</span>
         <h2 class="headline" class:calm={head.calm} data-testid="deck-headline">{head.text}</h2>
@@ -243,53 +244,7 @@
       {/if}
     </div>
       </div>
-      <div class="watch"><WatchLog {now} /></div>
     </div>
-
-    {#if overview.capacity}
-      <section class="capacity" aria-label="Capacity">
-        <h3>Capacity</h3>
-        <!-- One grid for all rows, so the bars line up. -->
-        <div class="bars">
-        {#each capacityBars(overview.capacity) as bar (bar.label)}
-          <div class="bar-row">
-            <span class="bar-label">{bar.label}</span>
-            <div class="bar" role="meter" aria-label={bar.label} aria-valuenow={bar.percent} aria-valuemin={0} aria-valuemax={100}>
-              <div class="fill" class:high={bar.high} style:width="{bar.percent}%"></div>
-              {#if bar.limitPercent !== null}
-                <div
-                  class="limit"
-                  class:over={bar.overcommitted}
-                  class:partial={bar.partial}
-                  style:left="{bar.limitPercent}%"
-                  title={bar.limits}
-                  data-testid="limit-{bar.label}"
-                ></div>
-              {/if}
-            </div>
-            <span class="bar-text">{bar.text}</span>
-            <span class="bar-limits" class:over={bar.overcommitted} title={bar.overcommitted ? "The limits add up to more than the nodes can allocate" : ""}>
-              {bar.limits}
-            </span>
-            <span class="bar-usage muted">{hideMetrics ? "" : bar.usage}</span>
-          </div>
-        {/each}
-        </div>
-        {#if hideMetrics}
-          <MetricsHiddenNote inline />
-        {:else}
-          <OverviewUsage capacity={overview.capacity} context={currentContextName()} />
-        {/if}
-        {#if !hideMetrics && !overview.capacity.metrics}
-          <p class="muted small">No usage: the metrics API (metrics-server) is not available.</p>
-          <MetricsOffer
-            addon="metrics-server"
-            label="Install metrics-server…"
-            text="Install it with helm: a dry run first, nothing changes until you confirm."
-          />
-        {/if}
-      </section>
-    {/if}
 
     <div class="sections">
       <section aria-label="Problem pods">
@@ -367,10 +322,53 @@
         {/each}
       </section>
     </div>
+    {#if overview.capacity}
+      <section class="capacity" aria-label="Capacity">
+        <h3>Capacity</h3>
+        <!-- One grid for all rows, so the bars line up. -->
+        <div class="bars">
+        {#each capacityBars(overview.capacity) as bar (bar.label)}
+          <div class="bar-row">
+            <span class="bar-label">{bar.label}</span>
+            <div class="bar" role="meter" aria-label={bar.label} aria-valuenow={bar.percent} aria-valuemin={0} aria-valuemax={100}>
+              <div class="fill" class:high={bar.high} style:width="{bar.percent}%"></div>
+              {#if bar.limitPercent !== null}
+                <div
+                  class="limit"
+                  class:over={bar.overcommitted}
+                  class:partial={bar.partial}
+                  style:left="{bar.limitPercent}%"
+                  title={bar.limits}
+                  data-testid="limit-{bar.label}"
+                ></div>
+              {/if}
+            </div>
+            <span class="bar-text">{bar.text}</span>
+            <span class="bar-limits" class:over={bar.overcommitted} title={bar.overcommitted ? "The limits add up to more than the nodes can allocate" : ""}>
+              {bar.limits}
+            </span>
+            <span class="bar-usage muted">{hideMetrics ? "" : bar.usage}</span>
+          </div>
+        {/each}
+        </div>
+        {#if hideMetrics}
+          <MetricsHiddenNote inline />
+        {:else}
+          <OverviewUsage capacity={overview.capacity} context={currentContextName()} />
+        {/if}
+        {#if !hideMetrics && !overview.capacity.metrics}
+          <p class="muted small">No usage: the metrics API (metrics-server) is not available.</p>
+          <MetricsOffer
+            addon="metrics-server"
+            label="Install metrics-server…"
+            text="Install it with helm: a dry run first, nothing changes until you confirm."
+          />
+        {/if}
+      </section>
+    {/if}
   {:else if app.status.ok !== false}
     <!-- The first sounding: the rings breathe until the first update. -->
     <div class="deck waiting">
-      <div class="scope"><Sonar blips={[]} recovered={[]} healthy={0} sweep="" loading /></div>
       <div class="summary">
         <span class="eyebrow">Watch report</span>
         <h2 class="headline">Taking the first sounding…</h2>
@@ -388,29 +386,9 @@
   }
   /* The deck: sonar, the report, the watch log. */
   .deck {
-    display: grid;
-    grid-template-columns: 176px minmax(0, 1fr) minmax(250px, 290px);
-    gap: 22px;
-    align-items: start;
     margin-bottom: 22px;
-    padding-bottom: 20px;
+    padding-bottom: 18px;
     border-bottom: 1px solid var(--border);
-  }
-  .deck.waiting {
-    grid-template-columns: 176px minmax(0, 1fr);
-    align-items: center;
-  }
-  @container overview (max-width: 980px) {
-    .deck {
-      grid-template-columns: 140px minmax(0, 1fr);
-    }
-    .watch {
-      grid-column: 1 / -1;
-    }
-  }
-  .scope {
-    aspect-ratio: 1;
-    padding: 4px;
   }
   .summary {
     display: flex;
@@ -422,17 +400,17 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 0 0 8px;
-    font-size: 22px;
+    margin: 0 0 14px;
+    font-size: 30px;
     font-weight: 600;
-    letter-spacing: -0.015em;
-    line-height: 1.2;
+    letter-spacing: -0.025em;
+    line-height: 1.15;
   }
   .headline::before {
     content: "";
     flex-shrink: 0;
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
     border-radius: 50%;
     background: var(--amber);
     box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 18%, transparent);
@@ -442,39 +420,41 @@
     box-shadow: 0 0 0 4px var(--accent-soft);
   }
   .cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
-    gap: 8px;
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 12px;
   }
   .notes {
     margin: 0 0 16px;
     padding-left: 18px;
     font-size: 12px;
   }
+  /* The ledger: figures on one line, parted by hairlines. No boxes. */
   .card {
     min-width: 0;
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 10px 12px 9px;
-    transition: border-color 300ms ease;
+    padding: 2px 18px 2px 0;
+    margin-right: 18px;
+    border-right: 1px solid var(--border);
+  }
+  .card:last-child {
+    border-right: none;
   }
   /* "Pods in <namespace>" needs more room than one column. */
   .card.wide {
-    grid-column: span 2;
+    max-width: 220px;
   }
-  .card.alert {
-    border-color: color-mix(in srgb, var(--red) 55%, transparent);
-    background: color-mix(in srgb, var(--red) 7%, var(--bg-raised));
+  .card.alert .label {
+    color: var(--red);
   }
   .card.alert .num {
     color: var(--red);
   }
   .num {
     font-family: var(--font-num);
-    font-size: 21px;
-    font-weight: 600;
+    font-size: 18px;
+    font-weight: 500;
     letter-spacing: -0.02em;
+    line-height: 1.1;
   }
   .label {
     color: var(--text-muted);
@@ -557,6 +537,9 @@
     display: grid;
     grid-template-columns: 1fr 2fr;
     gap: 24px;
+    margin-bottom: 24px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
   }
   h3 {
     margin: 0 0 10px;

@@ -2,6 +2,7 @@
 // Overview's updates and kept per context in this webview's localStorage.
 
 import { observe, parseLog, type Badge, type WatchLog } from "../watch";
+import type { Blip } from "../sonar";
 
 const KEY = "nauvi.watch.";
 
@@ -28,6 +29,16 @@ export const watch = $state({
   earned: null as Badge | null,
   /** Bumped per earned badge, so the glint replays. */
   earnedNonce: 0,
+  /** The watch panel (sonar, streak, insignia) is open. */
+  panel: false,
+});
+
+/** What the sonar draws, from the Overview's last update. */
+export const scope = $state({
+  blips: [] as Blip[],
+  recovered: [] as Blip[],
+  healthy: 0,
+  sweep: "",
 });
 
 /** An Overview update of `context`; returns the problem pods it cleared. */

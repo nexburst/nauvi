@@ -18,6 +18,7 @@ export type Command =
   | "deleteRows"
   | "detailTab"
   | "toggleDock"
+  | "chart"
   | "newLocalShell"
   | "refresh"
   | "zoomIn"
@@ -97,6 +98,7 @@ export const KEYMAP: Binding[] = [
     label: "Close the palette, menu, dialog or detail panel",
     group: "General",
   },
+  { command: "chart", keys: [{ key: "g" }], label: "Chart of kinds: type a kind, Enter opens it", group: "General" },
   { command: "focusFilter", keys: [{ key: "/" }], label: "Focus the table filter", group: "Table" },
   {
     command: "rowDown",

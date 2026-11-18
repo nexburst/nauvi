@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BADGES, emptyLog, observe, parseLog, recentHours, streakText } from "./watch";
+import { BADGES, emptyLog, observe, parseLog, recentHours, recentKnots, streakText } from "./watch";
 
 const T0 = new Date(2026, 10, 18, 9, 0).getTime();
 const MIN = 60_000;
@@ -11,6 +11,10 @@ describe("watch log", () => {
     o = observe(o.log, ["demo/b"], 1, T0 + MIN, false);
     expect(o.cleared).toEqual(["demo/a"]);
     expect(o.log.cleared).toBe(1);
+    // A knot on the wake line says what cleared and when.
+    expect(o.log.knots).toEqual([{ key: "demo/a", at: T0 + MIN }]);
+    expect(recentKnots(o.log, T0 + MIN, 12)[0].at01).toBeCloseTo((11 * 60 + 1) / (12 * 60), 5);
+    expect(recentKnots(o.log, T0 + 13 * 60 * MIN)).toEqual([]);
     expect(o.earned.map((b) => b.id)).toEqual(["steady-hand"]);
     // A new feed (another namespace) is a new baseline.
     o = observe(o.log, [], 0, T0 + 2 * MIN, true);

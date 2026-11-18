@@ -12,6 +12,11 @@
   import { badgeTitle } from "../problems";
   import { problems } from "../stores/problems.svelte";
   import { absentTitle, missingKinds } from "../sidebarExpected";
+  import { chart } from "../stores/chart.svelte";
+
+  /** The chart's lens: what is typed narrows the kinds (label, kind or short name). */
+  const lens = $derived(chart.pinned ? "" : chart.lens.trim().toLowerCase());
+  const inLens = (...names: string[]) => !lens || names.some((n) => n.toLowerCase().includes(lens));
 
   // The count beside Port Forwards: refreshed on start, on Refresh and on a
   // context switch (which stops every forward).
@@ -33,6 +38,7 @@
   const byCategory = $derived.by(() => {
     const out = new Map<Category, ResourceKind[]>();
     for (const k of kinds.all) {
+      if (!inLens(k.label, k.resource.kind, k.resource.plural, ...k.short_names)) continue;
       const list = out.get(k.category) ?? [];
       list.push(k);
       out.set(k.category, list);
@@ -107,16 +113,18 @@
 
 <!-- The resource groups of the cluster the window shows. -->
 <div class="kinds" data-testid="sidebar-kinds">
-  <button type="button" class:active={app.view === "overview"} onclick={() => setView("overview")}>
-    Overview
-  </button>
+  {#if inLens("overview")}
+    <button type="button" class:active={app.view === "overview"} onclick={() => setView("overview")}>
+      Overview
+    </button>
+  {/if}
 
   {#each SECTIONS as section (section.category)}
     {@const list = byCategory.get(section.category) ?? []}
-    {@const absent = kinds.loaded && kinds.all.length > 0 ? missingKinds(section.category, kinds.all) : []}
+    {@const absent = !lens && kinds.loaded && kinds.all.length > 0 ? missingKinds(section.category, kinds.all) : []}
     {#if list.length > 0 || absent.length > 0 || (section.category === "network" && forwards.list.length > 0)}
       <h4>{section.title}</h4>
-      {#if section.category === "workloads"}
+      {#if section.category === "workloads" && !lens}
         <!-- Not a kind: counts of every workload kind (#79). -->
         <button
           type="button"
@@ -140,7 +148,7 @@
           ><span class="label">{e.label}</span></button
         >
       {/each}
-      {#if section.category === "network"}
+      {#if section.category === "network" && inLens("port forwards")}
         <!-- Not a cluster kind: the forwards this app runs. -->
         <button
           type="button"
@@ -153,7 +161,7 @@
     {/if}
   {/each}
 
-  {#if kinds.loaded && kinds.all.length > 0}
+  {#if kinds.loaded && kinds.all.length > 0 && inLens("helm releases", "helm charts")}
     <h4>Helm</h4>
     <button type="button" class:active={app.view === HELM_VIEW} onclick={() => setView(HELM_VIEW)}>Releases</button>
     <button type="button" class:active={app.view === HELM_CHARTS_VIEW} onclick={() => setView(HELM_CHARTS_VIEW)}

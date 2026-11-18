@@ -1,5 +1,7 @@
 <script lang="ts">
   import CalmWater from "./CalmWater.svelte";
+  import { reportTicks } from "../stores/chart.svelte";
+  import { ticksOf } from "../trail";
   import { rowHeightPx } from "../preferences";
   import { onMount } from "svelte";
   import VirtualList from "./VirtualList.svelte";
@@ -90,6 +92,11 @@
 
   $effect(() => {
     oncount?.(visible.length, store.entries.length);
+  });
+
+  // The rows as ticks on this view's spine (the wake), in table order.
+  $effect(() => {
+    reportTicks(kind.id, ticksOf(visible.map((e) => e.row)));
   });
 
   // Multi-select. Only rows that are on screen can stay selected, so what a
