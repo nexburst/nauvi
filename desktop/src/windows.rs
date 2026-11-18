@@ -79,7 +79,7 @@ pub(crate) fn open_window(
     let rect = rect.map(|r| window_state::on_screen(r, &window_state::monitors(app)));
     let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App("index.html".into()))
         .title(title(context.as_deref()))
-        // Shown when its page starts loading (#369).
+        // Shown when its page has loaded (#369).
         .visible(false)
         .disable_drag_drop_handler();
     builder = match rect {

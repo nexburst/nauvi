@@ -1,12 +1,16 @@
-// #369: windows open hidden and show once their page starts loading, so
-// WebKitGTK's first paint no longer waits up to 500 ms for a web process
-// that is not ready yet.
+// #369: windows open hidden and show once their page has loaded, so
+// WebKitGTK's first paint no longer blocks the app's main thread for 500 ms
+// while the web process is loading the page.
 // - the app binary run directly (no WebDriver, a private session bus), STARTS
 //   times: each start logs "page load started" and then shows its window (a
 //   viewable X11 window); at most one start is more than STALL_MS slower than
 //   the fastest (before the fix about one start in ten on this box, and
-//   about half on the CI runner, took about 550 ms longer)
-// - under WebDriver: the window is shown, in the Light and Dark theme
+//   about half on the CI runner, took about 500 ms longer)
+// - under WebDriver, RESTARTS starts: from the page's start until the
+//   cluster tree lists its contexts (the `nauvi:cluster-tree` mark) takes
+//   less than TREE_MS in the median (a window shown while its page was
+//   still loading stalled here instead: about 650 ms on the CI runner,
+//   against about 150); the window is shown, in the Light and Dark theme
 //
 // Linux/X11 only (the stall and the window check are X11's).
 
@@ -24,6 +28,8 @@ import { CONTEXT } from "../lib/app.mjs";
 const T = { timeout: 300_000 };
 const STARTS = 12;
 const STALL_MS = 350;
+const RESTARTS = 3;
+const TREE_MS = 450;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -94,8 +100,20 @@ describe("#369: windows show when their page starts loading", { timeout: 15 * 60
   describe("under WebDriver", () => {
     const s = appSession("startup-show");
 
-    it("the main window is shown, Light theme", T, async () => {
+    it(`the cluster tree shows within ${TREE_MS} ms of the page's start, the window is shown, Light theme`, T, async () => {
       const { app } = s;
+      const runs = [];
+      for (let i = 0; i < RESTARTS; i++) {
+        if (i > 0) await app.restart();
+        const mark = await app.waitFor(
+          () => app.js(`return performance.getEntriesByName("nauvi:cluster-tree")[0]?.startTime ?? null`),
+          { timeout: 60_000, message: "the cluster tree's mark" },
+        );
+        runs.push(Math.round(mark));
+      }
+      const median = [...runs].sort((a, b) => a - b)[Math.floor(runs.length / 2)];
+      console.log(`page start to cluster tree (ms): ${runs.join(", ")}; median ${median}`);
+      assert.ok(median < TREE_MS, `the tree took ${median} ms (median of ${runs.join(", ")}) >= ${TREE_MS} ms`);
       await waitLive(app);
       assert.equal(x11Windows(appPid(app.profile.home)).length, 1, "one viewable window");
       await setTheme(app, "light");

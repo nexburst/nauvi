@@ -1,29 +1,31 @@
-//! Windows open hidden and show once their page starts loading (#369).
+//! Windows open hidden and show once their page has loaded (#369).
 //!
-//! WebKitGTK paints a mapped web view synchronously: the first draw of the
-//! window waits on the main thread, with a 500 ms timeout, for the web
-//! process's first update. When the window is drawn before the web process
-//! is ready, that wait runs into its timeout, and the page starts loading
-//! about half a second late (seen on X11, on about one start in ten, and on
-//! every start when `setup` takes 20 ms longer). A window that is not shown
-//! is not drawn, so the windows start hidden (`"visible": false` in
-//! `tauri.conf.json`, `.visible(false)` for the cluster windows) and are
-//! shown when their page starts loading: the web process is running then.
+//! WebKitGTK draws a web view that is not in accelerated compositing mode
+//! (the mode it starts in) synchronously: on the first draw the UI process
+//! asks the web process to paint (`DrawingArea::ForceUpdate`) and waits on
+//! the main thread, up to 500 ms, for the result
+//! (`DrawingAreaProxyCoordinatedGraphics::forceUpdateIfNeeded`). While a
+//! page is loading the web process does not paint, so a window drawn then
+//! (before or during the load) blocks the app's main thread for the whole
+//! 500 ms: the page started loading about half a second late on X11.
+//! A window that is not shown is not drawn, so the windows start hidden
+//! (`"visible": false` in `tauri.conf.json`, `.visible(false)` for the
+//! cluster windows) and are shown when their page has loaded: the web
+//! process paints at once then.
 //!
-//! In case a page never starts loading (a broken install, an engine that
+//! In case a page never finishes loading (a broken install, an engine that
 //! reports no load), a window still hidden after [`FALLBACK`] is shown
 //! anyway.
 
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, Webview};
 
-/// How long a window stays hidden at most when its page does not start
-/// loading.
+/// How long a window stays hidden at most when its page does not load.
 const FALLBACK: Duration = Duration::from_secs(3);
 
 /// Show the window of `webview` if it is still hidden. Called when its page
-/// starts loading; on a reload it is already shown and this does nothing.
-pub(crate) fn on_load_started<R: Runtime>(webview: &Webview<R>) {
+/// has loaded; on a reload it is already shown and this does nothing.
+pub(crate) fn on_load_finished<R: Runtime>(webview: &Webview<R>) {
     if let Some(w) = webview.app_handle().get_webview_window(webview.label()) {
         show_if_hidden(&w);
     }
@@ -37,7 +39,7 @@ pub(crate) fn fallback<R: Runtime>(app: &AppHandle<R>, label: &str) {
         std::thread::sleep(FALLBACK);
         if let Some(w) = app.get_webview_window(&label) {
             if show_if_hidden(&w) {
-                tracing::warn!("window {label}: its page did not start loading; shown anyway");
+                tracing::warn!("window {label}: its page did not load; shown anyway");
             }
         }
     });

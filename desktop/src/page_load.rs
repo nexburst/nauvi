@@ -11,11 +11,11 @@ use tauri::{Manager, Runtime, Webview};
 use crate::state::AppState;
 
 pub(crate) fn on_page_load<R: Runtime>(webview: &Webview<R>, payload: &PageLoadPayload<'_>) {
-    if payload.event() != PageLoadEvent::Started {
+    if payload.event() == PageLoadEvent::Finished {
+        // Windows open hidden until now (#369).
+        crate::first_show::on_load_finished(webview);
         return;
     }
-    // Windows open hidden until now (#369).
-    crate::first_show::on_load_started(webview);
     let label = webview.label();
     // The start-up budget (QA `multicluster`) times the app until this line.
     tracing::info!("window {label}: page load started");
