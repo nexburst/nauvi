@@ -4,6 +4,7 @@
 //! - `server`: the protocol, through the `rmcp` SDK (the only file that uses it)
 //! - `tools`: the tool catalogue and the dispatcher
 //! - `read_tools`: list, get, describe, logs, events, top
+//! - `problems`: what is unhealthy, and why, in one call
 //! - `write_tools`: scale, restart, delete, apply (only with `--allow-writes`)
 //! - `redact`: Secret values and last-applied, never returned
 //! - `limits`: caps on lines and bytes per call
@@ -15,6 +16,8 @@
 //! on a context the app marks read-only or protected. Diagnostics go to stderr: stdout carries the protocol.
 
 mod limits;
+mod list_table;
+mod problems;
 mod read_tools;
 mod redact;
 mod server;

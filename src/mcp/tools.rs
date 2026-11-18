@@ -4,7 +4,7 @@
 //! [`call`].
 
 use super::limits::{self, cap_text};
-use super::{read_tools as read, write_tools as write};
+use super::{problems, read_tools as read, write_tools as write};
 use anyhow::{anyhow, bail, Result};
 use kube::Client;
 use serde::de::DeserializeOwned;
@@ -56,8 +56,10 @@ fn read_tools() -> Vec<ToolSpec> {
             title: "List resources",
             description: format!(
                 "List objects of one resource type (any kind, CRDs included) as a kubectl-get table. \
-                 All namespaces unless namespace is given. Returns at most `limit` objects \
-                 (default {}, max {}). {caps}",
+                 All namespaces unless namespace is given. Pods get a LAST column (the newest \
+                 container termination and its age, e.g. OOMKilled 27d). columns keeps only the \
+                 named columns; compact drops NODE, and NAMESPACE when namespace is given. \
+                 Returns at most `limit` objects (default {}, max {}). {caps}",
                 limits::DEFAULT_LIST,
                 limits::MAX_LIST
             ),
@@ -68,6 +70,8 @@ fn read_tools() -> Vec<ToolSpec> {
                     "label_selector": { "type": "string", "description": "Label selector, e.g. app=web,tier!=db" },
                     "field_selector": { "type": "string", "description": "Field selector, e.g. status.phase=Running" },
                     "limit": { "type": "integer", "minimum": 1, "maximum": limits::MAX_LIST },
+                    "columns": { "type": "array", "items": { "type": "string" }, "description": "Only these columns, by header name, e.g. [\"name\",\"status\",\"restarts\",\"last\",\"age\"]" },
+                    "compact": { "type": "boolean", "description": "Leave out NODE, and NAMESPACE when namespace is given" },
                 }),
                 &["kind"],
             ),
@@ -139,6 +143,35 @@ fn read_tools() -> Vec<ToolSpec> {
                     "name": { "type": "string" },
                     "warnings_only": { "type": "boolean" },
                     "limit": { "type": "integer", "minimum": 1, "maximum": limits::MAX_EVENTS },
+                }),
+                &[],
+            ),
+            writes: false,
+            destructive: false,
+        },
+        ToolSpec {
+            name: "problems",
+            title: "What is wrong, and why",
+            description: format!(
+                "Only the unhealthy objects, newest problem first, one line each with the why \
+                 (last termination reason, exit code and age, the memory limit for OOMKilled, \
+                 eviction and failure messages, conditions): crash-looping, failed, not ready or \
+                 overdue pending pods, pods restarted in the last 24 h, workloads short of ready \
+                 replicas, failed Jobs, not-ready Nodes, lost PVCs. The same rules as the app's \
+                 badges. Older restarts are listed apart as history. kinds narrows the check \
+                 (pods, deployments, statefulsets, daemonsets, replicasets, jobs, nodes, \
+                 persistentvolumeclaims; Nodes only without namespace unless asked for). \
+                 At most `limit` rows (default {}, max {}); at most {} objects of each kind \
+                 are read. Start a health check here. {caps}",
+                problems::DEFAULT_PROBLEMS,
+                problems::MAX_PROBLEMS,
+                problems::MAX_READ_PER_KIND
+            ),
+            input_schema: schema(
+                json!({
+                    "namespace": { "type": "string", "description": "Only this namespace (default: all namespaces)" },
+                    "kinds": { "type": "array", "items": { "type": "string" }, "description": "Only these kinds (default: all of them)" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": problems::MAX_PROBLEMS },
                 }),
                 &[],
             ),
@@ -283,6 +316,7 @@ pub async fn call(
         "logs" => read::logs(client, &args(name, a)?).await,
         "events" => read::events(client, &args(name, a)?).await,
         "top" => read::top(client, &args(name, a)?).await,
+        "problems" => problems::problems(client, &args(name, a)?).await,
         "scale" => write::scale(client, &args(name, a)?).await,
         "restart" => write::restart(client, &args(name, a)?).await,
         "delete" => write::delete(client, &args(name, a)?).await,
@@ -304,11 +338,11 @@ mod tests {
     fn read_only_by_default() {
         assert_eq!(
             names(false),
-            ["list", "get", "describe", "logs", "events", "top"]
+            ["list", "get", "describe", "logs", "events", "problems", "top"]
         );
         assert!(catalogue(false).iter().all(|t| !t.writes));
         let all = names(true);
-        assert_eq!(&all[6..], ["scale", "restart", "delete", "apply"]);
+        assert_eq!(&all[7..], ["scale", "restart", "delete", "apply"]);
         assert!(catalogue(true).iter().filter(|t| t.writes).count() == 4);
     }
 
