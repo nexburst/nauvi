@@ -66,6 +66,53 @@ export interface WriterOptions {
 
 const encoder = new TextEncoder();
 
+/** Where xterm's escape-sequence parser is, roughly (like the backend's
+ *  `Vt`): enough to tell whether output cut at some point starts inside a
+ *  sequence. */
+export const Vt = {
+  Ground: 0,
+  /** After ESC (and any intermediate bytes). */
+  Esc: 1,
+  /** In a CSI sequence: ends at a final byte 0x40-0x7E. */
+  Csi: 2,
+  /** In a string (OSC, DCS, APC, PM, SOS): ends at BEL or ESC \. */
+  Str: 3,
+  /** ESC inside a string. */
+  StrEsc: 4,
+} as const;
+export type Vt = (typeof Vt)[keyof typeof Vt];
+
+function step(s: Vt, c: number): Vt {
+  if (c === 0x18 || c === 0x1a) return Vt.Ground;
+  if (s === Vt.Str) return c === 0x07 ? Vt.Ground : c === 0x1b ? Vt.StrEsc : Vt.Str;
+  if (s === Vt.StrEsc) return c === 0x5c ? Vt.Ground : step(Vt.Esc, c);
+  if (c === 0x1b) return Vt.Esc;
+  if (s === Vt.Ground) return Vt.Ground;
+  if (s === Vt.Esc) {
+    if (c === 0x5b) return Vt.Csi;
+    if (c === 0x5d || c === 0x50 || c === 0x5f || c === 0x5e || c === 0x58) return Vt.Str;
+    return c >= 0x20 && c <= 0x2f ? Vt.Esc : Vt.Ground;
+  }
+  return c >= 0x40 && c <= 0x7e ? Vt.Ground : Vt.Csi;
+}
+
+/** The state after `b`. */
+export function advance(s: Vt, b: Uint8Array): Vt {
+  for (let i = 0; i < b.length; i++) s = step(s, b[i]);
+  return s;
+}
+
+/** How many leading bytes of `b` to skip when what came before it (which
+ *  left the parser in `start`) was dropped: the rest of a cut escape
+ *  sequence, then the continuation bytes of a cut UTF-8 character. */
+export function resyncLen(start: Vt, b: Uint8Array): number {
+  let s = start;
+  let i = 0;
+  while (s !== Vt.Ground && i < b.length) s = step(s, b[i++]);
+  while (i < b.length && (b[i] & 0xc0) === 0x80) i++;
+  return i;
+}
+
 interface Chunk {
   data: Uint8Array;
   /** From the session (acknowledged), not written by the tab itself. */
@@ -73,6 +120,8 @@ interface Chunk {
   /** Its start was written already: the rest is never dropped, so no
    *  character or escape sequence is cut. */
   started?: boolean;
+  /** The parser state it starts in (see `Vt`). */
+  start: Vt;
 }
 
 /**
@@ -87,6 +136,8 @@ export class TermWriter {
   private skipped = 0;
   /** Some of them by Ctrl-C. */
   private interrupted = false;
+  /** The parser state after everything pushed or discarded. */
+  private tail: Vt = Vt.Ground;
   private paused = false;
   private inFlight = false;
   private frame: number | null = null;
@@ -126,7 +177,8 @@ export class TermWriter {
     if (this.disposed) return;
     const bytes = typeof data === "string" ? encoder.encode(data) : data;
     if (bytes.length === 0) return;
-    this.queue.push({ data: bytes, remote });
+    this.queue.push({ data: bytes, remote, start: this.tail });
+    this.tail = advance(this.tail, bytes);
     this.queued += bytes.length;
     // The oldest whole chunks go, never a started one nor the newest.
     let dropped = 0;
@@ -154,12 +206,34 @@ export class TermWriter {
 
   /** Drop `bytes` of the session's output unseen (stale after Ctrl-C):
    *  acknowledged and counted in the notice. */
-  discard(bytes: number) {
-    if (this.disposed || bytes === 0) return;
-    this.skipped += bytes;
+  discard(bytes: Uint8Array) {
+    if (this.disposed || bytes.length === 0) return;
+    this.tail = advance(this.tail, bytes);
+    this.skipped += bytes.length;
     this.interrupted = true;
-    this.o.onConsumed(bytes);
+    this.o.onConsumed(bytes.length);
     this.schedule();
+  }
+
+  /** After a drop, the output kept next may start inside an escape sequence
+   *  or a character whose start was dropped: skip that part too, so its
+   *  tail never prints as text. Returns the acknowledged bytes skipped. */
+  private resync(): number {
+    let acked = 0;
+    while (this.queue.length > 0 && !this.queue[0].started) {
+      const h = this.queue[0];
+      const n = resyncLen(h.start, h.data);
+      if (n === 0) break;
+      this.skipped += n;
+      this.queued -= n;
+      if (h.remote) acked += n;
+      if (n < h.data.length) {
+        this.queue[0] = { data: h.data.subarray(n), remote: h.remote, start: advance(h.start, h.data.subarray(0, n)) };
+        break;
+      }
+      this.queue.shift();
+    }
+    return acked;
   }
 
   /** Count a dropped chunk; returns its acknowledged bytes. */
@@ -211,6 +285,10 @@ export class TermWriter {
    *  chunk goes alone first: the notice never lands inside a chunk. */
   private take(): { piece: Uint8Array; remote: number } {
     const finishing = this.queue[0]?.started === true;
+    if (this.skipped > 0 && !finishing) {
+      const acked = this.resync();
+      if (acked) this.o.onConsumed(acked);
+    }
     const withNotice = this.skipped > 0 && !finishing;
     const notice = withNotice ? encoder.encode(skippedNotice(this.skipped, this.interrupted)) : new Uint8Array(0);
     if (withNotice) {
@@ -231,7 +309,10 @@ export class TermWriter {
       n += k;
       if (head.remote) remote += k;
       if (k === head.data.length) this.queue.shift();
-      else this.queue[0] = { data: head.data.subarray(k), remote: head.remote, started: true };
+      else {
+        const start = advance(head.start, head.data.subarray(0, k));
+        this.queue[0] = { data: head.data.subarray(k), remote: head.remote, started: true, start };
+      }
     }
     this.queued -= want;
     return { piece: out, remote };

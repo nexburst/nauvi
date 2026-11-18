@@ -19,7 +19,7 @@
 //! Events (`closed`) are never dropped and go out after the output before
 //! them.
 
-use super::term_frame::{TermChannel, TermEvent, TermFrame};
+use super::term_frame::{resync_len, TermChannel, TermEvent, TermFrame, Vt};
 use std::collections::VecDeque;
 use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
@@ -103,9 +103,12 @@ pub(crate) fn skipped_notice(bytes: usize, at_interrupt: bool) -> Vec<u8> {
 /// What waits for credit.
 #[derive(Default)]
 struct Pending {
-    frames: VecDeque<TermFrame>,
+    /// Each with the parser state its output starts in (see [`Vt`]).
+    frames: VecDeque<(TermFrame, Vt)>,
     /// Bytes of output in `frames`.
     bytes: usize,
+    /// The parser state after all output pushed so far.
+    tail: Vt,
     /// Bytes dropped since the last batch went out.
     skipped: usize,
     /// Some of them by Ctrl-C.
@@ -114,19 +117,21 @@ struct Pending {
 
 impl Pending {
     fn push(&mut self, f: TermFrame) {
+        let start = self.tail;
         if let TermFrame::Data(b) = &f {
             self.bytes += b.len();
+            self.tail = self.tail.advance(b);
         }
-        self.frames.push_back(f);
+        self.frames.push_back((f, start));
         while self.bytes > QUEUE_MAX {
             let Some(i) = self
                 .frames
                 .iter()
-                .position(|f| matches!(f, TermFrame::Data(_)))
+                .position(|(f, _)| matches!(f, TermFrame::Data(_)))
             else {
                 break;
             };
-            if let Some(TermFrame::Data(b)) = self.frames.remove(i) {
+            if let Some((TermFrame::Data(b), _)) = self.frames.remove(i) {
                 self.bytes -= b.len();
                 self.skipped += b.len();
             }
@@ -137,18 +142,42 @@ impl Pending {
         self.interrupted |= self.bytes > 0;
         self.skipped += self.bytes;
         self.bytes = 0;
-        self.frames.retain(|f| matches!(f, TermFrame::Event(_)));
-        self.frames.push_back(TermFrame::Event(TermEvent::Cleared));
+        self.frames
+            .retain(|(f, _)| matches!(f, TermFrame::Event(_)));
+        self.frames
+            .push_back((TermFrame::Event(TermEvent::Cleared), self.tail));
+    }
+
+    fn front(&self) -> Option<&TermFrame> {
+        self.frames.front().map(|(f, _)| f)
     }
 
     fn front_is_data(&self) -> bool {
-        matches!(self.frames.front(), Some(TermFrame::Data(_)))
+        matches!(self.front(), Some(TermFrame::Data(_)))
+    }
+
+    /// After a drop, the output kept next may start inside an escape
+    /// sequence or a character whose start was dropped: skip that part too,
+    /// so its tail never prints as text.
+    fn resync(&mut self) {
+        while let Some((TermFrame::Data(b), start)) = self.frames.front_mut() {
+            let n = resync_len(*start, b);
+            self.skipped += n;
+            self.bytes -= n;
+            if n < b.len() {
+                *start = start.advance(&b[..n]);
+                b.drain(..n);
+                return;
+            }
+            self.frames.pop_front();
+        }
     }
 
     /// The leading output, whole pieces up to `BATCH_MAX` (at least one),
     /// after a notice of what was skipped.
     fn take_batch(&mut self) -> Vec<u8> {
         let mut out = if self.skipped > 0 {
+            self.resync();
             skipped_notice(
                 std::mem::take(&mut self.skipped),
                 std::mem::take(&mut self.interrupted),
@@ -157,12 +186,12 @@ impl Pending {
             Vec::new()
         };
         let mut taken = 0;
-        while let Some(TermFrame::Data(b)) = self.frames.front() {
+        while let Some(TermFrame::Data(b)) = self.front() {
             if taken > 0 && taken + b.len() > BATCH_MAX {
                 break;
             }
             taken += b.len();
-            if let Some(TermFrame::Data(b)) = self.frames.pop_front() {
+            if let Some((TermFrame::Data(b), _)) = self.frames.pop_front() {
                 out.extend_from_slice(&b);
             }
         }
@@ -207,7 +236,7 @@ async fn run(mut rx: UnboundedReceiver<Msg>, sink: impl Fn(TermFrame)) {
         }
         // Send what the credit allows (all of it once nobody can ack).
         loop {
-            match q.frames.front() {
+            match q.front() {
                 None if q.skipped > 0 && (!open || in_flight < WINDOW) => {
                     let notice = q.take_batch();
                     in_flight += notice.len();
@@ -215,7 +244,7 @@ async fn run(mut rx: UnboundedReceiver<Msg>, sink: impl Fn(TermFrame)) {
                 }
                 None => break,
                 Some(TermFrame::Event(_)) => {
-                    if let Some(e) = q.frames.pop_front() {
+                    if let Some((e, _)) = q.frames.pop_front() {
                         sink(e);
                     }
                 }
@@ -380,6 +409,42 @@ mod tests {
         let marker = all.find("<cleared>").unwrap();
         assert!(all[marker..].contains("[… 2.0 MB of output skipped at Ctrl-C]"));
         assert!(all.ends_with("^C\r\n$ <closed>"));
+    }
+
+    /// The text of `Pending::take_batch` after the notice.
+    fn after_notice(q: &mut Pending) -> String {
+        let out = String::from_utf8(q.take_batch()).unwrap();
+        out.rsplit("]\x1b[0m\r\n").next().unwrap().to_string()
+    }
+
+    #[test]
+    fn a_drop_inside_an_escape_sequence_or_a_character_leaves_no_tail() {
+        // Dropped after `ESC[12;`: the kept `1H` would print as text.
+        let mut q = Pending::default();
+        q.push(TermFrame::Data(b"ab\x1b[12;".to_vec()));
+        q.clear();
+        q.frames.retain(|(f, _)| matches!(f, TermFrame::Data(_)));
+        q.push(TermFrame::Data(b"1Hcd".to_vec()));
+        assert_eq!(after_notice(&mut q), "cd");
+        // Overflow drops whole pieces; one ended inside a 3-byte character
+        // (a PTY read is cut anywhere, here by hand).
+        let mut q = Pending::default();
+        let euro = "€".as_bytes();
+        let mut first = vec![b'x'; QUEUE_MAX];
+        first.push(euro[0]);
+        q.push(TermFrame::Data(first));
+        q.push(TermFrame::Data([&euro[1..], b"ok"].concat()));
+        assert!(q.skipped > 0);
+        assert_eq!(after_notice(&mut q), "ok");
+        // A piece wholly inside a long sequence goes too.
+        let mut q = Pending::default();
+        q.push(TermFrame::Data(b"\x1b]0;a long".to_vec()));
+        q.clear();
+        q.frames.retain(|(f, _)| matches!(f, TermFrame::Data(_)));
+        q.push(TermFrame::Data(b" title".to_vec()));
+        q.push(TermFrame::Data(b" here\x07$ ".to_vec()));
+        assert_eq!(after_notice(&mut q), "$ ");
+        assert_eq!(q.bytes, 0);
     }
 
     #[test]

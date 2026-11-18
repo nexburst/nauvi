@@ -239,7 +239,7 @@
     let stale = false;
     let staleTimer: ReturnType<typeof setTimeout> | undefined;
     const out = termChannel({
-      output: (bytes) => (stale ? w.discard(bytes.length) : w.push(bytes, true)),
+      output: (bytes) => (stale ? w.discard(bytes) : w.push(bytes, true)),
       event: (e) => {
         if (e.type === "closed") w.push(closedNote);
         else if (e.type === "cleared") {

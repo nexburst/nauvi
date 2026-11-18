@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { isOutput, skippedNotice, TermWriter } from "./termOutput";
+import { advance, isOutput, resyncLen, skippedNotice, TermWriter, Vt } from "./termOutput";
 
 /** A fake xterm: records writes; `finish()` calls back the one in flight
  *  after `ms` of fake time. */
@@ -207,11 +207,52 @@ describe("TermWriter.discard", () => {
       cancelRaf: () => {},
       onConsumed: (n) => acked.push(n),
     });
-    w.discard(2048);
+    w.discard(new Uint8Array(2048));
     expect(acked).toEqual([2048]);
     w.push("$ ", true);
     frames.splice(0).forEach((f) => f());
     expect(writes).toEqual([skippedNotice(2048, true) + "$ "]);
+  });
+});
+
+describe("cut sequences", () => {
+  const enc = (s: string) => new TextEncoder().encode(s);
+
+  it("skips the rest of a cut escape sequence or character", () => {
+    const seq = enc("ab\x1b[12;1Hcd");
+    for (let at = 3; at < 9; at++) {
+      const rest = seq.subarray(at);
+      const n = resyncLen(advance(Vt.Ground, seq.subarray(0, at)), rest);
+      expect(new TextDecoder().decode(rest.subarray(n)), `cut at ${at}`).toBe("cd");
+    }
+    expect(resyncLen(advance(Vt.Ground, enc("\x1b]0;tit")), enc("le\x07$ "))).toBe(3);
+    expect(resyncLen(Vt.Ground, enc("€x").subarray(1))).toBe(2);
+    expect(resyncLen(Vt.Ground, enc("plain"))).toBe(0);
+  });
+
+  it("drops no tail of `ESC[12;1H` or of a 3-byte character into the screen", () => {
+    const writes: string[] = [];
+    const frames: (() => void)[] = [];
+    const w = new TermWriter((d, done) => (writes.push(new TextDecoder().decode(d)), done()), {
+      raf: (cb) => frames.push(cb),
+      cancelRaf: () => {},
+      maxPending: 8,
+    });
+    const run = () => {
+      while (frames.length) frames.splice(0).forEach((f) => f());
+    };
+    // The older chunk ends inside the sequence; overflow drops it whole.
+    w.push(enc("xxxx\x1b[12;"), true);
+    w.push(enc("1Hok"), true);
+    run();
+    expect(writes.join("")).toBe(skippedNotice(10) + "ok");
+    // Stale output after Ctrl-C ends inside "€": the next starts with its tail.
+    writes.length = 0;
+    const euro = enc("€");
+    w.discard(new Uint8Array([0x61, euro[0]]));
+    w.push(new Uint8Array([euro[1], euro[2], 0x24]), true);
+    run();
+    expect(writes.join("")).toBe(skippedNotice(4, true) + "$");
   });
 });
 

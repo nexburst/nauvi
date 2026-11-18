@@ -108,9 +108,94 @@ fn incomplete_tail(b: &[u8]) -> usize {
     0
 }
 
+/// Where a terminal's escape-sequence parser is, roughly: enough to tell
+/// whether output cut at some point starts inside a sequence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Vt {
+    #[default]
+    Ground,
+    /// After ESC (and any intermediate bytes).
+    Esc,
+    /// In a CSI sequence: ends at a final byte 0x40-0x7E.
+    Csi,
+    /// In a string (OSC, DCS, APC, PM, SOS): ends at BEL or ESC \.
+    Str,
+    /// ESC inside a string.
+    StrEsc,
+}
+
+const CAN: u8 = 0x18;
+const SUB: u8 = 0x1a;
+const ESC: u8 = 0x1b;
+
+impl Vt {
+    /// The state after `b`.
+    pub(crate) fn advance(self, b: &[u8]) -> Vt {
+        b.iter().fold(self, |s, &c| s.step(c))
+    }
+
+    fn step(self, c: u8) -> Vt {
+        match (self, c) {
+            (_, CAN | SUB) => Vt::Ground,
+            (Vt::Str, 0x07) => Vt::Ground,
+            (Vt::Str, ESC) => Vt::StrEsc,
+            (Vt::Str, _) => Vt::Str,
+            (Vt::StrEsc, b'\\') => Vt::Ground,
+            (Vt::StrEsc, c) => Vt::Esc.step(c),
+            (_, ESC) => Vt::Esc,
+            (Vt::Ground, _) => Vt::Ground,
+            (Vt::Esc, b'[') => Vt::Csi,
+            (Vt::Esc, b']' | b'P' | b'_' | b'^' | b'X') => Vt::Str,
+            (Vt::Esc, 0x20..=0x2f) => Vt::Esc,
+            (Vt::Esc, _) => Vt::Ground,
+            (Vt::Csi, 0x40..=0x7e) => Vt::Ground,
+            (Vt::Csi, _) => Vt::Csi,
+        }
+    }
+}
+
+/// How many leading bytes of `b` to skip when what came before it (which
+/// left the parser in `start`) was dropped: the rest of a cut escape
+/// sequence, then the continuation bytes of a cut UTF-8 character.
+pub(crate) fn resync_len(start: Vt, b: &[u8]) -> usize {
+    let mut s = start;
+    let mut i = 0;
+    while s != Vt::Ground && i < b.len() {
+        s = s.step(b[i]);
+        i += 1;
+    }
+    while i < b.len() && b[i] & 0xc0 == 0x80 {
+        i += 1;
+    }
+    i
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_cut_escape_sequence_or_character_is_skipped_whole() {
+        let seq = b"ab\x1b[12;1Hcd";
+        // Cut after each byte of `ESC[12;1H`: what follows skips to "cd".
+        for at in 3..9 {
+            let start = Vt::Ground.advance(&seq[..at]);
+            let rest = &seq[at..];
+            assert_eq!(&rest[resync_len(start, rest)..], b"cd", "cut at {at}");
+        }
+        // Cut before ESC or after the final byte: nothing to skip.
+        assert_eq!(resync_len(Vt::Ground.advance(b"ab"), b"\x1b[1mx"), 0);
+        assert_eq!(resync_len(Vt::Ground.advance(b"\x1b[1m"), b"x"), 0);
+        // An OSC title ends at BEL or ESC \.
+        let osc = Vt::Ground.advance(b"\x1b]0;tit");
+        assert_eq!(resync_len(osc, b"le\x07$ "), 3);
+        assert_eq!(resync_len(osc, b"le\x1b\\$ "), 4);
+        // A 3-byte character cut after its first byte.
+        let euro = "€x".as_bytes();
+        assert_eq!(resync_len(Vt::Ground, &euro[1..]), 2);
+        // ESC ( B (charset): ends at its final byte.
+        assert_eq!(resync_len(Vt::Ground.advance(b"\x1b("), b"Bok"), 1);
+    }
 
     #[test]
     fn characters_split_between_reads_go_out_whole() {
