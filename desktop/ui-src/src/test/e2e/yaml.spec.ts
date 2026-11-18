@@ -360,20 +360,20 @@ test("the editor follows the theme; its cursor and active line number stay visib
   // may prefer the light scheme.)
   await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
   expect(await colours()).toEqual({
-    background: "rgb(13, 16, 19)",
-    gutter: "rgb(13, 16, 19)",
-    activeNumber: "rgb(214, 218, 224)",
-    cursor: "rgb(214, 218, 224)",
-    key: "rgb(124, 183, 255)",
+    background: "rgb(11, 14, 20)",
+    gutter: "rgb(11, 14, 20)",
+    activeNumber: "rgb(214, 220, 230)",
+    cursor: "rgb(214, 220, 230)",
+    key: "rgb(127, 200, 255)",
   });
 
   // Light: what Settings → Theme → Light sets. Dark text on a light editor.
   await page.evaluate(() => (document.documentElement.dataset.theme = "light"));
   expect(await colours()).toEqual({
-    background: "rgb(255, 255, 255)",
-    gutter: "rgb(255, 255, 255)",
-    activeNumber: "rgb(26, 30, 37)",
-    cursor: "rgb(26, 30, 37)",
+    background: "rgb(255, 253, 248)",
+    gutter: "rgb(255, 253, 248)",
+    activeNumber: "rgb(27, 33, 48)",
+    cursor: "rgb(27, 33, 48)",
     key: "rgb(11, 92, 173)",
   });
 });

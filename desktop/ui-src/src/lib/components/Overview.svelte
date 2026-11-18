@@ -21,7 +21,12 @@
   } from "../stores/app.svelte";
   import { clusterError } from "../clusterError";
   import { formatAge } from "../format";
-  import { capacityBars, eventKind, overviewCount, podCards } from "../overview";
+  import { capacityBars, deckHeadline, eventKind, overviewCount, podCards } from "../overview";
+  import { blips as toBlips, type Blip } from "../sonar";
+  import { observeOverview } from "../stores/watch.svelte";
+  import Sonar from "./Sonar.svelte";
+  import WatchLog from "./WatchLog.svelte";
+  import CalmWater from "./CalmWater.svelte";
   import { NODE_KIND_ID, POD_KIND_ID, overviewBadges } from "../problems";
   import { reportProblems, staleProblems } from "../stores/problems.svelte";
   import MetricsOffer from "./helm/MetricsOffer.svelte";
@@ -39,6 +44,27 @@
   let now = $state(Date.now());
   /** The running feed, or 0. Events of other ids are from stopped feeds. */
   let feed = 0;
+  /** The next update is the feed's first: a new baseline for the watch log. */
+  let fresh = true;
+  /** The sonar's radius (Sonar.svelte draws on a 200-unit scope). */
+  const SCOPE_R = 92;
+  /** Problem pods that just cleared: a ring on the sonar, a line in the list. */
+  let recovered = $state.raw<Blip[]>([]);
+  let clearedTimer: ReturnType<typeof setTimeout> | null = null;
+  /** How long a cleared problem stays in the list. */
+  const CLEARED_MS = 2600;
+
+  function noteCleared(prev: Overview_Serialize | null, next: Overview_Serialize) {
+    const pods = next.pods;
+    if (!pods) return;
+    const keys = pods.problems.map((p) => `${p.namespace}/${p.name}`);
+    const gone = observeOverview(currentContextName(), keys, pods.problems_total, fresh);
+    fresh = false;
+    if (gone.length === 0 || !prev?.pods) return;
+    recovered = toBlips(prev.pods.problems, SCOPE_R).filter((b) => gone.includes(b.key));
+    if (clearedTimer) clearTimeout(clearedTimer);
+    clearedTimer = setTimeout(() => (recovered = []), CLEARED_MS);
+  }
   let retry: ReturnType<typeof setTimeout> | null = null;
 
   // The backend pushes a new summary when something changes (watches, not
@@ -46,6 +72,8 @@
   const listening = Promise.all([
     events.overviewUpdate(thisWindow()).listen((e) => {
       if (e.payload.id !== feed) return;
+      noteCleared(overview, e.payload.overview);
+      noteSweep(e.payload.overview);
       overview = e.payload.overview;
       app.count = overviewCount(overview.pods, overview.nodes);
       // The sidebar's Pods and Nodes badges, from the same watches.
@@ -97,6 +125,7 @@
     stop();
     const id = ++nextFeed;
     feed = id;
+    fresh = true;
     setStatus(null, "Connecting…");
     clearError();
     // Listen first: the backend may send the first summary right away.
@@ -137,6 +166,7 @@
 
   onDestroy(() => {
     clearInterval(ageTimer);
+    if (clearedTimer) clearTimeout(clearedTimer);
     stop();
     staleProblems(POD_KIND_ID, "overview");
     staleProblems(NODE_KIND_ID, "overview");
@@ -144,6 +174,23 @@
   });
 
   const podKind = $derived(kinds.all.find((k) => k.id === "v1/pods"));
+  const head = $derived(deckHeadline(overview?.pods ?? null));
+  const blipList = $derived(overview?.pods ? toBlips(overview.pods.problems, SCOPE_R) : []);
+  /**
+   * What the sonar shows; a change sweeps it once. At most one sweep per
+   * SWEEP_EVERY_MS, so a busy cluster never keeps the beam turning.
+   */
+  let sweepKey = $state("");
+  let lastSweep = 0;
+  const SWEEP_EVERY_MS = 20_000;
+  function noteSweep(o: Overview_Serialize) {
+    if (!o.pods) return;
+    const key = `${o.pods.problems.map((p) => `${p.namespace}/${p.name}`).join()}|${o.pods.running}|${o.pods.total}`;
+    const at = Date.now();
+    if (key === sweepKey || at - lastSweep < SWEEP_EVERY_MS) return;
+    sweepKey = key;
+    lastSweep = at;
+  }
 
   function openEvent(e: EventInfo) {
     const kind = eventKind(e, kinds.all);
@@ -161,6 +208,13 @@
         {/each}
       </ul>
     {/if}
+    <div class="deck">
+      <div class="scope">
+        <Sonar blips={blipList} {recovered} healthy={pods?.running ?? 0} sweep={sweepKey} />
+      </div>
+      <div class="summary">
+        <span class="eyebrow">Watch report{pods?.namespace ? ` · ${pods.namespace}` : ""}</span>
+        <h2 class="headline" class:calm={head.calm} data-testid="deck-headline">{head.text}</h2>
     <div class="cards">
       {#if overview.namespaces !== null}
         <div class="card">
@@ -187,6 +241,9 @@
           </div>
         {/each}
       {/if}
+    </div>
+      </div>
+      <div class="watch"><WatchLog {now} /></div>
     </div>
 
     {#if overview.capacity}
@@ -255,7 +312,17 @@
               {#if p.restarts > 0}<span class="muted">{p.restarts} restarts</span>{/if}
             </div>
           {:else}
-            <p class="muted">None.</p>
+            <CalmWater mark="buoy"><p class="none">None.</p></CalmWater>
+          {/each}
+          {#each recovered as r (r.key)}
+            <div class="cleared" aria-live="polite">
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                <circle cx="8" cy="8" r="6.5" />
+                <path d="M5 8.2l2 2 4-4.2" pathLength="10" />
+              </svg>
+              <span class="who">{r.key}</span>
+              <span class="what">cleared</span>
+            </div>
           {/each}
         {:else}
           <p class="muted">Not allowed.</p>
@@ -292,9 +359,22 @@
             <span class="message">{e.message}{e.count > 1 ? ` (x${e.count})` : ""}</span>
           </div>
         {:else}
-          <p class="muted">{overview.events ? "No warnings." : "Not allowed."}</p>
+          {#if overview.events}
+            <CalmWater mark="lighthouse"><p class="none">No warnings.</p></CalmWater>
+          {:else}
+            <p class="muted">Not allowed.</p>
+          {/if}
         {/each}
       </section>
+    </div>
+  {:else if app.status.ok !== false}
+    <!-- The first sounding: the rings breathe until the first update. -->
+    <div class="deck waiting">
+      <div class="scope"><Sonar blips={[]} recovered={[]} healthy={0} sweep="" loading /></div>
+      <div class="summary">
+        <span class="eyebrow">Watch report</span>
+        <h2 class="headline">Taking the first sounding…</h2>
+      </div>
     </div>
   {/if}
 </div>
@@ -303,13 +383,68 @@
   .overview {
     flex: 1;
     overflow: auto;
-    padding: 16px;
+    padding: 18px 20px 24px;
+    container: overview / inline-size;
+  }
+  /* The deck: sonar, the report, the watch log. */
+  .deck {
+    display: grid;
+    grid-template-columns: 176px minmax(0, 1fr) minmax(250px, 290px);
+    gap: 22px;
+    align-items: start;
+    margin-bottom: 22px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .deck.waiting {
+    grid-template-columns: 176px minmax(0, 1fr);
+    align-items: center;
+  }
+  @container overview (max-width: 980px) {
+    .deck {
+      grid-template-columns: 140px minmax(0, 1fr);
+    }
+    .watch {
+      grid-column: 1 / -1;
+    }
+  }
+  .scope {
+    aspect-ratio: 1;
+    padding: 4px;
+  }
+  .summary {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+  .headline {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 8px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+  }
+  .headline::before {
+    content: "";
+    flex-shrink: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--amber) 18%, transparent);
+  }
+  .headline.calm::before {
+    background: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-soft);
   }
   .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-    gap: 12px;
-    margin-bottom: 20px;
+    grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+    gap: 8px;
   }
   .notes {
     margin: 0 0 16px;
@@ -320,27 +455,34 @@
     min-width: 0;
     background: var(--bg-raised);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 14px 16px;
+    border-radius: 10px;
+    padding: 10px 12px 9px;
+    transition: border-color 300ms ease;
   }
   /* "Pods in <namespace>" needs more room than one column. */
   .card.wide {
     grid-column: span 2;
   }
   .card.alert {
-    border-color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 55%, transparent);
+    background: color-mix(in srgb, var(--red) 7%, var(--bg-raised));
   }
   .card.alert .num {
     color: var(--red);
   }
   .num {
-    font-size: 24px;
-    font-weight: 700;
+    font-family: var(--font-num);
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
   }
   .label {
     color: var(--text-muted);
-    font-size: 12px;
-    margin-top: 2px;
+    font-family: var(--font-num);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    margin-top: 3px;
     /* One line: a long namespace ("Pods in team-a") ellipsizes, the card's
        title has the full text. */
     white-space: nowrap;
@@ -363,9 +505,9 @@
   }
   .bar {
     position: relative;
-    height: 8px;
+    height: 6px;
     background: var(--bg-hover);
-    border-radius: 4px;
+    border-radius: 3px;
     overflow: hidden;
   }
   /* Where the limits reach: a tick across the bar. */
@@ -401,7 +543,9 @@
   }
   .fill {
     height: 100%;
-    background: var(--accent);
+    border-radius: 3px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, transparent), var(--accent));
+    transition: width 700ms var(--ease-out);
   }
   .fill.high {
     background: var(--amber);
@@ -416,7 +560,61 @@
   }
   h3 {
     margin: 0 0 10px;
-    font-size: 14px;
+    font-family: var(--font-num);
+    font-size: 10.5px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
+  }
+  .none {
+    margin: 0;
+  }
+  /* A problem that just cleared: a teal tick drawn once, then the line goes. */
+  .cleared {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 6px 0;
+    font-size: 13px;
+    color: var(--accent);
+    animation: cleared 2600ms var(--ease-out) both;
+  }
+  .cleared svg {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .cleared path {
+    stroke-dasharray: 10;
+    animation: tick 500ms var(--ease-out) 150ms both;
+  }
+  .cleared .what {
+    font-family: var(--font-num);
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+  @keyframes tick {
+    from {
+      stroke-dashoffset: 10;
+    }
+  }
+  @keyframes cleared {
+    0% {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    12%,
+    75% {
+      opacity: 1;
+      transform: none;
+    }
+    100% {
+      opacity: 0;
+    }
   }
   h3.spaced {
     margin-top: 20px;
@@ -437,7 +635,8 @@
     gap: 12px;
     padding: 8px 10px;
     border-bottom: 1px solid var(--border);
-    border-left: 3px solid var(--amber);
+    border-left: 2px solid var(--amber);
+    background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 6%, transparent), transparent 40%);
     font-size: 13px;
     align-items: baseline;
   }
@@ -448,6 +647,10 @@
   .reason {
     font-weight: 600;
     min-width: 110px;
+  }
+  .age {
+    font-family: var(--font-num);
+    font-size: 12px;
   }
   .object {
     min-width: 180px;

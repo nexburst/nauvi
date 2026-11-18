@@ -59,9 +59,10 @@
     gap: 16px;
     padding: 6px 16px;
     border-top: 1px solid var(--border);
-    background: var(--bg-raised);
+    background: var(--bg-sunken);
     color: var(--text-muted);
-    font-size: 12px;
+    font-family: var(--font-num);
+    font-size: 11px;
     flex-shrink: 0;
     min-width: 0;
     white-space: nowrap;

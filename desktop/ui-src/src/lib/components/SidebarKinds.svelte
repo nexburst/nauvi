@@ -78,13 +78,13 @@
     aria-disabled={denied && !canOpenDenied(kind)}
     title={denied ? deniedReason(kind) : kindTitle(kind)}
     onclick={() => open(kind)}
-    ><span class="label">{kind.label}</span>{#if problems.byKind[kind.id]}{@const b = problems.byKind[kind.id]}<span
-        class="problems"
-        class:stale={!b.live}
-        data-testid="problem-badge"
-        title={badgeTitle(b, kind.label, Date.now())}
-        aria-hidden="true">{b.count}</span
-      >{/if}
+    ><span class="label">{kind.label}</span>{#if problems.byKind[kind.id]}{@const b = problems.byKind[kind.id]}{#key b.count}<span
+          class="problems"
+          class:stale={!b.live}
+          data-testid="problem-badge"
+          title={badgeTitle(b, kind.label, Date.now())}
+          aria-hidden="true">{b.count}</span
+        >{/key}{/if}
   </button>
 {/snippet}
 
@@ -176,13 +176,24 @@
     gap: 2px;
     min-width: 0;
   }
+  /* Section heads: chart labels with a short rule after them. */
   h4 {
-    margin: 14px 12px 4px;
-    font-size: 11px;
-    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 12px 4px;
+    font-family: var(--font-num);
+    font-size: 10px;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.12em;
     color: var(--text-muted);
+  }
+  h4::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border), transparent);
   }
   summary {
     padding: 6px 12px;
@@ -201,6 +212,7 @@
     font-size: 12px;
   }
   button {
+    position: relative;
     text-align: left;
     background: transparent;
     color: var(--text-muted);
@@ -209,6 +221,9 @@
     padding: 6px 12px;
     font-size: 13px;
     cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
   }
   button:hover {
     background: var(--bg-hover);
@@ -238,10 +253,29 @@
   .problems {
     flex-shrink: 0;
   }
+  /* The open view: a teal beacon on the left edge, lit once on arrival. */
   button.active {
-    background: var(--bg-hover);
+    background: var(--accent-soft);
     color: var(--text);
     font-weight: 600;
+  }
+  button.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 7px;
+    bottom: 7px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: beacon 320ms var(--ease-out);
+  }
+  @keyframes beacon {
+    from {
+      transform: scaleY(0.2);
+      opacity: 0;
+    }
   }
   .count {
     margin-left: 6px;
@@ -256,9 +290,22 @@
     padding: 0 6px;
     border-radius: 8px;
     background: var(--red);
-    color: #fff;
-    font-size: 11px;
+    color: var(--bg-sunken);
+    font-family: var(--font-num);
+    font-size: 10.5px;
     font-weight: 600;
+  }
+  /* A count that changes pops once, so the eye catches it from afar. */
+  .problems {
+    animation: pop 420ms var(--ease-out);
+  }
+  @keyframes pop {
+    0% {
+      transform: scale(0.5);
+    }
+    55% {
+      transform: scale(1.18);
+    }
   }
   /* The count of a watch that has stopped: shown, but not current. */
   .problems.stale {

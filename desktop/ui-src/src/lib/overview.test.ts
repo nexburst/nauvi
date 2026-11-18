@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Capacity, EventInfo, PodCounts, ResourceKind } from "./bindings";
-import { capacityBars, eventKind, overviewCount, percent, podCards, rawPercent } from "./overview";
+import { capacityBars, deckHeadline, eventKind, overviewCount, percent, podCards, rawPercent } from "./overview";
 
 const capacity: Capacity = {
   cpu_requests_millicores: 1200,
@@ -137,5 +137,15 @@ describe("eventKind", () => {
   it("gives up on unknown kinds and objects without a name", () => {
     expect(eventKind(event("example.com/v1", "Widget"), kinds)).toBeUndefined();
     expect(eventKind(event("v1", "Pod", ""), kinds)).toBeUndefined();
+  });
+});
+
+describe("deckHeadline", () => {
+  const pods = (problems_total: number) => ({ problems_total }) as unknown as PodCounts;
+  it("says how the watch goes", () => {
+    expect(deckHeadline(pods(0))).toEqual({ text: "All quiet on the water", calm: true });
+    expect(deckHeadline(pods(1)).text).toBe("1 pod needs a look");
+    expect(deckHeadline(pods(3))).toEqual({ text: "3 pods need a look", calm: false });
+    expect(deckHeadline(null).calm).toBe(true);
   });
 });

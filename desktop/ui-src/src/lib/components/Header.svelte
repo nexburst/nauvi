@@ -37,10 +37,23 @@
   const label = (id: string) => displayName({ name: id }, contextSettings(id));
   const color = $derived(contextSettings(current).color);
   const mode = $derived(contextMode(current));
+  /** Bumped per click: the icon turns once per refresh, never idles. */
+  let spins = $state(0);
 </script>
 
 <header>
-  <div class="brand">nauvi</div>
+  <div class="brand">
+    <!-- The mark: a sonar scope, its beam resting at the bearing of the
+         last change. -->
+    <svg class="mark" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-opacity="0.35" stroke-width="1.5" />
+      <circle cx="12" cy="12" r="5.5" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="1.5" />
+      <path d="M12 12 L19.07 4.93 A10 10 0 0 1 22 12 Z" fill="currentColor" fill-opacity="0.28" />
+      <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+      <circle cx="17.2" cy="8.4" r="1.4" fill="var(--brass)" />
+    </svg>
+    <span class="word">nauvi</span>
+  </div>
   <div class="history" role="group" aria-label="History">
     <button
       class="arrow"
@@ -67,13 +80,11 @@
       </svg>
     </button>
   </div>
-  <div class="cluster">
-    <span
-      class="dot"
-      class:ok={app.status.ok === true}
-      class:error={app.status.ok === false}
-      aria-hidden="true"
-    ></span>
+  <div class="cluster" class:ok={app.status.ok === true} class:error={app.status.ok === false}>
+    <span class="dot" aria-hidden="true">
+      <!-- One ring per change of state, then still. -->
+      {#key app.status.text}<span class="ping"></span>{/key}
+    </span>
     <span data-testid="connection-status">{app.status.text}</span>
   </div>
   {#if color}
@@ -133,7 +144,25 @@
       </svg>
     </button>
   {/if}
-  <button class="refresh" type="button" title={`Refresh (${REFRESH_SHORTCUT})`} onclick={refresh}>Refresh</button>
+  <button
+    class="refresh"
+    type="button"
+    title={`Refresh (${REFRESH_SHORTCUT})`}
+    onclick={() => {
+      spins++;
+      refresh();
+    }}
+  >
+    {#key spins}
+      <svg class="turn" class:spun={spins > 0} viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+        <path
+          fill="currentColor"
+          d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
+        />
+      </svg>
+    {/key}
+    Refresh</button
+  >
   <NotificationBell />
   <HelpMenu />
   <button class="gear" type="button" aria-label="Settings" title="Settings" onclick={openSettings}>
@@ -148,19 +177,39 @@
 
 <style>
   header {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 0 16px;
+    gap: 14px;
+    padding: 0 14px;
     height: 48px;
-    background: var(--bg-raised);
+    background: var(--bg-sunken);
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
+  /* The horizon: a hairline of teal fading out from the mark. */
+  header::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), transparent 38%);
+    pointer-events: none;
+  }
   .brand {
-    font-weight: 700;
-    font-size: 16px;
-    letter-spacing: 0.02em;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--accent);
+  }
+  .word {
+    font-family: var(--font-num);
+    font-weight: 600;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    color: var(--text);
   }
   .history {
     display: flex;
@@ -185,23 +234,53 @@
     opacity: 0.35;
     cursor: default;
   }
+  /* The connection, as a pill: its colour is the state, its ring the change. */
   .cluster {
+    --state: var(--amber);
     display: flex;
     align-items: center;
     gap: 8px;
+    padding: 3px 10px 3px 8px;
+    border-radius: 999px;
+    font-size: 12px;
     color: var(--text-muted);
+    background: color-mix(in srgb, var(--state) 10%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--state) 28%, transparent);
+    transition:
+      background-color 300ms ease,
+      box-shadow 300ms ease;
+  }
+  .cluster.ok {
+    --state: var(--green);
+  }
+  .cluster.error {
+    --state: var(--red);
   }
   .dot {
-    width: 10px;
-    height: 10px;
+    position: relative;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    background: var(--amber);
+    background: var(--state);
+    transition: background-color 300ms ease;
   }
-  .dot.ok {
-    background: var(--green);
+  .ping {
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 1.5px solid var(--state);
+    animation: ping 1100ms var(--ease-out) both;
+    pointer-events: none;
   }
-  .dot.error {
-    background: var(--red);
+  @keyframes ping {
+    from {
+      transform: scale(1);
+      opacity: 0.9;
+    }
+    to {
+      transform: scale(3.4);
+      opacity: 0;
+    }
   }
   .invisible {
     visibility: hidden;
@@ -232,16 +311,34 @@
   }
   .refresh {
     margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     background: var(--accent);
-    color: #fff;
+    color: var(--on-accent);
     border: none;
-    border-radius: 6px;
-    padding: 6px 14px;
+    border-radius: 7px;
+    padding: 6px 12px 6px 10px;
     font-size: 13px;
+    font-weight: 600;
     cursor: pointer;
+    transition:
+      filter 140ms ease,
+      transform 140ms var(--ease-out);
   }
   .refresh:hover {
-    opacity: 0.9;
+    filter: brightness(1.08);
+  }
+  .refresh:active {
+    transform: scale(0.97);
+  }
+  .turn.spun {
+    animation: turn 600ms var(--ease-out);
+  }
+  @keyframes turn {
+    from {
+      transform: rotate(-200deg);
+    }
   }
   .gear {
     display: flex;

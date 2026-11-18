@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CalmWater from "./CalmWater.svelte";
   import { rowHeightPx } from "../preferences";
   import { onMount } from "svelte";
   import VirtualList from "./VirtualList.svelte";
@@ -454,7 +455,7 @@
   {/if}
 
   {#if visible.length === 0}
-    <p class="empty">No items found.</p>
+    <div class="empty"><CalmWater mark="buoy"><p>No items found.</p></CalmWater></div>
   {/if}
 </div>
 
@@ -506,9 +507,11 @@
     border: none;
     color: var(--text-muted);
     font: inherit;
-    font-size: 12px;
+    font-family: var(--font-num);
+    font-size: 10.5px;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: 0.08em;
     cursor: pointer;
     white-space: nowrap;
   }
@@ -529,29 +532,42 @@
     display: grid;
     align-items: center;
     height: 100%;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   }
   .tr:hover {
     background: var(--bg-hover);
   }
+  /* A status cell leads with a dot of its colour (the phase-* classes). */
+  .td[class*="phase-"]::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    vertical-align: 1px;
+  }
   .tr.clickable {
     cursor: pointer;
   }
+  /* The row open in the detail panel: lit teal, as the sidebar's view. */
   .tr.selected {
-    background: var(--bg-hover);
+    background: var(--accent-soft);
+    box-shadow: inset 2px 0 0 var(--accent);
   }
   .tr.checked {
-    background: rgba(79, 156, 247, 0.12);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
   }
   /* Needs attention (the backend's `problem`): a red edge and a faint tint. */
   .tr.problem {
-    box-shadow: inset 3px 0 0 var(--red);
+    box-shadow: inset 2px 0 0 var(--red);
   }
   .tr.problem:not(.selected, .checked) {
-    background: rgba(229, 72, 77, 0.07);
+    background: color-mix(in srgb, var(--red) 7%, transparent);
   }
   .tr.problem:not(.selected, .checked):hover {
-    background: rgba(229, 72, 77, 0.12);
+    background: color-mix(in srgb, var(--red) 12%, transparent);
   }
   .tr.problem.focused {
     box-shadow: inset 3px 0 0 var(--accent);
@@ -596,8 +612,10 @@
     top: 56px;
     left: 0;
     right: 0;
+    display: flex;
+    justify-content: center;
+  }
+  .empty p {
     margin: 0;
-    text-align: center;
-    color: var(--text-muted);
   }
 </style>

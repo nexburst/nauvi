@@ -19,6 +19,8 @@ export default defineConfig({
     // Saved under test-results/ (uploaded by CI on failure).
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
+    // Entrance animations would move elements while a test measures them.
+    contextOptions: { reducedMotion: "reduce" },
   },
   projects: [
     {

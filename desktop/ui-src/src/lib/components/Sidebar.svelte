@@ -18,7 +18,7 @@
   nav {
     width: 200px;
     flex-shrink: 0;
-    background: var(--bg-raised);
+    background: var(--bg-sunken);
     border-right: 1px solid var(--border);
     padding: 12px 8px;
     display: flex;

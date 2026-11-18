@@ -217,10 +217,11 @@
   .group-title {
     margin-top: 6px;
     padding: 4px 6px;
-    font-size: 11px;
-    font-weight: 600;
+    font-family: var(--font-num);
+    font-size: 10px;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.12em;
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -297,7 +298,9 @@
     background: var(--green);
   }
   .visible .dot {
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 45%, transparent);
+    box-shadow:
+      0 0 0 2px var(--bg-sunken),
+      0 0 0 3.5px color-mix(in srgb, var(--accent) 60%, transparent);
   }
   .dot.connecting,
   .dot.consent {

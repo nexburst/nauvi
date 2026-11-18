@@ -55,7 +55,7 @@
     box-sizing: border-box;
     border-radius: 8px;
     background: var(--red);
-    color: #fff;
+    color: var(--bg-sunken);
     font-size: 10px;
     font-weight: 600;
     line-height: 16px;
