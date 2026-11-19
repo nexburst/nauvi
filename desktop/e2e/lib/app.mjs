@@ -294,6 +294,8 @@ export class App {
         () =>
           this.js(`
             if (!document.querySelector('[data-testid="berths"]')) return false;
+            // Settings as one page ("All settings"), as the scenarios expect.
+            localStorage.setItem("nauvi.settings.section", "all");
             if (document.querySelector("nav:not(.floating)")) return true;
             const pin = document.querySelector('nav.floating button[aria-label="Pin as column"]');
             if (pin) pin.click();

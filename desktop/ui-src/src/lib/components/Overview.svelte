@@ -265,6 +265,9 @@
       </div>
     </div>
 
+    <!-- Wide: what needs you and the capacity on the left, the namespaces
+         beside them. On a calm watch the capacity comes first. -->
+    <div class="body" class:calm={(pods?.problems.length ?? 0) === 0 && (overview.events?.items.length ?? 0) === 0}>
     <div class="sections">
       <section aria-label="Problem pods">
         <h3>
@@ -302,19 +305,6 @@
           <p class="muted">Not allowed.</p>
         {/if}
 
-        <h3 class="spaced">Pods by namespace</h3>
-        {#if pods}
-          <table>
-            <thead><tr><th>Namespace</th><th>Pods</th></tr></thead>
-            <tbody>
-              {#each pods.by_namespace as [ns, n] (ns)}
-                <tr><td>{ns}</td><td>{n}</td></tr>
-              {/each}
-            </tbody>
-          </table>
-        {:else}
-          <p class="muted">Not allowed.</p>
-        {/if}
       </section>
       <section aria-label="Warnings">
         <h3>
@@ -341,6 +331,21 @@
         {/each}
       </section>
     </div>
+    <section class="side" aria-label="Pods by namespace">
+        <h3>Pods by namespace</h3>
+        {#if pods}
+          <table>
+            <thead><tr><th>Namespace</th><th>Pods</th></tr></thead>
+            <tbody>
+              {#each pods.by_namespace as [ns, n] (ns)}
+                <tr><td>{ns}</td><td>{n}</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        {:else}
+          <p class="muted">Not allowed.</p>
+        {/if}
+    </section>
     {#if overview.capacity}
       <section class="capacity" aria-label="Capacity">
         <h3>Capacity</h3>
@@ -385,6 +390,7 @@
         {/if}
       </section>
     {/if}
+    </div>
   {:else if app.status.ok !== false}
     <!-- The first sounding: the rings breathe until the first update. -->
     <div class="deck waiting">
@@ -492,7 +498,60 @@
     text-overflow: ellipsis;
   }
   .capacity {
-    margin-bottom: 20px;
+    grid-area: capacity;
+    min-width: 0;
+  }
+  .body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "attention" "side" "capacity";
+    gap: 22px;
+  }
+  .side {
+    grid-area: side;
+    min-width: 0;
+  }
+  @container overview (min-width: 1100px) {
+    /* The headline and the figures share one line. */
+    .summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "eyebrow eyebrow" "headline cards";
+      align-items: end;
+    }
+    .summary .eyebrow {
+      grid-area: eyebrow;
+    }
+    .headline {
+      grid-area: headline;
+      margin-bottom: 0;
+    }
+    .cards {
+      grid-area: cards;
+    }
+    .body {
+      grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
+      grid-template-areas: "attention side" "capacity side";
+      grid-template-rows: auto 1fr;
+      gap: 22px 28px;
+    }
+    .body.calm {
+      grid-template-areas: "capacity side" "attention side";
+    }
+    /* Nothing to attend to: the two calm notes side by side. */
+    .body.calm .sections {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .side {
+      padding-left: 28px;
+      border-left: 1px solid var(--border);
+    }
+    .body .side table {
+      max-width: none;
+    }
+    .capacity {
+      --chart-h: 180px;
+    }
   }
   .bars {
     display: grid;
@@ -559,9 +618,9 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     gap: 22px;
-    margin-bottom: 24px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--border);
+    grid-area: attention;
+    align-content: start;
+    min-width: 0;
   }
   h3 {
     margin: 0 0 10px;
@@ -621,11 +680,8 @@
       opacity: 0;
     }
   }
-  h3.spaced {
-    margin-top: 20px;
-  }
   /* Two short columns: not the width of the sheet. */
-  .sections table {
+  .side table {
     max-width: 480px;
   }
   .problem {

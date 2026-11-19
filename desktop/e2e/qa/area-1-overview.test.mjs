@@ -50,7 +50,7 @@ function overviewSummary(app) {
     const cards = Object.fromEntries(Array.from(document.querySelectorAll(".overview .card"), (c) =>
       [c.querySelector(".label")?.textContent.trim(), c.querySelector(".num")?.textContent.trim()]));
     const byNs = {};
-    const table = Array.from(document.querySelectorAll('.overview section[aria-label="Problem pods"] table tbody tr'));
+    const table = Array.from(document.querySelectorAll('.overview section[aria-label="Pods by namespace"] table tbody tr'));
     for (const tr of table) byNs[tr.cells[0].textContent.trim()] = Number(tr.cells[1].textContent.trim());
     return { cards, byNs };
   `);

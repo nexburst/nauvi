@@ -110,7 +110,8 @@
   svg {
     display: block;
     width: 100%;
-    height: 90px;
+    /* The Overview makes its charts taller on a wide window. */
+    height: var(--chart-h, 90px);
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 4px;

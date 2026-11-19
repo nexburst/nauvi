@@ -14,6 +14,8 @@ import { setChartPinned } from "../lib/stores/chart.svelte";
 // The tests drive the chart of kinds pinned as a column, unless one asks
 // for the summoned chart (the app's default) before the app mounts.
 if (localStorage.getItem("nauvi.chart.pinned") === null) setChartPinned(true);
+// Likewise Settings: every section on one page, unless a test picks one.
+if (localStorage.getItem("nauvi.settings.section") === null) localStorage.setItem("nauvi.settings.section", "all");
 const cluster = defaultCluster();
 const fake = installFakeBackend(cluster);
 window.__fakeInit?.(cluster, fake);
