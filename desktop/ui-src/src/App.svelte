@@ -2,8 +2,8 @@
   import { onMount, untrack } from "svelte";
   import Header from "./lib/components/Header.svelte";
   import Sidebar from "./lib/components/Sidebar.svelte";
-  import Spines from "./lib/components/Spines.svelte";
-  import { chart, clearTrail, visitObject, visitView } from "./lib/stores/chart.svelte";
+  import Berths from "./lib/components/Berths.svelte";
+  import { chart, closeChart } from "./lib/stores/chart.svelte";
   import Footer from "./lib/components/Footer.svelte";
   import Toolbar from "./lib/components/Toolbar.svelte";
   import TableView from "./lib/components/TableView.svelte";
@@ -14,7 +14,7 @@
   import Boundary from "./lib/components/Boundary.svelte";
   import { dock } from "./lib/stores/dock.svelte";
   import { isPod } from "./lib/columns";
-  import { app, checkAccess, currentContextName, currentKind, loadKinds, startApp } from "./lib/stores/app.svelte";
+  import { app, checkAccess, currentKind, loadKinds, startApp } from "./lib/stores/app.svelte";
   import { detail } from "./lib/stores/detail.svelte";
   import { handleKey } from "./lib/stores/keyboard.svelte";
   // The views, banners, side panels and dialogs of each area: add new ones
@@ -46,24 +46,14 @@
     untrack(checkAccess);
   });
 
-  // The wake (the spines) is of one cluster: a new one starts on a switch.
-  const context = $derived(currentContextName());
+  // The drawer of kinds goes away once a view is chosen; with no object
+  // open, the sheet is the table again.
   $effect(() => {
-    void context;
-    untrack(clearTrail);
+    void app.view;
+    untrack(closeChart);
   });
-  // Every view shown joins the wake.
   $effect(() => {
-    const view = app.view;
-    void context;
-    if (app.ready) untrack(() => visitView(view));
-  });
-
-  // So does every object opened; with none open, the sheet is the table again.
-  $effect(() => {
-    const t = detail.target;
-    if (!t) chart.wide = false;
-    else if (app.ready) untrack(() => visitObject(app.view, t.namespace, t.name));
+    if (!detail.target) chart.wide = false;
   });
 
   const kind = $derived(currentKind());
@@ -75,7 +65,7 @@
 
 <Header />
 <div class="main" class:hidden={dock.maximized}>
-  <Spines />
+  <Berths />
   <div class="stage" class:wide={chart.wide}>
   <Sidebar />
   <section class="content">
@@ -88,6 +78,7 @@
       {/if}
     {/each}
     <!-- A render error shows here and goes to the app log (#208). -->
+    <div class="view" class:stale={app.status.ok === false}>
     <Boundary area="view">
       {#if !app.ready}
         <!-- Restoring the remembered context and namespaces. -->
@@ -99,21 +90,10 @@
         {/key}
       {/if}
     </Boundary>
+    </div>
   </section>
   {#if detail.target && kind && detail.target.resource.kind === kind.resource.kind &&
     detail.target.resource.group === kind.resource.group}
-    <button
-      type="button"
-      class="fold"
-      aria-pressed={chart.wide}
-      aria-label={chart.wide ? "Bring the table back" : "Give the object the whole sheet"}
-      title={chart.wide ? "Bring the table back" : "Give the object the whole sheet: the table folds into its spine"}
-      data-testid="fold-table"
-      onclick={() => (chart.wide = !chart.wide)}
-    >
-      <svg viewBox="0 0 8 16" width="8" height="16" aria-hidden="true"><path d="M6 3L2 8l4 5" /></svg>
-      <span class="fold-label">{chart.wide ? "Show table" : "Fold table"}</span>
-    </button>
     <PanelResizer />
     {#key detail.nonce}
       {#if isPod(kind)}
@@ -122,6 +102,25 @@
         <GenericDetail target={detail.target} />
       {/if}
     {/key}
+  {/if}
+  {#if detail.target && kind}
+    <button
+      type="button"
+      class="widen"
+      aria-pressed={chart.wide}
+      aria-label={chart.wide ? "Show the table again" : "Give the object the whole sheet"}
+      title={chart.wide ? "Show the table again (W)" : "Give the object the whole sheet (W)"}
+      data-testid="widen"
+      onclick={() => (chart.wide = !chart.wide)}
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+        {#if chart.wide}
+          <path d="M2 3h12v10H2zM10 3v10" />
+        {:else}
+          <path d="M2 3h12v10H2zM6 8h6M9 5.5L6 8l3 2.5" />
+        {/if}
+      </svg>
+    </button>
   {/if}
   {#each SIDE_PANELS as p, i (i)}
     {#if p.when()}
@@ -169,48 +168,55 @@
     flex: 1;
     width: auto !important;
     max-width: none !important;
-    padding-right: max(0px, calc(100% - 920px - 46px));
   }
-  .fold {
-    flex-shrink: 0;
-    width: 18px;
-    padding: 14px 0 0;
+  .stage.wide > :global(aside[data-testid="detail-panel"] > :not(.top, .tabs)) {
+    max-width: 980px;
+  }
+  /* The editor wants all of it, its heading row too. */
+  .stage.wide > :global(aside[data-testid="detail-panel"]:has(.cm-editor) > *) {
+    max-width: none;
+  }
+  /* Beside the panel's close mark: the object takes the sheet, or gives
+     it back. */
+  .widen {
+    position: absolute;
+    top: 8px;
+    right: 44px;
+    z-index: 6;
     display: flex;
-    flex-direction: column;
     align-items: center;
-    gap: 8px;
-    background: var(--bg-sunken);
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    background: transparent;
     border: none;
-    border-left: 1px solid var(--border);
+    border-radius: 6px;
     color: var(--text-muted);
     cursor: pointer;
-    transition:
-      background-color 140ms ease,
-      color 140ms ease;
   }
-  .fold:hover {
-    background: var(--accent-soft);
-    color: var(--accent);
+  .widen:hover {
+    background: var(--bg-hover);
+    color: var(--text);
   }
-  .fold svg {
+  .widen svg {
     fill: none;
     stroke: currentColor;
-    stroke-width: 1.5;
+    stroke-width: 1.3;
     stroke-linecap: round;
     stroke-linejoin: round;
-    transition: transform 220ms var(--ease-out);
   }
-  .stage.wide > .fold svg {
-    transform: rotate(180deg);
+  /* What is on screen may be out of date while the connection is down: it
+     steps back, and comes forward again when the cluster answers. */
+  .view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    min-width: 0;
+    transition: opacity 300ms ease;
   }
-  .fold-label {
-    writing-mode: vertical-rl;
-    transform: rotate(180deg);
-    font-family: var(--font-num);
-    font-size: 9.5px;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    white-space: nowrap;
+  .view.stale {
+    opacity: 0.55;
   }
   .content {
     flex: 1;

@@ -65,7 +65,7 @@ export const BADGES: Badge[] = [
     id: "first-light",
     title: "First light",
     how: "See the deck with no problem pods",
-    progress: (l) => ({ value: l.calmSince !== null ? 1 : 0, text: l.calmSince !== null ? "Calm" : "Not yet" }),
+    progress: (l) => ({ value: l.calmSince !== null ? 1 : 0, text: l.calmSince !== null ? "1 / 1" : "0 / 1" }),
   },
   {
     id: "steady-hand",

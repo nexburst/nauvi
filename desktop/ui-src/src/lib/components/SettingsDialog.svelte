@@ -140,7 +140,7 @@
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Settings" data-testid="settings">
     <div class="head">
       <h2>Settings</h2>
-      <button type="button" class="btn" use:focus onclick={closeSettings}>Close</button>
+      <button type="button" class="x" aria-label="Close" title="Close (Esc)" use:focus onclick={closeSettings}>✕</button>
     </div>
 
     <fieldset>
@@ -498,6 +498,20 @@
 </div>
 
 <style>
+  .x {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 13px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .x:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
   .backdrop {
     position: fixed;
     inset: 0;
@@ -508,7 +522,7 @@
     justify-content: center;
   }
   .dialog {
-    width: min(520px, calc(100vw - 32px));
+    width: min(640px, calc(100vw - 32px));
     max-height: calc(100vh - 64px);
     overflow-y: auto;
     background: var(--bg-raised);

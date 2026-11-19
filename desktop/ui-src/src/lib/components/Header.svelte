@@ -8,6 +8,13 @@
   import { calmFor, streakText } from "../watch";
   import { scope, watch } from "../stores/watch.svelte";
   import WatchPanel from "./WatchPanel.svelte";
+  import { disconnectNode, showNode, tree } from "../stores/clusters.svelte";
+
+  /** The other clusters this window is connected to: at most three chips. */
+  const CHIPS_MAX = 3;
+  const others = $derived(
+    [...tree.nodes.entries()].filter(([id, n]) => id !== current && n.state === "connected").map(([id]) => id),
+  );
   import { confirmDiscard } from "../stores/unsaved.svelte";
   import { isMacPlatform, shortcutHint } from "../keys";
   import HelpMenu from "./HelpMenu.svelte";
@@ -123,6 +130,24 @@
       {/each}
     {/if}
   </select>
+  {#each others.slice(0, CHIPS_MAX) as id (id)}
+    <span class="chip" data-testid="cluster-chip">
+      <button type="button" class="chip-go" title={`Show ${label(id)} in this window`} onclick={() => void showNode(id)}>
+        <span class="chip-dot" style:background={contextSettings(id).color || null} aria-hidden="true"></span>
+        {label(id)}
+      </button>
+      <button
+        type="button"
+        class="chip-x"
+        aria-label={`Disconnect ${label(id)}`}
+        title="Disconnect: stops its logs, terminals and forwards in this window"
+        onclick={() => void disconnectNode(id)}>✕</button
+      >
+    </span>
+  {/each}
+  {#if others.length > CHIPS_MAX}
+    <span class="chip more" title={others.slice(CHIPS_MAX).map(label).join(", ")}>+{others.length - CHIPS_MAX}</span>
+  {/if}
   <ModeBadge {mode} name={contextNameOf(current)} />
   <button
     class="new-window"
@@ -340,19 +365,80 @@
     border-radius: 3px;
     margin-right: -10px;
   }
+  /* Another connected cluster: one click shows it, the mark lets it go. */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    height: 26px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: -6px;
+  }
+  .chip.more {
+    padding: 0 8px;
+    font-family: var(--font-num);
+  }
+  .chip button {
+    background: transparent;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    height: 100%;
+  }
+  .chip-go {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px 0 8px;
+    max-width: 130px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .chip-go:hover {
+    color: var(--text);
+  }
+  .chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--green);
+    flex-shrink: 0;
+  }
+  .chip-x {
+    padding: 0 6px;
+    font-size: 9px;
+    opacity: 0.6;
+  }
+  .chip-x:hover {
+    opacity: 1;
+    color: var(--red);
+  }
   .new-window.active {
     color: var(--accent);
     border-color: var(--accent);
   }
+  /* Rarely used: quiet marks beside the picker, not boxed buttons. */
   .new-window {
     display: flex;
     align-items: center;
     background: transparent;
-    border: 1px solid var(--border);
+    border: 1px solid transparent;
     color: var(--text-muted);
     padding: 5px;
+    margin-left: -8px;
     border-radius: 6px;
     cursor: pointer;
+    opacity: 0.6;
+    transition: opacity 140ms ease;
+  }
+  .new-window:hover,
+  .new-window:focus-visible,
+  .new-window.active {
+    opacity: 1;
   }
   .new-window:hover {
     color: var(--text);

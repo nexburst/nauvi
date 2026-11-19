@@ -236,7 +236,7 @@
           <div class="label">Pods{scope}</div>
         </div>
         {#each podCards(pods) as c (c.label)}
-          <div class="card" class:alert={c.alert} title={c.title}>
+          <div class="card" class:alert={c.alert} class:zero={c.value === 0} title={c.title}>
             <div class="num">{c.value}</div>
             <div class="label">{c.label}</div>
           </div>
@@ -446,6 +446,9 @@
   .card.alert .label {
     color: var(--red);
   }
+  .card.zero {
+    opacity: 0.45;
+  }
   .card.alert .num {
     color: var(--red);
   }
@@ -535,8 +538,8 @@
   }
   .sections {
     display: grid;
-    grid-template-columns: 1fr 2fr;
-    gap: 24px;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
     margin-bottom: 24px;
     padding-bottom: 20px;
     border-bottom: 1px solid var(--border);
@@ -602,6 +605,10 @@
   h3.spaced {
     margin-top: 20px;
   }
+  /* Two short columns: not the width of the sheet. */
+  .sections table {
+    max-width: 480px;
+  }
   .problem {
     display: flex;
     gap: 10px;
@@ -619,7 +626,7 @@
     padding: 8px 10px;
     border-bottom: 1px solid var(--border);
     border-left: 2px solid var(--amber);
-    background: linear-gradient(90deg, color-mix(in srgb, var(--amber) 6%, transparent), transparent 40%);
+
     font-size: 13px;
     align-items: baseline;
   }

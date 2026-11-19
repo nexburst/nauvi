@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { chart } from "../stores/chart.svelte";
   import { onDestroy, onMount } from "svelte";
   import ActionBar from "./ActionBar.svelte";
   import ConditionsTable from "./ConditionsTable.svelte";
@@ -69,7 +70,7 @@
 <aside data-testid="detail-panel">
   <div class="top">
     <div class="header">
-      <span class="title">{pod.namespace}/{pod.name}</span>
+      <span class="title kinded">{pod.namespace}/{pod.name}</span>
       <button type="button" class="close" aria-label="Close details" onclick={closeDetail}>✕</button>
     </div>
     <ActionBar {target} disabled={live.deleted} onEdit={showYaml} {dockSpec} />
@@ -86,7 +87,7 @@
     {:else}
       <MetaSection {info}>
         <dt>Phase</dt>
-        <dd class="phase-{extras.phase}">
+        <dd class="phase-{extras.phase}" class:overruled={!!chart.verdict}>
           {extras.phase}{#if extras.reason}<span class="muted"> ({extras.reason})</span>{/if}
         </dd>
         {#if extras.message}
@@ -133,6 +134,17 @@
 </aside>
 
 <style>
+  /* The phase is true but not the news: with a verdict above, it is not green. */
+  .overruled {
+    color: var(--amber);
+  }
+  /* "Pod", as every other panel leads with its kind. Drawn, so the title's
+     text stays the object's own name. */
+  .kinded::before {
+    content: "Pod ";
+    color: var(--text-muted);
+    font-weight: 400;
+  }
   aside {
     width: min(var(--detail-width, 420px), 75vw);
     flex-shrink: 0;

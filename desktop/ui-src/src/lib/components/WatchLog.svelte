@@ -11,6 +11,8 @@
   const log = $derived(watch.log);
   const calm = $derived(calmFor(log, now));
   const hours = $derived(recentHours(log, now));
+  /** The first insignia not earned yet. */
+  const next = $derived(BADGES.find((b) => !log.badges[b.id]));
 
   function hourTitle(start: number, mark: string | null): string {
     const h = new Date(start).getHours();
@@ -90,6 +92,10 @@
   </ul>
   {#if watch.earned}
     <p class="earned-note">Earned <strong>{watch.earned.title}</strong>: {watch.earned.how.toLowerCase()}.</p>
+  {:else if next}
+    <p class="earned-note" data-testid="watch-next">
+      Next: <strong>{next.title}</strong>, {next.how.toLowerCase()} ({next.progress(log, now).text}).
+    </p>
   {/if}
 </section>
 

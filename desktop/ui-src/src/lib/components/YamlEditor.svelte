@@ -199,7 +199,7 @@
   });
 </script>
 
-<div class="section-header">
+<div class="section-header slim">
   <h3>YAML{#if dirty}<span class="dirty" title="Unsaved changes"> ●</span>{/if}</h3>
   {#if reviewing}
     <div class="layout" role="group" aria-label="Diff layout">
@@ -299,6 +299,21 @@
 {/snippet}
 
 <style>
+  /* The tab already says YAML: this row is for the unsaved mark and the
+     actions, and it is slim. */
+  .slim {
+    padding-top: 4px;
+    padding-bottom: 4px;
+    border-top: none;
+  }
+  .slim h3 {
+    font-family: var(--font-num);
+    font-size: 10.5px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
   .pane {
     height: 50vh;
     min-height: 220px;

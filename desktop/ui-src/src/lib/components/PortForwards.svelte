@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CalmWater from "./CalmWater.svelte";
   import { onDestroy } from "svelte";
   import { forwardLabel, forwardRows, forwardsCount, forwardState, plannedUrl, portsLabel, savedPortsLabel } from "../forwards";
   import { api } from "../cluster";
@@ -66,16 +67,22 @@
 </script>
 
 <div class="forwards" data-testid="port-forwards">
-  <p class="note muted">
-    Forwards are saved per cluster. They keep running when you close panels, leave this view or show another
-    cluster (they are listed here with their cluster); disconnecting the cluster or quitting stops them, and they
-    come back stopped unless you check Start automatically.
-  </p>
-  {#if rows.length === 0 && others.length === 0}
-    <p class="empty muted" data-testid="forwards-empty">
-      No port-forwards. Start one from a pod, Service or workload: right-click it and pick Port forward…, or use the
-      Forward buttons in its details.
+  <div class="lead">
+    <h2>Port forwards</h2>
+    <p
+      class="note muted"
+      title="Forwards are saved per cluster. They keep running when you close panels, leave this view or show another cluster (they are listed here with their cluster); disconnecting the cluster or quitting stops them, and they come back stopped unless you check Start automatically."
+    >
+      Forwards are saved per cluster. They keep running while you work elsewhere in this window.
     </p>
+  </div>
+  {#if rows.length === 0 && others.length === 0}
+    <CalmWater mark="lighthouse">
+      <p class="empty muted" data-testid="forwards-empty">
+        No port-forwards. Start one from a pod, Service or workload: right-click it and pick Port forward…, or use
+        the Forward buttons in its details.
+      </p>
+    </CalmWater>
   {:else}
     <table>
       <thead>
@@ -192,6 +199,25 @@
 </div>
 
 <style>
+  .lead {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 12px;
+  }
+  .lead h2 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .lead .note {
+    margin: 0;
+    font-size: 12px;
+  }
+  .empty {
+    margin: 0;
+    max-width: 520px;
+  }
   .forwards {
     flex: 1;
     overflow: auto;

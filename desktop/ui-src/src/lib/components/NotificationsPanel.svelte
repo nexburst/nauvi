@@ -29,6 +29,14 @@
   }
 </script>
 
+<!-- A popover: a press anywhere else puts it away (the bell toggles it). -->
+<svelte:document
+  onpointerdown={(e) => {
+    const t = e.target as Element | null;
+    if (t && !t.closest('[data-testid="notifications-panel"], [aria-label^="Notifications"]')) closeNotifications();
+  }}
+/>
+
 <aside data-testid="notifications-panel" aria-label="Notifications">
   <div class="header">
     <span>Notifications</span>
@@ -71,14 +79,29 @@
 </aside>
 
 <style>
+  /* A popover under the bell: it never narrows the sheet. */
   aside {
+    position: absolute;
+    top: 6px;
+    right: 12px;
+    z-index: 55;
     width: 360px;
-    flex-shrink: 0;
+    max-height: min(480px, calc(100% - 12px));
     background: var(--bg-raised);
-    border-left: 1px solid var(--border);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    box-shadow: var(--shadow-pop);
     display: flex;
     flex-direction: column;
     min-height: 0;
+    transform-origin: top right;
+    animation: notif-in 180ms var(--ease-out);
+  }
+  @keyframes notif-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96) translateY(-4px);
+    }
   }
   .header {
     display: flex;

@@ -1,28 +1,42 @@
-// The chart (every kind of the cluster, where the sidebar used to be) and
-// the wake (lib/trail.ts). The chart is summoned and goes away once a view
-// is chosen; pinned, it stays as a column beside the sheet.
+// The shell's own state: the berths (lib/berths.ts), the drawer of kinds
+// (where the sidebar used to be) and the inspector's width. The drawer is
+// summoned and goes away once a view is chosen; pinned, it stays as a
+// column beside the sheet.
 
-import { untrack } from "svelte";
-import { pushTrail, type Step, type Tick } from "../trail";
+import { parseBerths, pinBerth, unpinBerth } from "../berths";
 
 const PIN_KEY = "nauvi.chart.pinned";
+const BERTHS_KEY = "nauvi.berths";
 
-function readPinned(): boolean {
+function read(key: string): string | null {
   try {
-    return localStorage.getItem(PIN_KEY) === "1";
+    return localStorage.getItem(key);
   } catch {
-    return false;
+    return null;
+  }
+}
+
+function write(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Not remembered: for this session only.
   }
 }
 
 export const chart = $state({
-  pinned: readPinned(),
+  pinned: read(PIN_KEY) === "1",
   open: false,
-  /** What is typed into the summoned chart: it narrows the kinds. */
+  /** What is typed into the summoned drawer: it narrows the kinds. */
   lens: "",
-  trail: [] as Step[],
-  /** The object panel takes the whole sheet; the table folds into its spine. */
+  /** The views kept at hand, in the user's order. */
+  berths: parseBerths(read(BERTHS_KEY)),
+  /** Bumped when a berth is refused because the column is full. */
+  fullNonce: 0,
+  /** The object panel takes the whole sheet; the table waits behind it. */
   wide: false,
+  /** Why the open object needs attention, as its row says ("": it is fine). */
+  verdict: "",
 });
 
 export function toggleChart() {
@@ -34,49 +48,20 @@ export function closeChart() {
   chart.lens = "";
 }
 
-/**
- * A view's rows as ticks on its spine, as last seen (the table on screen
- * keeps its own current). Not deep state: replaced per view.
- */
-let ticksByView = $state.raw<Record<string, Tick[]>>({});
-export const spineTicks = {
-  get byView() {
-    return ticksByView;
-  },
-  set byView(v: Record<string, Tick[]>) {
-    ticksByView = v;
-  },
-};
-
-export function reportTicks(view: string, ticks: Tick[]) {
-  // Untracked: the effect that reports must not depend on what it writes.
-  ticksByView = { ...untrack(() => ticksByView), [view]: ticks };
-}
-
 export function setChartPinned(pinned: boolean) {
   chart.pinned = pinned;
   closeChart();
-  try {
-    localStorage.setItem(PIN_KEY, pinned ? "1" : "0");
-  } catch {
-    // Not remembered: pinned for this session only.
+  write(PIN_KEY, pinned ? "1" : "0");
+}
+
+/** Keep `view` in a berth, or let it go if it has one. */
+export function toggleBerth(view: string) {
+  if (chart.berths.includes(view)) {
+    chart.berths = unpinBerth(chart.berths, view);
+  } else {
+    const next = pinBerth(chart.berths, view);
+    if (next.full) chart.fullNonce++;
+    chart.berths = next.berths;
   }
-}
-
-/** The view on screen changed: it joins the wake and the chart goes away. */
-export function visitView(view: string) {
-  chart.trail = pushTrail(chart.trail, { view });
-  closeChart();
-}
-
-/** An object was opened: its own spine, after its view's. */
-export function visitObject(view: string, namespace: string, name: string) {
-  chart.trail = pushTrail(chart.trail, { view, object: { namespace, name } });
-}
-
-/** A context switch: the wake was of another cluster. */
-export function clearTrail() {
-  chart.trail = [];
-  chart.wide = false;
-  spineTicks.byView = {};
+  write(BERTHS_KEY, JSON.stringify(chart.berths));
 }

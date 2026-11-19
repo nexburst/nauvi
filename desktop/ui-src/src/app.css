@@ -356,3 +356,17 @@ th {
     transform: translateY(6px) scale(0.97);
   }
 }
+
+/* One family: every dialog and popover has the same frame. A strong
+   hairline, a 10px corner, its title at the top left, and it lies over the
+   sheet without moving it. */
+.backdrop > [role="dialog"],
+.backdrop > [role="alertdialog"] {
+  border-color: var(--border-strong);
+  border-radius: 10px;
+}
+.backdrop > [role="dialog"] h2,
+.backdrop > [role="alertdialog"] h2 {
+  font-size: 14px;
+  letter-spacing: -0.005em;
+}

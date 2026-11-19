@@ -50,8 +50,12 @@ test("notices and errors land in the history with an unread count", async ({ pag
   await expect(items(page).nth(1).locator("time")).toHaveText(/^\d\d:\d\d:\d\d$/);
   await expect(items(page).nth(1).locator(".context")).not.toBeEmpty();
 
-  // While the panel is open, new ones are not unread.
+  // The panel is a popover: working in the table puts it away, and what
+  // arrives meanwhile is unread until it is opened again.
   await runFromMenu(page, "node-2", "Uncordon");
+  await expect(panel(page)).toHaveCount(0);
+  await expect(page.getByTestId("notification-count")).toHaveText("1");
+  await bell(page).click();
   await expect(items(page)).toHaveCount(3);
   await expect(page.getByTestId("notification-count")).toHaveCount(0);
 

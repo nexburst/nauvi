@@ -1,8 +1,8 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { app, kinds, openObject, setView } from "../stores/app.svelte";
+  import { app, kinds, setView } from "../stores/app.svelte";
   import { problems } from "../stores/problems.svelte";
-  import { viewLabel } from "../trail";
+  import { viewLabel } from "../berths";
   import { chart, closeChart, setChartPinned } from "../stores/chart.svelte";
   import ClusterTree from "./ClusterTree.svelte";
   import SidebarKinds from "./SidebarKinds.svelte";
@@ -32,19 +32,10 @@
     return { view, label: viewLabel(view, kinds.all), code: k?.short_names[0] ?? "", count: problems.byKind[view]?.count };
   };
   const needsLook = $derived(Object.keys(problems.byKind).map(entry));
-  // Each kind once: under the first heading it belongs to.
-  const wake = $derived(
-    chart.trail.filter((s) => !s.object && s.view !== app.view && !problems.byKind[s.view]).map((s) => entry(s.view)),
-  );
-  /** The objects on the wake, to go straight back to one. */
-  const wakeObjects = $derived(chart.trail.filter((s) => !!s.object));
-  function reopen(view: string, o: { namespace: string; name: string }) {
-    const kind = kinds.all.find((k) => k.id === view);
-    if (kind) openObject(kind, o.namespace, o.name);
-  }
+  // Each kind once: what needs a look is not repeated under Common.
   const common = $derived(
     COMMON.map((kind) => kinds.all.find((k) => k.resource.kind === kind && !k.crd))
-      .filter((k) => !!k && !problems.byKind[k.id] && !wake.some((w) => w.view === k.id))
+      .filter((k) => !!k && !problems.byKind[k.id])
       .map((k) => entry(k!.id)),
   );
 
@@ -81,19 +72,22 @@
   <nav bind:this={nav} class:floating={!chart.pinned} data-testid="chart">
     {#if !chart.pinned}
       <div class="chart-head">
-        <span class="eyebrow">Chart</span>
         <input
           bind:this={lens}
           bind:value={chart.lens}
           class="lens"
           type="text"
-          placeholder="Type a kind: po, dep, secrets…"
+          placeholder="Kind: po, deploy, secrets…"
           aria-label="Find a kind"
           data-testid="chart-lens"
           onkeydown={onLensKey}
         />
-        <button type="button" class="btn" title="Keep the chart as a column beside the sheet" onclick={() => setChartPinned(true)}
-          >Pin as column</button
+        <button
+          type="button"
+          class="btn"
+          aria-label="Pin as column"
+          title="Keep the kinds as a column beside the sheet"
+          onclick={() => setChartPinned(true)}>Keep open</button
         >
       </div>
     {/if}
@@ -114,23 +108,9 @@
           {/if}
         {/snippet}
         {@render group("Needs a look", needsLook)}
-        <section>
-          {#if wake.length + wakeObjects.length > 0}
-            <h4 class="eyebrow">Your wake</h4>
-            {#each wake as e (e.view)}
-              <button type="button" onclick={() => setView(e.view)}><span class="label">{e.label}</span></button>
-            {/each}
-            {#each wakeObjects as s (s.view + s.object!.name)}
-              <button type="button" onclick={() => reopen(s.view, s.object!)}>
-                <span class="label">{s.object!.name}</span>
-                <span class="code">{viewLabel(s.view, kinds.all)}</span>
-              </button>
-            {/each}
-          {/if}
-        </section>
         {@render group("Common", common)}
       </div>
-      <p class="all eyebrow">All {kinds.all.length} kinds · the other clusters</p>
+      <p class="all eyebrow">All {kinds.all.length} kinds</p>
     {/if}
     <div class="chart-body">
       {#if app.contexts.length > 0}
@@ -177,7 +157,7 @@
     top: 0;
     left: 0;
     bottom: 0;
-    width: 100%;
+    width: 320px;
     z-index: 40;
     background: var(--bg-sunken);
     border-right: 1px solid var(--border-strong);
@@ -202,8 +182,8 @@
   .chart-head {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 12px 20px;
+    gap: 10px;
+    padding: 10px 12px 10px 20px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
@@ -223,14 +203,14 @@
     border-bottom-color: var(--accent);
   }
   nav.floating .chart-body {
-    padding: 14px 20px 24px;
+    padding: 6px 8px 20px;
   }
   /* The short chart: three columns of what is most likely wanted. */
   .quick {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 260px));
-    gap: 8px 40px;
-    padding: 18px 20px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 12px 4px;
     flex-shrink: 0;
   }
   .quick section {
@@ -240,20 +220,19 @@
     min-width: 0;
   }
   .quick h4 {
-    margin: 0 0 8px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--border);
+    margin: 0 0 4px;
+    padding: 0 8px;
   }
   .quick section button {
     display: flex;
     align-items: baseline;
     gap: 8px;
-    padding: 7px 8px;
+    padding: 5px 8px;
     background: transparent;
     border: none;
     border-radius: 4px;
     color: var(--text);
-    font-size: 15px;
+    font-size: 13px;
     text-align: left;
     cursor: pointer;
   }
@@ -286,32 +265,10 @@
     color: var(--text-muted);
   }
   .all {
-    margin: 10px 20px 0;
-    padding-top: 12px;
+    margin: 8px 12px 0;
+    padding: 10px 8px 0;
     border-top: 1px solid var(--border);
     flex-shrink: 0;
   }
 
-  /* The shown cluster's kinds flow into columns; a section never splits
-     from its heading. */
-  nav.floating :global([data-testid="sidebar-kinds"]) {
-    display: block;
-    columns: 180px;
-    column-gap: 28px;
-    padding-top: 4px;
-  }
-  nav.floating :global([data-testid="sidebar-kinds"] h4) {
-    break-after: avoid;
-    margin-left: 0;
-    margin-right: 0;
-  }
-  nav.floating :global([data-testid="sidebar-kinds"] button),
-  nav.floating :global([data-testid="sidebar-kinds"] details) {
-    display: flex;
-    width: 100%;
-    break-inside: avoid;
-  }
-  nav.floating :global([data-testid="sidebar-kinds"] details) {
-    display: block;
-  }
 </style>

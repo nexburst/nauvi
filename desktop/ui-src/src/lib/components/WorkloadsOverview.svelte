@@ -253,42 +253,47 @@
     padding-left: 18px;
     font-size: 12px;
   }
+  /* A ledger: one 34px row per kind. Its name and count, a bar of its
+     states, then the states in words; the ones at zero step back. */
   .cards {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 12px;
+    display: flex;
+    flex-direction: column;
     margin-bottom: 24px;
+    border-top: 1px solid var(--border);
   }
   .card {
-    background: var(--bg-raised);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 12px 14px;
+    display: grid;
+    grid-template-columns: 210px 200px minmax(0, 1fr);
+    align-items: center;
+    gap: 20px;
+    min-height: 34px;
+    padding: 0 4px;
+    border-bottom: 1px solid var(--border);
   }
   .card.alert {
-    border-color: var(--red);
+    box-shadow: inset 2px 0 0 var(--red);
   }
   .card-head {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
-    margin-bottom: 8px;
+    padding-left: 8px;
   }
   .name {
     font-weight: 600;
     font-size: 13px;
   }
   .total {
-    font-size: 22px;
-    font-weight: 700;
+    font-family: var(--font-num);
+    font-size: 15px;
+    font-weight: 600;
   }
   .bar {
     display: flex;
-    height: 8px;
-    border-radius: 4px;
+    height: 6px;
+    border-radius: 3px;
     overflow: hidden;
     background: var(--bg-hover);
-    margin-bottom: 8px;
   }
   .seg {
     height: 100%;
@@ -312,14 +317,29 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    display: grid;
-    gap: 1px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 6px;
+  }
+  .status:disabled {
+    opacity: 0.45;
+  }
+  /* Nothing there is nothing to colour. */
+  .status:disabled .dot {
+    background: var(--text-muted);
+  }
+  h3 {
+    font-family: var(--font-num);
+    font-size: 10.5px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-muted);
   }
   .status {
     display: flex;
     align-items: center;
-    gap: 8px;
-    width: 100%;
+    gap: 6px;
     background: transparent;
     border: none;
     border-radius: 4px;
@@ -343,11 +363,10 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .label {
-    flex: 1;
-  }
   .count {
+    font-family: var(--font-num);
     font-variant-numeric: tabular-nums;
+    font-weight: 600;
   }
   .sections {
     display: grid;

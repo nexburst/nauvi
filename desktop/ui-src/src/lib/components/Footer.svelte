@@ -41,7 +41,10 @@
   <span>{app.count}</span>
   <!-- Before the time, so the footer's text still ends with it. -->
   <WakeLine />
-  <span>{app.updatedAt ? `Updated ${hhmmss(app.updatedAt, zone)}${zoneSuffix(zone)}` : ""}</span
+  <span class:stale={app.status.ok === false}
+    >{app.updatedAt
+      ? `${app.status.ok === false ? "Stale since" : "Updated"} ${hhmmss(app.updatedAt, zone)}${zoneSuffix(zone)}`
+      : ""}</span
   >{#if others.length}
     <span class="others" data-testid="status-background">
       <span class="muted-label">Also running:</span>
@@ -69,6 +72,9 @@
     flex-shrink: 0;
     min-width: 0;
     white-space: nowrap;
+  }
+  .stale {
+    color: var(--amber);
   }
   .here {
     display: inline-flex;

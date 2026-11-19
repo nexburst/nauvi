@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import { chart } from "../stores/chart.svelte";
   import { onDestroy, onMount } from "svelte";
   import ActionBar from "./ActionBar.svelte";
   import ConditionsTable from "./ConditionsTable.svelte";
@@ -52,6 +54,10 @@
     { id: "yaml", label: "YAML" },
   ]);
   let tab = $state("overview");
+  // YAML wants the room: it takes the sheet (W gives the table back).
+  $effect(() => {
+    if (tab === "yaml" && !chart.pinned) untrack(() => (chart.wide = true));
+  });
 
   onMount(() => {
     void live.start();

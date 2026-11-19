@@ -19,6 +19,9 @@ export type Command =
   | "detailTab"
   | "toggleDock"
   | "chart"
+  | "berth"
+  | "keepBerth"
+  | "widen"
   | "newLocalShell"
   | "refresh"
   | "zoomIn"
@@ -98,7 +101,16 @@ export const KEYMAP: Binding[] = [
     label: "Close the palette, menu, dialog or detail panel",
     group: "General",
   },
-  { command: "chart", keys: [{ key: "g" }], label: "Chart of kinds: type a kind, Enter opens it", group: "General" },
+  { command: "chart", keys: [{ key: "g" }], label: "Kinds: type a kubectl name, Enter opens it", group: "General" },
+  {
+    command: "berth",
+    keys: Array.from({ length: 9 }, (_, i) => ({ key: String(i + 1) })),
+    display: ["1…9"],
+    label: "Go to a berth (1 is the Overview)",
+    group: "General",
+  },
+  { command: "keepBerth", keys: [{ key: "p" }], label: "Keep this view in a berth, or let it go", group: "General" },
+  { command: "widen", keys: [{ key: "w" }], label: "Give the object the whole sheet, or the table back", group: "Detail panel" },
   { command: "focusFilter", keys: [{ key: "/" }], label: "Focus the table filter", group: "Table" },
   {
     command: "rowDown",

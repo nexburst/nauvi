@@ -1,7 +1,7 @@
 <script lang="ts">
   import CalmWater from "./CalmWater.svelte";
-  import { reportTicks } from "../stores/chart.svelte";
-  import { ticksOf } from "../trail";
+  import { chart } from "../stores/chart.svelte";
+  import { app } from "../stores/app.svelte";
   import { rowHeightPx } from "../preferences";
   import { onMount } from "svelte";
   import VirtualList from "./VirtualList.svelte";
@@ -94,9 +94,15 @@
     oncount?.(visible.length, store.entries.length);
   });
 
-  // The rows as ticks on this view's spine (the wake), in table order.
+  // What the open object's row says is wrong: the inspector leads with it.
+  // ponytail: a scan of the rows per update, only while an object is open;
+  // a keyed lookup if tables of many thousands make it show.
   $effect(() => {
-    reportTicks(kind.id, ticksOf(visible.map((e) => e.row)));
+    const row = selectedKey ? store.entries.find((e) => e.key === selectedKey)?.row : undefined;
+    // With how often it restarted, when the table has that column.
+    const at = columns.findIndex((c) => c.key === "restarts");
+    const restarts = row && at >= 0 ? Number(columns[at].text(row, { metrics, now })) : 0;
+    chart.verdict = row?.problem ? `${row.problem}${restarts > 0 ? ` · ${restarts} restart${restarts === 1 ? "" : "s"}` : ""}` : "";
   });
 
   // Multi-select. Only rows that are on screen can stay selected, so what a
@@ -462,7 +468,18 @@
   {/if}
 
   {#if visible.length === 0}
-    <div class="empty"><CalmWater mark="buoy"><p>No items found.</p></CalmWater></div>
+    <div class="empty">
+      <CalmWater mark="buoy">
+        <p class="way-out">
+          <span>No items found.</span>
+          {#if app.search}
+            <button type="button" class="btn" data-testid="clear-filter" onclick={() => (app.search = "")}
+              >Clear the filter "{app.search}"</button
+            >
+          {/if}
+        </p>
+      </CalmWater>
+    </div>
   {/if}
 </div>
 
@@ -624,5 +641,10 @@
   }
   .empty p {
     margin: 0;
+  }
+  .empty .way-out {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
 </style>

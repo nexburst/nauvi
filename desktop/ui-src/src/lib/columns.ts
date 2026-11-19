@@ -79,7 +79,8 @@ function widthFor(def: ColumnDef): string {
   if (def.key === "name") return "minmax(160px, 2.2fr)";
   if (def.key === "namespace") return "minmax(120px, 1.2fr)";
   if (def.key === "message") return "minmax(240px, 3fr)";
-  if (def.kind === "status") return "minmax(120px, 1fr)";
+  // Wide enough for "CrashLoopBackOff" behind its dot.
+  if (def.kind === "status") return "minmax(172px, 1fr)";
   return "minmax(80px, 1fr)";
 }
 
