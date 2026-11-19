@@ -140,7 +140,7 @@
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Settings" data-testid="settings">
     <div class="head">
       <h2>Settings</h2>
-      <button type="button" class="x" aria-label="Close" title="Close (Esc)" use:focus onclick={closeSettings}>✕</button>
+      <button type="button" class="x" title="Close (Esc)" use:focus onclick={closeSettings}><svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg><span class="sr">Close</span></button>
     </div>
 
     <fieldset>
@@ -507,6 +507,23 @@
     height: 26px;
     border-radius: 6px;
     cursor: pointer;
+  }
+  .x {
+    position: relative;
+  }
+  .x svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .x:hover {
     background: var(--bg-hover);

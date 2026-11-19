@@ -278,6 +278,32 @@ export class App {
   async start() {
     this.#session = await startSession(this.name, this.opts);
     this.driver = this.#session.driver;
+    await this.#keepKindsOpen();
+  }
+
+  /**
+   * The app's default shell has no sidebar: the kinds are in a drawer (G).
+   * These helpers and scenarios drive the kinds, the cluster tree and their
+   * badges as a column, so every app is started with the drawer kept open
+   * ("Keep open", the classic layout), as the Playwright specs are. It is
+   * remembered in the profile; a restart finds it already open.
+   */
+  async #keepKindsOpen() {
+    try {
+      await this.waitFor(
+        () =>
+          this.js(`
+            if (!document.querySelector('[data-testid="berths"]')) return false;
+            if (document.querySelector("nav:not(.floating)")) return true;
+            const pin = document.querySelector('nav.floating button[aria-label="Pin as column"]');
+            if (pin) pin.click();
+            else document.querySelector('[data-testid="chart-toggle"]')?.click();
+            return false;`),
+        { timeout: 30_000, message: "the kinds kept open as a column" },
+      );
+    } catch {
+      // The window has no shell (yet): the scenario's own waits say what is wrong.
+    }
   }
 
   /** Stop the app (and remove its profile unless the caller passed one). */

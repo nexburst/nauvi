@@ -221,7 +221,6 @@
   <button
     class="refresh"
     type="button"
-    aria-label="Refresh"
     title={`Refresh (${REFRESH_SHORTCUT})`}
     onclick={() => {
       spins++;
@@ -236,6 +235,7 @@
         />
       </svg>
     {/key}
+    <span class="sr">Refresh</span>
   </button>
   <NotificationBell />
   <HelpMenu />
@@ -540,6 +540,7 @@
     color: var(--accent);
   }
   .refresh {
+    position: relative;
     display: inline-flex;
     align-items: center;
     background: transparent;
@@ -559,6 +560,15 @@
   }
   .refresh:active {
     transform: scale(0.97);
+  }
+  /* Read, not drawn: the button's name, for assistive tools and scripts. */
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .turn.spun {
     animation: turn 600ms var(--ease-out);
