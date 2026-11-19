@@ -63,6 +63,22 @@
 </fieldset>
 
 <style>
+  /* As the other sections of the Settings page. */
+  fieldset {
+    border: none;
+    padding: 0;
+    margin: 16px 0 0;
+    min-width: 0;
+  }
+  legend {
+    padding: 0;
+    margin-bottom: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
   .hint {
     margin: 0 0 10px;
     font-size: 12px;
