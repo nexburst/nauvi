@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+  import { retryDelay, stoppedMessage } from "../retry";
   import { onDestroy, untrack } from "svelte";
   import { events } from "../bindings";
   import { api, visibleCluster } from "../cluster";
@@ -33,8 +34,8 @@
   import { metricsHidden } from "../stores/metricsHidden.svelte";
   import { settingsSaved } from "../stores/settings.svelte";
 
-  /** Retry a failed start after this long. */
-  const RETRY_MS = 5_000;
+  /** Failed starts so far: the wait before the next one grows (lib/retry.ts). */
+  let attempts = 0;
   /** Ages are recomputed in the UI; nothing is re-requested. */
   const AGE_TICK_MS = 15_000;
 
@@ -125,13 +126,17 @@
     if (id) api(visibleCluster()).cmdOverviewStop(id).catch(() => {});
   }
 
-  async function start(namespace: string) {
+  /** `again`: one of the automatic retries, which keeps the error on screen. */
+  async function start(namespace: string, again = false) {
     stop();
     const id = ++nextFeed;
     feed = id;
     fresh = true;
-    setStatus(null, "Connecting…");
-    clearError();
+    if (!again) {
+      attempts = 0;
+      clearError();
+    }
+    setStatus(null, again ? "Retrying…" : "Connecting…");
     // Listen first: the backend may send the first summary right away.
     await listening;
     // The backend reads Hide metrics (#327) from the settings: a change
@@ -145,9 +150,11 @@
       if (feed !== id) return;
       const err = clusterError(e);
       setStatus(false, err.status);
-      setError(err.message);
       overview = null;
-      retry = setTimeout(() => start(namespace), RETRY_MS);
+      // Wait longer each time, and stop after a few minutes: Refresh starts over.
+      const wait = retryDelay(++attempts);
+      setError(wait === null ? stoppedMessage(err.message) : err.message);
+      if (wait !== null) retry = setTimeout(() => start(namespace, true), wait);
     }
   }
 

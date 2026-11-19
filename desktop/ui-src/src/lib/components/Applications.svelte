@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+  import { retryDelay, stoppedMessage } from "../retry";
   import { rowHeightPx } from "../preferences";
   import { settings } from "../stores/settings.svelte";
   import { onDestroy, untrack } from "svelte";
@@ -24,7 +25,8 @@
    *  and Helm releases, live, with their status rolled up. A row opens the
    *  application's objects in the side panel. */
 
-  const RETRY_MS = 5_000;
+  /** Failed starts so far: the wait before the next one grows (lib/retry.ts). */
+  let attempts = 0;
   const AGE_TICK_MS = 15_000;
   // Settings → Tables (#330): normal or compact.
   const ROW_HEIGHT = $derived(rowHeightPx(32, settings.current.row_height));
@@ -94,14 +96,18 @@
     if (id) api(visibleCluster()).cmdApplicationsStop(id).catch(() => {});
   }
 
-  async function start(namespaces: string[]) {
+  /** `again`: one of the automatic retries, which keeps the error on screen. */
+  async function start(namespaces: string[], again = false) {
     stop();
     const id = ++nextFeed;
     feed = id;
     // A Refresh keeps the open panel; the new list replaces it or closes it.
     resetApplications(true);
-    setStatus(null, "Connecting…");
-    clearError();
+    if (!again) {
+      attempts = 0;
+      clearError();
+    }
+    setStatus(null, again ? "Retrying…" : "Connecting…");
     await listening;
     if (feed !== id) return;
     try {
@@ -110,8 +116,10 @@
       if (feed !== id) return;
       const err = clusterError(e);
       setStatus(false, err.status);
-      setError(err.message);
-      retry = setTimeout(() => start(namespaces), RETRY_MS);
+      // Wait longer each time, and stop after a few minutes: Refresh starts over.
+      const wait = retryDelay(++attempts);
+      setError(wait === null ? stoppedMessage(err.message) : err.message);
+      if (wait !== null) retry = setTimeout(() => start(namespaces, true), wait);
     }
   }
 

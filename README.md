@@ -348,6 +348,13 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   time, context and a link to the object. It opens as a popover; Esc or a
   click elsewhere closes it, and what arrives meanwhile counts as unread.
   **Clear all** empties it.
+- **When a cluster does not answer**: a view that cannot start is retried
+  with a growing wait (5, 10, 20, 40 seconds, then every minute) and, after
+  about five minutes, no more: the error says "Stopped retrying. Refresh to
+  try again." Refresh, a context switch or opening the view again starts
+  over. The error is one notification, however many retries it took. A
+  watch that was running and lost its connection keeps reconnecting in the
+  background.
 - **Help and diagnostics**: the Help menu (the `?` in the header; on macOS
   also in the menu bar) has Documentation, Report a bug (opens a GitHub issue
   with the version, commit, OS and webview filled in), Open log folder and
