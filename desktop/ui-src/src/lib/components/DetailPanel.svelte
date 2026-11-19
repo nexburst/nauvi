@@ -11,7 +11,7 @@
   import RelatedGroups from "./RelatedGroups.svelte";
   import UsageCharts from "./UsageCharts.svelte";
   import YamlEditor from "./YamlEditor.svelte";
-  import { closeDetail } from "../stores/detail.svelte";
+  import { closeDetail, detail } from "../stores/detail.svelte";
   import type { DockTabSpec } from "../dock";
   import type { Target } from "../stores/detail.svelte";
   import { LiveDetail } from "../stores/live-detail.svelte";
@@ -60,6 +60,23 @@
   }
 
   let yamlEl = $state<HTMLDivElement | null>(null);
+  // Opened with E from the table: straight to the YAML editor, once it is there.
+  let wantYaml = detail.yaml;
+  detail.yaml = false;
+  $effect(() => {
+    if (!wantYaml || !yamlEl) return;
+    wantYaml = false;
+    // ponytail: the editor is created after the panel; look for it for a
+    // second, then give up (the panel is open either way).
+    let tries = 0;
+    const id = setInterval(() => {
+      if (yamlEl?.querySelector(".cm-content") || ++tries > 20) {
+        clearInterval(id);
+        showYaml();
+      }
+    }, 50);
+    return () => clearInterval(id);
+  });
   /** Edit: bring the YAML editor into view and give it the keyboard. */
   function showYaml() {
     yamlEl?.scrollIntoView({ block: "start", behavior: "smooth" });

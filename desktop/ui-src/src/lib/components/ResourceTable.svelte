@@ -13,6 +13,8 @@
   import { replicasFromRow } from "../actions";
   import { rangeKeys } from "../selection";
   import { requestAction, setNotice } from "../stores/actions.svelte";
+  import { detail } from "../stores/detail.svelte";
+  import { agentPrompt } from "../agent";
   import { deleteDenied, deniedActions, namespacesOf } from "../access";
   import { visibleCluster } from "../cluster";
   import { dockMenuFor } from "../dock";
@@ -178,6 +180,8 @@
         })),
         // A nauvi:// link to the object (#299).
         { label: "Copy link", run: () => void copyLink(kind.resource, row.namespace, row.name) },
+        // For the user's own agent (docs/ux-standard.md, section 10).
+        { label: "Copy as prompt", run: () => void copyPrompt(row) },
         ...kind.actions.map((a) => ({
           id: a.id,
           label: a.label,
@@ -273,6 +277,75 @@
   // and the bulk bar, and says why instead of opening a dialog the API
   // server would refuse (a read-only context's reason comes first).
   let deleteCheck = 0;
+  /**
+   * A verb on the focused row (or the one in the panel), as k9s has them:
+   * logs, a shell, or its YAML editor. What RBAC refuses says why.
+   */
+  let verbCheck = 0;
+  /** The keys that do something for this kind's rows, for the hint strip. */
+  const rowKeys = $derived.by(() => {
+    const dock = dockMenuFor(kind.resource, "", "x").map((d) => d.label);
+    const keys: [string, string][] = [["↵", "open"]];
+    if (dock.includes("Logs")) keys.push(["L", "logs"]);
+    if (dock.includes("Shell")) keys.push(["S", "shell"]);
+    keys.push(["E", "yaml"]);
+    if (kind.actions.some((a) => a.id === "restart")) keys.push(["⇧R", "restart"]);
+    keys.push(["A", "prompt"], ["Space", "select"], ["/", "filter"], ["?", "all keys"]);
+    return keys;
+  });
+  /** A prompt about the row for the user's own agent, on the clipboard. */
+  async function copyPrompt(row: Row) {
+    const at = columns.findIndex((c) => c.key === "restarts");
+    const restarts = at >= 0 ? Number(columns[at].text(row, { metrics, now })) : 0;
+    const text = agentPrompt({
+      cluster: visibleCluster(),
+      kind: kind.resource.kind,
+      namespace: row.namespace,
+      name: row.name,
+      problem: row.problem ? `${row.problem}${restarts > 0 ? `, ${restarts} restarts` : ""}` : "",
+    });
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice(true, `Copied a prompt about ${row.name}. Paste it into your agent.`, { level: "info" });
+    } catch {
+      setNotice(false, "Could not copy to the clipboard.");
+    }
+  }
+
+  async function rowVerb(verb: "logs" | "shell" | "edit" | "restart" | "prompt") {
+    const row = (focusedEntry() ?? visible.find((e) => e.key === selectedKey))?.row;
+    if (!row) return;
+    if (verb === "prompt") return copyPrompt(row);
+    if (verb === "edit") {
+      detail.yaml = true;
+      onselect?.(row);
+      return;
+    }
+    if (verb === "restart") {
+      // The action's own dialog confirms it.
+      const action = kind.actions.find((a) => a.id === "restart");
+      if (!action) return setNotice(true, `${kind.label} cannot be restarted.`, { level: "info" });
+      const token = ++verbCheck;
+      const asked = visibleCluster();
+      const reason = (await deniedActions(kind.resource, row.namespace, ["restart"])).get("restart");
+      if (token !== verbCheck || visibleCluster() !== asked) return;
+      if (reason) setNotice(false, reason, { level: "warning" });
+      else requestAction(kind, [{ namespace: row.namespace, name: row.name }], action, 1, true);
+      return;
+    }
+    const item = dockMenuFor(kind.resource, row.namespace, row.name).find((d) => d.label === (verb === "shell" ? "Shell" : "Logs"));
+    if (!item) {
+      setNotice(true, `${kind.label} have no ${verb === "shell" ? "shell" : "logs"}.`, { level: "info" });
+      return;
+    }
+    const token = ++verbCheck;
+    const asked = visibleCluster();
+    const reason = (await deniedActions(kind.resource, row.namespace, [verb])).get(verb);
+    if (token !== verbCheck || visibleCluster() !== asked) return;
+    if (reason) setNotice(false, reason, { level: "warning" });
+    else openDockTab(item.spec);
+  }
+
   async function deleteRows() {
     const del = deleteAction;
     if (!del) return;
@@ -309,6 +382,7 @@
       },
       menuForFocused,
       deleteRows,
+      rowVerb,
       rows: () => store.entries.map((e) => e.row),
       actionTargets: () => {
         if (selected.size > 0) return { targets: targetsOf(selected), row: null };
@@ -465,6 +539,16 @@
 
   {#if menu}
     <ContextMenu {...menu} onclose={() => (menu = null)} />
+  {/if}
+
+  {#if focusedIndex >= 0 && visible.length > 0}
+    <!-- What the keyboard can do with the focused row. Drawn, not text, so
+         it is never read as part of the table. -->
+    <div class="keys" aria-hidden="true" data-testid="row-keys">
+      {#each rowKeys as [key, what] (key)}
+        <span class="key"><kbd>{key}</kbd>{what}</span>
+      {/each}
+    </div>
   {/if}
 
   {#if visible.length === 0}
@@ -630,6 +714,31 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* One quiet line under the rows: the keys for the focused row. */
+  .keys {
+    display: flex;
+    gap: 14px;
+    flex-shrink: 0;
+    padding: 5px 4px 0;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .key {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .keys kbd {
+    font-family: var(--font-num);
+    font-size: 10px;
+    padding: 0 4px;
+    border: 1px solid var(--border-strong);
+    border-radius: 3px;
+    color: var(--text);
   }
   .empty {
     position: absolute;

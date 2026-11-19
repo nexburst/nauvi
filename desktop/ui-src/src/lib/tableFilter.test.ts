@@ -68,3 +68,16 @@ describe("the search worker in test mode", () => {
     expect(await s.run(f, ["demo\nweb-1", "web-12", "WEB-3"], () => false, true)).toEqual([[], null, []]);
   });
 });
+
+describe("inverse filter", () => {
+  it("keeps the rows that do not contain the text after a leading !", () => {
+    const f = compileFilter({ text: "!Completed", regex: false, matchCase: false });
+    expect(f).toEqual({ kind: "text", needle: "completed", matchCase: false, negate: true });
+    expect(nameMatches(f, "job-completed-1")).toBe(false);
+    expect(nameMatches(f, "web-1")).toBe(true);
+    // Still typing, or a regex (which has its own negation): no inverse.
+    expect(compileFilter({ text: "!", regex: false, matchCase: false })).toEqual(NO_FILTER);
+    expect(compileFilter({ text: "!a", regex: true, matchCase: false }).kind).toBe("regex");
+    expect(filterKey(f)).not.toBe(filterKey(compileFilter({ text: "Completed", regex: false, matchCase: false })));
+  });
+});

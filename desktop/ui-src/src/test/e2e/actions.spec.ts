@@ -14,10 +14,10 @@ async function contextMenu(page: Page, name: string) {
 test("the context menu offers the actions of each kind", async ({ page }) => {
   await openApp(page);
   const cases: [string, string, string, string[]][] = [
-    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Copy link", "Port forward…", "Attach", "Debug…", "Evict", "Delete", "Force delete…"]],
-    ["Deployments", "web", "demo/web", ["Logs", "Copy link", "Scale…", "Rollout restart", "Port forward…", "Delete"]],
-    ["Nodes", "node-1", "node-1", ["Copy link", "Shell", "Cordon", "Uncordon", "Drain…", "Delete"]],
-    ["Secrets", "db-creds", "demo/db-creds", ["Copy link", "Delete"]],
+    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Copy link", "Copy as prompt", "Port forward…", "Attach", "Debug…", "Evict", "Delete", "Force delete…"]],
+    ["Deployments", "web", "demo/web", ["Logs", "Copy link", "Copy as prompt", "Scale…", "Rollout restart", "Port forward…", "Delete"]],
+    ["Nodes", "node-1", "node-1", ["Copy link", "Copy as prompt", "Shell", "Cordon", "Uncordon", "Drain…", "Delete"]],
+    ["Secrets", "db-creds", "demo/db-creds", ["Copy link", "Copy as prompt", "Delete"]],
   ];
   for (const [kind, name, title, items] of cases) {
     await openKind(page, kind);

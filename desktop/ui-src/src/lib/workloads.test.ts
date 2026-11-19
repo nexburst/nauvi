@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { KindCounts, ResourceKind } from "./bindings";
-import { matchesStatus, needsAttention, segments, toneOf, workloadKind } from "./workloads";
+import { PROBLEMS_STATUS, matchesStatus, needsAttention, segments, toneOf, workloadKind } from "./workloads";
 
 const DEPLOYMENTS: KindCounts = {
   group: "apps",
@@ -42,6 +42,9 @@ describe("workload cards", () => {
     expect(workloadKind(kinds, "batch", "Job")?.id).toBe("batch/v1/Job");
     expect(workloadKind(kinds, "", "Deployment")).toBeUndefined();
     expect(matchesStatus({ status: "Pending" }, "Pending")).toBe(true);
+    // Any table: only what needs attention, whatever its status says.
+    expect(matchesStatus({ status: "", problem: "CrashLoopBackOff" }, PROBLEMS_STATUS)).toBe(true);
+    expect(matchesStatus({ status: "Running", problem: "" }, PROBLEMS_STATUS)).toBe(false);
     expect(matchesStatus({ status: "Running" }, "Pending")).toBe(false);
     expect(matchesStatus({ status: "" }, "")).toBe(true);
   });

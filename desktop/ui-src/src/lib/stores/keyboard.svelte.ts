@@ -18,6 +18,7 @@ import { closeDetail, detail } from "./detail.svelte";
 import { toggleDock } from "./dock.svelte";
 import { chart, closeChart, toggleBerth, toggleChart } from "./chart.svelte";
 import { app, setView } from "./app.svelte";
+import { PROBLEMS_STATUS } from "../workloads";
 import { closeNotifications, notifications } from "./notifications.svelte";
 import { watch } from "./watch.svelte";
 import { openLocalShell } from "./localShell";
@@ -46,6 +47,8 @@ export interface TableHandle {
   toggleFocused(): void;
   menuForFocused(): void;
   deleteRows(): void;
+  /** Logs, a shell or the YAML editor of the focused row. */
+  rowVerb(verb: "logs" | "shell" | "edit" | "restart" | "prompt"): void;
   /** Every row of the table (not only the filtered ones), for the palette. */
   rows(): Row[];
   /** The checked rows, else the focused row, else the one in the detail panel. */
@@ -237,6 +240,20 @@ export function handleKey(e: KeyboardEvent) {
     case "deleteRows":
       if (table) done(e, () => table?.deleteRows());
       return;
+    case "problemsOnly":
+      if (table) done(e, () => (app.statusFilter = app.statusFilter === PROBLEMS_STATUS ? "" : PROBLEMS_STATUS));
+      return;
+    case "rowLogs":
+    case "rowShell":
+    case "rowRestart":
+    case "rowPrompt":
+    case "rowEdit": {
+      const verb = (
+        { rowLogs: "logs", rowShell: "shell", rowEdit: "edit", rowRestart: "restart", rowPrompt: "prompt" } as const
+      )[command];
+      if (table) done(e, () => table?.rowVerb(verb));
+      return;
+    }
     case "toggleDock":
       return done(e, toggleDock);
     case "newLocalShell":

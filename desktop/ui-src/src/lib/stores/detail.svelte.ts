@@ -20,6 +20,8 @@ export const detail = $state({
   pod: null as PodRef | null,
   /** Bumped on every open so re-clicking the same object reloads the panel. */
   nonce: 0,
+  /** The panel opening next goes to its YAML editor (the row's E key). */
+  yaml: false,
 });
 
 /** Re-opening the object already shown keeps its unsaved edits (they are

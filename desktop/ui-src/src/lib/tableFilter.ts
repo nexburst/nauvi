@@ -14,8 +14,8 @@ export interface FilterQuery {
 
 export type CompiledFilter =
   | { kind: "none" }
-  /** `needle` is lower-case unless `matchCase`. */
-  | { kind: "text"; needle: string; matchCase: boolean }
+  /** `needle` is lower-case unless `matchCase`. `negate`: keep what does NOT match. */
+  | { kind: "text"; needle: string; matchCase: boolean; negate?: boolean }
   | { kind: "regex"; source: string; flags: string }
   | { kind: "error"; message: string };
 
@@ -28,9 +28,13 @@ export const NO_FILTER: CompiledFilter = { kind: "none" };
  */
 export function compileFilter(q: FilterQuery): CompiledFilter {
   if (!q.regex) {
-    const t = q.text.trim();
-    if (!t) return NO_FILTER;
-    return { kind: "text", needle: q.matchCase ? t : t.toLowerCase(), matchCase: q.matchCase };
+    const typed = q.text.trim();
+    // "!completed" (as in k9s): the rows that do not contain it. A lone "!"
+    // is still being typed.
+    const negate = typed.startsWith("!") && typed.length > 1;
+    const t = negate ? typed.slice(1).trim() : typed;
+    if (!t || typed === "!") return NO_FILTER;
+    return { kind: "text", needle: q.matchCase ? t : t.toLowerCase(), matchCase: q.matchCase, ...(negate ? { negate } : {}) };
   }
   if (!q.text) return NO_FILTER;
   const flags = q.matchCase ? "m" : "im";
@@ -48,7 +52,7 @@ export function filterKey(f: CompiledFilter): string {
     case "none":
       return "";
     case "text":
-      return `t/${f.matchCase ? "c" : ""}/${f.needle}`;
+      return `t/${f.matchCase ? "c" : ""}${f.negate ? "!" : ""}/${f.needle}`;
     case "regex":
       return `r/${f.flags}/${f.source}`;
     case "error":
@@ -81,5 +85,5 @@ export function rawHay(row: object): string {
 export function nameMatches(f: CompiledFilter, name: string): boolean | null {
   if (f.kind === "none" || f.kind === "error") return true;
   if (f.kind === "regex") return null;
-  return (f.matchCase ? name : name.toLowerCase()).includes(f.needle);
+  return (f.matchCase ? name : name.toLowerCase()).includes(f.needle) !== !!f.negate;
 }

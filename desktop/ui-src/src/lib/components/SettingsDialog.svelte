@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AgentSettings from "./AgentSettings.svelte";
   import { onMount } from "svelte";
   import { api, visibleCluster } from "../cluster";
   import { commands } from "../bindings";
@@ -492,6 +493,8 @@
         columns, are remembered too.
       </p>
     </fieldset>
+
+    <AgentSettings />
 
     <AboutSection />
   </div>
