@@ -8,6 +8,7 @@
   import { settings } from "../stores/settings.svelte";
   import { hhmmss, zoneSuffix } from "../timeZone";
   import ClusterLabel from "./ClusterLabel.svelte";
+  import WakeLine from "./WakeLine.svelte";
 
   const zone = $derived(settings.current.time_zone);
   const visible = $derived(currentContextName());
@@ -38,7 +39,12 @@
     <span class="here" data-testid="status-cluster"><ClusterLabel id={visible} title={`Shown: ${contextLabel(visible)}`} /></span>
   {/if}
   <span>{app.count}</span>
-  <span>{app.updatedAt ? `Updated ${hhmmss(app.updatedAt, zone)}${zoneSuffix(zone)}` : ""}</span
+  <!-- Before the time, so the footer's text still ends with it. -->
+  <WakeLine />
+  <span class:stale={app.status.ok === false}
+    >{app.updatedAt
+      ? `${app.status.ok === false ? "Stale since" : "Updated"} ${hhmmss(app.updatedAt, zone)}${zoneSuffix(zone)}`
+      : ""}</span
   >{#if others.length}
     <span class="others" data-testid="status-background">
       <span class="muted-label">Also running:</span>
@@ -59,12 +65,16 @@
     gap: 16px;
     padding: 6px 16px;
     border-top: 1px solid var(--border);
-    background: var(--bg-raised);
+    background: var(--bg-sunken);
     color: var(--text-muted);
-    font-size: 12px;
+    font-family: var(--font-num);
+    font-size: 11px;
     flex-shrink: 0;
     min-width: 0;
     white-space: nowrap;
+  }
+  .stale {
+    color: var(--amber);
   }
   .here {
     display: inline-flex;

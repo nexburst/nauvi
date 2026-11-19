@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tabNamespace } from "../dock";
   import ClusterLabel from "./ClusterLabel.svelte";
   import DockPane from "./DockPane.svelte";
   import { clampHeight, labelClusters } from "../dock";
@@ -83,6 +84,7 @@
               type="button"
               role="tab"
               class="label"
+              data-ns={tabNamespace(t) || undefined}
               aria-selected={t.id === dock.active}
               title={t.type === "localShell"
                 ? `Local shell: kubectl uses ${t.title}. Changing the app's namespace does not change it. (double-click to maximize)`
@@ -185,6 +187,14 @@
   }
   .tabs::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
+  }
+  /* Whose it is: the namespace, drawn after the name (the same name lives
+     in several namespaces). Not part of the tab's text. */
+  .label[data-ns]::after {
+    content: " · " attr(data-ns);
+    color: var(--text-muted);
+    font-family: var(--font-num);
+    font-size: 10.5px;
   }
   .tab {
     display: flex;

@@ -45,7 +45,7 @@ export type DockTab = DockTabSpec & {
 };
 
 export const DOCK_MIN_HEIGHT = 120;
-export const DOCK_DEFAULT_HEIGHT = 300;
+export const DOCK_DEFAULT_HEIGHT = 240;
 
 export function tabId(spec: DockTabSpec): string {
   switch (spec.type) {
@@ -64,6 +64,13 @@ export function tabId(spec: DockTabSpec): string {
     case "localShell":
       return `local:${spec.seq}`;
   }
+}
+
+/** The namespace a tab's pod or workload is in ("" for nodes and local shells). */
+export function tabNamespace(spec: DockTabSpec): string {
+  if ("pod" in spec) return spec.pod.namespace;
+  if ("workload" in spec) return spec.workload.namespace;
+  return "";
 }
 
 export function tabTitle(spec: DockTabSpec): string {

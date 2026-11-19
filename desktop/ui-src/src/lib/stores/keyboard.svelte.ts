@@ -16,6 +16,10 @@ import { charts, selectChart } from "./helmCharts.svelte";
 import { createUi } from "./create.svelte";
 import { closeDetail, detail } from "./detail.svelte";
 import { toggleDock } from "./dock.svelte";
+import { chart, closeChart, toggleBerth, toggleChart } from "./chart.svelte";
+import { app, setView } from "./app.svelte";
+import { closeNotifications, notifications } from "./notifications.svelte";
+import { watch } from "./watch.svelte";
 import { openLocalShell } from "./localShell";
 import { zoomIn, zoomOut, zoomReset } from "./settings.svelte";
 import { unsaved } from "./unsaved.svelte";
@@ -180,7 +184,23 @@ export function handleKey(e: KeyboardEvent) {
     return;
   }
 
+  if (chart.open && command === "escape") return done(e, closeChart);
+  if (notifications.open && command === "escape") return done(e, closeNotifications);
+  if (watch.panel && command === "escape") return done(e, () => (watch.panel = false));
+
   switch (command) {
+    case "chart":
+      return done(e, toggleChart);
+    case "berth": {
+      const view = e.key === "1" ? "overview" : chart.berths[Number(e.key) - 2];
+      if (view) done(e, () => setView(view));
+      return;
+    }
+    case "keepBerth":
+      return done(e, () => toggleBerth(app.view));
+    case "widen":
+      if (detail.target) done(e, () => (chart.wide = !chart.wide));
+      return;
     case "palette":
       return done(e, openPalette);
     case "help":

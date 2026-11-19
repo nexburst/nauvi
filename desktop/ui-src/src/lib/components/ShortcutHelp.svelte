@@ -21,9 +21,11 @@
   <div class="dialog" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" data-testid="shortcut-help">
     <div class="head">
       <h2>Keyboard shortcuts</h2>
-      <button type="button" class="btn" use:focus onclick={closeHelp}>Close</button>
+      <button type="button" class="x" title="Close (Esc)" use:focus onclick={closeHelp}><svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg><span class="sr">Close</span></button>
     </div>
+    <div class="columns">
     {#each groups as [group, bindings] (group)}
+      <section>
       <h3>{group}</h3>
       <dl>
         {#each bindings as b (b.command)}
@@ -35,12 +37,45 @@
           <dd>{b.label}</dd>
         {/each}
       </dl>
+      </section>
     {/each}
+    </div>
     <p class="muted note">Shortcuts are off while typing in a field, the YAML editor or the terminal.</p>
   </div>
 </div>
 
 <style>
+  .x {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 13px;
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .x {
+    position: relative;
+  }
+  .x svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+  }
+  .sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .x:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
   .backdrop {
     position: fixed;
     inset: 0;
@@ -51,7 +86,7 @@
     justify-content: center;
   }
   .dialog {
-    width: min(560px, calc(100vw - 32px));
+    width: min(900px, calc(100vw - 32px));
     max-height: calc(100vh - 64px);
     overflow-y: auto;
     background: var(--bg-raised);
@@ -75,9 +110,23 @@
     letter-spacing: 0.06em;
     color: var(--text-muted);
   }
+  .columns {
+    columns: 2 360px;
+    column-gap: 36px;
+  }
+  .columns {
+    margin-top: 12px;
+  }
+  section {
+    break-inside: avoid;
+    padding-bottom: 14px;
+  }
+  section h3 {
+    margin-top: 0;
+  }
   dl {
     display: grid;
-    grid-template-columns: max-content 1fr;
+    grid-template-columns: 150px 1fr;
     gap: 6px 16px;
     margin: 0;
     font-size: 13px;

@@ -57,12 +57,12 @@
     {/if}
   </div>
   {#if note}
-    <p class="muted small" data-testid="usage-note">{note}</p>
+    <p class="muted small note" data-testid="usage-note" title={note}>{note}</p>
   {/if}
   {#if !data}
     <p class="muted small">{feed.error ? `Could not load usage: ${feed.error}` : "Loading…"}</p>
   {:else if data.history.samples.length === 0}
-    <p class="muted small" data-testid="usage-empty">
+    <p class="muted small note" data-testid="usage-empty">
       No usage yet. metrics-server has no sample for {subject}, or is not installed.
     </p>
   {:else}
@@ -81,6 +81,19 @@
 </section>
 
 <style>
+  /* One line: where the numbers come from. The whole of it is the tooltip,
+     and it opens in place under the pointer. */
+  .note {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    line-clamp: 1;
+    overflow: hidden;
+  }
+  .note:hover {
+    -webkit-line-clamp: unset;
+    line-clamp: unset;
+  }
   .head {
     display: flex;
     align-items: center;

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { currentContextName } from "../stores/app.svelte";
+  import { contextLabel } from "../stores/catalog.svelte";
   import { confirmCopy, isDestructive, listTargets } from "../actions";
   import { actionUi, canConfirm, closeDialog, confirmRequest } from "../stores/actions.svelte";
   import ForwardDialog from "./ForwardDialog.svelte";
@@ -69,6 +71,7 @@
         </div>
       {:else}
         <p class="lead">{copy.lead}</p>
+        <p class="where eyebrow" data-testid="action-cluster">on {contextLabel(currentContextName())}</p>
         <ul class="targets">
           {#each listTargets(req.targets) as name, i (i)}
             <li class="mono">{name}</li>
@@ -126,6 +129,9 @@
 {/if}
 
 <style>
+  .where {
+    margin: -2px 0 8px;
+  }
   .backdrop {
     position: fixed;
     inset: 0;

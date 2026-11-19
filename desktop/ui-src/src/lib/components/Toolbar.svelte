@@ -8,6 +8,9 @@
   import { HELM_VIEW } from "../helm";
   import { WORKLOADS_VIEW } from "../workloads";
   import { APPLICATIONS_VIEW } from "../applications";
+  import { chart } from "../stores/chart.svelte";
+  import { kinds } from "../stores/app.svelte";
+  import { viewLabel } from "../berths";
 
   const kind = $derived(currentKind());
   // Only namespaced kinds (and Helm releases) can be narrowed to a namespace.
@@ -22,7 +25,11 @@
 </script>
 
 <div class="toolbar">
-  <div class="namespaces" class:invisible={!namespaced}>
+  {#if !chart.pinned}
+    <!-- Where you are: with no column of kinds, the view says its name. -->
+    <span class="view-name" data-testid="view-name">{viewLabel(app.view, kinds.all)}</span>
+  {/if}
+  <div class="namespaces" class:invisible={!namespaced} class:gone={!namespaced && !chart.pinned}>
     <NamespacePicker />
   </div>
   {#if !overview}
@@ -67,6 +74,19 @@
   }
   .invisible {
     visibility: hidden;
+  }
+  .gone {
+    display: none;
+  }
+  .view-name {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 4px;
   }
   /* Narrow windows (many namespace chips, the detail panel open): the filter
      shrinks to a usable minimum, the buttons keep one line, and what does

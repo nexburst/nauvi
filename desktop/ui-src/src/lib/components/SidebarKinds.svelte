@@ -12,6 +12,11 @@
   import { badgeTitle } from "../problems";
   import { problems } from "../stores/problems.svelte";
   import { absentTitle, missingKinds } from "../sidebarExpected";
+  import { chart } from "../stores/chart.svelte";
+
+  /** The chart's lens: what is typed narrows the kinds (label, kind or short name). */
+  const lens = $derived(chart.pinned ? "" : chart.lens.trim().toLowerCase());
+  const inLens = (...names: string[]) => !lens || names.some((n) => n.toLowerCase().includes(lens));
 
   // The count beside Port Forwards: refreshed on start, on Refresh and on a
   // context switch (which stops every forward).
@@ -33,6 +38,7 @@
   const byCategory = $derived.by(() => {
     const out = new Map<Category, ResourceKind[]>();
     for (const k of kinds.all) {
+      if (!inLens(k.label, k.resource.kind, k.resource.plural, ...k.short_names)) continue;
       const list = out.get(k.category) ?? [];
       list.push(k);
       out.set(k.category, list);
@@ -78,13 +84,13 @@
     aria-disabled={denied && !canOpenDenied(kind)}
     title={denied ? deniedReason(kind) : kindTitle(kind)}
     onclick={() => open(kind)}
-    ><span class="label">{kind.label}</span>{#if problems.byKind[kind.id]}{@const b = problems.byKind[kind.id]}<span
-        class="problems"
-        class:stale={!b.live}
-        data-testid="problem-badge"
-        title={badgeTitle(b, kind.label, Date.now())}
-        aria-hidden="true">{b.count}</span
-      >{/if}
+    ><span class="label">{kind.label}</span>{#if problems.byKind[kind.id]}{@const b = problems.byKind[kind.id]}{#key b.count}<span
+          class="problems"
+          class:stale={!b.live}
+          data-testid="problem-badge"
+          title={badgeTitle(b, kind.label, Date.now())}
+          aria-hidden="true">{b.count}</span
+        >{/key}{/if}
   </button>
 {/snippet}
 
@@ -107,16 +113,18 @@
 
 <!-- The resource groups of the cluster the window shows. -->
 <div class="kinds" data-testid="sidebar-kinds">
-  <button type="button" class:active={app.view === "overview"} onclick={() => setView("overview")}>
-    Overview
-  </button>
+  {#if inLens("overview")}
+    <button type="button" class:active={app.view === "overview"} onclick={() => setView("overview")}>
+      Overview
+    </button>
+  {/if}
 
   {#each SECTIONS as section (section.category)}
     {@const list = byCategory.get(section.category) ?? []}
-    {@const absent = kinds.loaded && kinds.all.length > 0 ? missingKinds(section.category, kinds.all) : []}
+    {@const absent = !lens && kinds.loaded && kinds.all.length > 0 ? missingKinds(section.category, kinds.all) : []}
     {#if list.length > 0 || absent.length > 0 || (section.category === "network" && forwards.list.length > 0)}
       <h4>{section.title}</h4>
-      {#if section.category === "workloads"}
+      {#if section.category === "workloads" && !lens}
         <!-- Not a kind: counts of every workload kind (#79). -->
         <button
           type="button"
@@ -140,7 +148,7 @@
           ><span class="label">{e.label}</span></button
         >
       {/each}
-      {#if section.category === "network"}
+      {#if section.category === "network" && inLens("port forwards")}
         <!-- Not a cluster kind: the forwards this app runs. -->
         <button
           type="button"
@@ -153,7 +161,7 @@
     {/if}
   {/each}
 
-  {#if kinds.loaded && kinds.all.length > 0}
+  {#if kinds.loaded && kinds.all.length > 0 && inLens("helm releases", "helm charts")}
     <h4>Helm</h4>
     <button type="button" class:active={app.view === HELM_VIEW} onclick={() => setView(HELM_VIEW)}>Releases</button>
     <button type="button" class:active={app.view === HELM_CHARTS_VIEW} onclick={() => setView(HELM_CHARTS_VIEW)}
@@ -176,13 +184,24 @@
     gap: 2px;
     min-width: 0;
   }
+  /* Section heads: chart labels with a short rule after them. */
   h4 {
-    margin: 14px 12px 4px;
-    font-size: 11px;
-    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 12px 4px;
+    font-family: var(--font-num);
+    font-size: 10px;
+    font-weight: 500;
     text-transform: uppercase;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.12em;
     color: var(--text-muted);
+  }
+  h4::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--border), transparent);
   }
   summary {
     padding: 6px 12px;
@@ -201,6 +220,7 @@
     font-size: 12px;
   }
   button {
+    position: relative;
     text-align: left;
     background: transparent;
     color: var(--text-muted);
@@ -209,6 +229,9 @@
     padding: 6px 12px;
     font-size: 13px;
     cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      color 120ms ease;
   }
   button:hover {
     background: var(--bg-hover);
@@ -238,10 +261,29 @@
   .problems {
     flex-shrink: 0;
   }
+  /* The open view: a teal beacon on the left edge, lit once on arrival. */
   button.active {
-    background: var(--bg-hover);
+    background: var(--accent-soft);
     color: var(--text);
     font-weight: 600;
+  }
+  button.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 7px;
+    bottom: 7px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    box-shadow: 0 0 10px var(--accent);
+    animation: beacon 320ms var(--ease-out);
+  }
+  @keyframes beacon {
+    from {
+      transform: scaleY(0.2);
+      opacity: 0;
+    }
   }
   .count {
     margin-left: 6px;
@@ -256,9 +298,22 @@
     padding: 0 6px;
     border-radius: 8px;
     background: var(--red);
-    color: #fff;
-    font-size: 11px;
+    color: var(--bg-sunken);
+    font-family: var(--font-num);
+    font-size: 10.5px;
     font-weight: 600;
+  }
+  /* A count that changes pops once, so the eye catches it from afar. */
+  .problems {
+    animation: pop 420ms var(--ease-out);
+  }
+  @keyframes pop {
+    0% {
+      transform: scale(0.5);
+    }
+    55% {
+      transform: scale(1.18);
+    }
   }
   /* The count of a watch that has stopped: shown, but not current. */
   .problems.stale {

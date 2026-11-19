@@ -43,7 +43,8 @@ describe("bindingFor", () => {
     const hit = bindingFor(press("3", { ctrlKey: true }), false);
     expect(hit?.binding.command).toBe("detailTab");
     expect(hit?.index).toBe(2);
-    expect(command(press("3"))).toBeNull();
+    // Without the modifier a digit goes to a berth.
+    expect(command(press("3"))).toBe("berth");
   });
 
   it("zooms with Mod+= (or Mod++), Mod+- and Mod+0 (#207)", () => {

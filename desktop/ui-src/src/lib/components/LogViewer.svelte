@@ -914,6 +914,9 @@
   });
 </script>
 
+<!-- One line: what is tailed, how, and what to do with it. The parts keep
+     their own elements (the header, the options); the line lays them out. -->
+<div class="logs-top">
 <div class="logs-header section-header">
   <h3>Logs<span class="muted"> · {title}</span></h3>
   <label class="check" title="Keep the newest line in view; going to a match turns it off"
@@ -971,6 +974,7 @@
   <label class="check"><input type="checkbox" bind:checked={wrap} onchange={toggleWrap} /> Wrap</label>
   <span class="muted">{status}</span>
   {#if truncatedNote}<span class="warn" title="At most 20 containers are followed at once">{truncatedNote}</span>{/if}
+</div>
 </div>
 <div class="logs-search" data-testid="log-search">
   <input
@@ -1127,10 +1131,40 @@
 </div>
 
 <style>
+  .logs-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 6px 16px;
+    font-size: 12px;
+    border-top: 1px solid var(--border);
+  }
+  .logs-top > .logs-header,
+  .logs-top > .logs-options {
+    display: contents;
+  }
+  /* The title first, then the options, then the actions at the far end. */
+  .logs-top :global(.logs-options > *) {
+    order: 1;
+  }
+  .logs-top .logs-header > :not(h3) {
+    order: 2;
+  }
+  .logs-top .logs-header > .check {
+    margin-left: auto;
+  }
+  /* The saved note takes what is left of its line and never wraps it. */
+  .logs-top .logs-header > .saved {
+    flex: 1 1 0;
+    width: 0;
+    max-width: 320px;
+  }
   .logs-header h3 {
     margin: 0;
     font-size: 13px;
-    flex: 1;
+    flex: 0 1 auto;
+    max-width: 32%;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;

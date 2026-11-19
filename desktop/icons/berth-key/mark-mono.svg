@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- One colour (currentColor): for a tray icon, a favicon mask, print. -->
+  <rect x="128" y="248" width="40" height="528" rx="20" fill="currentColor"/>
+  <g fill="none" stroke="currentColor" stroke-width="78" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M308 664 V446"/>
+    <path d="M308 542 a96 96 0 0 1 192 0 V664"/>
+    <path d="M588 446 L676 664 L764 446"/>
+  </g>
+  <rect x="752" y="768" width="68" height="68" rx="8" transform="rotate(45 786 802)" fill="currentColor"/>
+</svg>

@@ -146,7 +146,7 @@ test("the Settings page sets the theme and the log defaults", async ({ page }) =
   await dialog.getByRole("radio", { name: "Light" }).check();
   await expect(html).toHaveAttribute("data-theme", "light");
   const bg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
-  expect(bg).toBe("rgb(245, 246, 248)");
+  expect(bg).toBe("rgb(243, 240, 232)");
   await dialog.getByRole("checkbox", { name: "Show timestamps" }).check();
   await dialog.getByLabel("Default tail lines").selectOption("1000");
   await page.keyboard.press("Escape");

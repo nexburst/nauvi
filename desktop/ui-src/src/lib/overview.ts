@@ -141,3 +141,11 @@ export function overviewCount(pods: PodCounts | null, nodes: { total: number } |
   if (nodes) parts.push(`${nodes.total} nodes`);
   return parts.join(", ");
 }
+
+/** The Overview's headline: how the watch is going, in a few words. */
+export function deckHeadline(pods: PodCounts | null): { text: string; calm: boolean } {
+  if (!pods) return { text: "Pods are not visible here", calm: true };
+  const n = pods.problems_total;
+  if (n === 0) return { text: "All quiet on the water", calm: true };
+  return { text: `${n} pod${n === 1 ? " needs" : "s need"} a look`, calm: false };
+}

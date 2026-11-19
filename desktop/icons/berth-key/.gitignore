@@ -1,0 +1,4 @@
+# Rendered from the SVGs here; the app embeds icon.png through desktop/build.rs.
+*.png
+*.ico
+*.icns

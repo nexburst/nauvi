@@ -10,6 +10,8 @@ const grid = (page: Page) => page.getByTestId("resource-table").getByRole("grid"
 
 /** Each header's left edge is within 1 px of its cells' in the row `name`. */
 async function expectAligned(page: Page, name: string) {
+  // The measurements below do not wait: the row must be there first.
+  await expect(row(page, name)).toBeVisible();
   const heads = await grid(page)
     .getByRole("columnheader")
     .evaluateAll((ths) => ths.map((th) => th.getBoundingClientRect().left));

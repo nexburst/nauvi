@@ -1,86 +1,127 @@
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
+
+/* "Night Watch": the cluster is a harbour at night and you keep the watch.
+   Ink blues for the water, one phosphor teal for what is live and yours to
+   act on, brass for what you earned. Calm by default; colour means
+   something. */
 :root {
   color-scheme: dark;
-  --bg: #14171c;
-  --bg-raised: #1b1f26;
-  --bg-hover: #232830;
-  --border: #2a2f38;
-  --text: #e6e9ee;
-  --text-muted: #9aa3b0;
-  --accent: #4f9cf7;
-  --green: #3fb27f;
-  --red: #e5484d;
-  --amber: #f5a524;
+  --bg: #0f131a;
+  --bg-sunken: #0b0e14;
+  --bg-raised: #151a23;
+  --bg-hover: #1d2430;
+  --border: #242c39;
+  --border-strong: #334055;
+  --text: #e3e8f0;
+  --text-muted: #8e99ab;
+  --accent: #5cd6c6;
+  --accent-soft: rgba(92, 214, 198, 0.12);
+  --on-accent: #062621;
+  --green: #4cc690;
+  --red: #f0646c;
+  --amber: #efb550;
+  --brass: #d8ab63;
+  --brass-soft: rgba(216, 171, 99, 0.14);
   /* Error messages on the panel background. */
-  --error-text: #f5a3a5;
+  --error-text: #ffabaf;
+  --shadow-pop: 0 18px 48px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04);
   /* The YAML editor and diff view (lib/editor/setup.ts). */
-  --code-bg: #0d1013;
-  --code-text: #d6dae0;
-  --code-active-line: rgba(255, 255, 255, 0.03);
-  --code-active-gutter: rgba(255, 255, 255, 0.05);
-  --syn-key: #7cb7ff;
-  --syn-string: #9fd6a8;
-  --syn-number: #f5c46a;
-  --syn-comment: #6b7480;
-  --syn-keyword: #d7a6ff;
-  --syn-punct: #9aa3b0;
-  --syn-invalid: #f5a3a5;
+  --code-bg: #0b0e14;
+  --code-text: #d6dce6;
+  --code-active-line: rgba(92, 214, 198, 0.04);
+  --code-active-gutter: rgba(92, 214, 198, 0.08);
+  --syn-key: #7fc8ff;
+  --syn-string: #9fe0b4;
+  --syn-number: #f3c574;
+  --syn-comment: #687386;
+  --syn-keyword: #d3a8ff;
+  --syn-punct: #8e99ab;
+  --syn-invalid: #ffabaf;
 }
 
-/* The Light theme (Settings → Theme). "System" leaves `data-theme` unset
-   and follows prefers-color-scheme. Keep both blocks the same. The log
-   viewer and terminal stay dark in both themes; the YAML editor follows
-   the theme through the --code-* and --syn-* variables. */
+/* The Light theme (Settings → Theme): "chart paper", warm and matte, ink
+   for text. "System" leaves `data-theme` unset and follows
+   prefers-color-scheme. Keep both blocks the same. The log viewer and
+   terminal stay dark in both themes; the YAML editor follows the theme
+   through the --code-* and --syn-* variables. */
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f5f6f8;
-  --bg-raised: #ffffff;
-  --bg-hover: #e9ecf1;
-  --border: #d5dae2;
-  --text: #1a1e25;
-  --text-muted: #5a6371;
-  --accent: #2b7de0;
-  --green: #1d8656;
-  --red: #cf3036;
-  --amber: #a8690c;
-  --error-text: #b4232a;
-  --code-bg: #ffffff;
-  --code-text: #1a1e25;
-  --code-active-line: rgba(43, 125, 224, 0.06);
-  --code-active-gutter: rgba(43, 125, 224, 0.12);
+  --bg: #f3f0e8;
+  --bg-sunken: #eae5da;
+  --bg-raised: #fffdf8;
+  --bg-hover: #e6e0d3;
+  --border: #d9d1c1;
+  --border-strong: #c3b9a5;
+  --text: #1b2130;
+  --text-muted: #596172;
+  --accent: #0e746b;
+  --accent-soft: rgba(14, 116, 107, 0.1);
+  --on-accent: #ffffff;
+  --green: #1a7a4e;
+  --red: #c2313a;
+  --amber: #965f06;
+  --brass: #8c6220;
+  --brass-soft: rgba(140, 98, 32, 0.12);
+  --error-text: #ad2129;
+  --shadow-pop: 0 18px 40px -14px rgba(60, 45, 20, 0.28), 0 0 0 1px rgba(60, 45, 20, 0.06);
+  --code-bg: #fffdf8;
+  --code-text: #1b2130;
+  --code-active-line: rgba(14, 116, 107, 0.06);
+  --code-active-gutter: rgba(14, 116, 107, 0.12);
   --syn-key: #0b5cad;
   --syn-string: #1d7036;
   --syn-number: #945400;
   --syn-comment: #6b7480;
   --syn-keyword: #8a3fc7;
-  --syn-punct: #5a6371;
-  --syn-invalid: #b4232a;
+  --syn-punct: #596172;
+  --syn-invalid: #ad2129;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
     color-scheme: light;
-    --bg: #f5f6f8;
-    --bg-raised: #ffffff;
-    --bg-hover: #e9ecf1;
-    --border: #d5dae2;
-    --text: #1a1e25;
-    --text-muted: #5a6371;
-    --accent: #2b7de0;
-    --green: #1d8656;
-    --red: #cf3036;
-    --amber: #a8690c;
-    --error-text: #b4232a;
-    --code-bg: #ffffff;
-    --code-text: #1a1e25;
-    --code-active-line: rgba(43, 125, 224, 0.06);
-    --code-active-gutter: rgba(43, 125, 224, 0.12);
+    --bg: #f3f0e8;
+    --bg-sunken: #eae5da;
+    --bg-raised: #fffdf8;
+    --bg-hover: #e6e0d3;
+    --border: #d9d1c1;
+    --border-strong: #c3b9a5;
+    --text: #1b2130;
+    --text-muted: #596172;
+    --accent: #0e746b;
+    --accent-soft: rgba(14, 116, 107, 0.1);
+    --on-accent: #ffffff;
+    --green: #1a7a4e;
+    --red: #c2313a;
+    --amber: #965f06;
+    --brass: #8c6220;
+    --brass-soft: rgba(140, 98, 32, 0.12);
+    --error-text: #ad2129;
+    --shadow-pop: 0 18px 40px -14px rgba(60, 45, 20, 0.28), 0 0 0 1px rgba(60, 45, 20, 0.06);
+    --code-bg: #fffdf8;
+    --code-text: #1b2130;
+    --code-active-line: rgba(14, 116, 107, 0.06);
+    --code-active-gutter: rgba(14, 116, 107, 0.12);
     --syn-key: #0b5cad;
     --syn-string: #1d7036;
     --syn-number: #945400;
     --syn-comment: #6b7480;
     --syn-keyword: #8a3fc7;
-    --syn-punct: #5a6371;
-    --syn-invalid: #b4232a;
+    --syn-punct: #596172;
+    --syn-invalid: #ad2129;
   }
+}
+
+/* Motion and type, shared by both themes. */
+:root {
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* Strong ease-out for things that enter or answer a click. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --radius: 8px;
+  accent-color: var(--accent);
 }
 
 * {
@@ -94,8 +135,37 @@ body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-ui);
   font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+/* Keyboard focus: one teal ring everywhere, never on mouse clicks. */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 1px;
+}
+
+/* Numbers that change in place keep their width (counts, ages, sizes). */
+.num,
+td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Everything that moves is a reaction to an event; with reduced motion
+   nothing moves at all. Not a 1ms duration: the default transition-property
+   is `all`, so that would make every colour change lag a frame. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 #app {
@@ -122,9 +192,21 @@ body {
   background: var(--bg-raised);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 7px;
   padding: 6px 10px;
   font-size: 13px;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+.select:hover,
+.input:hover {
+  border-color: var(--border-strong);
+}
+.input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 /* WebKitGTK renders <select> with the native light widget unless the
@@ -157,11 +239,14 @@ td {
   white-space: nowrap;
 }
 
+/* Column heads read like the labels on a chart: small mono capitals. */
 th {
   color: var(--text-muted);
-  font-size: 12px;
+  font-family: var(--font-num);
+  font-size: 10.5px;
+  font-weight: 500;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
 }
 
 .phase-Running,
@@ -193,17 +278,27 @@ th {
   background: transparent;
   color: var(--text-muted);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 7px;
   padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    transform 140ms var(--ease-out);
 }
 .btn:hover {
   color: var(--text);
+  border-color: var(--border-strong);
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .btn.active,
 .btn.primary {
-  border-color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--accent-soft);
   color: var(--accent);
 }
 
@@ -220,9 +315,58 @@ th {
   flex: 1;
 }
 
+/* A small chart label: mono capitals, used above panels and groups. */
+.eyebrow {
+  font-family: var(--font-num);
+  font-size: 10.5px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+}
+
 .detail-status {
   margin: 0;
   padding: 8px 16px;
   font-size: 12px;
   word-break: break-all;
+}
+
+/* Dialogs (each component's .backdrop): the page behind frosts over and
+   the dialog rises into place. Not the command palette: it opens many
+   times a day from the keyboard and should just be there. */
+.backdrop {
+  backdrop-filter: blur(3px) saturate(0.85);
+  -webkit-backdrop-filter: blur(3px) saturate(0.85);
+  animation: backdrop-in 180ms ease-out;
+}
+.backdrop > [role="dialog"]:not([data-testid="command-palette"]),
+.backdrop > [role="alertdialog"] {
+  box-shadow: var(--shadow-pop);
+  animation: dialog-in 220ms var(--ease-out);
+}
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+
+/* One family: every dialog and popover has the same frame. A strong
+   hairline, a 10px corner, its title at the top left, and it lies over the
+   sheet without moving it. */
+.backdrop > [role="dialog"],
+.backdrop > [role="alertdialog"] {
+  border-color: var(--border-strong);
+  border-radius: 10px;
+}
+.backdrop > [role="dialog"] h2,
+.backdrop > [role="alertdialog"] h2 {
+  font-size: 14px;
+  letter-spacing: -0.005em;
 }
