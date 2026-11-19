@@ -4,7 +4,7 @@
 </script>
 
 <script lang="ts">
-  import { retryDelay, stoppedMessage } from "../retry";
+  import { GiveUp, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
   import { rowHeightPx } from "../preferences";
   import { settings } from "../stores/settings.svelte";
   import { onDestroy, untrack } from "svelte";
@@ -27,6 +27,8 @@
 
   /** Failed starts so far: the wait before the next one grows (lib/retry.ts). */
   let attempts = 0;
+  /** Stops a feed that has been reconnecting for five minutes (lib/retry.ts). */
+  const giveUp = new GiveUp();
   const AGE_TICK_MS = 15_000;
   // Settings → Tables (#330): normal or compact.
   const ROW_HEIGHT = $derived(rowHeightPx(32, settings.current.row_height));
@@ -78,17 +80,27 @@
 
   function onState(s: ApplicationsStateChanged) {
     if (s.state === "live") {
+      giveUp.clear();
       setStatus(true, "Live");
       clearError();
     } else if (s.state === "reconnecting") {
       setStatus(false, "Reconnecting…");
       setError(s.error);
+      // The backend reconnects for as long as it is asked to: after five
+      // minutes of this, stop the feed and say so. Refresh starts it again.
+      const error = s.error;
+      giveUp.arm(() => {
+        stop();
+        setStatus(false, "Not connected");
+        setError(reconnectStoppedMessage(error));
+      });
     } else {
       setStatus(null, "Connecting…");
     }
   }
 
   function stop() {
+    giveUp.clear();
     if (retry) clearTimeout(retry);
     retry = null;
     const id = feed;

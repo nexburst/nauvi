@@ -353,8 +353,11 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   about five minutes, no more: the error says "Stopped retrying. Refresh to
   try again." Refresh, a context switch or opening the view again starts
   over. The error is one notification, however many retries it took. A
-  watch that was running and lost its connection keeps reconnecting in the
-  background.
+  view that was live and lost its connection shows Reconnecting while the
+  app tries again (every second at first, every ten at most); after five
+  minutes of that without a break it is stopped the same way, and what it
+  showed stays on screen, dimmed. Logs, terminals and port-forwards are not
+  part of this: they keep their own connections.
 - **Help and diagnostics**: the Help menu (the `?` in the header; on macOS
   also in the menu bar) has Documentation, Report a bug (opens a GitHub issue
   with the version, commit, OS and webview filled in), Open log folder and

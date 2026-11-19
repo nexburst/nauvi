@@ -1,4 +1,4 @@
-import { retryDelay, stoppedMessage } from "../retry";
+import { GiveUp, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
 import { events } from "../bindings";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import { thisWindow } from "../window";
@@ -25,6 +25,8 @@ interface Watch {
   starting: boolean;
   status: WatchStatus;
   retry: ReturnType<typeof setTimeout> | null;
+  /** Counts how long it has been reconnecting. */
+  giveUp: GiveUp;
 }
 
 /**
@@ -88,6 +90,10 @@ export class LiveTable {
         interval: "interval_secs" in s ? s.interval_secs : undefined,
       };
       this.#publishState();
+      // The backend reconnects for as long as it is asked to: after five
+      // minutes of it, stop this watch and say so (lib/retry.ts).
+      if (s.state === "reconnecting") w.giveUp.arm(() => this.#giveUp(w));
+      else w.giveUp.clear();
     }
   }
 
@@ -167,6 +173,7 @@ export class LiveTable {
       starting: true,
       status: { namespace, state: "connecting", error: "" },
       retry: null,
+      giveUp: new GiveUp(),
     };
     this.#watches.set(key, w);
     let id: string;
@@ -213,7 +220,23 @@ export class LiveTable {
     for (const ev of mine) this.#handle(w, ev);
   }
 
+  /** Stop a watch that kept reconnecting; its rows stay, marked as not current. */
+  #giveUp(w: Watch) {
+    if (this.#watches.get(w.key) !== w || !w.id) return;
+    this.#byId.delete(w.id);
+    api(visibleCluster()).cmdWatchStop(w.id).catch(() => {});
+    w.id = null;
+    w.status = {
+      namespace: w.status.namespace,
+      state: "failed",
+      error: reconnectStoppedMessage(w.status.error),
+      status: "Not connected",
+    };
+    this.#publishState();
+  }
+
   #stopWatch(w: Watch) {
+    w.giveUp.clear();
     if (w.retry) clearTimeout(w.retry);
     w.retry = null;
     if (this.#watches.get(w.key) === w) this.#watches.delete(w.key);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { RETRY_GIVE_UP_MS, RETRY_STOPPED, retryDelay, stoppedMessage } from "./retry";
+import { afterEach, beforeEach, vi } from "vitest";
+import { GiveUp, RETRY_GIVE_UP_MS, RETRY_STOPPED, reconnectStoppedMessage, retryDelay, stoppedMessage } from "./retry";
 
 describe("retryDelay", () => {
   it("waits longer each time, up to a minute", () => {
@@ -19,5 +20,41 @@ describe("stoppedMessage", () => {
     expect(stoppedMessage("Could not reach the cluster")).toBe(`Could not reach the cluster. ${RETRY_STOPPED}`);
     expect(stoppedMessage("failed to load current context:")).toBe(`failed to load current context: ${RETRY_STOPPED}`);
     expect(stoppedMessage("")).toBe(RETRY_STOPPED);
+  });
+});
+
+describe("a watch that keeps reconnecting", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("is stopped once, after five minutes without a break", () => {
+    const stop = vi.fn();
+    const g = new GiveUp();
+    g.arm(stop);
+    vi.advanceTimersByTime(RETRY_GIVE_UP_MS - 1);
+    // Still reconnecting: arming again does not start the count over.
+    g.arm(stop);
+    expect(stop).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("is left alone when it comes back", () => {
+    const stop = vi.fn();
+    const g = new GiveUp();
+    g.arm(stop);
+    vi.advanceTimersByTime(60_000);
+    g.clear();
+    vi.advanceTimersByTime(RETRY_GIVE_UP_MS);
+    expect(stop).not.toHaveBeenCalled();
+  });
+
+  it("says what failed without the backend's \"retrying\"", () => {
+    expect(reconnectStoppedMessage("Lost the connection to the cluster (https://x:6443); retrying.")).toBe(
+      `Lost the connection to the cluster (https://x:6443). ${RETRY_STOPPED}`,
+    );
+    expect(reconnectStoppedMessage("The API server is not answering; retrying.")).toBe(
+      `The API server is not answering. ${RETRY_STOPPED}`,
+    );
   });
 });
