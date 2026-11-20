@@ -324,6 +324,11 @@ export const commands = {
 	 */
 	cmdLocalShellStart: (cluster: MutationTarget, namespace: string | null, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<LocalShellStarted>("cmd_local_shell_start", { cluster, namespace, cols, rows, onOutput }, options),
 	/**
+	 *  The tab of pod log stream `stream_id` got `bytes` of lines (the length
+	 *  of the raw message), which lets the backend send more (#397).
+	 */
+	cmdLogAck: (cluster: string, streamId: number, bytes: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_log_ack", { cluster, streamId, bytes }, options),
+	/**
 	 *  Save log text to the user's Downloads folder and return the path. A
 	 *  webview Blob download is not reliable across the platforms Tauri targets
 	 *  and there is no file dialog without an extra plugin, so we write directly.
@@ -344,7 +349,9 @@ export const commands = {
 	/**
 	 *  Follow one container of a pod. Lines, errors and the end go to
 	 *  `on_event`, the channel of the tab that asked (#115); `stream_id` names
-	 *  the stream for `cmd_stop_logs`.
+	 *  the stream for `cmd_stop_logs` and `cmd_log_ack`: the tab acknowledges
+	 *  each batch of lines it gets, and at most `log_flow::WINDOW` bytes are
+	 *  sent ahead of that (#397).
 	 */
 	cmdStreamPodLogs: (cluster: string, namespace: string, name: string, container: string | null, previous: boolean | null, tailLines: number | null, sinceSeconds: number | null, timestamps: boolean | null, streamId: number, onEvent: Channel<LogMessage>, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_pod_logs", { cluster, namespace, name, container, previous, tailLines, sinceSeconds, timestamps, streamId, onEvent }, options),
 	/**
@@ -531,7 +538,10 @@ export const commands = {
 	 *  watch id carried by the `watch-batch` / `watch-state` events.
 	 */
 	cmdWatchStart: (cluster: string, resource: ResourceRef, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { cluster, resource, namespace }, options),
-	/**  Stop a table watch or a detail watch. */
+	/**
+	 *  Stop a table watch or a detail watch, and give the memory its rows took
+	 *  back to the system once the task is gone (#397).
+	 */
 	cmdWatchStop: (cluster: string, id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_watch_stop", { cluster, id }, options),
 	/**
 	 *  The user discarded this window's unsaved edits after an

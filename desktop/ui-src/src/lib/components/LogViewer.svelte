@@ -8,7 +8,7 @@
   import { commands } from "../bindings";
   import { api, visibleCluster } from "../cluster";
   import type { LogContainer, LogEvent, WorkloadNotice } from "../bindings";
-  import { logChannel } from "../logChannel";
+  import { logChannel, sendAck } from "../logChannel";
   import {
     ALL_CONTAINERS,
     LogBuffer,
@@ -155,6 +155,8 @@
   // only the new lines.
   const searcher = new LogSearcher();
   searcher.attach(buf);
+  /** The channel of the stream this tab runs now. */
+  let channel: ReturnType<typeof logChannel> | null = null;
   /** Search hits of the pod prefixes, by tag id, for the query in use. */
   let prefixHits = new Map<number, Hits>();
   /** Time on the main thread before a long rebuild lets a frame through. */
@@ -614,10 +616,12 @@
     prefixHits = new Map();
     truncatedNote = "";
     const id = streamId;
-    const onEvent = logChannel({
+    const onEvent = (channel = logChannel({
       lines: (lines) => id === streamId && onBatch(lines),
       event: (e) => id === streamId && onLogEvent(e),
-    });
+      // Lets the backend send more (pod streams only; #397).
+      ack: (bytes) => void sendAck(() => api(cluster).cmdLogAck(id, bytes)),
+    }));
     try {
       if (workload) {
         await api(cluster).cmdStreamWorkloadLogs(
@@ -742,6 +746,9 @@
       appliedSearch = { text: filterInput, regex, matchCase };
     }
     if (force || JSON.stringify([query, exclude]) !== before) renderLogs();
+    // Without a regex the worker is idle: drop it and its copy of the lines
+    // (#397). The next regex search starts a new one.
+    if (query.kind !== "regex" && exclude.kind !== "regex") searcher.stop();
   }
 
   // Typing is debounced: each search rebuilds the display from the buffer.
@@ -901,6 +908,12 @@
     clearTimeout(filterTimer);
     gen++;
     searcher.stop();
+    // The channel's callback stays registered until the backend closes it;
+    // it must not keep this tab's lines alive meanwhile (#397).
+    if (channel) channel.onmessage = () => {};
+    buf.clear();
+    d.lines = [];
+    d.matches = [];
     clearTimeout(savedTimer);
     const ownStream = streamId;
     streamId = ++streamCounter;

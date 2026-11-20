@@ -21,6 +21,7 @@ pub(crate) mod help;
 pub(crate) mod kubectl;
 pub(crate) mod links;
 pub(crate) mod local_shell;
+pub(crate) mod log_flow;
 pub(crate) mod log_frame;
 pub(crate) mod logs;
 pub(crate) mod metrics_addons;
@@ -114,6 +115,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             local_shell::cmd_local_shell_input,
             local_shell::cmd_local_shell_resize,
             local_shell::cmd_local_shell_start,
+            logs::cmd_log_ack,
             logs::cmd_save_logs,
             logs::cmd_stop_logs,
             logs::cmd_stream_pod_all_logs,

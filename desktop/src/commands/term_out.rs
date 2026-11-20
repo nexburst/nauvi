@@ -33,6 +33,9 @@ const BATCH_WAIT: Duration = Duration::from_millis(8);
 const BATCH_MAX: usize = 256 * 1024;
 /// The most bytes sent to the tab and not acknowledged yet.
 const WINDOW: usize = 8 * 1024 * 1024;
+/// How long output waits for an ack before the window counts as empty: a
+/// lost ack must not stall the terminal for good (#397).
+const ACK_TIMEOUT: Duration = Duration::from_secs(5);
 /// The most output kept while waiting for credit.
 const QUEUE_MAX: usize = 8 * 1024 * 1024;
 
@@ -213,6 +216,8 @@ async fn run(mut rx: UnboundedReceiver<Msg>, sink: impl Fn(TermFrame)) {
     let mut q = Pending::default();
     let mut in_flight = 0usize;
     let mut open = true;
+    // Since when output has waited for credit.
+    let mut stalled: Option<Instant> = None;
     loop {
         // Top up a batch while more output follows closely.
         if open && in_flight < WINDOW && q.front_is_data() && q.bytes < BATCH_MAX {
@@ -261,8 +266,34 @@ async fn run(mut rx: UnboundedReceiver<Msg>, sink: impl Fn(TermFrame)) {
         if !open {
             return;
         }
-        match rx.recv().await {
-            Some(m) => handle(m, &mut q, &mut in_flight),
+        // Waiting for credit: at most ACK_TIMEOUT since it ran out.
+        if in_flight >= WINDOW && q.front_is_data() {
+            stalled.get_or_insert_with(Instant::now);
+        } else {
+            stalled = None;
+        }
+        let next = match stalled {
+            Some(since) => match tokio::time::timeout_at(since + ACK_TIMEOUT, rx.recv()).await {
+                Ok(m) => m,
+                Err(_) => {
+                    tracing::warn!(
+                        "terminal: no ack for {} s; sending on",
+                        ACK_TIMEOUT.as_secs()
+                    );
+                    in_flight = 0;
+                    stalled = None;
+                    continue;
+                }
+            },
+            None => rx.recv().await,
+        };
+        match next {
+            Some(m) => {
+                if matches!(m, Msg::Ack(_)) {
+                    stalled = None;
+                }
+                handle(m, &mut q, &mut in_flight)
+            }
             None => open = false,
         }
     }
@@ -361,6 +392,23 @@ mod tests {
         let sent: usize = h.sent().iter().map(String::len).sum();
         assert_eq!(sent, WINDOW);
         h.out.ack(WINDOW);
+        h.settle().await;
+        let sent: usize = h.sent().iter().map(String::len).sum();
+        assert_eq!(sent, 2 * WINDOW);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lost_ack_holds_the_output_only_for_the_ack_timeout() {
+        let h = harness();
+        let piece = "p".repeat(64 * 1024);
+        for _ in 0..(WINDOW / piece.len()) * 2 {
+            send_data(&h.out, piece.clone().into_bytes());
+        }
+        h.settle().await;
+        let sent: usize = h.sent().iter().map(String::len).sum();
+        assert_eq!(sent, WINDOW);
+        // No ack: the rest goes out once the timeout has passed.
+        tokio::time::sleep(ACK_TIMEOUT).await;
         h.settle().await;
         let sent: usize = h.sent().iter().map(String::len).sum();
         assert_eq!(sent, 2 * WINDOW);

@@ -84,6 +84,28 @@ where
     Ok(())
 }
 
+/// [`stream_pod_logs`] into a bounded channel: when `tx` is full the read
+/// waits, so a log that comes in faster than it is shown stays in the API
+/// server's buffers, not in ours (#397). Ends early, without an error, when
+/// the receiver is gone.
+pub async fn stream_pod_logs_into(
+    client: &Client,
+    namespace: &str,
+    name: &str,
+    opts: &LogOptions,
+    tx: tokio::sync::mpsc::Sender<String>,
+) -> Result<()> {
+    let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    let params = opts.to_params(!opts.previous);
+    let mut lines = pods.log_stream(name, &params).await?.lines();
+    while let Some(line) = lines.try_next().await? {
+        if tx.send(line).await.is_err() {
+            break;
+        }
+    }
+    Ok(())
+}
+
 /// Collect lines from `rx` into batches and hand each to `emit`. A batch is
 /// flushed when it reaches `max_lines` or when `interval` has passed since its
 /// first line, so a noisy pod costs one event per batch instead of per line.
