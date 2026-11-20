@@ -54,19 +54,54 @@ test("container cards show state, resources, ports, probes, mounts and env names
   const app = card(page, "app");
   await expect(app.getByTestId("container-state")).toHaveText(/Running · started 1h ago/);
   await expect(app.getByTestId("container-state")).toHaveClass(/tone-ok/);
-  await expect(app).toContainText("cpu 100m / — · memory 64Mi / 128Mi");
+  await expect(app).toContainText(/Requests\s*cpu 100m · memory 64Mi/);
+  await expect(app).toContainText(/Limits\s*memory 128Mi/);
   await expect(app).toContainText("8080/TCP");
   await expect(app).toContainText("53/UDP");
   await expect(app).toContainText("liveness http-get :8080/healthz delay=5s timeout=1s period=10s");
   // Only TCP ports can be forwarded.
   await expect(app.getByRole("button", { name: /^Forward port/ })).toHaveCount(1);
 
-  await app.getByText("Mounts (1)").click();
+  await app.getByText("Mounts (2)").click();
   await expect(app).toContainText("/etc/nginx/conf.d");
-  await expect(app).toContainText("from config (ro)");
+  await expect(app).toContainText("from config · configmap nginx-conf (ro)");
   await app.getByText("Environment (2)").click();
-  await expect(app).toContainText("DB_PASSWORD from secret:db-creds/password");
+  await expect(app).toContainText("DB_PASSWORD from Secret db-creds/password");
   await expect(app).toContainText("MODE value set");
+});
+
+test("the container summary shows command, args, env count and mount sources (#385)", async ({ page }) => {
+  await openPod(page, "web-1");
+  const app = card(page, "app");
+  const summary = app.getByTestId("container-summary");
+  await expect(summary).toContainText(/Image\s*nginx:1\.27/);
+  await expect(app.getByTestId("container-command")).toHaveText("/docker-entrypoint.sh");
+  // The env count, with how many come from Secrets: a reference, never a value.
+  await expect(app.getByTestId("container-env")).toHaveText("2 variables (1 from a Secret)");
+  await expect(app.getByTestId("container-mounts")).toContainText(
+    "/var/run/secrets/kubernetes.io/serviceaccount ← projected (service account token) (ro)",
+  );
+  await expect(app.getByTestId("container-mounts")).toContainText("/etc/nginx/conf.d ← configmap nginx-conf (ro)");
+
+  // Long args start folded to one line, with the whole text one click away.
+  const args = app.getByTestId("container-args");
+  const value = args.locator(".value");
+  await expect(value).toHaveClass(/folded/);
+  const folded = await value.boundingBox();
+  await args.getByRole("button", { name: "Show all of args" }).click();
+  await expect(value).not.toHaveClass(/folded/);
+  await expect(args.getByRole("button", { name: "Fold args" })).toHaveAttribute("aria-expanded", "true");
+  expect((await value.boundingBox())!.height).toBeGreaterThan(folded!.height);
+  await expect(value).toHaveText(
+    "nginx -g 'daemon off; worker_processes 2; error_log /dev/stderr info; pid /tmp/nginx.pid;' --token=••••",
+  );
+  await expect(app.getByTestId("secrets-hidden")).toBeVisible();
+
+  // A container without command or args shows only the image's own.
+  const sidecar = card(page, "sidecar");
+  await expect(sidecar.getByTestId("container-command")).toHaveCount(0);
+  await expect(sidecar.getByTestId("container-args")).toHaveCount(0);
+  await expect(sidecar.getByTestId("secrets-hidden")).toHaveCount(0);
 });
 
 test("a port's Forward button starts a port-forward", async ({ page }) => {

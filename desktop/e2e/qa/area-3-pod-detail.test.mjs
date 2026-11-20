@@ -18,13 +18,16 @@ import { By } from "selenium-webdriver";
 import { byTestId } from "../lib/app.mjs";
 import { pane, panelButton } from "../lib/dock.mjs";
 import { deleteNamespace, httpPodYaml, kubectl, podNames, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { actionButtons, panelText, waitPanelTitle } from "../lib/panels.mjs";
+import { actionButtons, panelText, setTheme, waitPanelTitle } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { terminal } from "../lib/terminal.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 180_000 };
 const SECRET_VALUE = "qa-area3-do-not-leak-7f3a";
+// In the command line of qa-spec: the panel must mask both (#385).
+const ARG_TOKEN = "qa-area3-arg-token-91c2";
+const ARG_PASSWORD = "qa-area3-arg-pw-44d0";
 
 const fixtures = `
 ${httpPodYaml("qa-web", 8080, "hello from area 3")}
@@ -55,6 +58,39 @@ metadata:
   name: qa-secret
 stringData:
   password: ${SECRET_VALUE}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qa-spec-cfg
+data:
+  app.conf: "listen 8080"
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: qa-spec
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: app
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "trap 'exit 0' TERM; while true; do sleep 5; done # --password=${ARG_PASSWORD} keep running"]
+      args: ["--token=${ARG_TOKEN}", "--listen=:8080"]
+      resources:
+        requests: { cpu: 10m, memory: 16Mi }
+        limits: { memory: 32Mi }
+      env:
+        - { name: MODE, value: qa }
+        - name: DB_PASSWORD
+          valueFrom: { secretKeyRef: { name: qa-secret, key: password } }
+      volumeMounts:
+        - { name: cfg, mountPath: /etc/app, readOnly: true }
+        - { name: scratch, mountPath: /scratch }
+  volumes:
+    - { name: cfg, configMap: { name: qa-spec-cfg } }
+    - { name: scratch, emptyDir: {} }
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -107,6 +143,7 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
   before(() => {
     ns = tempNamespace("qa-area3-pod", fixtures);
     waitPodReady(ns, "qa-web");
+    waitPodReady(ns, "qa-spec");
     kubectl(["-n", ns, "rollout", "status", "deploy/qa-deploy", "--timeout=180s"]);
   });
   after(() => deleteNamespace(ns));
@@ -126,9 +163,51 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
       { message: "the FailedScheduling event" },
     );
     assert.match(text, /PodScheduled\s+False/);
-    assert.match(text, /cpu 1k \/ —/);
+    assert.match(text, /Requests\s+cpu 1k · memory 100Gi/);
+    assert.match(text, /Limits\s+—/);
     await app.js(`document.querySelector('[data-testid="detail-panel"] section.card')?.scrollIntoView()`);
   });
+
+  /** The first container card's summary, once its mounts are in. */
+  async function specSummary(app) {
+    return app.waitFor(
+      () =>
+        app.js(`
+          const card = document.querySelector('[data-testid="detail-panel"] section.card');
+          const t = (id) => card?.querySelector('[data-testid="' + id + '"]')?.textContent.replace(/\\s+/g, ' ').trim() ?? '';
+          if (!t('container-mounts')) return null;
+          card.scrollIntoView({ block: 'start' });
+          return { command: t('container-command'), args: t('container-args'), env: t('container-env'),
+                   mounts: t('container-mounts'), hidden: t('secrets-hidden'), html: card.innerHTML };`),
+      { message: "the container summary of qa-spec" },
+    );
+  }
+
+  for (const theme of ["light", "dark"]) {
+    it(`qa-spec's card shows command, args, env and mount sources, tokens masked (${theme}, #385)`, T, async () => {
+      const { app } = s;
+      await setTheme(app, theme);
+      await app.openDetail("Pods", ns, "qa-spec");
+      const v = await specSummary(app);
+      console.log(`summary: ${JSON.stringify({ ...v, html: undefined })}`);
+      assert.match(v.command, /^sh -c 'trap/);
+      assert.match(v.command, /--password=••••/);
+      assert.match(v.args, /^--token=•••• --listen=:8080/);
+      assert.equal(v.env, "2 variables (1 from a Secret)");
+      assert.match(v.mounts, /\/etc\/app ← configmap qa-spec-cfg \(ro\)/);
+      assert.match(v.mounts, /\/scratch ← emptyDir/);
+      assert.match(v.mounts, /\/var\/run\/secrets\/kubernetes\.io\/serviceaccount ← projected \(service account token\) \(ro\)/);
+      assert.ok(v.hidden, "the note that values are hidden");
+      for (const secret of [ARG_TOKEN, ARG_PASSWORD, SECRET_VALUE]) {
+        assert.ok(!v.html.includes(secret), `${secret} in the card`);
+      }
+      // The long command starts folded; open it for the dark screenshot.
+      if (theme === "dark") {
+        await (await app.find(By.css('[data-testid="detail-panel"] button[aria-label="Show all of command"]'))).click();
+        await app.find(By.css('[data-testid="detail-panel"] button[aria-label="Fold command"]'));
+      }
+    });
+  }
 
   it("demo/crashed shows CrashLoopBackOff in red and the last termination", T, async () => {
     const { app } = s;
