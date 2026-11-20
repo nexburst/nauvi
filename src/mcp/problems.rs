@@ -37,7 +37,15 @@ const MAX_MESSAGE: usize = 160;
 
 /// The kinds `problems` checks: (group, version, kind, plural, namespaced,
 /// other names).
-const KINDS: &[(&str, &str, &str, &str, bool, &[&str])] = &[
+type KindDef = (
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    bool,
+    &'static [&'static str],
+);
+const KINDS: &[KindDef] = &[
     ("", "v1", "Pod", "pods", true, &["pod", "po"]),
     (
         "apps",
