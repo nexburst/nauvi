@@ -54,20 +54,25 @@ test("in local time the creation time has no zone suffix", async ({ page }) => {
 });
 
 test("ages that show seconds tick every second, in the table and the detail", async ({ page }) => {
+  // Created 100 s before NOW.
   await page.clock.install({ time: NOW });
   const fake = await openApp(page, (c) => {
-    const created = Math.floor(Date.now() / 1000) - 100;
+    const created = Date.UTC(2026, 10, 17, 10, 5, 23) / 1000;
     c.rows["v1/pods"].find((r) => r.name === "web-1")!.created = created;
     c.details["v1/pods|demo/web-1"].created = created;
   });
   await openKind(page, "Pods");
-  await expect(cell(page, "web-1", "100s")).toBeVisible();
   await row(page, "web-1").click();
-  await expect(panel(page).getByTestId("meta-age")).toContainText("100s");
+  await expect(panel(page).getByTestId("meta-age")).toBeVisible();
+  // The fake backend runs on timers too, so pause only once the table and
+  // the panel are up.
+  await page.clock.pauseAt(new Date(NOW.getTime() + 30_000));
+  await expect(cell(page, "web-1", "2m10s")).toBeVisible();
+  await expect(panel(page).getByTestId("meta-age")).toContainText("2m10s");
   await page.clock.runFor(3000);
-  await expect(cell(page, "web-1", "103s")).toBeVisible();
-  await expect(panel(page).getByTestId("meta-age")).toContainText("103s");
+  await expect(cell(page, "web-1", "2m13s")).toBeVisible();
+  await expect(panel(page).getByTestId("meta-age")).toContainText("2m13s");
   await page.clock.runFor(20_000);
-  await expect(cell(page, "web-1", "2m3s")).toBeVisible();
+  await expect(cell(page, "web-1", "2m33s")).toBeVisible();
   expect(fake.errors).toEqual([]);
 });
