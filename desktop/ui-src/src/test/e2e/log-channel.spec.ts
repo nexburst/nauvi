@@ -49,3 +49,17 @@ test("each raw batch is acknowledged with its bytes, events are not (#397)", asy
   // "héllo\ntwo" is 10 bytes of UTF-8.
   await expect.poll(() => fake.calls("cmdLogAck")).toEqual([{ streamId: id, bytes: 10 }]);
 });
+
+test("a failed ack is sent once more, and the tab keeps working (#397)", async ({ page }) => {
+  const fake = await openPodLogs(page);
+  const id = await fake.lastStreamId();
+  await fake.failNext("cmdLogAck", "lost");
+  await fake.emitLogLines(["one"]);
+  await expect(logLines(page)).toHaveText(["one"]);
+  await expect.poll(() => fake.calls("cmdLogAck")).toEqual([
+    { streamId: id, bytes: 3 },
+    { streamId: id, bytes: 3 },
+  ]);
+  await fake.emitLogLines(["two"]);
+  await expect(logLines(page)).toHaveText(["one", "two"]);
+});

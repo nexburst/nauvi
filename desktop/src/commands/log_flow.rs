@@ -8,7 +8,9 @@
 //! - **Credit.** At most `WINDOW` bytes of lines are on their way to the
 //!   tab; it acknowledges each batch when it gets it (`cmd_log_ack`). A
 //!   channel send never blocks, so without this a flood would pile up in
-//!   the IPC queue.
+//!   the IPC queue. An ack that never comes (a lost call, a tab that failed
+//!   to handle a batch) must not stop the stream for good: after
+//!   `ACK_TIMEOUT` without one, the window counts as empty again.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +18,8 @@ use tokio::sync::{mpsc, watch};
 
 /// The most bytes of lines sent to the tab and not acknowledged yet.
 pub(crate) const WINDOW: usize = 4 * 1024 * 1024;
+/// How long the batcher waits for an ack before it counts the window as empty.
+pub(crate) const ACK_TIMEOUT: Duration = Duration::from_secs(5);
 /// The most lines waiting between the reader and the batcher.
 pub(crate) const QUEUE_LINES: usize = 2000;
 
@@ -41,10 +45,21 @@ impl LogCredit {
         *self.0.borrow()
     }
 
-    /// Wait until the window has room (a batch may then overshoot it once).
+    /// Wait until the window has room (a batch may then overshoot it once),
+    /// or `ACK_TIMEOUT` without one: then the acks are taken as lost.
     async fn room(&self) {
         let mut rx = self.0.subscribe();
-        let _ = rx.wait_for(|b| *b < WINDOW).await;
+        let waited = tokio::time::timeout(ACK_TIMEOUT, async {
+            let _ = rx.wait_for(|b| *b < WINDOW).await;
+        })
+        .await;
+        if waited.is_err() {
+            tracing::warn!(
+                "log stream: no ack for {} s; sending on",
+                ACK_TIMEOUT.as_secs()
+            );
+            self.0.send_modify(|b| *b = 0);
+        }
     }
 
     fn sent(&self, bytes: usize) {
@@ -189,5 +204,30 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(10)).await;
         assert!(out.try_recv().is_ok());
         reader.abort();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_lost_ack_only_holds_the_stream_for_the_ack_timeout() {
+        let (tx, rx) = mpsc::channel(4);
+        let (out_tx, mut out) = mpsc::unbounded_channel();
+        let credit = LogCredit::default();
+        tokio::spawn(batch_with_credit(
+            rx,
+            1,
+            Duration::from_millis(50),
+            credit.clone(),
+            move |b| {
+                out_tx.send(b.len()).unwrap();
+                WINDOW
+            },
+        ));
+        // The first batch fills the window and its ack never comes.
+        tx.send("a".into()).await.unwrap();
+        tx.send("b".into()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(out.try_recv(), Ok(1));
+        assert!(out.try_recv().is_err(), "held for credit");
+        tokio::time::sleep(ACK_TIMEOUT).await;
+        assert_eq!(out.try_recv(), Ok(1), "sent on after the timeout");
     }
 }

@@ -8,7 +8,7 @@
   import { commands } from "../bindings";
   import { api, visibleCluster } from "../cluster";
   import type { LogContainer, LogEvent, WorkloadNotice } from "../bindings";
-  import { logChannel } from "../logChannel";
+  import { logChannel, sendAck } from "../logChannel";
   import {
     ALL_CONTAINERS,
     LogBuffer,
@@ -620,7 +620,7 @@
       lines: (lines) => id === streamId && onBatch(lines),
       event: (e) => id === streamId && onLogEvent(e),
       // Lets the backend send more (pod streams only; #397).
-      ack: (bytes) => void api(cluster).cmdLogAck(id, bytes).catch(() => {}),
+      ack: (bytes) => void sendAck(() => api(cluster).cmdLogAck(id, bytes)),
     }));
     try {
       if (workload) {

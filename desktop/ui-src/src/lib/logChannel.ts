@@ -31,9 +31,30 @@ export interface LogHandlers {
 /** Dispatch one channel message. */
 export function dispatchLogMessage(m: LogMessage, h: LogHandlers) {
   if (isRawLines(m)) {
-    h.lines(decodeLines(m));
-    h.ack?.(m.byteLength);
+    // Acked even when handling the batch fails: a missing ack would hold
+    // the stream until the backend's timeout.
+    try {
+      h.lines(decodeLines(m));
+    } finally {
+      h.ack?.(m.byteLength);
+    }
   } else h.event(m);
+}
+
+/**
+ * Send an ack with `send`, once more if it fails, then give up with a
+ * warning (the backend stops waiting for it after a few seconds).
+ */
+export async function sendAck(send: () => Promise<unknown>, what = "log stream"): Promise<void> {
+  try {
+    await send();
+  } catch {
+    try {
+      await send();
+    } catch (e) {
+      console.warn(`Could not acknowledge ${what} output:`, e);
+    }
+  }
 }
 
 /** A new channel for one log stream. */

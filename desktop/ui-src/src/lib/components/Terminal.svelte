@@ -2,6 +2,7 @@
   import { commands } from "../bindings";
   import { api, visibleCluster } from "../cluster";
   import type { ClusterApi } from "../cluster";
+  import { sendAck } from "../logChannel";
   import type { PodRef } from "../stores/detail.svelte";
   import { orderedInput } from "../orderedInput";
   import { kubectlIntro } from "../kubectlMatch";
@@ -222,7 +223,8 @@
     let unacked = 0;
     const ack = () => {
       if (!session || unacked === 0) return;
-      b.ack(session, unacked).catch(() => {});
+      const [id, bytes] = [session, unacked];
+      void sendAck(() => b.ack(id, bytes), "terminal");
       unacked = 0;
     };
     const w = new TermWriter((data, done) => (term ? term.write(data, done) : done()), {
