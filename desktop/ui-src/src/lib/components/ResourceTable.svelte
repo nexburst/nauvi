@@ -80,7 +80,7 @@
   const shownExtra = $derived(kindSettings(kind.id).shown ?? []);
   const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics, shownExtra));
   // The checkbox, the columns, then the row's ⋮ menu (#382).
-  const MORE_PX = 36;
+  const MORE_PX = 28;
   const template = $derived(["32px", ...columns.map((c) => c.width), `${MORE_PX}px`].join(" "));
   // Columns that don't fit (extra ones turned on, the detail panel open)
   // scroll sideways, the header with the rows, instead of being cut off.
@@ -868,7 +868,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
+    width: 22px;
     height: 22px;
     border-radius: 5px;
     color: var(--text-muted);
