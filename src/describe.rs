@@ -6,6 +6,7 @@ use crate::resources::{
     self, align_columns, ContainerDetail, ContainerKind, PodExtras, Related, ResourceDetail,
     StateInfo,
 };
+use crate::text;
 use anyhow::Result;
 use kube::Client;
 use std::collections::BTreeMap;
@@ -122,7 +123,7 @@ fn related_section(out: &mut String, r: &Related) {
         field(out, &f.label, &f.value);
     }
     for g in &r.groups {
-        out.push_str(&g.to_text());
+        out.push_str(&text::multi_line(&g.to_text()));
     }
 }
 
@@ -259,8 +260,10 @@ fn capitalized(s: &str) -> String {
 }
 
 /// `Label:   value`, continuation lines of a multi-line value indented under
-/// the first.
+/// the first. The value comes from the cluster, so it is cleaned
+/// ([`text::multi_line`]): only its line breaks are kept.
 fn field(out: &mut String, label: &str, value: &str) {
+    let value = text::multi_line(value);
     let mut lines = value.lines();
     let first = lines.next().unwrap_or("");
     let label = format!("{label}:");
@@ -282,8 +285,9 @@ fn section(out: &mut String, label: &str, table: &[Vec<String>]) {
     }
 }
 
+/// A table row; each cell on one line, cleaned ([`text::single_line`]).
 fn row(cells: &[&str]) -> Vec<String> {
-    cells.iter().map(|c| c.to_string()).collect()
+    cells.iter().map(|c| text::single_line(c)).collect()
 }
 
 fn pairs(map: &BTreeMap<String, String>) -> String {
@@ -504,5 +508,34 @@ Events:
         assert!(out.ends_with("Events:          <none>\n"), "{out}");
         assert!(!out.contains("Controlled By"));
         assert!(!out.contains("Conditions"));
+    }
+
+    #[test]
+    fn cluster_text_is_cleaned() {
+        let mut d = detail();
+        d.pod.reason = "Evicted\u{1b}[2J".into();
+        d.pod.message = "low\u{202E}gnp.exe\u{202C} memory\r\nsecond\u{200B} line".into();
+        d.pod.containers[0].last_state.reason = "Error\u{1b}]0;title\u{7}".into();
+        d.conditions[0].message = "0/2 nodes\n\u{1b}[31mavailable\u{2066}".into();
+        d.events[0].reason = "Failed\u{FEFF}Scheduling".into();
+        d.events[0].message = "line one\nline two\u{202E}".into();
+        let out = render_describe(&d);
+        assert!(out.contains("Reason:          Evicted[2J\n"), "{out}");
+        assert!(
+            out.contains("Message:         lowgnp.exe memory\n                 second line\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("Terminated: Error]0;title (exit code 1)"),
+            "{out}"
+        );
+        assert!(out.contains("0/2 nodes [31mavailable\n"), "{out}");
+        assert!(out.contains("FailedScheduling"), "{out}");
+        assert!(out.contains("line one line two\n"), "{out}");
+        for c in [
+            '\u{1b}', '\u{7}', '\u{202E}', '\u{202C}', '\u{2066}', '\u{200B}', '\u{FEFF}', '\r',
+        ] {
+            assert!(!out.contains(c), "{c:?} in {out:?}");
+        }
     }
 }

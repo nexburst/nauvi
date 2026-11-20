@@ -75,34 +75,11 @@ pub fn shorten(s: &str, max: usize) -> String {
     }
 }
 
-/// Cluster text (an event or status message, a reason) on one line,
-/// shortened to `max` characters: whitespace runs become one space, and
-/// C0/C1 control characters (ESC sequences start with one), bidi controls
-/// and zero-width characters are dropped, so cluster text cannot reorder,
-/// restyle or hide what the reader sees.
+/// Cluster text (an event or status message, a reason) on one line
+/// ([`crate::text::single_line`]: no control, bidi or zero-width
+/// characters), shortened to `max` characters.
 pub fn one_line(s: &str, max: usize) -> String {
-    let visible: String = s
-        .chars()
-        .filter(|&c| c.is_whitespace() || !(c.is_control() || is_invisible_format(c)))
-        .collect();
-    shorten(
-        &visible.split_whitespace().collect::<Vec<_>>().join(" "),
-        max,
-    )
-}
-
-/// Unicode bidi marks, embeddings, overrides and isolates, and the
-/// zero-width space, joiners, word joiner and byte order mark.
-fn is_invisible_format(c: char) -> bool {
-    matches!(
-        c,
-        '\u{061C}'
-            | '\u{200B}'..='\u{200F}'
-            | '\u{202A}'..='\u{202E}'
-            | '\u{2060}'
-            | '\u{2066}'..='\u{2069}'
-            | '\u{FEFF}'
-    )
+    shorten(&crate::text::single_line(s), max)
 }
 
 #[cfg(test)]
