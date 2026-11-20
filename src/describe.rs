@@ -171,6 +171,12 @@ fn pod_section(out: &mut String, p: &PodExtras) {
 
 fn container_fields(out: &mut String, c: &ContainerDetail) {
     field(out, "Image", &c.image);
+    if !c.command.is_empty() {
+        field(out, "Command", &c.command.join("\n"));
+    }
+    if !c.args.is_empty() {
+        field(out, "Args", &c.args.join("\n"));
+    }
     field(out, "State", &state_text(&c.state));
     if !c.last_state.state.is_empty() {
         field(out, "Last State", &state_text(&c.last_state));
@@ -208,7 +214,12 @@ fn container_fields(out: &mut String, c: &ContainerDetail) {
                     format!(" (path {})", m.sub_path)
                 };
                 let ro = if m.read_only { " (ro)" } else { "" };
-                format!("{} from {}{sub}{ro}", m.path, m.name)
+                let source = if m.source.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", m.source)
+                };
+                format!("{} from {}{source}{sub}{ro}", m.path, m.name)
             })
             .collect();
         field(out, "Mounts", &mounts.join("\n"));
@@ -367,6 +378,9 @@ mod tests {
                     kind: ContainerKind::Regular,
                     image: "nginx:1.27".into(),
                     image_id: String::new(),
+                    command: vec![],
+                    args: vec![],
+                    secrets_hidden: false,
                     state: StateInfo {
                         state: "waiting".into(),
                         reason: "ContainerCreating".into(),

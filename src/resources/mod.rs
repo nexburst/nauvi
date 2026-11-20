@@ -13,7 +13,9 @@
 //! - `ops`: list / get / YAML get and apply / delete
 //! - `manifests`, `apply`: create or update objects from a manifest file
 //! - `detail`: the detail panel for any kind
-//! - `pod_detail`: the pod section of the detail panel (containers, probes, ...)
+//! - `pod_detail`: the pod section of the detail panel (containers, probes, ...);
+//!   `volume_source` says what a mounted volume is, `mask` hides secret-looking
+//!   values in command lines
 //! - `detail_watch`: live updates of one object's detail
 //! - `related`: related objects and a per-kind summary (`related_local`,
 //!   `related_summary`, `related_crd` hold the pure per-kind parts)
@@ -33,6 +35,7 @@ mod discovery;
 mod dra;
 mod jsonpath;
 mod manifests;
+mod mask;
 mod ops;
 mod pod_detail;
 mod pod_printer;
@@ -44,6 +47,7 @@ mod related_local;
 mod related_summary;
 mod status;
 mod table;
+mod volume_source;
 
 #[cfg(feature = "mcp")]
 pub(crate) use apply::result_line;
