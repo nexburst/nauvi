@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import DockContext from "./DockContext.svelte";
   import LogViewer from "./LogViewer.svelte";
   import type { TerminalTarget } from "./Terminal.svelte";
   import { api } from "../cluster";
   import type { LogContainer } from "../bindings";
   import type { DockTab } from "../dock";
+  import { dockContext } from "../dockContext";
 
   /** One dock tab. It stays mounted while other tabs are shown, so the log
    *  buffer and the terminal scrollback survive switching tabs. */
@@ -53,11 +55,15 @@
 </script>
 
 <div class="pane" class:hidden={!active} data-testid="dock-pane" data-tab={tab.key} data-cluster={tab.cluster}>
+  {#snippet logContext(opts: { container: string; since: string })}
+    <DockContext parts={dockContext(tab, opts)} cluster={tab.cluster} />
+  {/snippet}
   {#if tab.type === "podLogs"}
-    <LogViewer pod={tab.pod} {containers} {ready} hidden={!active} cluster={tab.cluster} />
+    <LogViewer pod={tab.pod} {containers} {ready} hidden={!active} cluster={tab.cluster} context={logContext} />
   {:else if tab.type === "workloadLogs"}
-    <LogViewer workload={tab.workload} hidden={!active} cluster={tab.cluster} />
+    <LogViewer workload={tab.workload} hidden={!active} cluster={tab.cluster} context={logContext} />
   {:else if terminalTarget}
+    <DockContext parts={dockContext(tab, { shellContainer: shell })} cluster={tab.cluster} />
     {#await import("./Terminal.svelte") then { default: Terminal }}
       <Terminal target={terminalTarget} {active} cluster={tab.cluster} />
     {/await}

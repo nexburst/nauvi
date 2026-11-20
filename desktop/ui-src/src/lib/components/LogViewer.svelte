@@ -4,6 +4,7 @@
 
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
+  import type { Snippet } from "svelte";
   import VirtualList from "./VirtualList.svelte";
   import { commands } from "../bindings";
   import { api, visibleCluster } from "../cluster";
@@ -51,9 +52,11 @@
     hidden?: boolean;
     /** The cluster it streams from (ADR 0007): by default the one shown. */
     cluster?: string;
+    /** Above the options: the dock's context line (#386), given the picks. */
+    context?: Snippet<[{ container: string; since: string }]>;
   }
 
-  let { pod, workload, containers = [], ready = true, hidden = false, cluster = visibleCluster() }: Props = $props();
+  let { pod, workload, containers = [], ready = true, hidden = false, cluster = visibleCluster(), context }: Props = $props();
   const isWorkload = $derived(workload !== undefined);
   const title = $derived(workload ? `${workload.namespace}/${workload.name}` : pod ? `${pod.namespace}/${pod.name}` : "");
 
@@ -929,6 +932,7 @@
 
 <!-- One line: what is tailed, how, and what to do with it. The parts keep
      their own elements (the header, the options); the line lays them out. -->
+{@render context?.({ container, since })}
 <div class="logs-top">
 <div class="logs-header section-header">
   <h3>Logs<span class="muted"> · {title}</span></h3>

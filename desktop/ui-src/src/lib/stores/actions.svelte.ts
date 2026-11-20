@@ -54,10 +54,19 @@ export const actionUi = $state({
   deleted: 0,
   drain: null as DrainView | null,
   /** Outcome of an action that ran without a dialog. */
-  notice: null as { ok: boolean; text: string } | null,
+  notice: null as { ok: boolean; text: string; actions: NoticeAction[] } | null,
 });
 
+/** A button on the banner (#386), e.g. "Open" after a port-forward starts.
+ *  The history keeps the text only. */
+export interface NoticeAction {
+  label: string;
+  run: () => void;
+}
+
 let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+/** A banner with buttons stays a little longer, to give time to use them. */
+const NOTICE_ACTIONS_MS = 10000;
 
 /**
  * Show the result banner, and keep it in the notification history (#326),
@@ -67,13 +76,14 @@ let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 export function setNotice(
   ok: boolean,
   text: string,
-  opts: { target?: NotificationTarget; level?: NotificationLevel } = {},
+  opts: { target?: NotificationTarget; level?: NotificationLevel; actions?: NoticeAction[] } = {},
 ) {
   notify(opts.level ?? (ok ? "success" : "error"), text, currentContextName(), opts.target ?? null);
   if (noticeTimer) clearTimeout(noticeTimer);
-  actionUi.notice = { ok, text };
+  const actions = opts.actions ?? [];
+  actionUi.notice = { ok, text, actions };
   // Failures stay until dismissed.
-  noticeTimer = ok ? setTimeout(() => (actionUi.notice = null), NOTICE_MS) : null;
+  noticeTimer = ok ? setTimeout(() => (actionUi.notice = null), actions.length > 0 ? NOTICE_ACTIONS_MS : NOTICE_MS) : null;
 }
 
 export function dismissNotice() {
