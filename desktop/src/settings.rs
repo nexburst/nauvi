@@ -202,6 +202,12 @@ pub(crate) struct Settings {
     /// The sidebar sections the user collapsed (#383), by id (`workloads`,
     /// `network`, `helm`, `custom`...). Empty: every section open.
     pub(crate) collapsed_sections: Vec<String>,
+    /// Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
+    /// (the first known one found on `PATH`).
+    pub(crate) ask_ai_cli: String,
+    /// Ask AI's custom command, the program and its arguments (#376). Split
+    /// into words, never run through a shell.
+    pub(crate) ask_ai_command: String,
 }
 
 /// `searches` as read from the file: each entry parsed on its own, so one
@@ -337,6 +343,8 @@ impl Default for Settings {
             searches: SearchHistory::default(),
             kubectl_match: false,
             collapsed_sections: Vec::new(),
+            ask_ai_cli: String::new(),
+            ask_ai_command: String::new(),
         }
     }
 }
@@ -418,6 +426,10 @@ pub(crate) struct SettingsPatch {
     /// The whole list of collapsed sidebar sections (#383).
     #[specta(optional)]
     pub(crate) collapsed_sections: Option<Vec<String>>,
+    #[specta(optional)]
+    pub(crate) ask_ai_cli: Option<String>,
+    #[specta(optional)]
+    pub(crate) ask_ai_command: Option<String>,
 }
 
 impl Settings {
@@ -479,6 +491,12 @@ impl Settings {
         }
         if let Some(v) = patch.collapsed_sections {
             self.collapsed_sections = unique_ids(v);
+        }
+        if let Some(v) = patch.ask_ai_cli {
+            self.ask_ai_cli = v.trim().to_string();
+        }
+        if let Some(v) = patch.ask_ai_command {
+            self.ask_ai_command = v.trim().to_string();
         }
         for (id, mut ctx) in patch.contexts.unwrap_or_default() {
             // The mode has its own command (#338).

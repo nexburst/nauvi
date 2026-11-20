@@ -8,6 +8,7 @@
 
 pub(crate) mod actions;
 pub(crate) mod applications;
+pub(crate) mod ask_ai;
 pub(crate) mod autostart;
 pub(crate) mod catalog;
 pub(crate) mod cluster;
@@ -57,6 +58,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             actions::cmd_run_action,
             applications::cmd_applications_start,
             applications::cmd_applications_stop,
+            ask_ai::cmd_ask_ai_setup,
+            ask_ai::cmd_ask_ai_start,
             autostart::cmd_autostart_enabled,
             autostart::cmd_autostart_set,
             catalog::cmd_add_kubeconfig_source,

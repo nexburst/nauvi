@@ -173,8 +173,32 @@ pub fn shell_kubeconfig_env_for(temp: &Path, source: Option<&Path>) -> OsString 
 
 static NEXT_FILE: AtomicU64 = AtomicU64::new(1);
 
+/// The kinds of per-terminal temp file, by extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TempExt {
+    /// A kubeconfig.
+    Yaml,
+    /// An "Ask AI" tab's MCP config (#376).
+    Json,
+    /// An "Ask AI" tab's prompt (#376).
+    Text,
+}
+
+impl TempExt {
+    const ALL: [TempExt; 3] = [TempExt::Yaml, TempExt::Json, TempExt::Text];
+
+    fn as_str(self) -> &'static str {
+        match self {
+            TempExt::Yaml => "yaml",
+            TempExt::Json => "json",
+            TempExt::Text => "txt",
+        }
+    }
+}
+
 /// A temp kubeconfig file, readable only by the user (`0600`), deleted when
-/// this is dropped.
+/// this is dropped. Also the other per-terminal files of an "Ask AI" tab
+/// (#376), its MCP config and prompt, which are swept the same way.
 #[derive(Debug)]
 pub struct TempKubeconfig {
     path: PathBuf,
@@ -183,10 +207,22 @@ pub struct TempKubeconfig {
 impl TempKubeconfig {
     /// Write `yaml` to a new file in `dir`. Never overwrites a file.
     pub fn create_in(dir: &Path, yaml: &str) -> Result<Self> {
+        Self::create_file_in(dir, TempExt::Yaml, yaml)
+    }
+
+    /// [`Self::create_file_in`] the system temp directory.
+    pub fn create_file(ext: TempExt, text: &str) -> Result<Self> {
+        Self::create_file_in(&std::env::temp_dir(), ext, text)
+    }
+
+    /// Write `yaml` (or another per-terminal file's text) to a new
+    /// `nauvi-shell-<pid>-<n>.<ext>` file in `dir`. Never overwrites a file.
+    pub fn create_file_in(dir: &Path, ext: TempExt, yaml: &str) -> Result<Self> {
+        let ext = ext.as_str();
         let pid = std::process::id();
         for _ in 0..100 {
             let n = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
-            let path = dir.join(format!("nauvi-shell-{pid}-{n}.yaml"));
+            let path = dir.join(format!("nauvi-shell-{pid}-{n}.{ext}"));
             let mut options = std::fs::OpenOptions::new();
             options.write(true).create_new(true);
             #[cfg(unix)]
@@ -239,7 +275,8 @@ pub fn sweep_stale_temp_kubeconfigs() -> usize {
 }
 
 /// [`sweep_stale_temp_kubeconfigs`] in `dir`, with `alive` telling whether
-/// a process id still runs. Only `nauvi-shell-<pid>-<n>.yaml` files of
+/// a process id still runs. Only `nauvi-shell-<pid>-<n>.yaml` files (and
+/// `.json` and `.txt`, an "Ask AI" tab's MCP config and prompt) of
 /// another, gone process, that are regular files (a symlink is never
 /// followed or removed) owned by the current user, are deleted.
 pub fn sweep_stale_in(dir: &Path, alive: impl Fn(u32) -> bool) -> usize {
@@ -267,7 +304,10 @@ pub fn sweep_stale_in(dir: &Path, alive: impl Fn(u32) -> bool) -> usize {
 
 /// The process id in a [`TempKubeconfig`] file name.
 fn temp_file_pid(name: &str) -> Option<u32> {
-    let rest = name.strip_prefix("nauvi-shell-")?.strip_suffix(".yaml")?;
+    let rest = name.strip_prefix("nauvi-shell-")?;
+    let rest = TempExt::ALL
+        .iter()
+        .find_map(|e| rest.strip_suffix(e.as_str())?.strip_suffix('.'))?;
     let (pid, n) = rest.split_once('-')?;
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     if !digits(n) || !digits(pid) {
@@ -461,11 +501,17 @@ contexts:
         };
         let gone = file("nauvi-shell-4000001-1.yaml");
         let gone2 = file("nauvi-shell-4000001-7.yaml");
+        // An "Ask AI" tab's MCP config and prompt (#376).
+        let gone_json = file("nauvi-shell-4000001-8.json");
+        let gone_txt = file("nauvi-shell-4000001-9.txt");
         let running = file("nauvi-shell-4000002-1.yaml");
         let ours = TempKubeconfig::create_in(&dir, "x").unwrap();
+        let ours_json = TempKubeconfig::create_file_in(&dir, TempExt::Json, "{}").unwrap();
         let others = [
             file("nauvi-shell-4000001.yaml"),
             file("nauvi-shell-4000001-1.yml"),
+            file("nauvi-shell-4000001-1json"),
+            file("nauvi-shell-4000001-1.sh"),
             file("nauvi-shell-x-1.yaml"),
             file("other-4000001-1.yaml"),
         ];
@@ -478,9 +524,11 @@ contexts:
             (target, link)
         };
         let removed = sweep_stale_in(&dir, |pid| pid == 4000002);
-        assert_eq!(removed, 2);
+        assert_eq!(removed, 4);
         assert!(!gone.exists() && !gone2.exists());
-        assert!(running.exists() && ours.path().exists());
+        assert!(!gone_json.exists() && !gone_txt.exists());
+        assert!(running.exists() && ours.path().exists() && ours_json.path().exists());
+        assert!(ours_json.path().to_string_lossy().ends_with(".json"));
         assert!(others.iter().all(|p| p.exists()));
         #[cfg(unix)]
         {
@@ -488,6 +536,7 @@ contexts:
             assert_eq!(std::fs::read_to_string(&target).unwrap(), "token: t");
         }
         drop(ours);
+        drop(ours_json);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
