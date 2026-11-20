@@ -723,7 +723,7 @@ async fn new_connections_are_close_to_kubectl() -> Result<()> {
             } else {
                 KUBECTL_MARGIN_MS
             };
-            let budget = kubectl_p50.map_or(5.0, |k| k) + margin;
+            let budget = kubectl_p50.unwrap_or(5.0) + margin;
             ensure!(
                 *p50 <= budget,
                 "{name} forward: p50 {p50:.1} ms over the budget of {budget:.1} ms"

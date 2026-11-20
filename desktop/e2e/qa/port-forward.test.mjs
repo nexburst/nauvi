@@ -4,9 +4,9 @@
 // system to open its URL, Copy URL puts it on the clipboard, Stop ends it.
 // #293: a client that resets its connection mid-response (as browsers do on
 // Windows) leaves the forward running without an error.
-// #374: 50 new connections in a row all answer (each one is a port-forward
-// upgrade over a warm, Nagle-free API-server connection), and the row shows
-// no error.
+// #374, #399: 50 new connections in a row all answer (each one is a new
+// stream pair on the forward's one SPDY session to the pod), then 20 at
+// once, and the row shows no error.
 
 import assert from "node:assert/strict";
 import { get } from "node:http";
@@ -129,6 +129,28 @@ describe("port-forward: open in browser and copy URL", { timeout: 10 * 60_000 },
     );
     console.log(`row after 50 connections: ${JSON.stringify(row)}`);
     await app.shot("after-50-connections");
+    assert.equal(row.red, false, `no error in the row: ${row.text}`);
+  });
+
+  it("20 connections at once all answer over one session (#399)", T, async () => {
+    const { app } = s;
+    const t = performance.now();
+    const results = await Promise.all(Array.from({ length: 20 }, () => freshGet(url)));
+    for (const [i, [, body]] of results.entries()) {
+      assert.match(body, /hello from nauvi qa/, `connection ${i}`);
+    }
+    const times = results.map(([ms]) => ms).sort((a, b) => a - b);
+    console.log(
+      `20 parallel connections: all done in ${(performance.now() - t).toFixed(1)} ms, ` +
+        `p50 ${times[9].toFixed(1)} ms, max ${times[19].toFixed(1)} ms`,
+    );
+    await new Promise((r) => setTimeout(r, 2500));
+    const row = await app.js(
+      `const r = document.querySelector('[data-testid="forward-row"]');
+       return { text: r?.innerText.replace(/\\s+/g, " ") ?? "", red: !!r?.querySelector(".error-text") };`,
+    );
+    console.log(`row after 20 parallel connections: ${JSON.stringify(row)}`);
+    await app.shot("after-20-parallel-connections");
     assert.equal(row.red, false, `no error in the row: ${row.text}`);
   });
 
