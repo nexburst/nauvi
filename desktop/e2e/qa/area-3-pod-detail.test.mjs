@@ -109,7 +109,8 @@ spec:
     - name: app
       image: busybox:1.36
       imagePullPolicy: IfNotPresent
-      command: ["sleep", "3600"]
+      # The args only show in the card: sh hands them to the script as $0, $1...
+      command: ["sh", "-c", "sleep 3600"]
       args: ["-H", "Authorization: Bearer ${ARG_TOKEN}", "-u", "admin:${ARG_PASSWORD}", "--tls-private-key-file=/etc/tls/key.pem"]
       volumeMounts:
         - { name: work, mountPath: /work, readOnly: true }
@@ -249,7 +250,7 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
         app.js(`
           const cards = Array.from(document.querySelectorAll('[data-testid="detail-panel"] section.card'));
           if (cards.length < 3 || !cards[2].querySelector('[data-testid="container-command"]')) return null;
-          cards[0].scrollIntoView({ block: 'start' });
+          cards[1].scrollIntoView({ block: 'start' });
           const t = (c, id) => c.querySelector('[data-testid="' + id + '"]')?.textContent.replace(/\\s+/g, ' ').trim() ?? '';
           return { names: cards.map((c) => c.querySelector('.name')?.textContent.trim()),
                    init: t(cards[0], 'container-command'), args: t(cards[1], 'container-args'),
@@ -259,7 +260,7 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
     );
     console.log(`multi: ${JSON.stringify({ ...cards, html: undefined })}`);
     assert.deepEqual(cards.names, ["init-db", "app", "sidecar"]);
-    assert.match(cards.init, /-p••••/);
+    assert.match(cards.init, /-p•••• > \/work\/init\.log/);
     assert.match(cards.args, /Bearer ••••/);
     assert.match(cards.args, /-u admin:••••/);
     assert.match(cards.args, /--tls-private-key-file=\/etc\/tls\/key\.pem/);

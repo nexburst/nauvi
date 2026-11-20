@@ -139,8 +139,14 @@ impl Masker {
         if let Some(v) = self.value(word) {
             return v;
         }
-        self.next = next_after(word.trim_matches(['"', '\'']));
         let (w, h) = mask_word(word);
+        // A word that carried its own value (`-pabc`, `--token=abc`) names
+        // no next value; `-pw-abc` must not hide what follows it.
+        self.next = if h {
+            Next::Plain
+        } else {
+            next_after(word.trim_matches(['"', '\'']))
+        };
         self.hidden |= h;
         w
     }
@@ -371,6 +377,11 @@ mod tests {
         assert_eq!(args(&["mysql", "-ps3cr3t"]), v(&["mysql", "-p••••"]));
         assert_eq!(text("mysql -u root -ps3cr3t db"), "mysql -u root -p•••• db");
         assert_eq!(text("mysql -p s3cr3t db"), "mysql -p •••• db");
+        // An attached value that itself looks like a flag name hides only itself.
+        assert_eq!(
+            text("echo mysql -pqa-pw-1 > /work/init.log"),
+            "echo mysql -p•••• > /work/init.log"
+        );
         // Ports and paths after -p stay.
         assert_eq!(
             text("mkdir -p /data && ssh -p 22 host && nc -p8080"),
