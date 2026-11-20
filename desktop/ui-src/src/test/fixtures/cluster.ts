@@ -379,8 +379,8 @@ export function defaultCluster(): FakeCluster {
         pod("kube-system", "coredns-1", "Running"),
       ],
       "apps/v1/deployments": [
-        row("apps/v1/deployments", "demo", "web", { ready: "2/2", uptodate: "2", available: "2" }),
-        row("apps/v1/deployments", "demo", "api", { ready: "1/3", uptodate: "3", available: "1" }, undefined, "1 of 3 ready"),
+        row("apps/v1/deployments", "demo", "web", { status: "Running", ready: "2/2", uptodate: "2", available: "2" }),
+        row("apps/v1/deployments", "demo", "api", { status: "Scaling", ready: "1/3", uptodate: "3", available: "1" }, undefined, "1 of 3 ready"),
       ],
       "v1/nodes": [
         row("v1/nodes", "", "node-1", { ready: "True", version: "v1.37.0" }),

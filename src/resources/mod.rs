@@ -51,6 +51,7 @@ mod related_summary;
 mod status;
 mod table;
 mod volume_source;
+mod workload_status;
 
 #[cfg(feature = "mcp")]
 pub(crate) use apply::result_line;
@@ -177,6 +178,10 @@ pub enum ColumnKind {
     /// A pod's containers and their states (`init:setup=done app=ready`,
     /// see `pod_containers`), drawn by the UI as one square each.
     Containers,
+    /// What a Deployment, StatefulSet or DaemonSet controller is doing
+    /// (`Running`, `Scaling`, `Updating`, `Failed`, ... see
+    /// `workload_status`), drawn by the UI with a shape and a colour.
+    Rollout,
 }
 
 /// A table column as the UI sees it.

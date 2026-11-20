@@ -4,6 +4,7 @@ use super::jsonpath::{
     array_at, cell_text, count_at, count_keys, eval_str, first_of, parse_path, path_i64, path_str,
     ratio, Seg,
 };
+use super::workload_status::{daemonset_status, deployment_status, statefulset_status};
 use super::*;
 use super::{dra, rbac, related_crd};
 use crate::created_secs;
@@ -104,6 +105,15 @@ const fn containers(key: &'static str, label: &'static str) -> Col {
         default_hidden: false,
     }
 }
+const fn rollout(f: fn(&Value) -> String) -> Col {
+    Col {
+        key: "status",
+        label: "Status",
+        kind: ColumnKind::Rollout,
+        src: StaticSrc::Func(f),
+        default_hidden: false,
+    }
+}
 const fn ui(key: &'static str, label: &'static str, kind: ColumnKind) -> Col {
     Col {
         key,
@@ -168,6 +178,7 @@ pub(super) const KINDS: &[KindSpec] = &[
         columns: &[
             NAME,
             NAMESPACE,
+            rollout(deployment_status),
             func("ready", "Ready", |v| {
                 ratio(v, ".status.readyReplicas", ".spec.replicas")
             }),
@@ -184,6 +195,7 @@ pub(super) const KINDS: &[KindSpec] = &[
         columns: &[
             NAME,
             NAMESPACE,
+            rollout(statefulset_status),
             func("ready", "Ready", |v| {
                 ratio(v, ".status.readyReplicas", ".spec.replicas")
             }),
@@ -198,6 +210,7 @@ pub(super) const KINDS: &[KindSpec] = &[
         columns: &[
             NAME,
             NAMESPACE,
+            rollout(daemonset_status),
             number("desired", "Desired", ".status.desiredNumberScheduled"),
             number("current", "Current", ".status.currentNumberScheduled"),
             number("ready", "Ready", ".status.numberReady"),
@@ -1213,6 +1226,53 @@ mod tests {
         for key in ["owner", "qos", "ip", "nominated", "containers"] {
             assert_eq!(cell(&bare, key), "", "{key}");
         }
+    }
+
+    #[test]
+    fn controllers_have_a_status_after_name_and_namespace() {
+        for kind in ["Deployment", "StatefulSet", "DaemonSet"] {
+            let cols = columns_for(&rref("apps", kind, "x", true), &[]);
+            let keys: Vec<_> = cols.iter().map(|c| c.key.as_str()).collect();
+            assert_eq!(keys[..3], ["name", "namespace", "status"], "{kind}");
+            assert_eq!(cols[2].kind, ColumnKind::Rollout, "{kind}");
+            assert!(!cols[2].default_hidden, "{kind}");
+        }
+        let deploy = |status: Value| {
+            let c = cells(
+                "apps",
+                "Deployment",
+                true,
+                json!({"apiVersion": "apps/v1", "kind": "Deployment",
+                       "metadata": {"name": "web", "namespace": "demo", "generation": 1},
+                       "spec": {"replicas": 2}, "status": status}),
+            );
+            cell(&c, "status")
+        };
+        let ok = json!({"observedGeneration": 1, "replicas": 2, "updatedReplicas": 2,
+                        "readyReplicas": 2, "availableReplicas": 2});
+        assert_eq!(deploy(ok), "Running");
+        let stuck = json!({"observedGeneration": 1, "replicas": 2, "updatedReplicas": 2,
+            "conditions": [{"type": "Progressing", "status": "False",
+                            "reason": "ProgressDeadlineExceeded"}]});
+        assert_eq!(deploy(stuck), "Failed");
+        let sts = cells(
+            "apps",
+            "StatefulSet",
+            true,
+            json!({"apiVersion": "apps/v1", "kind": "StatefulSet", "metadata": meta("db"),
+                   "spec": {"replicas": 0}, "status": {"replicas": 0}}),
+        );
+        assert_eq!(cell(&sts, "status"), "Scaled down");
+        let ds = cells(
+            "apps",
+            "DaemonSet",
+            true,
+            json!({"apiVersion": "apps/v1", "kind": "DaemonSet", "metadata": meta("agent"),
+                   "status": {"desiredNumberScheduled": 2, "currentNumberScheduled": 2,
+                              "updatedNumberScheduled": 2, "numberReady": 1,
+                              "numberAvailable": 1}}),
+        );
+        assert_eq!(cell(&ds, "status"), "Scaling");
     }
 
     #[test]
