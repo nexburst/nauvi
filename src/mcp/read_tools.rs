@@ -3,13 +3,13 @@
 //! text; [`super::tools`] caps that text.
 
 use super::limits::{self, clamp, shorten};
+use super::list_table::list_table;
 use super::redact::{redact_annotations, safe_value};
 use crate::bounded_list::list_bounded;
 use crate::resources::{self, align_columns};
 use crate::{
     age_of_secs, get_node_metrics, get_pod_metrics, object_namespace, parse_log_target,
-    render_describe_with, render_objects, resolve_kind_named, split_target, workload_selector,
-    LogTarget, OutputFormat,
+    render_describe_with, resolve_kind_named, split_target, workload_selector, LogTarget,
 };
 use anyhow::{bail, Result};
 use k8s_openapi::api::core::v1::{Event, Pod};
@@ -41,6 +41,11 @@ pub struct ListArgs {
     pub label_selector: Option<String>,
     pub field_selector: Option<String>,
     pub limit: Option<u32>,
+    /// Only these columns (header names, any case), in this order.
+    pub columns: Option<Vec<String>>,
+    /// Leave out NODE, and NAMESPACE when a namespace is given.
+    #[serde(default)]
+    pub compact: bool,
 }
 
 /// A `kubectl get`-style table of one kind, at most `limit` objects.
@@ -69,7 +74,13 @@ pub async fn list(client: &Client, a: &ListArgs) -> Result<String> {
             _ => format!("No {} found.", kind.label),
         });
     }
-    let mut text = render_objects(&kind, list.items, OutputFormat::Table, false, true)?;
+    let mut text = list_table(
+        &kind,
+        &list.items,
+        a.columns.as_deref(),
+        a.compact,
+        namespace.is_some(),
+    )?;
     if more {
         text.push_str(&format!(
             "[more objects exist: showing the first {limit}. Narrow the list with namespace, label_selector or field_selector (limit is at most {}).]\n",
@@ -289,10 +300,16 @@ fn event_time(e: &Event) -> i64 {
         .unwrap_or(0)
 }
 
+/// Under an empty events list: an empty list does not mean nothing
+/// happened.
+pub const EVENTS_EXPIRE: &str = "Events are kept for about 1 hour by default (the API \
+     server's --event-ttl), so older problems are not here: see the problems tool, or describe \
+     (last state, conditions).";
+
 /// Events as a table, newest first, at most `limit`, messages shortened.
 pub fn events_table(mut events: Vec<Event>, limit: usize, with_namespace: bool) -> String {
     if events.is_empty() {
-        return "No events found.\n".into();
+        return format!("No events found.\n{EVENTS_EXPIRE}\n");
     }
     events.sort_by_key(|e| std::cmp::Reverse(event_time(e)));
     let total = events.len();
@@ -544,7 +561,11 @@ mod tests {
         assert!(lines[2].contains("Mid"), "{out}");
         assert!(!out.contains("Old"), "{out}");
         assert_eq!(lines[3], "[showing the newest 2 of 3 events]");
-        assert_eq!(events_table(vec![], 5, false), "No events found.\n");
+        let none = events_table(vec![], 5, false);
+        assert!(
+            none.starts_with("No events found.\nEvents are kept for about 1 hour"),
+            "{none}"
+        );
         let one = events_table(
             vec![event("demo", "Old", "2020-01-01T00:00:00Z", "a\nb")],
             5,
