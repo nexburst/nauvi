@@ -96,7 +96,9 @@ describe("pods: the Containers column", { timeout: 15 * 60_000 }, () => {
 
   it("init container, ready app, not-ready container and crash-looping sidecar", T, async () => {
     const { app } = s;
-    // The sidecar dies at once: it is in CrashLoopBackOff most of the time.
+    // The sidecar dies at once. Between its runs the kubelet reports it
+    // waiting in CrashLoopBackOff, or terminated with Error (exit 1): both
+    // are the red "broken" square.
     await app.waitFor(
       async () => {
         const sq = (await squares(app))[POD] ?? [];
@@ -105,7 +107,7 @@ describe("pods: the Containers column", { timeout: 15 * 60_000 }, () => {
           sq[0].look === "done" &&
           sq[1].look === "ok" &&
           sq[2].look === "warn" &&
-          sq[3].title.includes("CrashLoopBackOff")
+          sq[3].look === "bad"
         );
       },
       { timeout: 180_000, message: "setup done, app ready, warming not ready, sidecar crash-looping" },
@@ -114,13 +116,12 @@ describe("pods: the Containers column", { timeout: 15 * 60_000 }, () => {
     await app.shot("pod-dark");
     const sq = (await squares(app))[POD];
     assert.deepEqual(
-      sq.map((x) => x.title),
-      [
-        "init container setup: completed",
-        "app: running, ready",
-        "warming: running, not ready",
-        "sidecar: waiting, CrashLoopBackOff",
-      ],
+      sq.slice(0, 3).map((x) => x.title),
+      ["init container setup: completed", "app: running, ready", "warming: running, not ready"],
+    );
+    assert.match(
+      sq[3].title,
+      /^sidecar: (waiting, CrashLoopBackOff|terminated with an error, Error, exit 1)$/,
     );
     assert.equal(sq[3].look, "bad");
     assert.ok(sq.every((x) => x.hidden === "true"), "the squares are hidden from screen readers");
