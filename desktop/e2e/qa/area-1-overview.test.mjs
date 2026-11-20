@@ -282,7 +282,7 @@ users:
 describe("area 1: an unreachable cluster", { timeout: 5 * 60_000 }, () => {
   const s = appSession("area-1-unreachable", { kubeconfig: unreachableKubeconfig() });
 
-  it("shows the red status and the banner, and retries", T, async () => {
+  it("shows the red status and the banner, and retries", { timeout: 240_000 }, async () => {
     const { app } = s;
     const banner = await app.find(By.css('[role="alert"]'), { timeout: 60_000 });
     const text = await app.js("return arguments[0].innerText", banner);
@@ -297,7 +297,8 @@ describe("area 1: an unreachable cluster", { timeout: 5 * 60_000 }, () => {
     `);
     await app.waitFor(
       async () => (await app.js("return window.__qaStatus")).filter((t) => t === "Connecting…").length >= 2,
-      { timeout: 30_000, message: "two more attempts (Connecting… twice)" },
+      // The waits between attempts grow (lib/retry.ts): two of them take up to 100 s.
+      { timeout: 150_000, message: "two more attempts (Connecting… twice)" },
     );
     console.log(`status: ${(await app.js("return window.__qaStatus")).join(" -> ")}`);
     // Still red, still the banner.
