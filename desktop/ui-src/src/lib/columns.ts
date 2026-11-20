@@ -2,6 +2,7 @@ import type { ColumnDef, NodeDisk, NodeUsage, PodUsage, ResourceKind, ResourceRo
 import { diskPercent, diskText } from "./metricsAddons";
 import { createdAt, formatAge, formatCpu, formatMemory } from "./format";
 import { columnOn } from "./settings";
+import { containersSummary, parseContainers, worstRank } from "./containerStates";
 
 export type Row = ResourceRow;
 
@@ -48,6 +49,8 @@ export interface Column {
   defaultHidden: boolean;
   /** The cell links to the object it names (Controlled By, #378). */
   link?: "owner";
+  /** The cell is drawn as one state square per container (#379). */
+  draw?: "containers";
 }
 
 /** The columns to draw: not hidden by the user (an off-by-default one only
@@ -102,6 +105,7 @@ function widthFor(def: ColumnDef): string {
   if (def.key === "namespace") return "minmax(120px, 1.2fr)";
   if (def.key === "message") return "minmax(240px, 3fr)";
   if (def.kind === "owner") return "minmax(160px, 1.6fr)";
+  if (def.kind === "containers") return "minmax(120px, 1fr)";
   // Wide enough for "CrashLoopBackOff" behind its dot.
   if (def.kind === "status") return "minmax(172px, 1fr)";
   return "minmax(80px, 1fr)";
@@ -195,6 +199,15 @@ function column(def: ColumnDef, index: number): Column {
       return { ...base, text: cell, sort: cell, cls: (r) => `phase-${cell(r)}` };
     case "owner":
       return { ...base, text: cell, sort: cell, link: "owner" };
+    case "containers":
+      // Sorted by the worst container's state: descending puts broken first.
+      return {
+        ...base,
+        text: cell,
+        sort: (r) => worstRank(parseContainers(cell(r))),
+        title: (r) => containersSummary(parseContainers(cell(r))),
+        draw: "containers",
+      };
     default:
       return { ...base, text: cell, sort: cell };
   }

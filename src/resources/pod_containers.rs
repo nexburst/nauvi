@@ -31,7 +31,11 @@ const MAX_NAME: usize = 63;
 pub(super) fn pod_containers(v: &Value) -> String {
     let mut out = String::new();
     for (init, spec, status) in [
-        (true, "/spec/initContainers", "/status/initContainerStatuses"),
+        (
+            true,
+            "/spec/initContainers",
+            "/status/initContainerStatuses",
+        ),
         (false, "/spec/containers", "/status/containerStatuses"),
     ] {
         let statuses: Vec<&Value> = array_at(v, status).collect();
@@ -153,14 +157,20 @@ mod tests {
                 "status": {"containerStatuses": [{"name": "a", "state": {"terminated": t}}]}
             }))
         };
-        assert_eq!(term(json!({"exitCode": 1, "reason": "Error"})), "a=failed:Error:1");
+        assert_eq!(
+            term(json!({"exitCode": 1, "reason": "Error"})),
+            "a=failed:Error:1"
+        );
         assert_eq!(
             term(json!({"exitCode": 0, "reason": "OOMKilled"})),
             "a=failed:OOMKilled:0"
         );
         assert_eq!(term(json!({"exitCode": 2})), "a=failed::2");
         assert_eq!(term(json!({"exitCode": 0})), "a=done");
-        assert_eq!(term(json!({"exitCode": 0, "reason": "Completed"})), "a=done");
+        assert_eq!(
+            term(json!({"exitCode": 0, "reason": "Completed"})),
+            "a=done"
+        );
         assert_eq!(
             term(json!({"exitCode": 0, "reason": "Evicted"})),
             "a=done:Evicted"

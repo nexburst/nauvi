@@ -71,7 +71,11 @@ fn optional_pod_columns_cost_at_5k_pods() {
     let all = columns_for(&r, &[]);
     let default: Vec<_> = all.iter().filter(|c| !c.default_hidden).cloned().collect();
     assert_eq!(all.len() - default.len(), 5);
-    let no_containers: Vec<_> = all.iter().filter(|c| c.key != "containers").cloned().collect();
+    let no_containers: Vec<_> = all
+        .iter()
+        .filter(|c| c.key != "containers")
+        .cloned()
+        .collect();
 
     // #378: Controlled By, QoS, IP, Nominated Node.
     let (heap, json) = extra(&r, &no_containers, &default);

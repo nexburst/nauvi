@@ -9,6 +9,7 @@
   import VirtualList from "./VirtualList.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import Sparkline from "./Sparkline.svelte";
+  import ContainerSquares from "./ContainerSquares.svelte";
   import { clockTime } from "../usage";
   import { watchGutter } from "../scrollGutter";
   import type { MenuItem } from "./ContextMenu.svelte";
@@ -501,6 +502,8 @@
                       }}>{text}</button
                     >
                   {:else}{text}{/if}
+                {:else if col.draw === "containers"}
+                  <ContainerSquares cell={text} />
                 {:else}
                   {text}{#if spark}<Sparkline values={spark} />{/if}
                 {/if}
