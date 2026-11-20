@@ -75,6 +75,36 @@ pub fn shorten(s: &str, max: usize) -> String {
     }
 }
 
+/// Cluster text (an event or status message, a reason) on one line,
+/// shortened to `max` characters: whitespace runs become one space, and
+/// C0/C1 control characters (ESC sequences start with one), bidi controls
+/// and zero-width characters are dropped, so cluster text cannot reorder,
+/// restyle or hide what the reader sees.
+pub fn one_line(s: &str, max: usize) -> String {
+    let visible: String = s
+        .chars()
+        .filter(|&c| c.is_whitespace() || !(c.is_control() || is_invisible_format(c)))
+        .collect();
+    shorten(
+        &visible.split_whitespace().collect::<Vec<_>>().join(" "),
+        max,
+    )
+}
+
+/// Unicode bidi marks, embeddings, overrides and isolates, and the
+/// zero-width space, joiners, word joiner and byte order mark.
+fn is_invisible_format(c: char) -> bool {
+    matches!(
+        c,
+        '\u{061C}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +154,15 @@ mod tests {
     fn shorten_adds_an_ellipsis() {
         assert_eq!(shorten("abcdef", 3), "abc…");
         assert_eq!(shorten("abc", 3), "abc");
+    }
+
+    #[test]
+    fn one_line_drops_zero_width_characters() {
+        assert_eq!(
+            one_line("rm\u{200B} -rf\u{200C}\u{200D} /\u{2060}x\u{FEFF}", 100),
+            "rm -rf /x"
+        );
+        assert_eq!(one_line("a\nb\u{1b}[0m", 100), "a b[0m");
+        assert_eq!(one_line("abcdef", 3), "abc…");
     }
 }

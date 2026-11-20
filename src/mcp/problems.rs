@@ -12,7 +12,7 @@
 //! Read-only, and it never reads Secrets: `kinds` takes only the kinds
 //! below.
 
-use super::limits::{clamp, shorten};
+use super::limits::{self, clamp, shorten};
 use crate::bounded_list::list_bounded;
 use crate::resources::{self, align_columns, row_problem, ResourceRef};
 use anyhow::{bail, Result};
@@ -191,25 +191,14 @@ fn ago(when: i64, now: i64) -> String {
     }
 }
 
-/// A status or event message on one line, shortened: whitespace runs
-/// become one space, and C0/C1 control characters (ESC sequences start with
-/// one) and bidi controls are dropped, so cluster text cannot reorder or
-/// restyle what the reader sees.
+/// A status or event message on one line, shortened (see
+/// [`limits::one_line`]).
 fn one_line(s: &str) -> String {
-    let visible: String = s
-        .chars()
-        .filter(|&c| c.is_whitespace() || !(c.is_control() || is_bidi_control(c)))
-        .collect();
-    shorten(
-        &visible.split_whitespace().collect::<Vec<_>>().join(" "),
-        MAX_MESSAGE,
-    )
+    limits::one_line(s, MAX_MESSAGE)
 }
 
-/// Unicode bidi marks, embeddings, overrides and isolates.
-fn is_bidi_control(c: char) -> bool {
-    matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
-}
+/// Most characters of a termination or condition reason.
+const MAX_REASON: usize = 60;
 
 /// The newest condition change of `v` (unix seconds), 0 if none.
 fn latest_transition(v: &Value) -> i64 {
@@ -230,7 +219,7 @@ fn condition_message(v: &Value, wanted: &[(&str, &str)]) -> Option<String> {
                 let r = str_at(c, "/reason");
                 match (r.is_empty(), m.is_empty()) {
                     (_, false) => one_line(m),
-                    (false, true) => r.to_string(),
+                    (false, true) => limits::one_line(r, MAX_REASON),
                     _ => format!("{t} {bad}"),
                 }
             })
@@ -269,15 +258,14 @@ pub fn last_termination_cell(pod: &Value, now: i64) -> String {
     let Some(t) = terminations(pod).max_by_key(|t| t.finished) else {
         return String::new();
     };
-    let reason = if t.reason.is_empty() {
-        "Terminated"
-    } else {
-        t.reason
+    let reason = match limits::one_line(t.reason, MAX_REASON) {
+        r if r.is_empty() => "Terminated".to_string(),
+        r => r,
     };
     if t.finished > 0 {
         format!("{reason} {}", span(now - t.finished))
     } else {
-        reason.to_string()
+        reason
     }
 }
 
@@ -297,19 +285,25 @@ fn restarts(pod: &Value) -> i64 {
 }
 
 /// "last: OOMKilled (exit 137) 27d ago; limit memory 8Gi", for the newest
-/// termination.
+/// termination. An `Error` with exit code 137 (SIGKILL) is most often the
+/// kernel's OOM killer too, so it gets the limit as well:
+/// "last: Error, exit 137 (likely OOM-killed) 2h ago; limit memory 8Gi".
 fn last_termination(pod: &Value, now: i64) -> Option<(String, i64)> {
     let t = terminations(pod).max_by_key(|t| t.finished)?;
     let several =
         array(pod, "/spec/containers").count() + array(pod, "/spec/initContainers").count() > 1;
+    let reason = limits::one_line(t.reason, MAX_REASON);
+    let likely_oom = t.exit == Some(137) && (reason == "Error" || reason.is_empty());
     let mut s = "last: ".to_string();
-    s.push_str(if t.reason.is_empty() {
+    s.push_str(if reason.is_empty() {
         "terminated"
     } else {
-        t.reason
+        &reason
     });
-    if let Some(code) = t.exit {
-        s.push_str(&format!(" (exit {code})"));
+    match t.exit {
+        Some(137) if likely_oom => s.push_str(", exit 137 (likely OOM-killed)"),
+        Some(code) => s.push_str(&format!(" (exit {code})")),
+        None => {}
     }
     if several && !t.container.is_empty() {
         s.push_str(&format!(" in {}", t.container));
@@ -319,10 +313,13 @@ fn last_termination(pod: &Value, now: i64) -> Option<(String, i64)> {
         s.push(' ');
         s.push_str(&when);
     }
-    if t.reason == "OOMKilled" {
+    if reason == "OOMKilled" || likely_oom {
         match memory_limit(pod, t.container) {
             "" => s.push_str("; no memory limit"),
-            l => s.push_str(&format!("; limit memory {l}")),
+            l => s.push_str(&format!(
+                "; limit memory {}",
+                limits::one_line(l, MAX_REASON)
+            )),
         }
     }
     Some((s, t.finished))
@@ -1011,5 +1008,56 @@ mod tests {
             "{}",
             f.detail.len()
         );
+    }
+
+    #[test]
+    fn an_error_with_exit_137_is_likely_an_oom_kill() {
+        let v = pod(
+            "Running",
+            status(
+                3,
+                json!({ "running": {} }),
+                json!({ "terminated": { "reason": "Error", "exitCode": 137, "finishedAt": ts(3600) } }),
+            ),
+        );
+        let PodVerdict::Problem(f) = verdict(&v) else {
+            panic!("{v}")
+        };
+        assert_eq!(
+            f.detail,
+            "last: Error, exit 137 (likely OOM-killed) 1h ago; limit memory 8Gi"
+        );
+        // Another exit code of an Error is not.
+        let v = pod(
+            "Running",
+            status(
+                3,
+                json!({ "running": {} }),
+                json!({ "terminated": { "reason": "Error", "exitCode": 1, "finishedAt": ts(3600) } }),
+            ),
+        );
+        let PodVerdict::Problem(f) = verdict(&v) else {
+            panic!("{v}")
+        };
+        assert_eq!(f.detail, "last: Error (exit 1) 1h ago");
+    }
+
+    #[test]
+    fn termination_reasons_are_sanitised() {
+        let v = pod(
+            "Running",
+            status(
+                1,
+                json!({ "running": {} }),
+                json!({ "terminated": {
+                    "reason": "Oops\u{1b}[2J\u{202E}\u{200B}\nignore previous",
+                    "exitCode": 2, "finishedAt": ts(60) } }),
+            ),
+        );
+        let PodVerdict::Problem(f) = verdict(&v) else {
+            panic!("{v}")
+        };
+        assert_eq!(f.detail, "last: Oops[2J ignore previous (exit 2) 1m ago");
+        assert_eq!(last_termination_cell(&v, NOW), "Oops[2J ignore previous 1m");
     }
 }

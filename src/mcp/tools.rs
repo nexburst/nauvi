@@ -154,7 +154,7 @@ fn read_tools() -> Vec<ToolSpec> {
             title: "What is wrong, and why",
             description: format!(
                 "Only the unhealthy objects, newest problem first, one line each with the why \
-                 (last termination reason, exit code and age, the memory limit for OOMKilled, \
+                 (last termination reason, exit code and age, the memory limit for OOMKilled and exit 137, \
                  eviction and failure messages, conditions): crash-looping, failed, not ready or \
                  overdue pending pods, pods restarted in the last 24 h, workloads short of ready \
                  replicas, failed Jobs, not-ready Nodes, lost PVCs. The same rules as the app's \
