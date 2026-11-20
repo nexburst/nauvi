@@ -64,24 +64,28 @@ pub(super) fn is_secret(r: &ResourceRef) -> bool {
     r.is("", "Secret")
 }
 
-pub(super) const LAST_APPLIED: &str = "kubectl.kubernetes.io/last-applied-configuration";
+use super::secret_copy::secret_copy_keys;
+#[cfg(test)]
+use super::secret_copy::LAST_APPLIED;
 
-/// Replace every Secret value (and the annotation that embeds a copy of
-/// them) with [`REDACTED`].
+/// Replace every Secret value (and the annotations that copy them,
+/// [`secret_copy_keys`]) with [`REDACTED`].
 fn redact_secret(v: &mut Value) {
+    let copies = secret_copy_keys(v);
+    if let Some(a) = v
+        .pointer_mut("/metadata/annotations")
+        .and_then(Value::as_object_mut)
+    {
+        for k in &copies {
+            a.insert(k.clone(), Value::String(REDACTED.into()));
+        }
+    }
     for field in ["data", "stringData"] {
         if let Some(map) = v.get_mut(field).and_then(Value::as_object_mut) {
             for val in map.values_mut() {
                 *val = Value::String(REDACTED.into());
             }
         }
-    }
-    if let Some(x) = v
-        .pointer_mut("/metadata/annotations")
-        .and_then(Value::as_object_mut)
-        .and_then(|a| a.get_mut(LAST_APPLIED))
-    {
-        *x = Value::String(REDACTED.into());
     }
 }
 
@@ -479,7 +483,11 @@ mod tests {
     fn secrets_are_redacted_and_cannot_be_saved_redacted() {
         let mut v = json!({
             "kind": "Secret",
-            "metadata": { "annotations": { LAST_APPLIED: "{secret}" , "keep": "me"} },
+            "metadata": { "annotations": {
+                LAST_APPLIED: "{secret}",
+                "kapp.k14s.io/original": "{\"stringData\":{\"x\":\"y\"}}",
+                "keep": "me"
+            } },
             "data": { "password": "c2VjcmV0" },
             "stringData": { "x": "y" }
         });
@@ -487,6 +495,10 @@ mod tests {
         assert_eq!(v["data"]["password"], REDACTED);
         assert_eq!(v["stringData"]["x"], REDACTED);
         assert_eq!(v["metadata"]["annotations"][LAST_APPLIED], REDACTED);
+        assert_eq!(
+            v["metadata"]["annotations"]["kapp.k14s.io/original"],
+            REDACTED
+        );
         assert_eq!(v["metadata"]["annotations"]["keep"], "me");
         assert!(contains_redaction(&v));
         assert!(!contains_redaction(&json!({"data": {"a": "Yg=="}})));

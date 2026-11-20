@@ -1,7 +1,9 @@
 //! What the MCP server never hands to a model: Secret values (it shows
 //! their keys only, as #278 does) and the `last-applied-configuration`
 //! annotation, which repeats the whole object as `kubectl apply` saw it
-//! (for a Secret, its values in clear).
+//! (for a Secret, its values in clear), and on a Secret any other
+//! annotation that copies it ([`resources::secret_copy_keys`]: kapp's
+//! `kapp.k14s.io/original` and the like).
 //!
 //! There is no `reveal` here: unlike the CLI and the app, the server has
 //! no way to ask the person at the keyboard.
@@ -32,6 +34,16 @@ pub fn redact_value(v: &mut Value) {
         items.iter_mut().for_each(redact_value);
     }
     if v.get("kind").and_then(Value::as_str) == Some("Secret") {
+        // Before the values go: they are how a copy is recognised.
+        let copies = resources::secret_copy_keys(v);
+        if let Some(a) = v
+            .pointer_mut("/metadata/annotations")
+            .and_then(Value::as_object_mut)
+        {
+            for k in copies {
+                a.insert(k, Value::String(REDACTED.into()));
+            }
+        }
         for field in ["data", "stringData"] {
             if let Some(map) = v.get_mut(field).and_then(Value::as_object_mut) {
                 for val in map.values_mut() {
@@ -115,6 +127,25 @@ mod tests {
         assert_eq!(v["metadata"]["annotations"]["team"], "a");
         // ConfigMap data is not secret.
         assert_eq!(v["data"]["mode"], "fast");
+    }
+
+    #[test]
+    fn a_secrets_other_copies_are_redacted() {
+        let mut v = json!({
+            "kind": "Secret",
+            "metadata": { "annotations": {
+                "kapp.k14s.io/original": "{\"stringData\":{\"pw\":\"x\"}}",
+                "note": "the pw is c2VjcmV0LXB3",
+                "team": "a"
+            } },
+            "data": { "pw": "c2VjcmV0LXB3" }
+        });
+        redact_value(&mut v);
+        let a = &v["metadata"]["annotations"];
+        assert_eq!(a["kapp.k14s.io/original"], REDACTED);
+        assert_eq!(a["note"], REDACTED);
+        assert_eq!(a["team"], "a");
+        assert_eq!(v["data"]["pw"], REDACTED);
     }
 
     #[test]

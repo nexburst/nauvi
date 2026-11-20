@@ -49,6 +49,19 @@ const P_OPTIONS: &[&str] = &[
     "print0", "printf", "profile", "prune", "pthread",
 ];
 
+/// `apiKey` -> `api-key`, so a JSON key reads like a flag name:
+/// `secretName` ends in the location segment `name`.
+pub(super) fn kebab(key: &str) -> String {
+    let mut out = String::with_capacity(key.len() + 4);
+    for (i, c) in key.chars().enumerate() {
+        if c.is_ascii_uppercase() && i > 0 {
+            out.push('-');
+        }
+        out.push(c.to_ascii_lowercase());
+    }
+    out
+}
+
 fn segments(n: &str) -> impl Iterator<Item = &str> {
     n.split(['-', '_', '.']).filter(|s| !s.is_empty())
 }
@@ -81,6 +94,9 @@ enum Next {
     Short,
     /// After `-u`, `--user`: what follows the first colon.
     UserPass,
+    /// After `"password":` (JSON-ish text, a space after the colon): the
+    /// quoted string or token that starts the word.
+    JsonValue,
 }
 
 fn next_after(word: &str) -> Next {
@@ -122,6 +138,13 @@ impl Masker {
     /// `word` as the value `next` expects, or None to treat it as a word.
     fn value(&mut self, word: &str) -> Option<String> {
         let next = std::mem::replace(&mut self.next, Next::Plain);
+        if next == Next::JsonValue {
+            let (masked, used) = json_value_masked(word)?;
+            self.hidden = true;
+            // `"k1","token":"x"`: the rest is a word of its own.
+            let rest = self.word(&word[used..]);
+            return Some(format!("{masked}{rest}"));
+        }
         let bare = word.trim_matches(['"', '\'']);
         if next == Next::Plain || bare.starts_with('-') {
             return None;
@@ -144,7 +167,9 @@ impl Masker {
         let (w, h) = mask_word(word);
         // A word that carried its own value (`-pabc`, `--token=abc`) names
         // no next value; `-pw-abc` must not hide what follows it.
-        self.next = if h {
+        self.next = if json_key_pending(&w) {
+            Next::JsonValue
+        } else if h {
             Next::Plain
         } else {
             next_after(word.trim_matches(['"', '\'']))
@@ -249,13 +274,94 @@ fn mask_word(word: &str) -> (String, bool) {
             hidden = true;
         }
     }
-    for f in [mask_bearer, mask_url_password, mask_aws_keys] {
+    for f in [
+        mask_json_pairs,
+        mask_bearer,
+        mask_url_password,
+        mask_aws_keys,
+    ] {
         if let Some(m) = f(&w) {
             w = m;
             hidden = true;
         }
     }
     (w, hidden)
+}
+
+/// The index in `s` of the first `"` not escaped by a backslash.
+fn close_quote(s: &str) -> Option<usize> {
+    let mut escaped = false;
+    for (i, c) in s.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '"' => return Some(i),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// The JSON value that starts `v`, masked, and how many bytes of `v` it
+/// took: `"abc",…` -> `"••••"`, `1234}` -> `••••`. An empty string, an
+/// object, an array, `null` and booleans are left alone.
+fn json_value_masked(v: &str) -> Option<(String, usize)> {
+    if let Some(inner) = v.strip_prefix('"') {
+        return match close_quote(inner) {
+            Some(0) => None,
+            Some(k) => Some((format!("\"{MASK}\""), k + 2)),
+            // Cut short: hide the rest.
+            None => (!inner.is_empty()).then(|| (format!("\"{MASK}"), v.len())),
+        };
+    }
+    let end = v.find([',', '}', ']']).unwrap_or(v.len());
+    let token = &v[..end];
+    let plain = token.is_empty()
+        || token.starts_with(['{', '['])
+        || matches!(token, "null" | "true" | "false");
+    (!plain).then(|| (MASK.to_string(), end))
+}
+
+/// JSON-ish text that is not valid JSON (cut short, inside a script):
+/// `{"password":"abc"` -> `{"password":"••••"`, for any key that names a
+/// secret (`apiKey`, `dbPassword`).
+fn mask_json_pairs(word: &str) -> Option<String> {
+    let mut out = String::with_capacity(word.len());
+    let mut found = false;
+    let mut rest = word;
+    while let Some(q) = rest.find('"') {
+        let after = &rest[q + 1..];
+        let Some(end) = close_quote(after) else { break };
+        let key_end = q + 1 + end + 1;
+        let value = rest[key_end..]
+            .strip_prefix(':')
+            .filter(|_| sensitive(&kebab(&after[..end])))
+            .and_then(json_value_masked);
+        match value {
+            Some((masked, used)) => {
+                out.push_str(&rest[..=key_end]);
+                out.push_str(&masked);
+                rest = &rest[key_end + 1 + used..];
+                found = true;
+            }
+            None => {
+                out.push_str(&rest[..key_end]);
+                rest = &rest[key_end..];
+            }
+        }
+    }
+    out.push_str(rest);
+    found.then_some(out)
+}
+
+/// The word ends with a secret-named JSON key and its colon
+/// (`{"password":`): the value is the next word.
+fn json_key_pending(word: &str) -> bool {
+    let Some(head) = word.strip_suffix("\":") else {
+        return false;
+    };
+    head.rfind('"')
+        .is_some_and(|q| sensitive(&kebab(&head[q + 1..])))
 }
 
 /// `"Authorization: Bearer abc"` -> `"Authorization: Bearer ••••"`.
@@ -434,6 +540,31 @@ mod tests {
         assert_eq!(
             text("AKIASHORT XAKIAIOSFODNN7EXAMPLE"),
             "AKIASHORT XAKIAIOSFODNN7EXAMPLE"
+        );
+    }
+
+    #[test]
+    fn json_ish_secret_keys() {
+        assert_eq!(text("{\"password\":\"x\""), "{\"password\":\"••••\"");
+        assert_eq!(
+            text("curl -d '{\"user\":\"u\",\"apiKey\":\"k\",\"pin\":1234}' x"),
+            "curl -d '{\"user\":\"u\",\"apiKey\":\"••••\",\"pin\":1234}' x"
+        );
+        // A space after the colon: the value is the next word.
+        assert_eq!(
+            text("{\"dbPassword\": \"a b\", \"token\": 42, \"mode\": \"fast\"}"),
+            "{\"dbPassword\": \"••••\", \"token\": ••••, \"mode\": \"fast\"}"
+        );
+        // An escaped quote stays inside the value.
+        assert_eq!(text("{\"secret\":\"a\\\"b\"}"), "{\"secret\":\"••••\"}");
+        // Not secrets: a location key, an empty value, null, an object.
+        assert_eq!(
+            mask_text("{\"secretName\":\"tls\",\"password\":\"\",\"token\":null,\"apiKey\":{}}"),
+            (
+                "{\"secretName\":\"tls\",\"password\":\"\",\"token\":null,\"apiKey\":{}}"
+                    .to_string(),
+                false
+            )
         );
     }
 
