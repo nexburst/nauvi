@@ -24,8 +24,8 @@ describe("startup without a reachable cluster, settings and theme", { timeout: 1
     assert.match(text, /127\.0\.0\.1:1|reach|connect/i);
     // The status check can finish after the discovery banner (on Windows a
     // refused connect takes about 2 s, after its SYN retries).
-    const dot = await app.find(By.css("header .dot"));
-    await app.waitFor(async () => /\berror\b/.test(await dot.getAttribute("class")), {
+    await app.find(byTestId("cluster-status"));
+    await app.waitFor(async () => (await app.statusState()) === "error", {
       timeout: 60_000,
       message: "the red status dot",
     });

@@ -99,7 +99,13 @@
       </svg>
     </button>
   </div>
-  <div class="cluster" class:ok={app.status.ok === true} class:error={app.status.ok === false}>
+  <div
+    class="cluster"
+    class:ok={app.status.ok === true}
+    class:error={app.status.ok === false}
+    data-testid="cluster-status"
+    data-state={app.status.ok === true ? "ok" : app.status.ok === false ? "error" : "pending"}
+  >
     <span class="dot" aria-hidden="true">
       <!-- One ring per change of state, then still. -->
       {#key app.status.text}<span class="ping"></span>{/key}
