@@ -92,6 +92,36 @@ spec:
     - { name: cfg, configMap: { name: qa-spec-cfg } }
     - { name: scratch, emptyDir: {} }
 ---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: qa-spec-multi
+spec:
+  terminationGracePeriodSeconds: 0
+  initContainers:
+    - name: init-db
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "echo mysql -u root -p${ARG_PASSWORD} > /work/init.log"]
+      volumeMounts:
+        - { name: work, mountPath: /work }
+  containers:
+    - name: app
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "3600"]
+      args: ["-H", "Authorization: Bearer ${ARG_TOKEN}", "-u", "admin:${ARG_PASSWORD}", "--tls-private-key-file=/etc/tls/key.pem"]
+      volumeMounts:
+        - { name: work, mountPath: /work, readOnly: true }
+    - name: sidecar
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sh", "-c", "while true; do sleep 3; done"]
+      env:
+        - { name: AWS_KEY_HINT, value: AKIAIOSFODNN7EXAMPLE }
+  volumes:
+    - { name: work, emptyDir: {} }
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -144,6 +174,7 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
     ns = tempNamespace("qa-area3-pod", fixtures);
     waitPodReady(ns, "qa-web");
     waitPodReady(ns, "qa-spec");
+    waitPodReady(ns, "qa-spec-multi");
     kubectl(["-n", ns, "rollout", "status", "deploy/qa-deploy", "--timeout=180s"]);
   });
   after(() => deleteNamespace(ns));
@@ -208,6 +239,32 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
       }
     });
   }
+
+  it("an init container, an app and a sidecar each get their summary, secrets masked (#385)", T, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    await app.openDetail("Pods", ns, "qa-spec-multi");
+    const cards = await app.waitFor(
+      () =>
+        app.js(`
+          const cards = Array.from(document.querySelectorAll('[data-testid="detail-panel"] section.card'));
+          if (cards.length < 3 || !cards[2].querySelector('[data-testid="container-command"]')) return null;
+          cards[0].scrollIntoView({ block: 'start' });
+          const t = (c, id) => c.querySelector('[data-testid="' + id + '"]')?.textContent.replace(/\\s+/g, ' ').trim() ?? '';
+          return { names: cards.map((c) => c.querySelector('.name')?.textContent.trim()),
+                   init: t(cards[0], 'container-command'), args: t(cards[1], 'container-args'),
+                   sidecar: t(cards[2], 'container-command'),
+                   html: cards.map((c) => c.innerHTML).join('') };`),
+      { message: "three container cards" },
+    );
+    console.log(`multi: ${JSON.stringify({ ...cards, html: undefined })}`);
+    assert.deepEqual(cards.names, ["init-db", "app", "sidecar"]);
+    assert.match(cards.init, /-p••••/);
+    assert.match(cards.args, /Bearer ••••/);
+    assert.match(cards.args, /-u admin:••••/);
+    assert.match(cards.args, /--tls-private-key-file=\/etc\/tls\/key\.pem/);
+    for (const secret of [ARG_TOKEN, ARG_PASSWORD]) assert.ok(!cards.html.includes(secret), `${secret} in a card`);
+  });
 
   it("demo/crashed shows CrashLoopBackOff in red and the last termination", T, async () => {
     const { app } = s;
