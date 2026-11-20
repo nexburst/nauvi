@@ -148,6 +148,15 @@ const mac = isMacPlatform();
 const ZOOM: Partial<Record<Command, () => void>> = { zoomIn, zoomOut, zoomReset };
 
 /**
+ * A click into a read-only editor (a locked Secret) leaves the focus on the
+ * page but the caret in the editor: letters typed there are not row keys.
+ */
+function caretInEditor(): boolean {
+  const n = document.getSelection()?.anchorNode;
+  return inEditorOrTerminal(n instanceof Element ? n : (n?.parentElement ?? null));
+}
+
+/**
  * The window's keydown handler (capture phase, so it sees the state before
  * a menu or dialog reacts to the same key).
  */
@@ -241,6 +250,7 @@ export function handleKey(e: KeyboardEvent) {
       if (table) done(e, () => table?.deleteRows());
       return;
     case "problemsOnly":
+      if (caretInEditor()) return;
       if (table) done(e, () => (app.statusFilter = app.statusFilter === PROBLEMS_STATUS ? "" : PROBLEMS_STATUS));
       return;
     case "rowLogs":
@@ -251,6 +261,7 @@ export function handleKey(e: KeyboardEvent) {
       const verb = (
         { rowLogs: "logs", rowShell: "shell", rowEdit: "edit", rowRestart: "restart", rowPrompt: "prompt" } as const
       )[command];
+      if (caretInEditor()) return;
       if (table) done(e, () => table?.rowVerb(verb));
       return;
     }
