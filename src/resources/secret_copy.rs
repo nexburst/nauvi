@@ -10,11 +10,16 @@
 //! - kubectl's last-applied-configuration;
 //! - a JSON or YAML document with a `data` or `stringData` key at any depth,
 //!   or text that starts like a JSON object and names one of them;
-//! - or text that contains one of the Secret's values (as stored, or
-//!   decoded) of at least [`MIN_VALUE_LEN`] characters.
+//! - or text that contains one of the Secret's values (as stored, decoded,
+//!   or trimmed) of at least [`MIN_VALUE_LEN`] characters;
+//! - or any of these once base64-decoded, or gunzipped after that
+//!   (Rancher/Fleet's `objectset.rio.cattle.io/applied`). A gzip stream
+//!   that inflates past [`MAX_INFLATED`] counts as a copy: it cannot be
+//!   checked, and hiding it costs little.
 
 use base64::Engine;
 use serde_json::Value;
+use std::io::Read;
 
 pub(super) const LAST_APPLIED: &str = "kubectl.kubernetes.io/last-applied-configuration";
 
@@ -44,7 +49,47 @@ pub fn secret_copy_keys(secret: &Value) -> Vec<String> {
 /// Whether the annotation `key: value` copies a Secret whose values are
 /// `values` (from [`secret_values`]).
 pub fn copies_secret(key: &str, value: &str, values: &[String]) -> bool {
-    key == LAST_APPLIED || names_secret_fields(value) || values.iter().any(|s| value.contains(s))
+    let copy = |text: &str| names_secret_fields(text) || values.iter().any(|s| text.contains(s));
+    key == LAST_APPLIED
+        || copy(value)
+        || match decoded(value) {
+            Decoded::No => false,
+            Decoded::TooLarge => true,
+            Decoded::Text(t) => copy(&t),
+        }
+}
+
+/// Encoded annotations larger than this are not decoded (annotations are
+/// at most 256 KiB in all).
+pub const MAX_ENCODED: usize = 1024 * 1024;
+/// How far a gzip stream is inflated before it counts as a copy.
+pub const MAX_INFLATED: u64 = 4 * 1024 * 1024;
+
+enum Decoded {
+    No,
+    TooLarge,
+    Text(String),
+}
+
+/// `value` read as base64, gunzipped when it is a gzip stream.
+fn decoded(value: &str) -> Decoded {
+    let v = value.trim();
+    if v.len() < 8 || v.len() > MAX_ENCODED {
+        return Decoded::No;
+    }
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(v) else {
+        return Decoded::No;
+    };
+    if !bytes.starts_with(&[0x1f, 0x8b]) {
+        return String::from_utf8(bytes).map_or(Decoded::No, Decoded::Text);
+    }
+    let mut out = Vec::new();
+    let gz = flate2::read::GzDecoder::new(bytes.as_slice());
+    match gz.take(MAX_INFLATED + 1).read_to_end(&mut out) {
+        Ok(n) if n as u64 > MAX_INFLATED => Decoded::TooLarge,
+        Ok(_) => Decoded::Text(String::from_utf8_lossy(&out).into_owned()),
+        Err(_) => Decoded::No,
+    }
 }
 
 /// The values of `secret`'s `data` (as stored and decoded) and
@@ -68,6 +113,8 @@ pub fn secret_values(secret: &Value) -> Vec<String> {
         .cloned()
         .chain(decoded)
         .chain(strings("stringData"))
+        // `pw\n` from a file is copied as `pw` as often as not.
+        .flat_map(|v| [v.trim().to_string(), v])
         .filter(|v| v.trim().chars().count() >= MIN_VALUE_LEN)
         .collect();
     out.sort();
@@ -158,6 +205,57 @@ mod tests {
             "short": "a",
         }));
         assert_eq!(got, vec!["decoded", "stored", "string-data"]);
+    }
+
+    fn b64(bytes: &[u8]) -> String {
+        base64::engine::general_purpose::STANDARD.encode(bytes)
+    }
+
+    fn gzip(bytes: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(bytes).unwrap();
+        gz.finish().unwrap()
+    }
+
+    #[test]
+    fn base64_and_gzipped_copies_are_found() {
+        let doc = json!({ "kind": "Secret", "data": { "pw": "x" } }).to_string();
+        let got = keys(json!({
+            "objectset.rio.cattle.io/applied": b64(&gzip(doc.as_bytes())),
+            "b/base64": b64(doc.as_bytes()),
+            "c/gz-value": b64(&gzip(b"the pw: hunter2-pw")),
+            "d/plain-gz": b64(&gzip(b"nothing to see here")),
+            "e/word": "platform",
+        }));
+        assert_eq!(
+            got,
+            vec!["b/base64", "c/gz-value", "objectset.rio.cattle.io/applied"]
+        );
+    }
+
+    #[test]
+    fn a_gzip_bomb_counts_as_a_copy() {
+        let big = vec![b'a'; MAX_INFLATED as usize + 10];
+        assert!(keys(json!({ "bomb": b64(&gzip(&big)) })).contains(&"bomb".to_string()));
+        // Too large to decode at all: left as it is.
+        let huge = "A".repeat(MAX_ENCODED + 4);
+        assert!(keys(json!({ "huge": huge })).is_empty());
+    }
+
+    #[test]
+    fn values_with_a_trailing_newline_match_when_copied_trimmed() {
+        let s = json!({
+            "kind": "Secret",
+            "metadata": { "annotations": { "note": "token is tok-from-file ok" } },
+            // "tok-from-file\n"
+            "data": { "t": "dG9rLWZyb20tZmlsZQo=" },
+            "stringData": { "u": "user-from-file\n" }
+        });
+        assert_eq!(secret_copy_keys(&s), vec!["note"]);
+        let values = secret_values(&s);
+        assert!(values.contains(&"tok-from-file".to_string()));
+        assert!(values.contains(&"user-from-file".to_string()));
     }
 
     #[test]
