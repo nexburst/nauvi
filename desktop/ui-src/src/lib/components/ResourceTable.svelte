@@ -375,7 +375,10 @@
       move,
       openFocused: () => {
         const entry = focusedEntry();
-        if (entry) onselect?.(entry.row);
+        if (entry) {
+          detail.yaml = false;
+          onselect?.(entry.row);
+        }
       },
       toggleFocused: () => {
         if (focusedKey !== null && focusedIndex >= 0) toggleRow(focusedKey, false);
@@ -501,6 +504,8 @@
             style:grid-template-columns={template}
             onclick={() => {
               focusedKey = entry.key;
+              // E's flag is still set if its panel never opened (discard refused).
+              detail.yaml = false;
               onselect?.(entry.row);
               // The keyboard follows the click (#207), even when focus was in
               // the filter, the detail panel or the dock.

@@ -237,6 +237,8 @@ export class LiveTable {
 
   #stopWatch(w: Watch) {
     w.giveUp.clear();
+    // A namespace selected again starts its retries over.
+    this.#attempts.delete(w.key);
     if (w.retry) clearTimeout(w.retry);
     w.retry = null;
     if (this.#watches.get(w.key) === w) this.#watches.delete(w.key);
