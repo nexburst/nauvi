@@ -2,6 +2,7 @@
 name = "nauvi-desktop"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "nauvi desktop app — a Lens alternative in Rust, built with Tauri"
 
 [build-dependencies]
