@@ -373,9 +373,11 @@ describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
       report.push(`${label}: menu ${JSON.stringify(items)} / panel ${JSON.stringify(bar)}`);
       await app.shot(`panel-${label}`);
       // The panel's header and the menu come from the same registry (#218):
-      // the same items, plus the panel's Edit (its YAML editor).
+      // the same items, plus the panel's Edit (its YAML editor). "Copy as
+      // prompt" is the row's alone: it is written from the row's columns.
       for (const b of bar.filter((b) => b !== "Edit")) assert.ok(items.includes(b), `${label}: the menu has "${b}"`);
-      for (const i of items) assert.ok(bar.includes(i), `${label}: the panel lacks "${i}"`);
+      for (const i of items.filter((i) => i !== "Copy as prompt")) assert.ok(bar.includes(i), `${label}: the panel lacks "${i}"`);
+      assert.ok(items.includes("Copy as prompt"), `${label}: the menu has Copy as prompt`);
       assert.ok(bar.includes("Edit"), `${label}: the panel has Edit`);
     }
     console.log(report.join("\n"));
