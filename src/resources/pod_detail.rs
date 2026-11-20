@@ -720,7 +720,7 @@ mod tests {
 
         let text = serde_json::to_string(&x).unwrap();
         for secret in ["abc.def.ghi", "hunter2", "pw1"] {
-            assert!(!text.contains(secret), "{secret} in {text}");
+            assert!(!text.contains(secret), "a masked value reached the detail");
         }
     }
 }
