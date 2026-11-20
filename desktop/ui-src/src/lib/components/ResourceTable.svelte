@@ -452,7 +452,8 @@
               <div
                 class="td {col.cls?.(entry.row) ?? ''}"
                 role="gridcell"
-                title={spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : text}
+                title={col.title?.(entry.row, settings.current.time_zone) ||
+                  (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : text)}
               >
                 {text}{#if spark}<Sparkline values={spark} />{/if}
               </div>
