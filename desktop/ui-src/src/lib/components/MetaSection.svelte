@@ -5,6 +5,7 @@
   import { settings } from "../stores/settings.svelte";
   import { dateTime } from "../timeZone";
   import { ageRedrawMs, formatAge } from "../format";
+  import { onAgeTick } from "../ageClock";
   import { onDestroy } from "svelte";
 
   /** Identity, owners, labels, annotations and finalizers of any object.
@@ -18,11 +19,11 @@
 
   // The age ticks like the table's (#380): every second while it shows seconds.
   let now = $state.raw(Date.now());
-  const tick = setInterval(() => {
-    const t = Date.now();
-    if (t - now >= ageRedrawMs(info.created, t) - 50) now = t;
-  }, 1000);
-  onDestroy(() => clearInterval(tick));
+  onDestroy(
+    onAgeTick((t) => {
+      if (t - now >= ageRedrawMs(info.created, t) - 50) now = t;
+    }),
+  );
 
   function openOwner(o: OwnerLink) {
     const kind = ownerKind(o);

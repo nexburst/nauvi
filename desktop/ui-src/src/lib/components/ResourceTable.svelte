@@ -1,6 +1,7 @@
 <script lang="ts">
   import CalmWater from "./CalmWater.svelte";
   import { chart } from "../stores/chart.svelte";
+  import { visibleRows } from "../stores/visibleRows.svelte";
   import { app } from "../stores/app.svelte";
   import { rowHeightPx } from "../preferences";
   import { onMount } from "svelte";
@@ -24,7 +25,6 @@
   import { columnsFor, shownColumns } from "../columns";
   import type { Metrics, Row } from "../columns";
   import type { KeyedStore } from "../stores/keyed.svelte";
-  import { visibleEntries } from "../view";
   import type { Sort } from "../view";
   import { ListFilter } from "../stores/tableFilter.svelte";
   import { rawHay } from "../tableFilter";
@@ -87,7 +87,12 @@
     lower: (e) => e.hay,
     text: (e) => rawHay(e.row),
   });
-  const visible = $derived(visibleEntries(store.entries, filter.match, sort, columns, { metrics, now }, status));
+  // The clock is read untracked there: an age tick redraws the Age cells only.
+  const rows = visibleRows(
+    () => ({ entries: store.entries, match: filter.match, sort, columns, metrics, status }),
+    () => now,
+  );
+  const visible = $derived(rows.value);
   const getKey = $derived((i: number) => visible[i]?.key ?? i);
 
   $effect(() => {
@@ -101,7 +106,7 @@
     const row = selectedKey ? store.entries.find((e) => e.key === selectedKey)?.row : undefined;
     // With how often it restarted, when the table has that column.
     const at = columns.findIndex((c) => c.key === "restarts");
-    const restarts = row && at >= 0 ? Number(columns[at].text(row, { metrics, now })) : 0;
+    const restarts = row && at >= 0 ? Number(columns[at].text(row, { metrics, now: 0 })) : 0;
     chart.verdict = row?.problem ? `${row.problem}${restarts > 0 ? ` · ${restarts} restart${restarts === 1 ? "" : "s"}` : ""}` : "";
   });
 

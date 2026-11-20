@@ -11,6 +11,7 @@ import { combineWatches } from "../namespaces";
 import type { WatchStatus } from "../namespaces";
 import { KeyedStore } from "./keyed.svelte";
 import { ageRedrawMs } from "../format";
+import { onAgeTick } from "../ageClock";
 
 const METRICS_INTERVAL_MS = 20_000;
 const WATCH_RETRY_MS = 5_000;
@@ -53,7 +54,7 @@ export class LiveTable {
   /** Bumped when the watched set changes, to drop stale metrics. */
   #token = 0;
   #metricsTimer: ReturnType<typeof setInterval> | null = null;
-  #ageTimer: ReturnType<typeof setInterval> | null = null;
+  #stopAges: (() => void) | null = null;
   /** Metrics hidden for the cluster (#327): nothing is polled. */
   #metricsHidden = false;
 
@@ -123,9 +124,9 @@ export class LiveTable {
     for (const key of this.#keysFor(namespaces)) void this.#startWatch(key);
     this.#publishState();
     this.#startMetrics();
-    // A cheap check every second; ages redraw every second only while one of
+    // A cheap check on the shared age tick; ages redraw every second only while one of
     // them shows seconds (kubectl's "3m10s", #380), else every 15 s.
-    this.#ageTimer = setInterval(() => this.#tickAges(), 1000);
+    this.#stopAges = onAgeTick((now) => this.#tickAges(now));
   }
 
   /**
@@ -215,8 +216,8 @@ export class LiveTable {
     this.#byId.clear();
     this.#pending = [];
     if (this.#metricsTimer) clearInterval(this.#metricsTimer);
-    if (this.#ageTimer) clearInterval(this.#ageTimer);
-    this.#metricsTimer = this.#ageTimer = null;
+    this.#stopAges?.();
+    this.#metricsTimer = this.#stopAges = null;
     this.#kind = null;
   }
 
@@ -267,8 +268,7 @@ export class LiveTable {
     this.now = Date.now();
   }
 
-  #tickAges() {
-    const now = Date.now();
+  #tickAges(now: number) {
     let newest = 0;
     for (const e of this.store.entries) if (e.row.created > newest) newest = e.row.created;
     if (now - this.now >= ageRedrawMs(newest, now) - 50) this.now = now;
