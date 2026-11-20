@@ -191,11 +191,24 @@ fn ago(when: i64, now: i64) -> String {
     }
 }
 
+/// A status or event message on one line, shortened: whitespace runs
+/// become one space, and C0/C1 control characters (ESC sequences start with
+/// one) and bidi controls are dropped, so cluster text cannot reorder or
+/// restyle what the reader sees.
 fn one_line(s: &str) -> String {
+    let visible: String = s
+        .chars()
+        .filter(|&c| c.is_whitespace() || !(c.is_control() || is_bidi_control(c)))
+        .collect();
     shorten(
-        &s.split_whitespace().collect::<Vec<_>>().join(" "),
+        &visible.split_whitespace().collect::<Vec<_>>().join(" "),
         MAX_MESSAGE,
     )
+}
+
+/// Unicode bidi marks, embeddings, overrides and isolates.
+fn is_bidi_control(c: char) -> bool {
+    matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
 /// The newest condition change of `v` (unix seconds), 0 if none.
@@ -683,6 +696,33 @@ mod tests {
 
     fn verdict(v: &Value) -> PodVerdict {
         pod_verdict(v, &Owners::default(), NOW)
+    }
+
+    #[test]
+    fn one_line_collapses_whitespace() {
+        assert_eq!(
+            one_line("  back-off\n\trestarting   failed "),
+            "back-off restarting failed"
+        );
+    }
+
+    #[test]
+    fn one_line_drops_control_characters() {
+        // ESC (C0), DEL, CSI (C1), NUL and BEL.
+        assert_eq!(one_line("\u{1b}[31mred\u{1b}[0m"), "[31mred[0m");
+        assert_eq!(one_line("a\u{7f}b\u{9b}c\0d\u{7}e"), "abcde");
+        // A line break still separates words.
+        assert_eq!(one_line("one\r\ntwo\u{85}three"), "one two three");
+    }
+
+    #[test]
+    fn one_line_drops_bidi_controls() {
+        assert_eq!(
+            one_line("ok \u{202E}lmth.exe\u{202C} \u{2066}x\u{2069}\u{200E}\u{200F}\u{061C}"),
+            "ok lmth.exe x"
+        );
+        // Other non-ASCII text is kept.
+        assert_eq!(one_line("café 日本"), "café 日本");
     }
 
     #[test]

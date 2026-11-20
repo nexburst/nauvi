@@ -609,7 +609,9 @@ fn mcp_limited_user_is_bound_by_rbac() {
 
 /// What `problems` must find (#377): a crash loop, an OOM kill with its
 /// limit, a failed Job and a Deployment short of ready replicas; a healthy
-/// pod never appears.
+/// pod never appears. `hog` restarts: the runtime sometimes reports a
+/// memory kill as `Error (exit 137)`, so the test waits for a run that
+/// reports `OOMKilled` (#403).
 const PROBLEM_FIXTURES: &str = r#"
 apiVersion: v1
 kind: Pod
@@ -623,7 +625,6 @@ apiVersion: v1
 kind: Pod
 metadata: { name: hog }
 spec:
-  restartPolicy: Never
   terminationGracePeriodSeconds: 0
   containers:
     - name: c
@@ -697,10 +698,14 @@ async fn mcp_problems_on_the_cluster() -> Result<()> {
         );
         drop(w);
         let mut s = Server::on_cluster(&[]);
+        // Wait (bounded) for every state the asserts below read, in one
+        // snapshot: crash loops and OOM kills take a few runs to show.
         let text = wait_for(&mut s, "problems", json!({ "namespace": ns }), |t| {
+            let hog = problem_line(t, "hog");
             problem_line(t, "crasher").contains("last: Error (exit 3)")
-                && problem_line(t, "hog").contains("OOMKilled")
-                && problem_line(t, "doomed").contains("Failed")
+                && hog.contains("OOMKilled (exit 137)")
+                && hog.contains("limit memory 16Mi")
+                && problem_line(t, "doomed").contains("Failed (BackoffLimitExceeded)")
                 && problem_line(t, "never-ready").contains("0 of 1 ready")
         })?;
         assert!(text.starts_with("KIND"), "{text}");
@@ -730,10 +735,13 @@ async fn mcp_problems_on_the_cluster() -> Result<()> {
         assert!(err && msg.contains("not secrets"), "{msg}");
 
         // list: LAST for pods; compact and columns.
-        let listed = s.ok(
+        // `hog` keeps restarting; a later run may again report `Error`.
+        let listed = wait_for(
+            &mut s,
             "list",
             json!({ "kind": "pods", "namespace": ns, "compact": true }),
-        );
+            |t| row_of(t, "hog").contains("OOMKilled"),
+        )?;
         let header = listed.lines().next().unwrap_or_default();
         assert!(header.contains("LAST"), "{listed}");
         assert!(
