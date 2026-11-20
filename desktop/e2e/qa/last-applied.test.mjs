@@ -123,7 +123,8 @@ describe("last-applied-configuration in the detail panel (#409)", { timeout: 10 
       await app.find(byTestId("last-applied-masked"));
       const html = await panelHtml(app);
       for (const secret of LEAKS) assert.ok(!html.includes(secret), `${secret} in the panel`);
-      await app.js(`document.querySelector('[data-testid="last-applied"]').scrollIntoView({ block: 'start' })`);
+      // The screenshot: the Annotations heading, the row and the JSON's top.
+      await app.js(`document.querySelector('[data-testid="last-applied"]').closest('details').scrollIntoView({ block: 'start' })`);
     });
   }
 
@@ -135,8 +136,9 @@ describe("last-applied-configuration in the detail panel (#409)", { timeout: 10 
     const json = await show(app);
     assert.match(json, /"password": "••••"/);
     assert.match(json, /"mode": "fast"/);
-    const html = await panelHtml(app);
-    for (const secret of LEAKS) assert.ok(!html.includes(secret), `${secret} in the panel`);
+    // The data editor shows a ConfigMap's values (they are not secret); the
+    // annotation's copy is masked.
+    assert.ok(!json.includes(CM_PASSWORD), "the password in the shown last-applied");
   });
 
   it("a Secret's last-applied stays hidden", T, async () => {
