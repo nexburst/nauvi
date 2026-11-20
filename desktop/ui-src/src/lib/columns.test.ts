@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnKind, ResourceKind, ResourceRow } from "./bindings";
-import { columnsFor, EMPTY_METRICS, HIDDEN_METRICS, isNode, isPod, nodeReadyClass, shownColumns } from "./columns";
+import {
+  columnsFor,
+  EMPTY_METRICS,
+  HIDDEN_METRICS,
+  isNode,
+  isPod,
+  minColumnsWidth,
+  nodeReadyClass,
+  shownColumns,
+} from "./columns";
 import type { Ctx, Metrics } from "./columns";
 
 function kindWith(kinds: [string, ColumnKind][], kind = "Pod", group = ""): ResourceKind {
@@ -208,6 +217,10 @@ describe("columnsFor", () => {
     const owner = cols[1];
     expect(owner.link).toBe("owner");
     expect(owner.text(row(["web-1", "ReplicaSet/web-5d8f", ""]), ctx)).toBe("ReplicaSet/web-5d8f");
+  });
+
+  it("sums the columns' minimum widths", () => {
+    expect(minColumnsWidth([{ width: "64px" }, { width: "minmax(160px, 2.2fr)" }, { width: "1fr" }])).toBe(224);
   });
 
   it("tells pods and nodes apart from other kinds", () => {

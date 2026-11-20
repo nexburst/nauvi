@@ -57,6 +57,16 @@ const choice = (label) => By.xpath(`//*[@role='dialog'][@aria-label='Columns']//
 const defaultColumns = By.xpath("//*[@role='dialog'][@aria-label='Columns']//button[normalize-space()='Default columns']");
 
 const headers = async (app) => (await tableData(app)).headers.filter(Boolean);
+const SCROLLER = '[data-testid="resource-table"] .scroller';
+/** Scroll the table sideways to `x` (or its right end) and return how far it can scroll. */
+const scrollTable = (app, x = 1e6) =>
+  app.js(`const s = document.querySelector('${SCROLLER}'); s.scrollLeft = ${x}; return s.scrollWidth - s.clientWidth;`);
+/** The first owner link on screen, after scrolling the table to it. */
+async function ownerLink(app) {
+  await scrollTable(app);
+  return app.find(By.css('[data-testid="resource-row"] [data-testid="owner-link"]'));
+}
+const textOf = (app, el) => app.js("return arguments[0].textContent.trim()", el);
 
 describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
   let ns;
@@ -78,6 +88,7 @@ describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
   it("a fresh profile shows the usual columns; the extra ones are listed unchecked", T, async () => {
     const { app } = s;
     await resizeWindow(app, 1280, 800);
+    await setTheme(app, "dark");
     await app.nav("Pods");
     await waitLive(app);
     await app.filter(ns);
@@ -110,6 +121,9 @@ describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
       assert.equal(r["Nominated Node"], "");
     }
     await app.shot("columns-on-dark");
+    // They don't fit at 1280 px: the table scrolls sideways to them.
+    assert.ok((await scrollTable(app)) > 0, "the table scrolls sideways");
+    await app.shot("columns-on-scrolled-dark");
     await setTheme(app, "light");
     await app.shot("columns-on-light");
     // An empty table with the columns on: the header, the calm water.
@@ -118,6 +132,7 @@ describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
     assert.deepEqual(await headers(app), [...DEFAULT, ...EXTRA]);
     await app.shot("columns-on-empty-light");
     await setTheme(app, "dark");
+    await app.filter(ns);
   });
 
   it("the choice survives a restart", T, async () => {
@@ -132,8 +147,8 @@ describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
 
   it("Controlled By opens the owner ReplicaSet, and a static pod's node", T, async () => {
     const { app } = s;
-    const link = await app.find(By.css('[data-testid="resource-row"] [data-testid="owner-link"]'));
-    assert.equal(await link.getText(), `ReplicaSet/${rs}`);
+    const link = await ownerLink(app);
+    assert.equal(await textOf(app, link), `ReplicaSet/${rs}`);
     await link.click();
     await waitPanelTitle(app, `${ns}/${rs}`);
     const active = await app.js(`return document.querySelector('nav button.active')?.textContent.trim() ?? ""`);
@@ -144,8 +159,9 @@ describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
     // A static pod is owned by its node: the link opens the Node.
     await app.nav("Pods");
     await app.filter("kube-apiserver");
-    const nodeLink = await app.find(By.css('[data-testid="resource-row"] [data-testid="owner-link"]'));
-    const text = await nodeLink.getText();
+    await app.waitFor(async () => (await tableData(app)).rows.length > 0, { message: "the kube-apiserver pod" });
+    const nodeLink = await ownerLink(app);
+    const text = await textOf(app, nodeLink);
     assert.match(text, /^Node\//);
     await nodeLink.click();
     await waitPanelTitle(app, text.slice("Node/".length));

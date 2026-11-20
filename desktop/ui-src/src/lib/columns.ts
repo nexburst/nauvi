@@ -62,6 +62,13 @@ export function shownColumns(
   return cols.filter((c) => columnOn(picks, c) && (c.shown?.(metrics) ?? true));
 }
 
+/** The narrowest the columns' tracks get, px: the sum of their minimums
+ *  (`64px`, `minmax(160px, 2fr)`). A table narrower than this scrolls
+ *  sideways instead of cutting the last columns off (#378). */
+export function minColumnsWidth(cols: readonly Pick<Column, "width">[]): number {
+  return cols.reduce((sum, c) => sum + Number(/^(?:minmax\()?(\d+)px/.exec(c.width)?.[1] ?? 0), 0);
+}
+
 export const EMPTY_METRICS: Metrics = { pods: new Map(), nodes: new Map(), sparks: new Map(), since: 0 };
 /** What the tables get while metrics are hidden for the cluster (#327). */
 export const HIDDEN_METRICS: Metrics = { ...EMPTY_METRICS, hidden: true };

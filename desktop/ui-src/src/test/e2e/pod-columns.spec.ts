@@ -80,3 +80,27 @@ test("the Controlled By link opens the owner's detail", async ({ page }) => {
   await expect(header(page, "Controlled By")).toBeVisible();
   expect(fake.errors).toEqual([]);
 });
+
+test("columns that don't fit scroll sideways, the header with the rows", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openApp(page);
+  await openKind(page, "Pods");
+  const scroller = page.locator(".table .scroller");
+  await page.getByRole("button", { name: "Columns", exact: true }).click();
+  for (const label of EXTRA) await chooser(page).getByRole("checkbox", { name: label, exact: true }).check();
+  await page.keyboard.press("Escape");
+  await expect(header(page, "Nominated Node")).toHaveCount(1);
+  const overflow = await scroller.evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(overflow).toBeGreaterThan(0);
+
+  await scroller.evaluate((el) => (el.scrollLeft = el.scrollWidth));
+  // The last header and the last cell of a row line up, inside the table.
+  await expect(async () => {
+    const grid = (await page.locator(".table .grid").boundingBox())!;
+    const head = (await header(page, "Nominated Node").boundingBox())!;
+    const cell = (await row(page, "web-1").getByRole("gridcell").last().boundingBox())!;
+    expect(Math.abs(head.x - cell.x)).toBeLessThan(1);
+    expect(head.x + head.width).toBeLessThanOrEqual(grid.x + grid.width + 1);
+  }).toPass();
+  await expect(row(page, "web-1").getByTestId("owner-link")).toBeVisible();
+});

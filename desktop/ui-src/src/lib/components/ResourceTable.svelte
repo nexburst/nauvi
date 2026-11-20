@@ -23,7 +23,7 @@
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove } from "../stores/keyboard.svelte";
   import type { ResourceKind } from "../bindings";
-  import { columnsFor, shownColumns } from "../columns";
+  import { columnsFor, minColumnsWidth, shownColumns } from "../columns";
   import type { Metrics, Row } from "../columns";
   import type { KeyedStore } from "../stores/keyed.svelte";
   import type { Sort } from "../view";
@@ -78,6 +78,10 @@
   const shownExtra = $derived(kindSettings(kind.id).shown ?? []);
   const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics, shownExtra));
   const template = $derived(["32px", ...columns.map((c) => c.width)].join(" "));
+  // Columns that don't fit (extra ones turned on, the detail panel open)
+  // scroll sideways, the header with the rows, instead of being cut off.
+  const minWidth = $derived(32 + minColumnsWidth(columns));
+  let scrollLeft = $state(0);
   // svelte-ignore state_referenced_locally
   let sort = $state.raw<Sort | null>(sortOf(kindSettings(kind.id)));
 
@@ -386,7 +390,15 @@
     aria-activedescendant={focusedIndex >= 0 ? rowId(focusedIndex) : undefined}
     bind:this={gridEl}
   >
-    <div class="head" role="row" aria-rowindex={1} style:grid-template-columns={template} style:padding-right="{gutter}px">
+    <div
+      class="head"
+      role="row"
+      aria-rowindex={1}
+      style:grid-template-columns={template}
+      style:padding-right="{gutter}px"
+      style:min-width="{minWidth + gutter}px"
+      style:transform={scrollLeft ? `translateX(${-scrollLeft}px)` : undefined}
+    >
       <div class="th check" role="columnheader">
         <input
           type="checkbox"
@@ -411,7 +423,16 @@
       {/each}
     </div>
 
-    <VirtualList bind:this={list} count={visible.length} rowHeight={ROW_HEIGHT} {getKey} bind:scrollEl>
+    <VirtualList
+      bind:this={list}
+      count={visible.length}
+      rowHeight={ROW_HEIGHT}
+      {getKey}
+      bind:scrollEl
+      scrollX
+      {minWidth}
+      onscroll={(e) => (scrollLeft = (e.currentTarget as HTMLElement).scrollLeft)}
+    >
       {#snippet row(i)}
         {@const entry = visible[i]}
         {#if entry}
@@ -432,6 +453,7 @@
             aria-rowindex={i + 2}
             aria-selected={selected.has(entry.key)}
             style:grid-template-columns={template}
+            style:min-width="{minWidth}px"
             onclick={() => {
               focusedKey = entry.key;
               onselect?.(entry.row);
