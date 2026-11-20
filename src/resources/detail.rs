@@ -4,8 +4,9 @@
 use super::columns::age_text;
 use super::jsonpath::{array_at, first_of, path_str};
 use super::mask_json::mask_json;
-use super::ops::{is_secret, LAST_APPLIED};
+use super::ops::is_secret;
 use super::pod_detail::pod_extras;
+use super::secret_copy::{secret_copy_keys, LAST_APPLIED};
 use super::*;
 use crate::{age_of_secs, created_secs};
 use anyhow::Result;
@@ -40,14 +41,16 @@ pub fn detail_of(
     let created = created_secs(&meta.creation_timestamp);
 
     let mut annotations = meta.annotations.clone().unwrap_or_default();
-    if let Some(a) = annotations.get_mut(LAST_APPLIED) {
-        // It repeats the whole object: a Secret's values, a pod's args and
-        // env. The panel gets it masked; the YAML tab shows it as stored.
-        *a = if is_secret(r) {
-            REDACTED.into()
-        } else {
-            mask_json(a).0
-        };
+    if is_secret(r) {
+        // last-applied, kapp's original and the like repeat the Secret's
+        // values: hidden like the values themselves.
+        for k in secret_copy_keys(&value) {
+            annotations.insert(k, REDACTED.into());
+        }
+    } else if let Some(a) = annotations.get_mut(LAST_APPLIED) {
+        // It repeats the whole object: a pod's args and env. The panel gets
+        // it masked; the YAML tab shows it as stored.
+        *a = mask_json(a).0;
     }
     let owners = meta
         .owner_references
@@ -214,5 +217,24 @@ mod tests {
         let obj = with_last_applied("Secret", serde_json::json!({ "data": { "k": "dg==" } }));
         let d = detail_of(&rref("", "Secret", "secrets", true), &obj, vec![]).unwrap();
         assert_eq!(d.annotations[LAST_APPLIED], REDACTED);
+    }
+
+    #[test]
+    fn a_secrets_other_copies_are_redacted() {
+        let original = serde_json::json!({ "kind": "Secret", "stringData": { "pw": "hunter2" } });
+        let obj: DynamicObject = serde_json::from_value(serde_json::json!({
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": "x",
+                "namespace": "demo",
+                "annotations": { "kapp.k14s.io/original": original.to_string(), "team": "a" }
+            },
+            "data": { "pw": "aHVudGVyMg==" }
+        }))
+        .unwrap();
+        let d = detail_of(&rref("", "Secret", "secrets", true), &obj, vec![]).unwrap();
+        assert_eq!(d.annotations["kapp.k14s.io/original"], REDACTED);
+        assert_eq!(d.annotations["team"], "a");
     }
 }

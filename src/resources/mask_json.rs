@@ -12,7 +12,7 @@
 //!
 //! Not JSON: the whole string is masked as text.
 
-use super::mask::{mask_args, mask_text, sensitive, MASK};
+use super::mask::{kebab, mask_args, mask_text, sensitive, MASK};
 use serde_json::Value;
 
 /// `json` with secret-looking values replaced by [`MASK`] (compact JSON),
@@ -25,19 +25,6 @@ pub fn mask_json(json: &str) -> (String, bool) {
     walk(&mut v, None, &mut hidden);
     let out = serde_json::to_string(&v).unwrap_or_else(|_| json.to_string());
     (out, hidden)
-}
-
-/// `apiKey` -> `api-key`, so a JSON key reads like a flag name:
-/// `secretName` ends in the location segment `name`.
-fn kebab(key: &str) -> String {
-    let mut out = String::with_capacity(key.len() + 4);
-    for (i, c) in key.chars().enumerate() {
-        if c.is_ascii_uppercase() && i > 0 {
-            out.push('-');
-        }
-        out.push(c.to_ascii_lowercase());
-    }
-    out
 }
 
 fn secret_key(key: Option<&str>) -> bool {
@@ -169,5 +156,19 @@ mod tests {
         let (s, hidden) = mask_json("--password=abc and more");
         assert!(hidden);
         assert_eq!(s, "--password=•••• and more");
+    }
+
+    #[test]
+    fn invalid_json_still_hides_secret_keys() {
+        // Cut short, so not JSON: the keys are still recognised.
+        let (s, hidden) =
+            mask_json("{\"kind\":\"ConfigMap\",\"data\":{\"password\":\"hunter2\",\"apiKey\": \"k1\", \"mode\":\"fast\"");
+        assert!(hidden);
+        assert!(!s.contains("hunter2") && !s.contains("k1"), "{s}");
+        assert_eq!(
+            s,
+            "{\"kind\":\"ConfigMap\",\"data\":{\"password\":\"••••\",\"apiKey\": \"••••\", \"mode\":\"fast\""
+        );
+        assert_eq!(mask_json("{\"password\":\"x\"").0, "{\"password\":\"••••\"");
     }
 }
