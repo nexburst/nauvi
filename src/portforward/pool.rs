@@ -24,7 +24,7 @@ use tokio::sync::Notify;
 use tokio::time::Instant;
 
 /// Tunnels kept ready while the forward is in use.
-pub(crate) const WARM: usize = 2;
+pub(crate) const WARM: usize = 3;
 /// A warm tunnel older than this is closed and replaced.
 pub(crate) const MAX_AGE: Duration = Duration::from_secs(5);
 /// How long after the last local connection the pool keeps refilling.
@@ -134,68 +134,86 @@ impl Drop for Pool {
 
 /// Keep the pool topped up while the forward is in use, and drop tunnels
 /// as they expire.
+///
+/// Each open runs on its own: a tunnel taken while others are still
+/// opening starts another one at once, so a run of connections one after
+/// the other finds the pool refilled as fast as tunnels open.
 async fn fill(state: Arc<Mutex<State>>, wake: Arc<Notify>, open: Opener) {
+    let mut opening: tokio::task::JoinSet<(Backend, Result<Tunnel, String>)> =
+        tokio::task::JoinSet::new();
+    // After a failure, no new opens before this.
+    let mut retry_at: Option<Instant> = None;
     loop {
         let now = Instant::now();
         let (missing, backend, next) = {
             let mut s = state.lock().unwrap();
             s.prune(now);
-            let missing = if s.in_use(now) {
-                WARM.saturating_sub(s.ready.len())
+            let waiting = retry_at.is_some_and(|t| t > now);
+            let missing = if s.in_use(now) && !waiting {
+                WARM.saturating_sub(s.ready.len() + opening.len())
             } else {
                 0
             };
-            // Wake up when the oldest tunnel expires or the use ends.
+            // Wake up when the oldest tunnel expires, the use ends or the
+            // retry is due.
             let expiry = s.ready.iter().map(|r| r.opened + MAX_AGE).min();
             let idle = s.last_used.map(|t| t + IDLE).filter(|t| *t > now);
-            let next = expiry.into_iter().chain(idle).min();
+            let retry = retry_at.filter(|t| *t > now);
+            let next = expiry.into_iter().chain(idle).chain(retry).min();
             (missing, s.backend.clone(), next)
         };
-        if let (true, Some(backend)) = (missing > 0, backend) {
-            let opened =
-                futures::future::join_all((0..missing).map(|_| open(backend.clone()))).await;
-            if !keep(&state, &backend, opened) {
-                tokio::time::sleep(RETRY).await;
+        if let Some(backend) = backend {
+            for _ in 0..missing {
+                let (b, open) = (backend.clone(), open.clone());
+                opening.spawn(async move {
+                    let t = open(b.clone()).await;
+                    (b, t)
+                });
             }
-            continue;
         }
-        match next {
-            Some(at) => {
-                tokio::select! {
-                    _ = wake.notified() => {}
-                    _ = tokio::time::sleep_until(at) => {}
+        let sleep = async {
+            match next {
+                Some(at) => tokio::time::sleep_until(at).await,
+                None => std::future::pending().await,
+            }
+        };
+        tokio::select! {
+            _ = wake.notified() => {}
+            _ = sleep => {}
+            Some(done) = opening.join_next(), if !opening.is_empty() => {
+                if let Ok((backend, opened)) = done {
+                    if !keep(&state, &backend, opened) {
+                        retry_at = Some(Instant::now() + RETRY);
+                    }
                 }
             }
-            None => wake.notified().await,
         }
     }
 }
 
-/// Add the tunnels just opened to `backend` to the pool; false when one
-/// could not be opened.
-fn keep(state: &Mutex<State>, backend: &Backend, opened: Vec<Result<Tunnel, String>>) -> bool {
-    let mut ok = true;
-    let now = Instant::now();
+/// Add a tunnel just opened to `backend` to the pool; false when it could
+/// not be opened.
+fn keep(state: &Mutex<State>, backend: &Backend, opened: Result<Tunnel, String>) -> bool {
     let mut s = state.lock().unwrap();
-    for t in opened {
-        match t {
-            // The connections may have moved to another backend meanwhile:
-            // then the tunnel is dropped (closed).
-            Ok(tunnel) if s.backend.as_ref() == Some(backend) => s.ready.push(Ready {
+    match opened {
+        // The connections may have moved to another backend meanwhile:
+        // then the tunnel is dropped (closed).
+        Ok(tunnel) if s.backend.as_ref() == Some(backend) => {
+            s.ready.push(Ready {
                 tunnel,
-                opened: now,
-            }),
-            Ok(_) => {}
-            Err(e) => {
-                tracing::debug!(
-                    "port-forward: cannot pre-open a tunnel to {}: {e}",
-                    backend.pod
-                );
-                ok = false;
-            }
+                opened: Instant::now(),
+            });
+            true
+        }
+        Ok(_) => true,
+        Err(e) => {
+            tracing::debug!(
+                "port-forward: cannot pre-open a tunnel to {}: {e}",
+                backend.pod
+            );
+            false
         }
     }
-    ok
 }
 
 #[cfg(test)]
@@ -213,13 +231,12 @@ mod tests {
         }
     }
 
+    /// The server ends of the tunnels opened, with their pods.
+    type Servers = Arc<Mutex<Vec<(String, WebSocketStream<DuplexStream>)>>>;
+
     /// An opener of in-memory tunnels that counts what it opened per pod,
     /// and keeps the server ends open (or fails for pod "gone").
-    fn opener() -> (
-        Opener,
-        Arc<Mutex<Vec<(String, WebSocketStream<DuplexStream>)>>>,
-        Arc<AtomicUsize>,
-    ) {
+    fn opener() -> (Opener, Servers, Arc<AtomicUsize>) {
         let servers = Arc::new(Mutex::new(Vec::new()));
         let count = Arc::new(AtomicUsize::new(0));
         let (s, c) = (servers.clone(), count.clone());
