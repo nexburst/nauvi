@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createdAt, formatAge, formatCpu, formatMemory, humanDuration } from "./format";
+import { ageRedrawMs, createdAt, formatAge, formatCpu, formatMemory, humanDuration } from "./format";
 
 describe("formatCpu", () => {
   it("uses millicores below one core", () => {
@@ -114,6 +114,18 @@ describe("humanDuration", () => {
   it("prints 0s, not kubectl's <invalid>, for times in the future", () => {
     expect(humanDuration(-2 * SEC)).toBe("0s");
     expect(humanDuration(-100 * SEC)).toBe("0s");
+  });
+});
+
+describe("ageRedrawMs", () => {
+  const now = 1_000_000_000;
+  it("redraws every second while an age shows seconds", () => {
+    expect(ageRedrawMs(now / 1000 - 5, now)).toBe(1000);
+    expect(ageRedrawMs(now / 1000 - 599, now)).toBe(1000);
+  });
+  it("every 15 s otherwise", () => {
+    expect(ageRedrawMs(now / 1000 - 600, now)).toBe(15_000);
+    expect(ageRedrawMs(0, now)).toBe(15_000);
   });
 });
 

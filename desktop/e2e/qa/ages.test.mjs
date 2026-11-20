@@ -118,10 +118,16 @@ describe("kubectl-style ages", { timeout: 15 * 60_000 }, () => {
   it("the detail panel shows the age and the creation time in local time", T, async () => {
     const { app } = s;
     await app.openDetail("Pods", "kube-system", pod);
-    const text = await app.waitFor(async () => (await metaAge(app)) || null, { message: "the Age row" });
+    // The age ticks: retry until it is kubectl's at the same moment.
+    const text = await app.waitFor(
+      async () => {
+        const t = await metaAge(app);
+        return t && t.split(" ")[0] === kubectlAges(["pod", "-n", "kube-system", pod]).get(pod) ? t : null;
+      },
+      { message: "the Age row with kubectl's AGE" },
+    );
     console.log(`detail Age: ${text}`);
     assert.match(text, new RegExp(`^\\S+ \\(${wallClock(created, TZ)}\\)$`));
-    assert.equal(text.split(" ")[0], kubectlAges(["pod", "-n", "kube-system", pod]).get(pod));
     await bothThemes(app, "detail-local");
   });
 
@@ -145,7 +151,7 @@ describe("kubectl-style ages", { timeout: 15 * 60_000 }, () => {
 
   it("a ConfigMap two minutes old shows minutes and seconds, like kubectl", T, async () => {
     const { app } = s;
-    await openKind(app, "ConfigMaps", ns, "qa-ages");
+    await openKind(app, "Config Maps", ns, "qa-ages");
     // Under 2 minutes kubectl prints seconds only ("95s").
     await app.waitFor(async () => /^\dm\d+s$/.test(kubectlAges(["configmap", "-n", ns, "qa-ages"]).get("qa-ages")), {
       timeout: 150_000,

@@ -10,9 +10,9 @@ import { clusterError } from "../clusterError";
 import { combineWatches } from "../namespaces";
 import type { WatchStatus } from "../namespaces";
 import { KeyedStore } from "./keyed.svelte";
+import { ageRedrawMs } from "../format";
 
 const METRICS_INTERVAL_MS = 20_000;
-const AGE_INTERVAL_MS = 15_000;
 const WATCH_RETRY_MS = 5_000;
 
 type WatchEvent = { kind: "batch"; payload: WatchBatch } | { kind: "state"; payload: WatchStateChanged };
@@ -123,7 +123,9 @@ export class LiveTable {
     for (const key of this.#keysFor(namespaces)) void this.#startWatch(key);
     this.#publishState();
     this.#startMetrics();
-    this.#ageTimer = setInterval(() => (this.now = Date.now()), AGE_INTERVAL_MS);
+    // A cheap check every second; ages redraw every second only while one of
+    // them shows seconds (kubectl's "3m10s", #380), else every 15 s.
+    this.#ageTimer = setInterval(() => this.#tickAges(), 1000);
   }
 
   /**
@@ -263,6 +265,13 @@ export class LiveTable {
       disks: what === "nodes" ? this.metrics.disks : undefined,
     };
     this.now = Date.now();
+  }
+
+  #tickAges() {
+    const now = Date.now();
+    let newest = 0;
+    for (const e of this.store.entries) if (e.row.created > newest) newest = e.row.created;
+    if (now - this.now >= ageRedrawMs(newest, now) - 50) this.now = now;
   }
 
   async #loadDisks(token: number) {

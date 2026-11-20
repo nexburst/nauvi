@@ -61,6 +61,15 @@ export function humanDuration(ms: number): string {
   return `${years}y`;
 }
 
+/**
+ * How often ages need redrawing when the newest object was created at
+ * `newest` (unix seconds, 0 for none): every second while some age shows
+ * seconds (under 10 minutes), every 15 s otherwise.
+ */
+export function ageRedrawMs(newest: number, now: number): number {
+  return newest > 0 && now - newest * 1000 < 10 * 60_000 ? 1000 : 15_000;
+}
+
 function two(a: number, unitA: string, b: number, unitB: string): string {
   return b === 0 ? `${a}${unitA}` : `${a}${unitA}${b}${unitB}`;
 }

@@ -4,6 +4,8 @@
   import { kindOf, openObject } from "../stores/app.svelte";
   import { settings } from "../stores/settings.svelte";
   import { dateTime } from "../timeZone";
+  import { ageRedrawMs, formatAge } from "../format";
+  import { onDestroy } from "svelte";
 
   /** Identity, owners, labels, annotations and finalizers of any object.
    *  `children` adds rows to the identity list (the pod panel's phase, node...). */
@@ -13,6 +15,14 @@
   function ownerKind(o: OwnerLink) {
     return kindOf(o.api_version, o.kind);
   }
+
+  // The age ticks like the table's (#380): every second while it shows seconds.
+  let now = $state.raw(Date.now());
+  const tick = setInterval(() => {
+    const t = Date.now();
+    if (t - now >= ageRedrawMs(info.created, t) - 50) now = t;
+  }, 1000);
+  onDestroy(() => clearInterval(tick));
 
   function openOwner(o: OwnerLink) {
     const kind = ownerKind(o);
@@ -33,7 +43,7 @@
   {/if}
   <dt>Age</dt>
   <dd data-testid="meta-age">
-    {info.age || "—"}
+    {formatAge(info.created, now, info.age) || "—"}
     {#if info.created > 0}
       <span class="muted" data-testid="meta-created">({dateTime(info.created * 1000, settings.current.time_zone)})</span>
     {/if}
