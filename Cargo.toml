@@ -2,10 +2,16 @@
 members = [".", "desktop"]
 resolver = "2"
 
+# The oldest Rust that builds the workspace (#388): kube 5.1 and
+# parking_lot 0.13 need 1.95. CI checks that this version still builds.
+[workspace.package]
+rust-version = "1.95"
+
 [package]
 name = "nauvi"
 version = "0.1.0"
 edition = "2021"
+rust-version.workspace = true
 description = "A Lens alternative written in Rust — a Kubernetes IDE"
 license = "MIT"
 repository = "https://github.com/nexburst/nauvi"
