@@ -1,6 +1,5 @@
 <script lang="ts">
   import ClusterLabel from "./ClusterLabel.svelte";
-  import { contextText } from "../dockContext";
   import type { ContextLink, ContextPart } from "../dockContext";
   import { app, currentContextName, kinds, openObject, setNamespaces } from "../stores/app.svelte";
   import { contextLabel } from "../stores/catalog.svelte";
@@ -10,7 +9,6 @@
   let { parts, cluster }: { parts: ContextPart[]; cluster: string } = $props();
 
   const elsewhere = $derived(cluster !== "" && cluster !== currentContextName());
-  const full = $derived(contextText(parts));
 
   function kindOf(l: ContextLink) {
     return kinds.all.find((k) => k.resource.group === l.group && k.resource.kind === l.kind);
@@ -30,7 +28,7 @@
   }
 </script>
 
-<div class="context" data-testid="dock-context" title={full}>
+<div class="context" data-testid="dock-context">
   <span class="text"
     >{#each parts as p, i (i)}{#if p.link}{@const l = p.link}<button
           type="button"
@@ -56,12 +54,10 @@
     font-size: 12px;
     color: var(--text-muted);
     border-top: 1px solid var(--border);
-    white-space: nowrap;
   }
   .text {
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
   .on {
     display: inline-flex;

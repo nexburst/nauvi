@@ -34,9 +34,18 @@ spec:
 /** The context line of a dock tab, as text. */
 function contextLine(app, id) {
   return app.js(
-    `const el = document.querySelector(arguments[0] + ' [data-testid="dock-context"]'); return el ? el.innerText : null;`,
+    `const el = document.querySelector(arguments[0] + ' [data-testid="dock-context"]'); return el ? el.textContent.replace(/\s+/g, ' ').trim() : null;`,
     pane(id),
   );
+}
+
+/** The context line once it reads `want`; fails with what it read last. */
+async function waitLine(app, id, want) {
+  let last = null;
+  await app.waitFor(async () => (last = await contextLine(app, id)) === want, { message: want }).catch((e) => {
+    throw new Error(`${e.message}; the line read ${JSON.stringify(last)}`);
+  });
+  return last;
 }
 
 function noticeText(app) {
@@ -67,9 +76,7 @@ describe("dock context line and forward banner (#386)", { timeout: 10 * 60_000 }
     await waitLive(app);
     const id = await openPodLogs(app, ns, "web");
     const want = `Logs of pod web in namespace ${ns}, container web, from all time`;
-    const line = await app.waitFor(async () => ((await contextLine(app, id)) === want ? want : null), {
-      message: want,
-    });
+    const line = await waitLine(app, id, want);
     console.log(`log context: ${line}`);
     await shots(app, "logs-context");
 
@@ -86,7 +93,7 @@ describe("dock context line and forward banner (#386)", { timeout: 10 * 60_000 }
     await panelButton(app, "Shell");
     const id = `shell:${ns}/web`;
     const want = `Shell into pod web, container web, in namespace ${ns}`;
-    const line = await app.waitFor(async () => ((await contextLine(app, id)) === want ? want : null), { message: want });
+    const line = await waitLine(app, id, want, { message: want });
     console.log(`shell context: ${line}`);
     await shots(app, "shell-context");
   });
