@@ -2,8 +2,9 @@
 //!
 //! A pod target always uses that pod. A Service maps its port to the
 //! `targetPort` and picks a ready endpoint from its EndpointSlices; a
-//! workload picks a ready pod by its selector. Both are asked again for
-//! every new local connection, so a forward follows pod restarts.
+//! workload picks a ready pod by its selector. Both are asked again every
+//! few seconds while connections come in ([`super::cache`]), so a forward
+//! follows pod restarts.
 
 use super::spec::{ForwardKind, ForwardTarget, RemotePort};
 use crate::workload_selector;
@@ -106,6 +107,12 @@ impl Resolver {
             } => Some(*n),
             Self::Workload { .. } => None,
         }
+    }
+
+    /// Whether [`Resolver::backends`] asks the API server (it does for all
+    /// but a pod).
+    pub(crate) fn lists(&self) -> bool {
+        !matches!(self, Self::Pod { .. })
     }
 
     /// The ready backends right now, best first. Empty when none is ready.

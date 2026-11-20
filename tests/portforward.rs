@@ -445,3 +445,167 @@ async fn twenty_parallel_connections_each_get_their_own_echo() -> Result<()> {
     })
     .await
 }
+
+/// p50 and p90 of `times`, in ms.
+fn percentiles(times: &mut [Duration]) -> (f64, f64) {
+    times.sort();
+    let at = |q: f64| {
+        let i = ((times.len() as f64 * q).ceil() as usize).clamp(1, times.len()) - 1;
+        times[i].as_secs_f64() * 1000.0
+    };
+    (at(0.5), at(0.9))
+}
+
+/// One HTTP request on a new connection, timed from connect to the last
+/// byte of the body (as `curl -w %{time_total}`): not to the server's close,
+/// which takes about a second to come back through the API server, for
+/// kubectl as well.
+async fn timed_get(port: u16) -> Result<Duration> {
+    let t = std::time::Instant::now();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+        s.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await?;
+        let mut got = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = s.read(&mut buf).await?;
+            ensure!(n > 0, "closed early: {}", String::from_utf8_lossy(&got));
+            got.extend_from_slice(&buf[..n]);
+            let text = String::from_utf8_lossy(&got);
+            let Some(end) = text.find("\r\n\r\n") else {
+                continue;
+            };
+            ensure!(text.starts_with("HTTP/1.1 200 OK"), "{text}");
+            let len: usize = text[..end]
+                .lines()
+                .find_map(|l| {
+                    l.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|v| v.trim().to_string())
+                })
+                .context("no Content-Length")?
+                .parse()?;
+            if got.len() >= end + 4 + len {
+                return Ok(());
+            }
+        }
+    })
+    .await
+    .context("http request timed out")??;
+    Ok(t.elapsed())
+}
+
+/// `kubectl port-forward` to port 80 of `pod` on a free local port, or
+/// `None` without kubectl.
+async fn kubectl_forward(ns: &str, pod: &str) -> Result<Option<(tokio::process::Child, u16)>> {
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
+    let child = tokio::process::Command::new("kubectl")
+        .args(["--context", &ctx, "-n", ns, "port-forward"])
+        .args(["--address", "127.0.0.1"])
+        .arg(format!("pod/{pod}"))
+        .arg(":80")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let stdout = child.stdout.take().context("kubectl stdout")?;
+    let mut lines = tokio::io::AsyncBufReadExt::lines(tokio::io::BufReader::new(stdout));
+    let line = tokio::time::timeout(Duration::from_secs(30), lines.next_line())
+        .await
+        .context("kubectl port-forward did not start")??
+        .context("kubectl port-forward exited")?;
+    // "Forwarding from 127.0.0.1:41235 -> 80"
+    let port = line
+        .split_whitespace()
+        .nth(2)
+        .and_then(|a| a.rsplit(':').next())
+        .and_then(|p| p.parse().ok())
+        .with_context(|| format!("unexpected kubectl output: {line}"))?;
+    // Keep reading, so kubectl never blocks on a full pipe.
+    tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
+    Ok(Some((child, port)))
+}
+
+/// New connections through a forward (#374): 50 sequential requests, each
+/// on its own connection, alternating with the same requests through
+/// `kubectl port-forward` to the same pod. All of them succeed, and the p50
+/// stays close to kubectl's (before #374 every connection opened its own
+/// TLS connection and WebSocket to the API server).
+#[tokio::test]
+#[ignore]
+async fn new_connections_are_about_as_fast_as_kubectl() -> Result<()> {
+    const N: usize = 50;
+    in_temp_ns("kl-it-pf-lat", |client, ns| async move {
+        create_web(&client, &ns).await?;
+        let pod = ready_pods(&client, &ns).await?.remove(0);
+        let pod_fwd = PortForward::start(
+            &client,
+            target(ForwardKind::Pod, &ns, &pod),
+            RemotePort::Number(80),
+            LocalPort::Random,
+        )
+        .await?;
+        let svc = target(ForwardKind::Service, &ns, "web");
+        let svc_fwd = eventually("service forward starts", TIMEOUT, || async {
+            match PortForward::start(
+                &client,
+                svc.clone(),
+                RemotePort::Number(80),
+                LocalPort::Random,
+            )
+            .await
+            {
+                Ok(f) => Ok(Some(f)),
+                Err(e) if e.to_string().contains("no ready pod") => Ok(None),
+                Err(e) => Err(e),
+            }
+        })
+        .await?;
+        let kubectl = kubectl_forward(&ns, &pod).await?;
+        let mut ports = vec![("pod", pod_fwd.local_port), ("service", svc_fwd.local_port)];
+        if let Some((_, port)) = &kubectl {
+            ports.push(("kubectl", *port));
+        }
+        // Warm up: the first requests pay for nginx and kubectl starting.
+        for (_, port) in &ports {
+            for _ in 0..3 {
+                timed_get(*port).await?;
+            }
+        }
+        let mut times: Vec<Vec<Duration>> = vec![Vec::new(); ports.len()];
+        for _ in 0..N {
+            for (i, (_, port)) in ports.iter().enumerate() {
+                times[i].push(timed_get(*port).await?);
+            }
+        }
+        let mut stats = Vec::new();
+        for ((name, _), t) in ports.iter().zip(times.iter_mut()) {
+            let (p50, p90) = percentiles(t);
+            println!("{name:8} p50 {p50:6.1} ms  p90 {p90:6.1} ms  ({N} new connections)");
+            stats.push((*name, p50));
+        }
+        for f in [&pod_fwd, &svc_fwd] {
+            let st = f.status();
+            ensure!(st.total_connections as usize >= N + 3, "{st:?}");
+            ensure!(st.last_error.is_empty(), "{st:?}");
+        }
+        // The budget: within 25% (plus 2 ms of noise) of kubectl's p50; on
+        // kind both take a few ms. Without kubectl, a generous fixed one.
+        let kubectl_p50 = stats.iter().find(|s| s.0 == "kubectl").map(|s| s.1);
+        let budget = kubectl_p50.map_or(100.0, |k| k * 1.25 + 2.0);
+        for (name, p50) in stats.iter().filter(|s| s.0 != "kubectl") {
+            ensure!(
+                *p50 <= budget,
+                "{name} forward: p50 {p50:.1} ms over the budget of {budget:.1} ms"
+            );
+        }
+        Ok(())
+    })
+    .await
+}

@@ -3,11 +3,15 @@
 //! kube-rs's `Portforwarder` hands out a raw stream per port and binds
 //! nothing itself, so [`PortForward::start`] binds a local TCP listener and,
 //! for each incoming connection, picks a backend pod that is ready right now
-//! ([`resolve`]) and opens a fresh port-forward to it. That is the kubectl
-//! semantics (several clients can connect at once), except that a Service or
-//! workload forward follows its pods: when the pod serving it goes away the
-//! next connection goes to another one.
+//! ([`resolve`], remembered for a few seconds by [`cache`]) and forwards it
+//! over a port-forward to that pod, one opened ahead of time if the
+//! [`pool`] has one. That is the kubectl semantics (several clients can
+//! connect at once), except that a Service or workload forward follows its
+//! pods: when the pod serving it goes away the next connection goes to
+//! another one.
 
+mod cache;
+mod pool;
 mod resolve;
 mod spec;
 mod tunnel;
@@ -20,9 +24,11 @@ pub use tunnel::PING_EVERY;
 
 use crate::actions::describe_error;
 use anyhow::{bail, Context, Result};
+use cache::Backends;
 use k8s_openapi::api::core::v1::Service;
 use kube::api::Api;
 use kube::Client;
+use pool::{Opener, Pool};
 use resolve::Resolver;
 use serde::Serialize;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -124,15 +130,17 @@ impl PortForward {
                     describe_error(&anyhow::Error::from(e))
                 )
             })?;
-        probe.abort();
+        let pool = Pool::new(opener(client.clone(), ns.clone()));
+        // The probe serves the first connection.
+        pool.put(first.clone(), probe);
 
         let shared = Arc::new(Shared::default());
         shared.set_pod(&first.pod);
         let task = tokio::spawn(serve(
             listener,
-            client.clone(),
-            ns,
-            resolver,
+            Backends::new(resolver, client.clone(), ns.clone()),
+            pool,
+            opener(client.clone(), ns),
             shared.clone(),
             describe_target(&target),
         ));
@@ -230,15 +238,27 @@ fn bind_error(port: u16, e: &std::io::Error) -> anyhow::Error {
     }
 }
 
+/// Opens tunnels to the pods of `namespace`.
+fn opener(client: Client, namespace: String) -> Opener {
+    Arc::new(move |b| {
+        let (client, namespace) = (client.clone(), namespace.clone());
+        Box::pin(async move {
+            Tunnel::open(&client, &namespace, &b.pod, b.port)
+                .await
+                .map_err(|e| describe_error(&anyhow::Error::from(e)))
+        })
+    })
+}
+
 async fn serve(
     listener: TcpListener,
-    client: Client,
-    namespace: String,
-    resolver: Resolver,
+    backends: Arc<Backends>,
+    pool: Pool,
+    open: Opener,
     shared: Arc<Shared>,
     what: String,
 ) {
-    let resolver = Arc::new(resolver);
+    let pool = Arc::new(pool);
     let what = Arc::new(what);
     // Connection tasks are aborted with the listener.
     let mut conns = tokio::task::JoinSet::new();
@@ -248,9 +268,9 @@ async fn serve(
                 let Ok((socket, _)) = accepted else { break };
                 conns.spawn(connect(
                     socket,
-                    client.clone(),
-                    namespace.clone(),
-                    resolver.clone(),
+                    backends.clone(),
+                    pool.clone(),
+                    open.clone(),
                     shared.clone(),
                     what.clone(),
                 ));
@@ -269,16 +289,17 @@ impl Drop for Open {
 }
 
 /// Serve one local connection: pick a ready backend (the current one if it
-/// still is), forward, record what went wrong.
+/// still is), forward over a warm tunnel or a new one, record what went
+/// wrong.
 async fn connect(
     mut socket: tokio::net::TcpStream,
-    client: Client,
-    namespace: String,
-    resolver: Arc<Resolver>,
+    backends: Arc<Backends>,
+    pool: Arc<Pool>,
+    open: Opener,
     shared: Arc<Shared>,
     what: Arc<String>,
 ) {
-    let mut backends = match resolver.backends(&client, &namespace).await {
+    let mut list = match backends.get().await {
         Ok(b) if b.is_empty() => {
             shared.set_error(format!("no ready pod backs {what}"));
             return;
@@ -293,22 +314,23 @@ async fn connect(
         }
     };
     let current = shared.pod();
-    if let Some(i) = backends.iter().position(|b| b.pod == current) {
-        backends.swap(0, i);
+    if let Some(i) = list.iter().position(|b| b.pod == current) {
+        list.swap(0, i);
     }
-    for b in backends.into_iter().take(TRIES_PER_CONNECTION) {
-        let (mut stream, remote_error, closer) =
-            match Tunnel::open(&client, &namespace, &b.pod, b.port).await {
-                Ok(t) => t.into_parts(),
-                Err(e) => {
-                    shared.set_error(format!(
-                        "pod {}: {}",
-                        b.pod,
-                        describe_error(&anyhow::Error::from(e))
-                    ));
-                    continue;
-                }
-            };
+    for b in list.into_iter().take(TRIES_PER_CONNECTION) {
+        let tunnel = match pool.take(&b) {
+            Some(t) => Ok(t),
+            None => open(b.clone()).await,
+        };
+        let (mut stream, remote_error, closer) = match tunnel {
+            Ok(t) => t.into_parts(),
+            Err(e) => {
+                shared.set_error(format!("pod {}: {e}", b.pod));
+                pool.forget(&b);
+                backends.forget();
+                continue;
+            }
+        };
         shared.set_pod(&b.pod);
         shared.connections.fetch_add(1, Ordering::Relaxed);
         shared.total.fetch_add(1, Ordering::Relaxed);
@@ -322,7 +344,9 @@ async fn connect(
         drop(closer);
         match outcome(message, copied) {
             Outcome::Error(msg) => {
-                shared.set_error(format!("pod {} port {}: {msg}", b.pod, b.port))
+                shared.set_error(format!("pod {} port {}: {msg}", b.pod, b.port));
+                pool.forget(&b);
+                backends.forget();
             }
             Outcome::Answered => shared.clear_error(),
             Outcome::Nothing => {}
