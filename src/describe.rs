@@ -519,23 +519,20 @@ Events:
         d.conditions[0].message = "0/2 nodes\n\u{1b}[31mavailable\u{2066}".into();
         d.events[0].reason = "Failed\u{FEFF}Scheduling".into();
         d.events[0].message = "line one\nline two\u{202E}".into();
+        // Only the cleaned text is compared; the output is not printed (it
+        // holds the fixture's env names).
         let out = render_describe(&d);
-        assert!(out.contains("Reason:          Evicted[2J\n"), "{out}");
-        assert!(
-            out.contains("Message:         lowgnp.exe memory\n                 second line\n"),
-            "{out}"
-        );
-        assert!(
-            out.contains("Terminated: Error]0;title (exit code 1)"),
-            "{out}"
-        );
-        assert!(out.contains("0/2 nodes [31mavailable\n"), "{out}");
-        assert!(out.contains("FailedScheduling"), "{out}");
-        assert!(out.contains("line one line two\n"), "{out}");
-        for c in [
+        let lines: Vec<&str> = out.lines().collect();
+        assert!(lines.contains(&"Reason:          Evicted[2J"));
+        assert!(lines.contains(&"Message:         lowgnp.exe memory"));
+        assert!(lines.contains(&"                 second line"));
+        assert!(out.contains("Terminated: Error]0;title (exit code 1)"));
+        assert!(out.contains("0/2 nodes [31mavailable\n"));
+        assert!(out.contains("FailedScheduling"));
+        assert!(out.contains("line one line two\n"));
+        let hidden = [
             '\u{1b}', '\u{7}', '\u{202E}', '\u{202C}', '\u{2066}', '\u{200B}', '\u{FEFF}', '\r',
-        ] {
-            assert!(!out.contains(c), "{c:?} in {out:?}");
-        }
+        ];
+        assert!(!out.chars().any(|c| hidden.contains(&c)));
     }
 }
