@@ -14,6 +14,7 @@ import { after, before, describe, it } from "node:test";
 import { deleteNamespace, kubectl, tempNamespace } from "../lib/cluster.mjs";
 import { setTheme } from "../lib/theme.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { pickNamespaces } from "../lib/table.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 import { openKind } from "./area-2-helpers.mjs";
 
@@ -151,7 +152,10 @@ describe("kubectl-style ages", { timeout: 15 * 60_000 }, () => {
 
   it("a ConfigMap two minutes old shows minutes and seconds, like kubectl", T, async () => {
     const { app } = s;
-    await openKind(app, "Config Maps", ns, "qa-ages");
+    // After the restart the picker holds kube-system: select only the temp namespace.
+    await app.nav("Config Maps");
+    await pickNamespaces(app, [ns]);
+    await app.filter("qa-ages");
     // Under 2 minutes kubectl prints seconds only ("95s").
     await app.waitFor(async () => /^\dm\d+s$/.test(kubectlAges(["configmap", "-n", ns, "qa-ages"]).get("qa-ages")), {
       timeout: 150_000,
