@@ -140,6 +140,8 @@ pub(crate) struct ClusterSession {
     pub(crate) prometheus: Mutex<Option<crate::commands::prometheus::PromCache>>,
     /// Answers of the action access checks (#340).
     pub(crate) access: nauvi::action_access::AccessCache,
+    /// The API server's version, read once per session (#387).
+    pub(crate) server_version: tokio::sync::OnceCell<String>,
     /// When it was last used, and what the idle reaper reported (ADR 0007).
     idle: idle::IdleMark,
     /// Set once the window left the cluster (switched, disconnected, closed

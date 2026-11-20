@@ -171,6 +171,34 @@ pub(crate) async fn cmd_set_context(
     Ok(())
 }
 
+/// How long the status bar waits for the API server's version.
+const VERSION_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The API server's version (`v1.31.2`), read once per session: a failure
+/// is not kept, so the next call asks again. Waits at most `wait`, the
+/// login included.
+pub(crate) async fn server_version(
+    session: &ClusterSession,
+    wait: std::time::Duration,
+) -> Result<String, String> {
+    let read = session.server_version.get_or_try_init(|| async {
+        let client = session.client().await?;
+        nauvi::server_version(&client, wait).await
+    });
+    tokio::time::timeout(wait, read)
+        .await
+        .map_err(|_| "the API server did not say its version in time".to_string())?
+        .cloned()
+}
+
+/// The cluster's Kubernetes version for the status bar (#387). The UI
+/// shows nothing when this fails.
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_server_version(cluster: Cluster) -> Result<String, String> {
+    server_version(&cluster, VERSION_WAIT).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::metrics_hidden;

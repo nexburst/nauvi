@@ -313,9 +313,57 @@ pub fn kubeconfig_proxy_url(
         .map(redact_credentials)
 }
 
+/// The API server's release as it reports it (`gitVersion`: `v1.31.2`,
+/// `v1.31.2+k3s1`), waiting at most `wait`. Text that does not look like a
+/// version (`v` and a digit, then only `[0-9A-Za-z.+-_]`, 40 at most) is
+/// refused, so a server cannot put anything else on screen.
+pub async fn server_version(client: &Client, wait: Duration) -> Result<String, String> {
+    let info = tokio::time::timeout(wait, client.apiserver_version())
+        .await
+        .map_err(|_| "the API server did not say its version in time".to_string())?
+        .map_err(|e| format!("cannot read the API server's version: {}", chain_text(&e)))?;
+    shown_version(&info.git_version)
+}
+
+/// `git_version` if it looks like a release (see [`server_version`]).
+fn shown_version(git_version: &str) -> Result<String, String> {
+    let v = git_version.trim();
+    let ok = v.len() <= 40
+        && v.starts_with('v')
+        && v[1..].starts_with(|c: char| c.is_ascii_digit())
+        && v.chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '-' | '_'));
+    if ok {
+        Ok(v.to_string())
+    } else {
+        let shown: String = v.chars().take(64).collect();
+        Err(format!("Not a Kubernetes version: {shown:?}."))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_versions_are_shown_as_reported_or_refused() {
+        assert_eq!(shown_version("v1.31.2").unwrap(), "v1.31.2");
+        assert_eq!(shown_version(" v1.31.2+k3s1\n").unwrap(), "v1.31.2+k3s1");
+        assert_eq!(
+            shown_version("v1.30.5-eks-ce1d5eb").unwrap(),
+            "v1.30.5-eks-ce1d5eb"
+        );
+        for bad in [
+            "",
+            "1.31.2",
+            "vx",
+            "v1.31.2 <b>",
+            "v1.31.2\u{202e}",
+            &format!("v1.{}", "1".repeat(60)),
+        ] {
+            assert!(shown_version(bad).is_err(), "{bad:?}");
+        }
+    }
 
     #[test]
     fn clients_keep_kube2s_timeout_and_no_retries() {

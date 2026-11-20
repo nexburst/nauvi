@@ -120,6 +120,11 @@ export const commands = {
 	 */
 	cmdListNamespaces: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<NamespaceInfo[] | null>("cmd_list_namespaces", { cluster }, options),
 	/**
+	 *  The cluster's Kubernetes version for the status bar (#387). The UI
+	 *  shows nothing when this fails.
+	 */
+	cmdServerVersion: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_server_version", { cluster }, options),
+	/**
 	 *  Show context `name` (`null`: the kubeconfig's current-context) in the
 	 *  calling window: its own session, opened unless the window is connected
 	 *  to it already (ADR 0007). The cluster it showed stays connected: its

@@ -59,6 +59,8 @@ export interface FakeCluster {
   namespaces: NamespaceInfo[] | null;
   /** What `cmd_default_namespace` returns (`null` = all namespaces). */
   defaultNamespace: string | null;
+  /** What `cmd_server_version` returns; `""`: it fails, like a cluster that does not say. */
+  serverVersion: string;
   /** What `cmd_discover` returns. */
   kinds: ResourceKind[];
   /** Kind ids `cmd_check_access` denies, in every scope. */
@@ -336,6 +338,7 @@ export function defaultCluster(): FakeCluster {
     ],
     catalog: defaultCatalog(),
     defaultNamespace: null,
+    serverVersion: "v1.31.2",
     namespaces: ["default", "demo", "kube-system"].map((name) => ({
       name,
       status: "Active",
