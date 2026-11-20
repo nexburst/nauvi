@@ -504,8 +504,9 @@ Events:
             bytes: 8,
         }];
         let out = render_describe(&d);
-        assert!(out.contains("Data:\n  password: 8 bytes\n"), "{out}");
-        assert!(out.ends_with("Events:          <none>\n"), "{out}");
+        // The output is not printed on failure (it names a Secret key).
+        assert!(out.contains("Data:\n  password: 8 bytes\n"));
+        assert!(out.ends_with("Events:          <none>\n"));
         assert!(!out.contains("Controlled By"));
         assert!(!out.contains("Conditions"));
     }
