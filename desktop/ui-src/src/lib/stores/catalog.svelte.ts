@@ -5,6 +5,7 @@
 import { commands, events } from "../bindings";
 import type { ContextCheck, ExecCommand, SourceInfo } from "../bindings";
 import { checkedOnOpen, commandsToAsk, displayName, runLimited, toggleFavourite } from "../catalog";
+import { shortLabels } from "../contextLabel";
 import { app, loadContexts } from "./app.svelte";
 import { contextSettings, settings, updateSettings } from "./settings.svelte";
 
@@ -173,9 +174,27 @@ export function togglePin(id: string) {
   updateSettings({ favourites: toggleFavourite(settings.current.favourites, id) });
 }
 
-/** The name shown for context `id`. */
+/** The short labels of the kubeconfig contexts (#383), worked out once per list. */
+let labelsOf: { key: string; labels: Map<string, string> } | null = null;
+function shortLabel(id: string): string {
+  const names = app.contexts.map((c) => c.name);
+  const key = names.join("\n");
+  if (labelsOf?.key !== key) labelsOf = { key, labels: shortLabels(names) };
+  return labelsOf.labels.get(id) ?? shortLabels([id]).get(id)!;
+}
+
+/** The name shown for context `id`: the label set in the catalog, else a
+ *  short one (the cluster name of a cloud ARN, a long name cut in the
+ *  middle) that tells it from the other contexts. */
 export function contextLabel(id: string): string {
-  return displayName({ name: id }, contextSettings(id));
+  return displayName({ name: shortLabel(id) }, contextSettings(id));
+}
+
+/** Context `id`'s whole name, for tooltips: the label set in the catalog
+ *  and the context name if they differ. */
+export function contextFullName(id: string): string {
+  const set = contextSettings(id).display_name.trim();
+  return set && set !== id ? `${set} (${id})` : id;
 }
 
 export function openClusterSettings(id: string) {
