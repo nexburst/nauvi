@@ -311,6 +311,13 @@ const WIDGETS: ResourceKind = {
   actions: [{ id: "delete", label: "Delete", destructive: true, type_to_confirm: false, input: "none" }],
 };
 
+/** The Containers cells (#379) of the demo pods that are not one ready `app`. */
+const POD_CONTAINERS: Record<string, string> = {
+  "web-1": "init:init-db=done app=ready sidecar=ready",
+  "web-2": "app=ready sidecar=waiting:CrashLoopBackOff",
+  crashed: "app=waiting:CrashLoopBackOff",
+};
+
 export function defaultCluster(): FakeCluster {
   const kinds = [...DISCOVERED, WIDGETS];
   const row = (
@@ -338,6 +345,8 @@ export function defaultCluster(): FakeCluster {
         owner: name.startsWith("web-") ? "ReplicaSet/web-5d8f" : "",
         qos: status === "Running" ? "Burstable" : "BestEffort",
         ip: status === "Pending" ? "" : `10.244.0.${name.length}`,
+        // #379: web-1 has the init container and sidecar of its detail.
+        containers: POD_CONTAINERS[name] ?? (status === "Running" ? "app=ready" : "app=unknown"),
       },
       undefined,
       podProblem(status),

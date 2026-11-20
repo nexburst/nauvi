@@ -39,6 +39,7 @@ mod jsonpath;
 mod manifests;
 mod mask;
 mod ops;
+mod pod_containers;
 mod pod_detail;
 mod pod_printer;
 mod problems;
@@ -173,6 +174,9 @@ pub enum ColumnKind {
     /// outside the core, `apps` and `batch` groups. The UI links it to the
     /// owner's detail.
     Owner,
+    /// A pod's containers and their states (`init:setup=done app=ready`,
+    /// see `pod_containers`), drawn by the UI as one square each.
+    Containers,
 }
 
 /// A table column as the UI sees it.

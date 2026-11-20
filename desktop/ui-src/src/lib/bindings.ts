@@ -930,7 +930,12 @@ export type ColumnKind = "text" |
  *  outside the core, `apps` and `batch` groups. The UI links it to the
  *  owner's detail.
  */
-"owner";
+"owner" | 
+/**
+ *  A pod's containers and their states (`init:setup=done app=ready`,
+ *  see `pod_containers`), drawn by the UI as one square each.
+ */
+"containers";
 
 export type ConditionInfo = {
 	type: string,

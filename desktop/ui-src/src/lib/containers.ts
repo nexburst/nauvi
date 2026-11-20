@@ -4,7 +4,7 @@ import type { EnvInfo, MountInfo, StateInfo } from "./bindings";
 export type Tone = "ok" | "warn" | "bad" | "muted";
 
 /** Waiting reasons that mean something is broken, not just starting. */
-const BAD_WAITING = new Set([
+export const BAD_WAITING: ReadonlySet<string> = new Set([
   "CrashLoopBackOff",
   "ImagePullBackOff",
   "ErrImagePull",

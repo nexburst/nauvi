@@ -95,6 +95,15 @@ const fn owner(key: &'static str, label: &'static str) -> Col {
         default_hidden: false,
     }
 }
+const fn containers(key: &'static str, label: &'static str) -> Col {
+    Col {
+        key,
+        label,
+        kind: ColumnKind::Containers,
+        src: StaticSrc::Func(super::pod_containers::pod_containers),
+        default_hidden: false,
+    }
+}
 const fn ui(key: &'static str, label: &'static str, kind: ColumnKind) -> Col {
     Col {
         key,
@@ -148,6 +157,7 @@ pub(super) const KINDS: &[KindSpec] = &[
                 "Nominated Node",
                 ".status.nominatedNodeName",
             )),
+            off(containers("containers", "Containers")),
         ],
     },
     KindSpec {
@@ -1117,7 +1127,8 @@ mod tests {
                 "owner",
                 "qos",
                 "ip",
-                "nominated"
+                "nominated",
+                "containers"
             ]
         );
         let pods = columns_for(&rref("", "Pod", "pods", true), &[]);
@@ -1126,7 +1137,7 @@ mod tests {
             .filter(|c| c.default_hidden)
             .map(|c| c.key.as_str())
             .collect();
-        assert_eq!(off, ["owner", "qos", "ip", "nominated"]);
+        assert_eq!(off, ["owner", "qos", "ip", "nominated", "containers"]);
         // Every other kind's columns are on by default.
         for k in KINDS.iter().filter(|k| k.kind != "Pod") {
             assert!(k.columns.iter().all(|c| !c.default_hidden), "{}", k.kind);
@@ -1195,10 +1206,11 @@ mod tests {
         assert_eq!(cell(&c, "qos"), "Burstable");
         assert_eq!(cell(&c, "ip"), "10.244.0.7");
         assert_eq!(cell(&c, "nominated"), "node-2");
+        assert_eq!(cell(&c, "containers"), "a=unknown");
 
         // No owner, no IP yet, not nominated: empty cells.
         let bare = cells("", "Pod", true, json!({"metadata": meta("p")}));
-        for key in ["owner", "qos", "ip", "nominated"] {
+        for key in ["owner", "qos", "ip", "nominated", "containers"] {
             assert_eq!(cell(&bare, key), "", "{key}");
         }
     }

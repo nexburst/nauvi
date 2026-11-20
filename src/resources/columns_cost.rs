@@ -1,4 +1,4 @@
-//! What the off-by-default Pod columns (#378) cost a 5,000-pod table.
+//! What the off-by-default Pod columns (#378, #379) cost a 5,000-pod table.
 //!
 //! A table watch keeps only the rows (#397), and every row carries a cell
 //! for every column, shown or not, so the four optional columns are paid
@@ -15,7 +15,8 @@ use serde_json::json;
 const PODS: usize = 5_000;
 
 /// A Deployment's pod, with what a running pod has: an owner, a QoS class,
-/// an IP (no nominated node: only preempting pods have one).
+/// an IP (no nominated node: only preempting pods have one), and an init
+/// container and a sidecar for the Containers cell.
 fn pod(i: usize) -> DynamicObject {
     serde_json::from_value(json!({
         "apiVersion": "v1", "kind": "Pod",
@@ -25,12 +26,20 @@ fn pod(i: usize) -> DynamicObject {
             "ownerReferences": [{"apiVersion": "apps/v1", "kind": "ReplicaSet",
                                  "name": "web-7d9f8b6c5d", "controller": true}]
         },
-        "spec": { "nodeName": "worker-3", "containers": [{"name": "app"}] },
+        "spec": {
+            "nodeName": "worker-3",
+            "initContainers": [{"name": "migrate"}],
+            "containers": [{"name": "app"}, {"name": "istio-proxy"}]
+        },
         "status": {
             "phase": "Running", "qosClass": "Burstable",
             "podIP": format!("10.244.{}.{}", i / 250, i % 250),
-            "containerStatuses": [{"ready": true, "restartCount": 0,
-                                   "state": {"running": {}}}]
+            "initContainerStatuses": [{"name": "migrate", "ready": false,
+                "state": {"terminated": {"exitCode": 0, "reason": "Completed"}}}],
+            "containerStatuses": [
+                {"name": "app", "ready": true, "restartCount": 0, "state": {"running": {}}},
+                {"name": "istio-proxy", "ready": true, "restartCount": 0, "state": {"running": {}}}
+            ]
         }
     }))
     .unwrap()
@@ -42,29 +51,37 @@ fn cells_heap(row: &ResourceRow) -> usize {
         + row.cells.iter().map(String::capacity).sum::<usize>()
 }
 
+/// What `with` costs over `without` at [`PODS`] pods: heap of the cells in
+/// the core, bytes of JSON to the page.
+fn extra(r: &ResourceRef, with: &[ColumnDef], without: &[ColumnDef]) -> (usize, usize) {
+    let (mut heap, mut json) = (0, 0);
+    for i in 0..PODS {
+        let obj = pod(i);
+        let a = make_row(r, with, &obj);
+        let b = make_row(r, without, &obj);
+        heap += cells_heap(&a) - cells_heap(&b);
+        json += serde_json::to_vec(&a).unwrap().len() - serde_json::to_vec(&b).unwrap().len();
+    }
+    (heap, json)
+}
+
 #[test]
 fn optional_pod_columns_cost_at_5k_pods() {
     let r = rref("", "Pod", "pods", true);
     let all = columns_for(&r, &[]);
     let default: Vec<_> = all.iter().filter(|c| !c.default_hidden).cloned().collect();
-    assert_eq!(all.len() - default.len(), 4);
+    assert_eq!(all.len() - default.len(), 5);
+    let no_containers: Vec<_> = all
+        .iter()
+        .filter(|c| c.key != "containers")
+        .cloned()
+        .collect();
 
-    let (mut heap_all, mut heap_default, mut json_all, mut json_default) = (0, 0, 0, 0);
-    for i in 0..PODS {
-        let obj = pod(i);
-        let with = make_row(&r, &all, &obj);
-        let without = make_row(&r, &default, &obj);
-        heap_all += cells_heap(&with);
-        heap_default += cells_heap(&without);
-        json_all += serde_json::to_vec(&with).unwrap().len();
-        json_default += serde_json::to_vec(&without).unwrap().len();
-    }
-    let heap = heap_all - heap_default;
-    let json = json_all - json_default;
+    // #378: Controlled By, QoS, IP, Nominated Node.
+    let (heap, json) = extra(&r, &no_containers, &default);
     println!(
-        "optional pod columns at {PODS} pods: +{heap} B of cells in the core \
-         ({} B a pod, {heap_default} B without them), +{json} B of JSON to the page \
-         ({} B a pod, {json_default} B without them)",
+        "#378 pod columns at {PODS} pods: +{heap} B of cells in the core ({} B a pod), \
+         +{json} B of JSON to the page ({} B a pod)",
         heap / PODS,
         json / PODS
     );
@@ -73,4 +90,17 @@ fn optional_pod_columns_cost_at_5k_pods() {
     // core's rows of a 5,000-object table (#397).
     assert!(heap < 1_000_000, "{heap} B of cells");
     assert!(json < 500_000, "{json} B of JSON");
+
+    // #379: Containers, for an init container and two containers.
+    let (heap, json) = extra(&r, &all, &no_containers);
+    println!(
+        "Containers column at {PODS} pods: +{heap} B of cells in the core ({} B a pod), \
+         +{json} B of JSON to the page ({} B a pod)",
+        heap / PODS,
+        json / PODS
+    );
+    // Measured: 69 B a pod of cells (0.35 MB) and 48 B of JSON
+    // (`init:migrate=done app=ready istio-proxy=ready`).
+    assert!(heap < 500_000, "{heap} B of cells");
+    assert!(json < 300_000, "{json} B of JSON");
 }
