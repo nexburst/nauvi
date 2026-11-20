@@ -148,14 +148,26 @@ const mac = isMacPlatform();
 const ZOOM: Partial<Record<Command, () => void>> = { zoomIn, zoomOut, zoomReset };
 
 /**
- * Letters are row keys while the table has the keyboard, or nothing has and
- * no panel is open. With a panel open and the focus on the page (a click
- * into a read-only editor, say), a typed letter is not meant for the table.
+ * Letters are row keys until the pointer goes into the detail panel: a
+ * click on a read-only editor there leaves the focus on the table (WebKitGTK),
+ * and what is typed next is not meant for the row. A click anywhere else,
+ * or the keyboard back in the table, makes them row keys again.
  */
+let pointerInPanel = false;
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "mousedown",
+    (e) => (pointerInPanel = e.target instanceof Element && !!e.target.closest('[data-testid="detail-panel"]')),
+    true,
+  );
+  window.addEventListener("focusin", (e) => {
+    if (e.target instanceof Element && e.target.closest('[role="grid"]')) pointerInPanel = false;
+  });
+}
 function rowKeysApply(): boolean {
+  if (pointerInPanel) return false;
   const a = document.activeElement;
-  if (a?.closest('[role="grid"]')) return true;
-  return (!a || a === document.body) && !document.querySelector('[data-testid="detail-panel"]');
+  return !a || a === document.body || !!a.closest('[role="grid"]');
 }
 
 /**

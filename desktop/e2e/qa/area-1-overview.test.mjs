@@ -289,16 +289,16 @@ describe("area 1: an unreachable cluster", { timeout: 5 * 60_000 }, () => {
     console.log(`banner: ${text}; status: ${await app.statusText()}`);
     assert.match(text, /reach|connect/i);
     assert.match(await (await app.find(By.css("header .dot"))).getAttribute("class"), /\berror\b/);
-    // Each retry shows "Connecting…" again, then fails.
+    // Each retry shows "Retrying…" (the first attempt said "Connecting…"), then fails.
     await app.js(`
       const el = document.querySelector('[data-testid="connection-status"]');
       window.__qaStatus = [];
       new MutationObserver(() => window.__qaStatus.push(el.textContent)).observe(el, { childList: true, characterData: true, subtree: true });
     `);
     await app.waitFor(
-      async () => (await app.js("return window.__qaStatus")).filter((t) => t === "Connecting…").length >= 2,
+      async () => (await app.js("return window.__qaStatus")).filter((t) => t === "Connecting…" || t === "Retrying…").length >= 2,
       // The waits between attempts grow (lib/retry.ts): two of them take up to 100 s.
-      { timeout: 150_000, message: "two more attempts (Connecting… twice)" },
+      { timeout: 150_000, message: "two more attempts (Retrying… twice)" },
     );
     console.log(`status: ${(await app.js("return window.__qaStatus")).join(" -> ")}`);
     // Still red, still the banner.
