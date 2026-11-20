@@ -182,6 +182,9 @@ export function container(name: string, image: string, more: Partial<ContainerDe
     kind: "regular",
     image,
     image_id: `docker.io/library/${image}@sha256:0123`,
+    command: [],
+    args: [],
+    secrets_hidden: false,
     state: { ...NO_STATE, state: "running", since: "1h" },
     last_state: NO_STATE,
     ready: true,
@@ -604,7 +607,31 @@ function podDetails(kinds: ResourceKind[]): Record<string, ResourceDetail> {
           probes: [
             { kind: "liveness", summary: "http-get :8080/healthz delay=5s timeout=1s period=10s #success=1 #failure=3" },
           ],
-          mounts: [{ name: "config", path: "/etc/nginx/conf.d", sub_path: "", read_only: true }],
+          command: ["/docker-entrypoint.sh"],
+          // As the backend sends it: the token already masked.
+          args: [
+            "nginx",
+            "-g",
+            "daemon off; worker_processes 2; error_log /dev/stderr info; pid /tmp/nginx.pid;",
+            "--token=••••",
+          ],
+          secrets_hidden: true,
+          mounts: [
+            {
+              name: "config",
+              path: "/etc/nginx/conf.d",
+              sub_path: "",
+              read_only: true,
+              source: "configmap nginx-conf",
+            },
+            {
+              name: "kube-api-access-x7k2p",
+              path: "/var/run/secrets/kubernetes.io/serviceaccount",
+              sub_path: "",
+              read_only: true,
+              source: "projected (service account token)",
+            },
+          ],
           env: [
             { name: "MODE", source: "" },
             { name: "DB_PASSWORD", source: "secret:db-creds/password" },

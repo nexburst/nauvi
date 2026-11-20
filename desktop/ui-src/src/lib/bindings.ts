@@ -939,6 +939,15 @@ export type ContainerDetail = {
 	kind: ContainerKind,
 	image: string,
 	image_id: string,
+	/**
+	 *  The entrypoint override (`command`), empty for the image's own.
+	 *  Values that look like secrets are replaced by `••••`.
+	 */
+	command: string[],
+	/**  `args`, masked like `command`. */
+	args: string[],
+	/**  Whether anything in `command` or `args` was hidden. */
+	secrets_hidden: boolean,
 	state: StateInfo,
 	last_state: StateInfo,
 	ready: boolean,
@@ -1866,6 +1875,12 @@ export type MountInfo = {
 	path: string,
 	sub_path: string,
 	read_only: boolean,
+	/**
+	 *  What the volume is: `secret db-creds`, `configmap cfg`, `pvc data`,
+	 *  `projected (service account token)`, `emptyDir`. Empty when the pod
+	 *  has no volume of that name.
+	 */
+	source: string,
 };
 
 /**  The `cluster` argument of a mutating command. */
