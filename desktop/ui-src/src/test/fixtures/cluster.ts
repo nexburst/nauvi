@@ -144,6 +144,18 @@ export interface FakeCluster {
   /** The kubectl versions `cmd_kubectl_match` reports (#331); by default the
    *  user's v1.28.0 against a v1.31.2 server, nothing downloaded. */
   kubectl?: FakeKubectl;
+  /** Ask AI (#376): the CLIs on PATH (by id), whether the nauvi CLI is
+   *  there too, and why the custom command cannot run. By default no CLI
+   *  (so no Ask AI anywhere), and nauvi. */
+  askAi?: FakeAskAi;
+}
+
+/** What `cmd_ask_ai_setup` finds in the fake (#376). */
+export interface FakeAskAi {
+  found: string[];
+  nauvi: boolean;
+  /** Why the custom command cannot run (`""`: it can). */
+  customError: string;
 }
 
 /** The kubectl download (#331) in the fake. */

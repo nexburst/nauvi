@@ -11,6 +11,7 @@
 const GATED: &[&str] = &[
     "cmdApplyManifests",
     "cmdApplyResourceYaml",
+    "cmdAskAiStart",
     "cmdAttachStart",
     "cmdBulkDelete",
     "cmdDebugStart",

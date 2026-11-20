@@ -62,6 +62,10 @@ export interface SettingsPatch {
   kubectl_match?: boolean;
   /** The collapsed sidebar sections, the whole list (#383). */
   collapsed_sections?: string[];
+  /** Ask AI's CLI (#376): an id, `custom`, or "" for the first found. */
+  ask_ai_cli?: string;
+  /** Ask AI's custom command (#376). */
+  ask_ai_command?: string;
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -91,6 +95,8 @@ export function defaultSettings(): Settings {
     searches: { recent: [], starred: [] },
     kubectl_match: false,
     collapsed_sections: [],
+    ask_ai_cli: "",
+    ask_ai_command: "",
   };
 }
 
@@ -153,6 +159,8 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.kubectl_match != null) next.kubectl_match = patch.kubectl_match;
   if (patch.collapsed_sections != null)
     next.collapsed_sections = [...new Set(patch.collapsed_sections.filter(Boolean))];
+  if (patch.ask_ai_cli != null) next.ask_ai_cli = patch.ask_ai_cli.trim();
+  if (patch.ask_ai_command != null) next.ask_ai_command = patch.ask_ai_command.trim();
   return next;
 }
 

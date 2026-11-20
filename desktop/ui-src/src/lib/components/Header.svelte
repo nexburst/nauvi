@@ -19,6 +19,7 @@
   import { confirmDiscard } from "../stores/unsaved.svelte";
   import { isMacPlatform, shortcutHint } from "../keys";
   import HelpMenu from "./HelpMenu.svelte";
+  import AskAiButton from "./AskAiButton.svelte";
   import NotificationBell from "./NotificationBell.svelte";
   import ModeBadge from "./ModeBadge.svelte";
   import { contextMode, contextNameOf } from "../stores/contextMode.svelte";
@@ -240,6 +241,7 @@
     {/key}
     <span class="sr">Refresh</span>
   </button>
+  <AskAiButton />
   <NotificationBell />
   <HelpMenu />
   <button class="gear" type="button" aria-label="Settings" title="Settings" onclick={openSettings}>

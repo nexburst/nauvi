@@ -21,6 +21,8 @@
   // xterm loads with the first terminal tab, not with the app (#353).
   const terminalTarget = $derived.by((): TerminalTarget | null => {
     if (tab.type === "localShell") return { kind: "local", namespace: tab.namespace };
+    if (tab.type === "askAi")
+      return { kind: "askAi", namespace: tab.namespace, cli: tab.cli, prompt: tab.prompt, allowWrites: tab.allowWrites };
     if (tab.type === "debug") return { kind: "debug", pod: tab.pod, target: tab.target, image: tab.image };
     if (tab.type === "attach") return { kind: "attach", pod: tab.pod, container: tab.container };
     if (tab.type === "nodeShell") return { kind: "nodeShell", node: tab.node, namespace: tab.namespace };
@@ -29,7 +31,13 @@
   });
 
   onMount(async () => {
-    if (tab.type === "localShell" || tab.type === "debug" || tab.type === "nodeShell" || tab.type === "attach") {
+    if (
+      tab.type === "localShell" ||
+      tab.type === "askAi" ||
+      tab.type === "debug" ||
+      tab.type === "nodeShell" ||
+      tab.type === "attach"
+    ) {
       ready = true;
       return;
     }

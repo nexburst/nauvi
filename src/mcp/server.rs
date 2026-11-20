@@ -80,8 +80,14 @@ impl NauviMcp {
                 None => return Ok(()),
             },
         };
-        let kubeconfig = self.opts.kubeconfig.as_deref();
-        match crate::context_mode::mode_for_cli(&path, kubeconfig, &context) {
+        // The client's own files and `--mode-file` together: the strictest
+        // mode wins, so naming another file never relaxes it.
+        match crate::context_mode::mode_for_mcp(
+            &path,
+            self.opts.kubeconfig.as_deref(),
+            self.opts.mode_file.as_deref(),
+            &context,
+        ) {
             CliMode::Known(ContextMode::Normal) => Ok(()),
             CliMode::Known(ContextMode::ReadOnly) => Err(format!(
                 "{}; nauvi mcp follows the app's setting",
@@ -170,5 +176,136 @@ impl ServerHandler for NauviMcp {
             Err(text) => CallToolResult::error(vec![ContentBlock::text(text)]),
         };
         Ok(result.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context_mode::ModeSource;
+    use std::path::{Path, PathBuf};
+
+    const KUBECONFIG: &str = "apiVersion: v1\nkind: Config\ncurrent-context: prod\n\
+        clusters:\n- name: c\n  cluster: {server: \"https://127.0.0.1:1\"}\n\
+        users:\n- name: u\n  user: {token: t}\n\
+        contexts:\n- name: prod\n  context: {cluster: c, user: u}\n";
+
+    fn opts(dir: &Path, kubeconfig: &Path, mode_file: Option<&Path>) -> McpOptions {
+        McpOptions {
+            allow_writes: true,
+            kubeconfig: Some(kubeconfig.to_path_buf()),
+            context: Some("prod".into()),
+            app_settings: Some(dir.join("settings.json")),
+            mode_file: mode_file.map(Path::to_path_buf),
+        }
+    }
+
+    fn check(dir: &Path, kubeconfig: &Path, mode_file: Option<&Path>) -> Result<(), String> {
+        NauviMcp::new(opts(dir, kubeconfig, mode_file)).check_mode()
+    }
+
+    /// The app's settings: `files` are added kubeconfigs, each with the
+    /// mode stored for its `prod` (`None`: none stored, so normal).
+    fn write_settings(dir: &Path, files: &[(&str, Option<&str>)]) {
+        let mut contexts = serde_json::Map::new();
+        let mut sources = Vec::new();
+        for (name, mode) in files {
+            let file = dir.join(name);
+            sources.push(file.display().to_string());
+            if let Some(mode) = mode {
+                contexts.insert(
+                    format!("prod ({name})"),
+                    serde_json::json!({
+                        "mode": mode,
+                        "mode_source": serde_json::to_value(ModeSource::new(&file, "prod")).unwrap(),
+                    }),
+                );
+            }
+        }
+        let text = serde_json::json!({ "kubeconfig_sources": sources, "contexts": contexts });
+        std::fs::write(dir.join("settings.json"), text.to_string()).unwrap();
+    }
+
+    fn test_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("nauvi-376-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for f in ["work.yaml", "prod.yaml", "dev.yaml", "other.yaml"] {
+            std::fs::write(dir.join(f), KUBECONFIG).unwrap();
+        }
+        dir
+    }
+
+    /// #376: an Ask AI terminal's `nauvi mcp` reads a per-terminal
+    /// kubeconfig (in the temp directory); `--mode-file` names the file the
+    /// app knows the context from, so writes work on a normal context and
+    /// are refused on a protected or read-only one.
+    #[test]
+    fn mode_file_finds_the_apps_mode_of_the_context() {
+        let dir = test_dir("mode");
+        let temp = crate::TempKubeconfig::create(KUBECONFIG).unwrap();
+        let work = dir.join("work.yaml");
+
+        write_settings(&dir, &[("work.yaml", None)]);
+        // Without it, the per-terminal file is unknown: refused.
+        let err = check(&dir, temp.path(), None).unwrap_err();
+        assert!(err.contains("not in nauvi's cluster catalog"), "{err}");
+        // With it, a normal context allows writes.
+        assert_eq!(check(&dir, temp.path(), Some(&work)), Ok(()));
+        write_settings(&dir, &[("work.yaml", Some("normal"))]);
+        assert_eq!(check(&dir, temp.path(), Some(&work)), Ok(()));
+
+        write_settings(&dir, &[("work.yaml", Some("protected"))]);
+        let err = check(&dir, temp.path(), Some(&work)).unwrap_err();
+        assert!(err.contains("protected"), "{err}");
+        write_settings(&dir, &[("work.yaml", Some("readOnly"))]);
+        let err = check(&dir, temp.path(), Some(&work)).unwrap_err();
+        assert!(err.contains("read-only"), "{err}");
+        drop(temp);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Security review of #376: `--kubeconfig prod.yaml --context prod
+    /// --mode-file dev.yaml --allow-writes` must not write to a protected
+    /// prod. The client's own files count too, and the strictest mode wins;
+    /// an unknown result is ignored only for a per-terminal temp file.
+    #[test]
+    fn mode_file_never_relaxes_the_clients_own_mode() {
+        let dir = test_dir("bypass");
+        let (prod, dev, other) = (
+            dir.join("prod.yaml"),
+            dir.join("dev.yaml"),
+            dir.join("other.yaml"),
+        );
+        write_settings(
+            &dir,
+            &[
+                ("prod.yaml", Some("protected")),
+                ("dev.yaml", Some("normal")),
+            ],
+        );
+        let err = check(&dir, &prod, Some(&dev)).unwrap_err();
+        assert!(err.contains("protected"), "{err}");
+        write_settings(&dir, &[("prod.yaml", Some("readOnly")), ("dev.yaml", None)]);
+        let err = check(&dir, &prod, Some(&dev)).unwrap_err();
+        assert!(err.contains("read-only"), "{err}");
+        // A stricter mode file wins over a normal client file too.
+        write_settings(
+            &dir,
+            &[("prod.yaml", None), ("dev.yaml", Some("protected"))],
+        );
+        assert!(check(&dir, &prod, Some(&dev)).is_err());
+        assert_eq!(check(&dir, &prod, None), Ok(()));
+        // A client file the catalog does not know is not ignored: only the
+        // per-terminal temp file is.
+        write_settings(&dir, &[("dev.yaml", Some("normal"))]);
+        let err = check(&dir, &other, Some(&dev)).unwrap_err();
+        assert!(err.contains("not in nauvi's cluster catalog"), "{err}");
+        // A file named like a per-terminal one, outside the temp directory,
+        // is not one.
+        let fake = dir.join("nauvi-shell-1-1.yaml");
+        std::fs::write(&fake, KUBECONFIG).unwrap();
+        assert!(check(&dir, &fake, Some(&dev)).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

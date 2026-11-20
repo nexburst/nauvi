@@ -87,7 +87,11 @@ async fn run(cli: Cli) -> Result<()> {
         clap_complete::generate(shell, &mut Cli::command(), "nauvi", &mut std::io::stdout());
         return Ok(());
     }
-    if let Commands::Mcp { allow_writes } = cli.command {
+    if let Commands::Mcp {
+        allow_writes,
+        mode_file,
+    } = cli.command
+    {
         // Connects on the first tool call, never interactively: stdin is
         // the protocol.
         let opts = nauvi::mcp::McpOptions {
@@ -95,6 +99,7 @@ async fn run(cli: Cli) -> Result<()> {
             kubeconfig: cli.kubeconfig,
             context: cli.context,
             app_settings: None,
+            mode_file,
         };
         return nauvi::mcp::serve_stdio(opts).await;
     }

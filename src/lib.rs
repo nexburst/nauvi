@@ -26,6 +26,7 @@ mod workload_usage;
 pub mod action_access;
 pub mod actions;
 pub mod applications;
+pub mod ask_ai;
 pub mod attach;
 pub mod auth;
 pub mod bounded_list;

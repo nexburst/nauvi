@@ -43,6 +43,20 @@ export const commands = {
 	 */
 	cmdApplicationsStart: (cluster: string, id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_start", { cluster, id, namespaces }, options),
 	cmdApplicationsStop: (cluster: string, id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_stop", { cluster, id }, options),
+	/**
+	 *  The CLIs Ask AI can start, from this process's `PATH` (the login
+	 *  shell's, imported at start-up) and the settings. Reads only.
+	 */
+	cmdAskAiSetup: (options?: InvokeOptions) => __TAURI_INVOKE<AskAiSetup>("cmd_ask_ai_setup", undefined, options),
+	/**
+	 *  Start the AI CLI `cli` (an id of [`AskAiSetup::found`]) in a new local
+	 *  terminal at the app's context and `namespace` (`null`: the context's
+	 *  own), with `prompt` as its first message, and the nauvi MCP tools for
+	 *  that context: read-only, unless `allow_writes` and the context is
+	 *  normal. On a protected or read-only context writes are refused here,
+	 *  and `nauvi mcp` itself refuses them too.
+	 */
+	cmdAskAiStart: (cluster: MutationTarget, namespace: string | null, cli: string, prompt: string, allowWrites: boolean, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<AskAiStarted>("cmd_ask_ai_start", { cluster, namespace, cli, prompt, allowWrites, cols, rows, onOutput }, options),
 	/**  Whether the app starts when the user logs in. */
 	cmdAutostartEnabled: (options?: InvokeOptions) => __TAURI_INVOKE<boolean>("cmd_autostart_enabled", undefined, options),
 	/**  Turn start at login on or off; returns the state afterwards. */
@@ -799,6 +813,56 @@ export type ApplyStatus =
  *  this same manifest creates.
  */
 "pending";
+
+/**  A CLI Ask AI can start. */
+export type AskAiCli = {
+	/**  `claude`, `codex`, `gemini` or `custom`. */
+	id: string,
+	label: string,
+	/**  Where it was found (`""`: not found). */
+	path: string,
+	/**  How to install it (`""` for the custom command). */
+	install: string,
+};
+
+/**  What Ask AI can start on this machine. */
+export type AskAiSetup = {
+	/**
+	 *  The known CLIs found on `PATH`, then the custom command if it is set
+	 *  and can run.
+	 */
+	found: AskAiCli[],
+	/**  The known CLIs not on `PATH`, with how to install them. */
+	missing: AskAiCli[],
+	/**
+	 *  The one Ask AI starts: the one set in Settings if it is found, else
+	 *  the first found (`""`: none).
+	 */
+	chosen: string,
+	/**  The `nauvi` CLI that serves the MCP tools (`""`: not on `PATH`). */
+	nauvi: string,
+	/**
+	 *  Why the custom command set in Settings cannot run (`""`: it can, or
+	 *  none is set).
+	 */
+	custom_error: string,
+};
+
+/**  A started Ask AI terminal. */
+export type AskAiStarted = {
+	session: string,
+	context: string,
+	namespace: string,
+	/**  The CLI's name. */
+	cli: string,
+	/**
+	 *  The nauvi MCP tools offered: `read-only`, `writes`, or `""` (the
+	 *  `nauvi` CLI is not on `PATH`).
+	 */
+	mcp: string,
+	/**  As in a local shell: the downloaded kubectl first on `PATH`. */
+	kubectl: string,
+};
 
 /**  A saved forward that did not start automatically, and why. */
 export type AutoStartError = {
@@ -1641,7 +1705,9 @@ export type HelpItem =
 /**  A new GitHub issue with the diagnostics filled in. */
 "report_bug" | 
 /**  The folder with the app log, in the file manager. */
-"log_folder";
+"log_folder" | 
+/**  The README's section on AI assistants and `nauvi mcp` (#376). */
+"ai_assistants";
 
 /**  The counts of one workload kind. */
 export type KindCounts = {
@@ -2521,6 +2587,8 @@ export type SettingsPatch_Deserialize = {
 	kubectl_match?: boolean | null,
 	/**  The whole list of collapsed sidebar sections (#383). */
 	collapsed_sections?: string[] | null,
+	ask_ai_cli?: string | null,
+	ask_ai_command?: string | null,
 };
 
 /**
@@ -2552,6 +2620,8 @@ export type SettingsPatch_Serialize = {
 	kubectl_match?: boolean | null,
 	/**  The whole list of collapsed sidebar sections (#383). */
 	collapsed_sections?: string[] | null,
+	ask_ai_cli?: string | null,
+	ask_ai_command?: string | null,
 };
 
 export type Settings_Deserialize = {
@@ -2635,6 +2705,16 @@ export type Settings_Deserialize = {
 	 *  `network`, `helm`, `custom`...). Empty: every section open.
 	 */
 	collapsed_sections?: string[],
+	/**
+	 *  Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
+	 *  (the first known one found on `PATH`).
+	 */
+	ask_ai_cli?: string,
+	/**
+	 *  Ask AI's custom command, the program and its arguments (#376). Split
+	 *  into words, never run through a shell.
+	 */
+	ask_ai_command?: string,
 };
 
 export type Settings_Serialize = {
@@ -2718,6 +2798,16 @@ export type Settings_Serialize = {
 	 *  `network`, `helm`, `custom`...). Empty: every section open.
 	 */
 	collapsed_sections: string[],
+	/**
+	 *  Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
+	 *  (the first known one found on `PATH`).
+	 */
+	ask_ai_cli: string,
+	/**
+	 *  Ask AI's custom command, the program and its arguments (#376). Split
+	 *  into words, never run through a shell.
+	 */
+	ask_ai_command: string,
 };
 
 /**  One source of contexts, for the catalog's list of sources. */

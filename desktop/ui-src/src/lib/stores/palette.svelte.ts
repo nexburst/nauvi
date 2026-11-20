@@ -28,6 +28,7 @@ import { dockMenuFor } from "../dock";
 import { dock, openDockTab, toggleDock } from "./dock.svelte";
 import { activeTable, openHelp, openPalette, openSettings } from "./keyboard.svelte";
 import { openLocalShell } from "./localShell";
+import { askAiAvailable, openAskAi } from "./askAi.svelte";
 import { whenDiscarded } from "./unsaved.svelte";
 import { checkForUpdates } from "./updates.svelte";
 import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
@@ -126,6 +127,15 @@ export function paletteItems(): PaletteItem[] {
       terms: ["shell", "terminal", "kubectl", "console", "local"],
       run: openLocalShell,
     },
+    // Ask AI (#376): always listed, so it can say what to install.
+    {
+      id: "cmd:ask-ai",
+      group: "Command",
+      label: "Ask AI…",
+      detail: "your AI CLI in a terminal, with the nauvi tools",
+      terms: ["ai", "assistant", "claude", "codex", "gemini", "agent", "mcp", "llm"],
+      run: () => openAskAi(),
+    },
   ];
   if (current) {
     items.push({
@@ -195,6 +205,17 @@ export function paletteItems(): PaletteItem[] {
           detail: targetLabel(targets[0]),
           access: a.id,
           run: () => requestAction(kind, targets, a, replicasFromRow(row ?? undefined, keys)),
+        });
+      }
+      // Ask AI about the focused row (#376).
+      if (askAiAvailable()) {
+        items.push({
+          id: "action:ask-ai",
+          group: "Action",
+          label: "Ask AI about this…",
+          detail: targetLabel(t),
+          terms: ["ai", "assistant", "claude", "codex", "gemini", "agent"],
+          run: () => openAskAi({ namespace: t.namespace, kind: kind.resource.kind, name: t.name }),
         });
       }
     }

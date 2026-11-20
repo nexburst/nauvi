@@ -84,12 +84,12 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
 }
 
 /// A running local shell. Dropping it kills the shell and deletes its temp
-/// kubeconfig.
+/// files (kubeconfig; an Ask AI tab's MCP config and prompt).
 pub(crate) struct LocalShell {
     input: mpsc::Sender<Vec<u8>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
-    _kubeconfig: Option<TempKubeconfig>,
+    _files: Vec<TempKubeconfig>,
 }
 
 impl LocalShell {
@@ -100,7 +100,7 @@ impl LocalShell {
         spec: &ShellSpec,
         cols: u16,
         rows: u16,
-        kubeconfig: Option<TempKubeconfig>,
+        files: Vec<TempKubeconfig>,
         mut on_output: impl FnMut(String) + Send + 'static,
         on_exit: impl FnOnce() + Send + 'static,
     ) -> Result<Self, String> {
@@ -185,7 +185,7 @@ impl LocalShell {
             input,
             master: Mutex::new(pair.master),
             killer: Mutex::new(killer),
-            _kubeconfig: kubeconfig,
+            _files: files,
         })
     }
 
@@ -269,7 +269,7 @@ mod tests {
     fn run_in_pty(
         script: &str,
         env: Vec<(OsString, OsString)>,
-        kubeconfig: Option<TempKubeconfig>,
+        files: Vec<TempKubeconfig>,
     ) -> String {
         let spec = ShellSpec {
             program: "/bin/sh".into(),
@@ -283,7 +283,7 @@ mod tests {
             &spec,
             80,
             24,
-            kubeconfig,
+            files,
             move |text| {
                 let _ = out_tx.send(text);
             },
@@ -317,7 +317,7 @@ mod tests {
             &spec,
             100,
             30,
-            None,
+            vec![],
             move |t| {
                 let _ = out_tx.send(t);
             },
@@ -382,7 +382,7 @@ mod tests {
                 ("HOME".into(), home.clone().into_os_string()),
                 ("KUBECONFIG".into(), kubeconfig),
             ],
-            Some(temp),
+            vec![temp],
         );
         let lines: Vec<&str> = out.lines().map(str::trim).collect();
         assert!(lines.contains(&"two"), "{out:?}");
