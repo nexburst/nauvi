@@ -150,7 +150,7 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
 
   const s = appSession("area-3-pod-detail");
 
-  it("default/hungry shows FailedScheduling, PodScheduled=False and cpu 1k / —", T, async () => {
+  it("default/hungry shows FailedScheduling, PodScheduled=False and requests cpu 1k", T, async () => {
     const { app } = s;
     await resizeWindow(app, 1280, 800);
     await waitLive(app);
@@ -176,7 +176,7 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
           const card = document.querySelector('[data-testid="detail-panel"] section.card');
           const t = (id) => card?.querySelector('[data-testid="' + id + '"]')?.textContent.replace(/\\s+/g, ' ').trim() ?? '';
           if (!t('container-mounts')) return null;
-          card.scrollIntoView({ block: 'start' });
+          card.querySelector('[data-testid="container-summary"]').scrollIntoView({ block: 'center' });
           return { command: t('container-command'), args: t('container-args'), env: t('container-env'),
                    mounts: t('container-mounts'), hidden: t('secrets-hidden'), html: card.innerHTML };`),
       { message: "the container summary of qa-spec" },
