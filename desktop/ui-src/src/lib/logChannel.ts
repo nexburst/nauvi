@@ -12,7 +12,9 @@ export function decodeLines(raw: ArrayBuffer | ArrayBufferView): string[] {
 }
 
 /** Whether a channel message is a batch of raw lines (else a LogEvent). */
-export function isRawLines(m: LogMessage | ArrayBufferView): m is ArrayBuffer | ArrayBufferView {
+export function isRawLines(
+  m: LogMessage | ArrayBufferView,
+): m is ArrayBuffer | ArrayBufferView {
   return m instanceof ArrayBuffer || ArrayBuffer.isView(m);
 }
 

@@ -19,7 +19,10 @@ describe("log channel messages", () => {
   it("dispatches lines and events to their handlers", () => {
     const lines: string[][] = [];
     const events: LogEvent[] = [];
-    const h = { lines: (l: string[]) => lines.push(l), event: (e: LogEvent) => events.push(e) };
+    const h = {
+      lines: (l: string[]) => lines.push(l),
+      event: (e: LogEvent) => events.push(e),
+    };
     dispatchLogMessage(raw("one\ntwo"), h);
     dispatchLogMessage({ type: "error", message: "gone" }, h);
     dispatchLogMessage({ type: "done" }, h);
@@ -29,7 +32,11 @@ describe("log channel messages", () => {
 
   it("acknowledges the bytes of each raw batch, not of events", () => {
     const acks: number[] = [];
-    const h = { lines: () => {}, event: () => {}, ack: (n: number) => acks.push(n) };
+    const h = {
+      lines: () => {},
+      event: () => {},
+      ack: (n: number) => acks.push(n),
+    };
     dispatchLogMessage(raw("one\ntwo"), h);
     dispatchLogMessage(raw("ü"), h);
     dispatchLogMessage({ type: "done" }, h);

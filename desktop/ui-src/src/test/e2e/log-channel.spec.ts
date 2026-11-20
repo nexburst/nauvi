@@ -39,3 +39,13 @@ test("a restarted stream gets a new channel; the old one is ignored", async ({ p
   await page.evaluate(() => window.__fake.emitLogEnd("container not found"));
   await expect(logLines(page)).toHaveText(["from the new stream", "container not found", "[stream ended]"]);
 });
+
+test("each raw batch is acknowledged with its bytes, events are not (#397)", async ({ page }) => {
+  const fake = await openPodLogs(page);
+  const id = await fake.lastStreamId();
+  await fake.emitLogLines(["héllo", "two"]);
+  await page.evaluate(() => window.__fake.emitLogEnd("gone"));
+  await expect(logLines(page)).toHaveText(["héllo", "two", "gone", "[stream ended]"]);
+  // "héllo\ntwo" is 10 bytes of UTF-8.
+  await expect.poll(() => fake.calls("cmdLogAck")).toEqual([{ streamId: id, bytes: 10 }]);
+});
