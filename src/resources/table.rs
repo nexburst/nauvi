@@ -13,20 +13,22 @@ pub fn render_table(kind: &ResourceKind, rows: &[ResourceRow]) -> String {
     align_columns(&table)
 }
 
-/// Indexes of the columns the CLI shows: all but live metrics.
+/// Indexes of the columns the CLI shows: all but live metrics and the
+/// columns that are off by default in the UI.
 fn shown_columns(kind: &ResourceKind) -> impl Iterator<Item = usize> + '_ {
     kind.columns
         .iter()
         .enumerate()
         .filter(|(_, c)| {
-            !matches!(
-                c.kind,
-                ColumnKind::PodCpu
-                    | ColumnKind::PodMemory
-                    | ColumnKind::NodeCpu
-                    | ColumnKind::NodeMemory
-                    | ColumnKind::NodeDisk
-            )
+            !c.default_hidden
+                && !matches!(
+                    c.kind,
+                    ColumnKind::PodCpu
+                        | ColumnKind::PodMemory
+                        | ColumnKind::NodeCpu
+                        | ColumnKind::NodeMemory
+                        | ColumnKind::NodeDisk
+                )
         })
         .map(|(i, _)| i)
 }
@@ -112,5 +114,7 @@ mod tests {
         assert!(lines[1].starts_with("a     ns"), "{out}");
         assert!(lines[2].starts_with("b     ns"), "{out}");
         assert!(!out.contains("CPU"));
+        // Off-by-default columns stay out of the CLI's table.
+        assert!(!out.contains("QOS") && !out.contains("CONTROLLED"), "{out}");
     }
 }

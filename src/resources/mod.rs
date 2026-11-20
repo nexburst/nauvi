@@ -26,6 +26,8 @@
 
 mod apply;
 mod columns;
+#[cfg(test)]
+mod columns_cost;
 mod data;
 mod detail;
 mod detail_watch;
@@ -163,6 +165,10 @@ pub enum ColumnKind {
     NodeMemory,
     /// A node's root filesystem, from Prometheus (node-exporter).
     NodeDisk,
+    /// The controller of the object: `Kind/name`, or `Kind.group/name`
+    /// outside the core, `apps` and `batch` groups. The UI links it to the
+    /// owner's detail.
+    Owner,
 }
 
 /// A table column as the UI sees it.
@@ -172,6 +178,9 @@ pub struct ColumnDef {
     pub key: String,
     pub label: String,
     pub kind: ColumnKind,
+    /// Off until the user turns it on in the column chooser (IP, QoS, ...);
+    /// the CLI's tables leave it out.
+    pub default_hidden: bool,
     #[serde(skip)]
     #[cfg_attr(feature = "specta", specta(skip))]
     source: Source,

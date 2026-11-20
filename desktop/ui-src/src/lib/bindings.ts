@@ -906,6 +906,11 @@ export type ColumnDef = {
 	key: string,
 	label: string,
 	kind: ColumnKind,
+	/**
+	 *  Off until the user turns it on in the column chooser (IP, QoS, ...);
+	 *  the CLI's tables leave it out.
+	 */
+	default_hidden: boolean,
 };
 
 /**  How a column's cell is produced and rendered. */
@@ -919,7 +924,13 @@ export type ColumnKind = "text" |
 /**  Live usage merged in by the UI from the metrics API. */
 "podCpu" | "podMemory" | "nodeCpu" | "nodeMemory" | 
 /**  A node's root filesystem, from Prometheus (node-exporter). */
-"nodeDisk";
+"nodeDisk" | 
+/**
+ *  The controller of the object: `Kind/name`, or `Kind.group/name`
+ *  outside the core, `apps` and `batch` groups. The UI links it to the
+ *  owner's detail.
+ */
+"owner";
 
 export type ConditionInfo = {
 	type: string,
@@ -1641,6 +1652,11 @@ export type KindSettings_Deserialize = {
 	sort_desc?: boolean,
 	/**  Keys of the columns the user hid. */
 	hidden?: string[],
+	/**
+	 *  Keys of the off-by-default columns the user turned on (#378). Files
+	 *  from before it have none, so those columns stay off.
+	 */
+	shown?: string[],
 };
 
 /**  What is remembered per kind (by kind id). */
@@ -1650,6 +1666,11 @@ export type KindSettings_Serialize = {
 	sort_desc: boolean,
 	/**  Keys of the columns the user hid. */
 	hidden: string[],
+	/**
+	 *  Keys of the off-by-default columns the user turned on (#378). Files
+	 *  from before it have none, so those columns stay off.
+	 */
+	shown: string[],
 };
 
 /**
