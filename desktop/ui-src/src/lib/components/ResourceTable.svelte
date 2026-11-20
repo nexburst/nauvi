@@ -175,6 +175,20 @@
     else openObject(link.kind, link.namespace, link.name);
   }
 
+  // A cell link follows a click, with or without Ctrl/Cmd/Shift (no new
+  // window, no row selection); a middle click does nothing at all.
+  function follow(e: MouseEvent, link: CellLink) {
+    e.stopPropagation();
+    followLink(link);
+  }
+  function noMiddle(e: MouseEvent) {
+    if (e.button === 1) e.preventDefault();
+  }
+  function swallow(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
   // The row's ⋮ button: the same menu as a right-click, under the button.
   function openMenuFromButton(e: MouseEvent, row: Row) {
     e.stopPropagation();
@@ -520,28 +534,61 @@
                 title={col.title?.(entry.row, settings.current.time_zone) ||
                   (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : text)}
               >
-                {#if link}
-                  <!-- Out of the tab order like the rows: the grid has the focus.
-                       Only a plain click follows it: a middle click does nothing,
-                       and a click with a modifier does what a plain one does,
-                       never selects the row (#382). -->
+                {#if link && col.link === "owner"}
+                  <!-- The owner's name is the link (#378). Out of the tab order
+                       like the rows: the grid has the focus. -->
                   <button
                     type="button"
                     class="cell-link"
                     tabindex="-1"
-                    data-testid={link.to === "namespace" ? "namespace-link" : col.link === "owner" ? "owner-link" : "node-link"}
+                    data-testid="owner-link"
                     title={link.title}
-                    onmousedown={(e) => {
-                      if (e.button === 1) e.preventDefault();
-                    }}
-                    onauxclick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                    }}
-                    onclick={(e) => {
-                      e.stopPropagation();
-                      followLink(link);
-                    }}>{text}</button
+                    onmousedown={noMiddle}
+                    onauxclick={swallow}
+                    onclick={(e) => follow(e, link)}>{text}</button
+                  >
+                {:else if link}
+                  <!-- A namespace or node: the text stays the row's (a click on
+                       it opens the row, as everywhere in the row); a small link
+                       after it, shown on hover and focus, leads to what it
+                       names (#382). -->
+                  <span class="linked"
+                    ><span class="linked-text">{text}</span><button
+                      type="button"
+                      class="link-icon"
+                      tabindex="-1"
+                      data-testid={link.to === "namespace" ? "namespace-link" : "node-link"}
+                      aria-label={link.title}
+                      title={link.title}
+                      onmousedown={noMiddle}
+                      onauxclick={swallow}
+                      onclick={(e) => follow(e, link)}
+                    >
+                      {#if link.to === "namespace"}
+                        <!-- A funnel: show only this namespace. -->
+                        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                          <path
+                            d="M2.5 3h11l-4.2 5.2v4.3l-2.6 1.3V8.2z"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.4"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      {:else}
+                        <!-- An arrow: open the node. -->
+                        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                          <path
+                            d="M5 11l6-6M6 5h5v5"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      {/if}
+                    </button></span
                   >
                 {:else if col.draw === "containers"}
                   <ContainerSquares cell={text} />
@@ -759,6 +806,45 @@
   .cell-link:focus-visible {
     color: var(--accent);
     text-decoration: underline;
+  }
+  /* The text keeps the whole cell; the link sits over the cell's right end,
+     in the row's tint, and only while the row is hovered or focused, so the
+     table stays calm and the text is not cut short for it. */
+  .td:has(.linked) {
+    position: relative;
+  }
+  .link-icon {
+    all: unset;
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    background:
+      linear-gradient(var(--row-bg, transparent), var(--row-bg, transparent)),
+      var(--bg);
+    cursor: pointer;
+    opacity: 0;
+  }
+  .tr:hover .link-icon,
+  .tr.focused .link-icon,
+  .link-icon:focus-visible {
+    opacity: 1;
+  }
+  .link-icon:hover,
+  .link-icon:focus-visible {
+    color: var(--accent);
+    background: var(--bg-hover);
+  }
+  .link-icon:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   /* The ⋮ stays at the right edge when the columns scroll sideways, over
      the cells, in the row's own tint. */

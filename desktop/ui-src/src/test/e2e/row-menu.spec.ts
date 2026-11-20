@@ -106,19 +106,26 @@ test("a namespace cell shows the same kind in that namespace", async ({ page }) 
   await openKind(page, "Pods");
   await expect(rows(page)).toHaveCount(5);
   const link = row(page, "coredns-1").getByTestId("namespace-link");
-  await expect(link).toHaveText("kube-system");
+  await expect(link).toHaveAccessibleName("Show Pods in namespace kube-system");
   await expect(link).toHaveAttribute("title", "Show Pods in namespace kube-system");
-  // Not blue until hovered.
-  const plain = await link.evaluate((e) => getComputedStyle(e).textDecorationLine);
-  expect(plain).toBe("none");
+  // Hidden until the row is hovered: the table stays calm.
+  await page.mouse.move(0, 0);
+  await expect(link).toHaveCSS("opacity", "0");
 
-  // A middle click does nothing.
+  // A click on the namespace text opens the row, as anywhere in the row.
+  await row(page, "web-1").locator(".linked-text", { hasText: "demo" }).click();
+  await expect(detail(page)).toContainText("web-1");
+  await expect(namespaceButton(page)).toContainText("All namespaces");
+  await page.keyboard.press("Escape");
+  await expect(detail(page)).toHaveCount(0);
+
+  // A middle click on the link does nothing.
+  await row(page, "coredns-1").hover();
+  await expect(link).toHaveCSS("opacity", "1");
   await link.click({ button: "middle" });
   await expect(rows(page)).toHaveCount(5);
   await expect(namespaceButton(page)).toContainText("All namespaces");
 
-  await link.hover();
-  expect(await link.evaluate((e) => getComputedStyle(e).textDecorationLine)).toBe("underline");
   await link.click();
   await expect(namespaceButton(page)).toContainText("kube-system");
   await expect(rows(page)).toHaveCount(1);
@@ -142,6 +149,7 @@ test("a Node cell opens the node's detail", async ({ page }) => {
   await openKind(page, "Pods");
   const link = row(page, "crashed").getByTestId("node-link");
   await expect(link).toHaveAttribute("title", "Open node node-2");
+  await row(page, "crashed").hover();
   await link.click();
   await expect(nav(page)).toHaveAccessibleName("Nodes");
   await expect(detail(page)).toContainText("node-2");

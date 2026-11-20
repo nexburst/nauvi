@@ -64,6 +64,18 @@ const clickInRow = (app, testId) =>
      return el ? el : null;`,
   );
 
+/** Hover the pod's row (the links show on hover), then click one of them. */
+async function clickLink(app, testId) {
+  const link = await clickInRow(app, testId);
+  const row = await app.js(`return arguments[0].closest('[data-testid="resource-row"]')`, link);
+  await app.driver.actions().move({ origin: row }).perform();
+  await app.waitFor(async () => (await app.js("return getComputedStyle(arguments[0]).opacity", link)) === "1", {
+    message: `${testId} shown on hover`,
+  });
+  await app.shot(`${testId}-hover`);
+  await link.click();
+}
+
 describe("tables: the row ⋮ menu and cell links", { timeout: 15 * 60_000 }, () => {
   let ns;
   before(() => {
@@ -120,7 +132,7 @@ describe("tables: the row ⋮ menu and cell links", { timeout: 15 * 60_000 }, ()
     await app.waitFor(async () => (await tableData(app)).rows.length > 1, { message: "every pod" });
     await app.filter(POD);
     await app.waitFor(async () => (await tableData(app)).rows.length === 1, { message: "the pod" });
-    await (await clickInRow(app, "namespace-link")).click();
+    await clickLink(app, "namespace-link");
     await app.waitFor(async () => (await namespaceLabel(app)) === ns, { message: `the picker on ${ns}` });
     assert.equal((await app.driver.findElements(byTestId("detail-panel"))).length, 0);
     await app.filter("");
@@ -132,7 +144,7 @@ describe("tables: the row ⋮ menu and cell links", { timeout: 15 * 60_000 }, ()
     const { app } = s;
     await app.waitFor(async () => (await tableData(app)).rows[0]?.Node, { timeout: 120_000, message: "the pod scheduled" });
     const node = (await tableData(app)).rows[0].Node;
-    await (await clickInRow(app, "node-link")).click();
+    await clickLink(app, "node-link");
     await waitPanelTitle(app, node);
     const active = await app.js(`return document.querySelector('nav button.active')?.textContent.trim() ?? ""`);
     assert.match(active, /^Nodes/);
