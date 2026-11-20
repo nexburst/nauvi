@@ -302,6 +302,21 @@ pub fn sweep_stale_in(dir: &Path, alive: impl Fn(u32) -> bool) -> usize {
     removed
 }
 
+/// Whether `path` is a per-terminal kubeconfig a local terminal or Ask AI
+/// tab of the app made: `nauvi-shell-<pid>-<n>.yaml` directly in the
+/// system temp directory.
+pub(crate) fn is_temp_kubeconfig(path: &Path) -> bool {
+    let named = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .is_some_and(|n| n.ends_with(".yaml") && temp_file_pid(n).is_some());
+    let canonical = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    named
+        && path
+            .parent()
+            .is_some_and(|dir| canonical(dir) == canonical(&std::env::temp_dir()))
+}
+
 /// The process id in a [`TempKubeconfig`] file name.
 fn temp_file_pid(name: &str) -> Option<u32> {
     let rest = name.strip_prefix("nauvi-shell-")?;

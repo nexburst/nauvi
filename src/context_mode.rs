@@ -280,6 +280,56 @@ pub fn strictest(modes: impl IntoIterator<Item = ContextMode>) -> ContextMode {
 /// mode and a context the app's catalog does not have:
 /// [`CliMode::Unknown`], which `nauvi mcp` treats as refusing writes.
 pub fn mode_for_cli(settings_path: &Path, kubeconfig: Option<&Path>, context: &str) -> CliMode {
+    let files = cli_files(kubeconfig);
+    let label = kubeconfig
+        .map(|p| format!(" of {}", p.display()))
+        .unwrap_or_default();
+    mode_for_files(settings_path, &files, &label, context)
+}
+
+/// The mode `nauvi mcp` applies to `context` (#376): the strictest of the
+/// mode found through the client's own kubeconfig files (`kubeconfig`,
+/// else the default ones) and the one found through `mode_file`, the file
+/// the app knows the context from. Naming another `mode_file` can only make
+/// it stricter, never relax what the client's files say.
+///
+/// An unknown result counts as refusing writes, except for an Ask AI
+/// terminal's per-terminal temp kubeconfig (the catalog never has it): with
+/// a `mode_file`, those files are left out of the client's files. Without
+/// a `mode_file` this is [`mode_for_cli`].
+pub fn mode_for_mcp(
+    settings_path: &Path,
+    kubeconfig: Option<&Path>,
+    mode_file: Option<&Path>,
+    context: &str,
+) -> CliMode {
+    let Some(mode_file) = mode_file else {
+        return mode_for_cli(settings_path, kubeconfig, context);
+    };
+    let mut known = Vec::new();
+    match mode_for_cli(settings_path, Some(mode_file), context) {
+        CliMode::Known(m) => known.push(m),
+        unknown => return unknown,
+    }
+    let client: Vec<PathBuf> = cli_files(kubeconfig)
+        .into_iter()
+        .filter(|f| !crate::shell_kubeconfig::is_temp_kubeconfig(f))
+        .collect();
+    if !client.is_empty() {
+        let label = kubeconfig
+            .map(|p| format!(" of {}", p.display()))
+            .unwrap_or_default();
+        match mode_for_files(settings_path, &client, &label, context) {
+            CliMode::Known(m) => known.push(m),
+            unknown => return unknown,
+        }
+    }
+    CliMode::Known(strictest(known))
+}
+
+/// [`mode_for_cli`] for the canonical `files`; `label` names them in the
+/// unknown message.
+fn mode_for_files(settings_path: &Path, files: &[PathBuf], label: &str, context: &str) -> CliMode {
     let text = match std::fs::read_to_string(settings_path) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -290,8 +340,7 @@ pub fn mode_for_cli(settings_path: &Path, kubeconfig: Option<&Path>, context: &s
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
         return CliMode::Known(ContextMode::ReadOnly);
     };
-    let files = cli_files(kubeconfig);
-    let stored = stored_modes(&text, context, &files);
+    let stored = stored_modes(&text, context, files);
     if !stored.is_empty() {
         return CliMode::Known(strictest(stored));
     }
@@ -307,15 +356,12 @@ pub fn mode_for_cli(settings_path: &Path, kubeconfig: Option<&Path>, context: &s
         .unwrap_or_default();
     // Where the app keeps pasted kubeconfigs: `<config dir>/kubeconfigs`.
     let pasted = settings_path.parent().map(|d| d.join("kubeconfigs"));
-    if app_has(&sources, pasted, &files, context) {
+    if app_has(&sources, pasted, files, context) {
         CliMode::Known(ContextMode::Normal)
     } else {
         CliMode::Unknown(format!(
-            "context {context}{} is not in nauvi's cluster catalog, so its read-only or \
-             protected setting cannot be checked",
-            kubeconfig
-                .map(|p| format!(" of {}", p.display()))
-                .unwrap_or_default()
+            "context {context}{label} is not in nauvi's cluster catalog, so its read-only or \
+             protected setting cannot be checked"
         ))
     }
 }
