@@ -75,6 +75,13 @@ pub fn shorten(s: &str, max: usize) -> String {
     }
 }
 
+/// Cluster text (an event or status message, a reason) on one line
+/// ([`crate::text::single_line`]: no control, bidi or zero-width
+/// characters), shortened to `max` characters.
+pub fn one_line(s: &str, max: usize) -> String {
+    shorten(&crate::text::single_line(s), max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +131,15 @@ mod tests {
     fn shorten_adds_an_ellipsis() {
         assert_eq!(shorten("abcdef", 3), "abc…");
         assert_eq!(shorten("abc", 3), "abc");
+    }
+
+    #[test]
+    fn one_line_drops_zero_width_characters() {
+        assert_eq!(
+            one_line("rm\u{200B} -rf\u{200C}\u{200D} /\u{2060}x\u{FEFF}", 100),
+            "rm -rf /x"
+        );
+        assert_eq!(one_line("a\nb\u{1b}[0m", 100), "a b[0m");
+        assert_eq!(one_line("abcdef", 3), "abc…");
     }
 }

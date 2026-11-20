@@ -2,7 +2,7 @@
 //! takes its arguments as a struct (unknown fields are refused) and returns
 //! text; [`super::tools`] caps that text.
 
-use super::limits::{self, clamp, shorten};
+use super::limits::{self, clamp};
 use super::list_table::list_table;
 use super::redact::{redact_annotations, safe_value};
 use crate::bounded_list::list_bounded;
@@ -306,7 +306,12 @@ pub const EVENTS_EXPIRE: &str = "Events are kept for about 1 hour by default (th
      server's --event-ttl), so older problems are not here: see the problems tool, or describe \
      (last state, conditions).";
 
-/// Events as a table, newest first, at most `limit`, messages shortened.
+/// Most characters of an event's type or reason.
+const MAX_EVENT_FIELD: usize = 60;
+
+/// Events as a table, newest first, at most `limit`, messages shortened and
+/// all cluster text on one line without control, bidi or zero-width
+/// characters ([`limits::one_line`]).
 pub fn events_table(mut events: Vec<Event>, limit: usize, with_namespace: bool) -> String {
     if events.is_empty() {
         return format!("No events found.\n{EVENTS_EXPIRE}\n");
@@ -322,12 +327,15 @@ pub fn events_table(mut events: Vec<Event>, limit: usize, with_namespace: bool) 
         let obj = &e.involved_object;
         let mut row = vec![
             age_of_secs(event_time(e)),
-            e.type_.clone().unwrap_or_default(),
-            e.reason.clone().unwrap_or_default(),
-            format!(
-                "{}/{}",
-                obj.kind.as_deref().unwrap_or_default().to_lowercase(),
-                obj.name.as_deref().unwrap_or_default()
+            limits::one_line(e.type_.as_deref().unwrap_or_default(), MAX_EVENT_FIELD),
+            limits::one_line(e.reason.as_deref().unwrap_or_default(), MAX_EVENT_FIELD),
+            limits::one_line(
+                &format!(
+                    "{}/{}",
+                    obj.kind.as_deref().unwrap_or_default().to_lowercase(),
+                    obj.name.as_deref().unwrap_or_default()
+                ),
+                limits::MAX_EVENT_MESSAGE,
             ),
             e.series
                 .as_ref()
@@ -335,8 +343,8 @@ pub fn events_table(mut events: Vec<Event>, limit: usize, with_namespace: bool) 
                 .or(e.count)
                 .unwrap_or(1)
                 .to_string(),
-            shorten(
-                &e.message.clone().unwrap_or_default().replace('\n', " "),
+            limits::one_line(
+                e.message.as_deref().unwrap_or_default(),
                 limits::MAX_EVENT_MESSAGE,
             ),
         ];
@@ -573,5 +581,27 @@ mod tests {
         );
         assert!(one.starts_with("LAST SEEN"), "{one}");
         assert!(one.contains("a b"), "{one}");
+    }
+
+    #[test]
+    fn event_text_is_sanitised() {
+        let out = events_table(
+            vec![event(
+                "demo",
+                "Bad\u{1b}[31m\u{200D}",
+                "2024-01-01T00:00:00Z",
+                "pull\u{202E}gnp.exe\u{202C}\u{200B} failed\r\n\u{FEFF}again\u{2060}\u{7}",
+            )],
+            5,
+            false,
+        );
+        assert!(out.contains("Bad[31m"), "{out}");
+        assert!(out.contains("pullgnp.exe failed again\n"), "{out}");
+        for c in [
+            '\u{1b}', '\u{202E}', '\u{200B}', '\u{200D}', '\u{FEFF}', '\u{2060}', '\u{7}', '\r',
+        ] {
+            assert!(!out.contains(c), "{c:?} in {out:?}");
+        }
+        assert_eq!(out.lines().count(), 2, "{out}");
     }
 }

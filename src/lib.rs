@@ -47,6 +47,7 @@ pub mod proxy;
 pub mod reconnect;
 pub mod resources;
 pub mod terminal;
+pub mod text;
 pub mod watch;
 pub mod workload_logs;
 
