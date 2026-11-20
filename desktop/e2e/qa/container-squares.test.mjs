@@ -174,8 +174,15 @@ describe("pods: the Containers column", { timeout: 15 * 60_000 }, () => {
       async () => (await app.js(`return document.querySelector('[role="columnheader"][aria-sort="descending"]')?.textContent ?? ""`)).includes("Containers"),
       { message: "sorted descending" },
     );
-    const sq = await squares(app);
-    const first = Object.values(sq)[0] ?? [];
+    // The virtual list keeps its rows' DOM order: the top row is the one with
+    // the lowest aria-rowindex.
+    const first = await app.js(`
+      const rows = Array.from(document.querySelectorAll('[data-testid="resource-row"]'));
+      rows.sort((a, b) => Number(a.getAttribute("aria-rowindex")) - Number(b.getAttribute("aria-rowindex")));
+      return Array.from(rows[0]?.querySelectorAll('[data-testid="container-square"]') ?? [], (s) => ({
+        title: s.getAttribute("title"),
+        look: s.dataset.look,
+      }));`);
     assert.ok(first.some((x) => x.look === "bad"), `first row has a broken container: ${JSON.stringify(first)}`);
     await app.js(`document.querySelector('${SCROLLER}').scrollLeft = 1e6`);
     await app.shot("sorted-dark");
