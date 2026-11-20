@@ -1,6 +1,6 @@
-import type { ColumnDef, NodeDisk, NodeUsage, PodUsage, ResourceKind, ResourceRow, Spark } from "./bindings";
+import type { ColumnDef, NodeDisk, NodeUsage, PodUsage, ResourceKind, ResourceRow, Spark, TimeZone } from "./bindings";
 import { diskPercent, diskText } from "./metricsAddons";
-import { formatAge, formatCpu, formatMemory } from "./format";
+import { createdAt, formatAge, formatCpu, formatMemory } from "./format";
 
 export type Row = ResourceRow;
 
@@ -38,6 +38,9 @@ export interface Column {
   cls?(row: Row): string;
   /** Values of the cell's sparkline, oldest first (metric columns only). */
   spark?(row: Row, ctx: Ctx): readonly number[];
+  /** The cell's tooltip, when it is not the cell's text (the Age column's
+   *  creation time, #380). */
+  title?(row: Row, zone: TimeZone): string;
   /** Whether the column has anything to show; shown when missing. */
   shown?(metrics: Metrics): boolean;
 }
@@ -98,6 +101,7 @@ function column(def: ColumnDef, index: number): Column {
       return {
         ...base,
         text: (r, c) => formatAge(r.created, c.now, ""),
+        title: (r, zone) => createdAt(r.created, zone),
         sort: (r) => r.created,
       };
     case "podCpu":

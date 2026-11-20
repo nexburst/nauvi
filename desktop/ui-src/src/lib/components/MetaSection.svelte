@@ -2,6 +2,11 @@
   import type { Snippet } from "svelte";
   import type { OwnerLink, ResourceDetail } from "../bindings";
   import { kindOf, openObject } from "../stores/app.svelte";
+  import { settings } from "../stores/settings.svelte";
+  import { dateTime } from "../timeZone";
+  import { ageRedrawMs, formatAge } from "../format";
+  import { onAgeTick } from "../ageClock";
+  import { onDestroy } from "svelte";
 
   /** Identity, owners, labels, annotations and finalizers of any object.
    *  `children` adds rows to the identity list (the pod panel's phase, node...). */
@@ -11,6 +16,14 @@
   function ownerKind(o: OwnerLink) {
     return kindOf(o.api_version, o.kind);
   }
+
+  // The age ticks like the table's (#380): every second while it shows seconds.
+  let now = $state.raw(Date.now());
+  onDestroy(
+    onAgeTick((t) => {
+      if (t - now >= ageRedrawMs(info.created, t) - 50) now = t;
+    }),
+  );
 
   function openOwner(o: OwnerLink) {
     const kind = ownerKind(o);
@@ -30,7 +43,12 @@
     <dd>{info.namespace}</dd>
   {/if}
   <dt>Age</dt>
-  <dd>{info.age || "—"}</dd>
+  <dd data-testid="meta-age">
+    {formatAge(info.created, now, info.age) || "—"}
+    {#if info.created > 0}
+      <span class="muted" data-testid="meta-created">({dateTime(info.created * 1000, settings.current.time_zone)})</span>
+    {/if}
+  </dd>
   {@render children?.()}
   <dt>UID</dt>
   <dd class="mono">{info.uid}</dd>
