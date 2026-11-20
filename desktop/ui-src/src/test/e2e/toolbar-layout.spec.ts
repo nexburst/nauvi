@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { openApp, openKind, row, rows } from "./helpers";
+import { openApp, openKind, row, rows, toggleNamespaces } from "./helpers";
 
 // The table toolbar keeps one row at 1280x800 (#289): the namespace picker,
 // the filter and its toggles, Columns, the export note, Export CSV and
@@ -50,6 +50,43 @@ test("one row at 1280 px with the saved note and with an error", async ({ page }
   await expectOneRow(page);
   // Cut with an ellipsis; the whole message is in the tooltip.
   await expect(note(page)).toHaveAttribute("title", /Permission denied$/);
+});
+
+test("one row at 1280 px with the kinds kept open, the inspector open and a long namespace (#392)", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  // The QA scenario's namespaces are this long ("qa-csv-" and a random tail).
+  // web-1 moves into it, so its panel stays open once the namespace is picked.
+  await openApp(page, (c) => {
+    const ns = "qa-csv-mwoycuzth2c-a-much-longer-tail";
+    c.namespaces!.push({ ...c.namespaces![0], name: ns });
+    const r = c.rows["v1/pods"].find((x) => x.name === "web-1")!;
+    r.namespace = ns;
+    r.key = `${ns}/web-1`;
+    r.cells[1] = ns;
+    c.details[`v1/pods|${ns}/web-1`] = { ...c.details["v1/pods|demo/web-1"], namespace: ns };
+  });
+  await openKind(page, "Pods");
+  await expect(page.getByTestId("berths")).toHaveClass(/slim/);
+  await toggleNamespaces(page, "qa-csv-mwoycuzth2c-a-much-longer-tail");
+  await row(page, "web-1").click();
+  await expect(page.getByTestId("detail-panel")).toBeVisible();
+  await expect(page.getByTestId("detail-panel").locator(".card").first()).toBeVisible();
+  const picker = page.getByRole("button", { name: "Namespace", exact: true });
+  await expect(picker).toHaveText("qa-csv-mwoycuzth2c-a-much-longer-tail");
+  await expectOneRow(page);
+  // The name is cut, whole in the title.
+  await expect(picker).toHaveAttribute(
+    "title",
+    "qa-csv-mwoycuzth2c-a-much-longer-tail",
+  );
+  expect(await picker.evaluate((b) => b.scrollWidth > b.clientWidth)).toBe(
+    true,
+  );
+  await page.screenshot({
+    path: test.info().outputPath("toolbar-long-namespace.png"),
+  });
 });
 
 test("one row at 1280 px with the detail panel open: Columns and Export CSV become icons", async ({ page }) => {

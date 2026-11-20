@@ -131,7 +131,7 @@ describe("sidebar groups (#332)", { timeout: 15 * 60_000 }, () => {
       message: "qa-claim row",
     });
     assert.equal(claim.State, "Pending");
-    assert.equal(claim["Reserved For"], "");
+    assert.equal(claim["Reserved for"], "");
     await shots(app, "resource-claims");
 
     await app.nav("Resource Claim Templates");

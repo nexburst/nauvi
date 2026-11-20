@@ -78,7 +78,7 @@ describe("columnsFor", () => {
       ]),
     );
     expect(cols.map((c) => c.width)).toEqual([
-      "minmax(160px, 3fr)",
+      "minmax(140px, 3fr)",
       "minmax(240px, 3fr)",
       "64px",
       "minmax(80px, 1fr)",
@@ -97,7 +97,7 @@ describe("columnsFor", () => {
       ]),
     );
     const [name, ns, ...short] = cols.map((c) => c.width);
-    expect(name).toBe("minmax(160px, 3fr)");
+    expect(name).toBe("minmax(140px, 3fr)");
     expect(ns).toBe("minmax(120px, 1fr)");
     // No fr: they stop growing at their cap.
     for (const w of short) expect(w).not.toMatch(/fr/);

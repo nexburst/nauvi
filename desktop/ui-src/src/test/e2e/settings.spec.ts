@@ -186,7 +186,7 @@ test("the detail panel width is resizable and remembered", async ({ page }) => {
   const panel = page.getByTestId("detail-panel");
   await expect(panel).toBeVisible();
   const before = (await panel.boundingBox())!.width;
-  expect(Math.round(before)).toBe(420);
+  expect(Math.round(before)).toBe(520);
 
   const handle = page.getByTestId("panel-resizer");
   const box = (await handle.boundingBox())!;

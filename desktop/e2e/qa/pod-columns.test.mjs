@@ -22,7 +22,7 @@ import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 180_000 };
 const DEFAULT = ["Name", "Namespace", "Ready", "Status", "Restarts", "Node", "Age", "CPU", "Memory"];
-const EXTRA = ["Controlled By", "QoS", "IP", "Nominated Node"];
+const EXTRA = ["Controlled by", "QoS", "IP", "Nominated node"];
 const DEP = "qa-cols";
 
 // Requests below the limits: Burstable.
@@ -108,17 +108,17 @@ describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
     const { app } = s;
     for (const label of EXTRA) await (await app.find(choice(label))).click();
     await (await app.find(chooserButton)).click();
-    await app.waitFor(async () => (await headers(app)).includes("Nominated Node"), { message: "the extra columns" });
+    await app.waitFor(async () => (await headers(app)).includes("Nominated node"), { message: "the extra columns" });
     assert.deepEqual(await headers(app), [...DEFAULT, ...EXTRA]);
     const rows = (await tableData(app)).rows;
     for (const pod of pods) {
       const r = rows.find((r) => r.Name === pod.name);
       assert.ok(r, `row of ${pod.name}`);
-      assert.equal(r["Controlled By"], `ReplicaSet/${rs}`);
+      assert.equal(r["Controlled by"], `ReplicaSet/${rs}`);
       assert.equal(r.QoS, pod.qos);
       assert.equal(r.QoS, "Burstable");
       assert.equal(r.IP, pod.ip);
-      assert.equal(r["Nominated Node"], "");
+      assert.equal(r["Nominated node"], "");
     }
     await app.shot("columns-on-dark");
     // They don't fit at 1280 px: the table scrolls sideways to them.

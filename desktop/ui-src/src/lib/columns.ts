@@ -104,7 +104,7 @@ function widthFor(def: ColumnDef): string {
   }
   // Name takes the slack (#384): on a kind with few columns the width goes
   // to it, not into even gaps between short columns.
-  if (def.key === "name") return "minmax(160px, 3fr)";
+  if (def.key === "name") return "minmax(140px, 3fr)";
   if (def.key === "namespace") return "minmax(120px, 1fr)";
   if (def.key === "message") return "minmax(240px, 3fr)";
   // Short values ("1/1", "12", "Running") grow only to about their header's
@@ -112,7 +112,7 @@ function widthFor(def: ColumnDef): string {
   // Their minimums stay narrow, so the default Pods table and its row ⋮
   // (#382) fit a 1280 px window without scrolling sideways.
   if (def.key === "ready" && def.kind === "text") return "minmax(64px, 84px)";
-  if (def.key === "restarts") return "minmax(56px, 96px)";
+  if (def.key === "restarts") return "minmax(76px, 96px)";
   if (def.kind === "number") return "minmax(64px, 112px)";
   if (def.kind === "owner") return "minmax(160px, 1.6fr)";
   if (def.kind === "containers") return "minmax(120px, 1fr)";
