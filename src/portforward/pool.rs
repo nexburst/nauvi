@@ -6,7 +6,8 @@
 //! one SPDY connection per forward and opens a stream on it per local
 //! connection, one round trip. The `v4.channel.k8s.io` protocol cannot do
 //! that (the streams of a port are single use), so a forward keeps
-//! [`WARM`] tunnels to its current backend open and ready while it is in
+//! [`WARM`] tunnels (up to [`MAX_WARM`] under load) to its current backend
+//! open and ready while it is in
 //! use, and a local connection takes one of those.
 //!
 //! The pod sees each warm tunnel as a connection that sends nothing until
@@ -25,6 +26,9 @@ use tokio::time::Instant;
 
 /// Tunnels kept ready while the forward is in use.
 pub(crate) const WARM: usize = 3;
+/// The most tunnels kept ready: connections that keep finding the pool
+/// empty raise its size up to this, until the forward is idle again.
+pub(crate) const MAX_WARM: usize = 8;
 /// A warm tunnel older than this is closed and replaced.
 pub(crate) const MAX_AGE: Duration = Duration::from_secs(5);
 /// How long after the last local connection the pool keeps refilling.
@@ -47,6 +51,8 @@ struct State {
     backend: Option<Backend>,
     ready: Vec<Ready>,
     last_used: Option<Instant>,
+    /// How many tunnels to keep ready: [`WARM`], more after misses.
+    target: usize,
 }
 
 impl State {
@@ -97,14 +103,22 @@ impl Pool {
     pub(crate) fn take(&self, backend: &Backend) -> Option<Tunnel> {
         let now = Instant::now();
         let mut s = self.state.lock().unwrap();
+        let was_in_use = s.in_use(now);
         s.last_used = Some(now);
-        if s.backend.as_ref() != Some(backend) {
+        let moved = s.backend.as_ref() != Some(backend);
+        if moved {
             s.backend = Some(backend.clone());
             s.ready.clear();
         }
         s.prune(now);
         // The oldest first: it expires soonest.
         let got = (!s.ready.is_empty()).then(|| s.ready.remove(0).tunnel);
+        if !was_in_use || moved {
+            s.target = WARM;
+        } else if got.is_none() {
+            // Connections come faster than the pool refills.
+            s.target = (s.target + 2).min(MAX_WARM);
+        }
         drop(s);
         self.wake.notify_one();
         got
@@ -150,7 +164,7 @@ async fn fill(state: Arc<Mutex<State>>, wake: Arc<Notify>, open: Opener) {
             s.prune(now);
             let waiting = retry_at.is_some_and(|t| t > now);
             let missing = if s.in_use(now) && !waiting {
-                WARM.saturating_sub(s.ready.len() + opening.len())
+                s.target.saturating_sub(s.ready.len() + opening.len())
             } else {
                 0
             };
@@ -323,6 +337,30 @@ mod tests {
         tokio::time::advance(IDLE).await;
         settle().await;
         assert_eq!(count.load(Ordering::SeqCst), opened, "no more once idle");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn misses_grow_the_pool_until_it_is_idle() {
+        let (open, _servers, _count) = opener();
+        let pool = Pool::new(open);
+        pool.take(&backend("a"));
+        // Two more connections before it refilled: two misses.
+        pool.take(&backend("a"));
+        pool.take(&backend("a"));
+        settle().await;
+        assert_eq!(pool.ready(), WARM + 4);
+        for _ in 0..4 {
+            pool.take(&backend("a"));
+        }
+        settle().await;
+        assert_eq!(pool.ready(), WARM + 4, "no misses, no growth");
+        // Idle, then used again: back to the base size.
+        tokio::time::advance(IDLE + MAX_AGE).await;
+        settle().await;
+        assert_eq!(pool.ready(), 0);
+        pool.take(&backend("a"));
+        settle().await;
+        assert_eq!(pool.ready(), WARM);
     }
 
     #[tokio::test(start_paused = true)]
