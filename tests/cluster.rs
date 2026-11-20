@@ -314,7 +314,7 @@ async fn stream_logs_into_a_bounded_queue_waits_and_stops_with_its_reader() -> R
         "the reader should wait on the full queue"
     );
     drop(rx);
-    within("the reader to end", TIMEOUT, async { Ok(task.await??) }).await?;
+    within("the reader to end", TIMEOUT, async { task.await? }).await?;
     Ok(())
 }
 
