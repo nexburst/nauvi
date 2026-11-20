@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { askAiPrompt, scopeSubject, startBlocked, writesBlocked } from "../askAi";
+  import { askAiPrompt, dialogSubject, startBlocked, writesBlocked } from "../askAi";
   import { askAi, closeAskAi, startAskAi } from "../stores/askAi.svelte";
   import { contextMode } from "../stores/contextMode.svelte";
   import { openHelpItem } from "../stores/help.svelte";
@@ -63,10 +63,8 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="backdrop" onclick={(e) => e.target === e.currentTarget && closeAskAi()}>
     <div class="dialog" role="dialog" aria-modal="true" aria-label="Ask AI" data-testid="ask-ai-dialog">
-      <h2>
-        <span class="title">Ask AI about {scopeSubject(scope)}</span>
-        {#if scope.context}<ClusterLabel id={scope.context} />{/if}
-      </h2>
+      <h2 class="title">Ask AI about {dialogSubject(scope)}</h2>
+      {#if scope.context}<p class="on muted">on <ClusterLabel id={scope.context} /></p>{/if}
 
       {#if blocked}
         <p class="warn" data-testid="ask-ai-blocked">{blocked}</p>
@@ -201,12 +199,16 @@
     padding: 18px 20px;
   }
   h2 {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0 0 12px;
+    margin: 0 0 2px;
     font-size: 15px;
     min-width: 0;
+  }
+  .on {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 12px;
+    font-size: 12px;
   }
   .title {
     overflow: hidden;

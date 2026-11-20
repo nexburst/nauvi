@@ -135,7 +135,7 @@ test("a protected context gets no writes, and asks for its name before the termi
     };
   });
   await page.getByTestId("ask-ai-header").click();
-  await expect(dialog(page)).toContainText("Ask AI about cluster kind-dev");
+  await expect(dialog(page)).toContainText("Ask AI about the cluster");
   await expect(dialog(page).getByTestId("ask-ai-writes")).toBeDisabled();
   await expect(dialog(page).getByTestId("ask-ai-writes-off")).toContainText("protected");
   await dialog(page).getByTestId("ask-ai-start").click();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { askAiIntro, askAiPrompt, askAiTitle, oneLine, scopeSubject, startBlocked, writesBlocked } from "./askAi";
+import { askAiIntro, askAiPrompt, askAiTitle, dialogSubject, oneLine, scopeSubject, startBlocked, writesBlocked } from "./askAi";
 
 const pod = { context: "kind-x", namespace: "demo", kind: "Pod", name: "web-1" };
 const ESC = String.fromCharCode(0x1b);
@@ -13,6 +13,8 @@ describe("Ask AI", () => {
     expect(scopeSubject({ ...pod, kind: "", name: "" })).toBe("namespace demo");
     expect(scopeSubject({ context: "kind-x", namespace: "", kind: "", name: "" })).toBe("cluster kind-x");
     expect(askAiTitle(pod)).toBe("AI: web-1");
+    expect(dialogSubject({ context: "kind-x", namespace: "", kind: "", name: "" })).toBe("the cluster");
+    expect(dialogSubject(pod)).toBe("Pod demo/web-1");
     expect(askAiTitle({ ...pod, kind: "", name: "" })).toBe("AI: demo");
   });
 

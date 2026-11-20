@@ -102,6 +102,8 @@ const dialogText = (app) => app.js(`return document.querySelector('[data-testid=
 async function waitDialog(app) {
   await app.find(byTestId("ask-ai-dialog"));
   await app.waitFor(async () => !(await dialogText(app)).includes("Looking for AI CLIs"), { message: "the AI setup" });
+  // Past the dialog's fade-in (180 ms), so screenshots show it settled.
+  await new Promise((r) => setTimeout(r, 400));
 }
 
 async function closeDialog(app) {
@@ -147,7 +149,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     await (await app.find(byTestId("ask-ai-header"))).click();
     await waitDialog(app);
     const text = await dialogText(app);
-    assert.match(text, new RegExp(`Ask AI about cluster ${CONTEXT}`));
+    assert.match(text, new RegExp(`Ask AI about the cluster\\s+on ${CONTEXT}`));
     assert.match(text, /Claude Code/);
     if (!noCli) assert.match(text, /nauvi MCP tools .* read-only/s);
     else assert.match(text, /nauvi CLI is not on PATH/);
@@ -161,6 +163,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
       await box[0].click();
       await app.find(byTestId("ask-ai-writes-warning"));
       assert.match(await dialogText(app), /can change .* as you/s);
+      await app.shot("dark-writes-ticked");
       await box[0].click();
     }
   });

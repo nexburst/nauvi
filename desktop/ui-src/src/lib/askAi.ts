@@ -39,6 +39,12 @@ export function scopeSubject(s: AskAiScope): string {
   return `cluster ${oneLine(s.context)}`;
 }
 
+/** The dialog's subject: as `scopeSubject`, but "the cluster" (its name
+ *  shows under it). */
+export function dialogSubject(s: AskAiScope): string {
+  return s.namespace || (s.kind && s.name) ? scopeSubject(s) : "the cluster";
+}
+
 /** The dock tab's title. */
 export function askAiTitle(s: AskAiScope): string {
   const short = s.kind && s.name ? oneLine(s.name) : s.namespace ? oneLine(s.namespace) : oneLine(s.context);
