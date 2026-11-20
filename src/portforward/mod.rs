@@ -3,24 +3,32 @@
 //! kube-rs's `Portforwarder` hands out a raw stream per port and binds
 //! nothing itself, so [`PortForward::start`] binds a local TCP listener and,
 //! for each incoming connection, picks a backend pod that is ready right now
-//! ([`resolve`], kept up to date by a watch in [`cache`]) and opens a fresh
-//! port-forward to it, over an API-server connection kept ready by [`warm`].
+//! ([`resolve`], kept up to date by a watch in [`cache`]) and forwards to
+//! it over [`mux`]: a new stream pair on the forward's one SPDY session to
+//! that pod, as kubectl does (#399), or where that is not possible a fresh
+//! port-forward upgrade per connection, over an API-server connection kept
+//! ready by [`warm`].
 //! That is the kubectl semantics (several clients can connect at once),
 //! except that a Service or workload forward follows its pods: when the pod
 //! serving it goes away the next connection goes to another one.
 //!
-//! Nothing connects to the pod's port before a local client connects: the
-//! kubelet dials the port as soon as a port-forward upgrade completes, so a
-//! tunnel opened ahead of time would be a real, silent connection to the
-//! user's app (#374). Use a client from [`crate::for_port_forwards`]: its
+//! Nothing connects to the pod's port before a local client connects: with
+//! one upgrade per connection the kubelet dials the port as soon as the
+//! upgrade completes, so a tunnel opened ahead of time would be a real,
+//! silent connection to the user's app (#374); a session is opened on the
+//! first connection too. Use a client from [`crate::for_port_forwards`]: its
 //! connections have Nagle off, which saves ~40 ms per tunnel.
 
 mod cache;
+mod mux;
 mod resolve;
+mod session;
+mod spdy;
 mod spec;
 mod tunnel;
 mod warm;
 
+pub use mux::Multiplex;
 pub use resolve::{
     container_port, describe_service_port, find_service_port, pod_is_ready, slice_backends, Backend,
 };
@@ -33,14 +41,13 @@ use cache::Backends;
 use k8s_openapi::api::core::v1::Service;
 use kube::api::Api;
 use kube::Client;
+use mux::Mux;
 use resolve::Resolver;
 use serde::Serialize;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tunnel::Tunnel;
-use warm::Warmer;
 
 /// How many ready backends one connection tries before giving up.
 const TRIES_PER_CONNECTION: usize = 3;
@@ -110,6 +117,19 @@ impl PortForward {
         remote: RemotePort,
         local: LocalPort,
     ) -> Result<Self> {
+        Self::start_with(client, target, remote, local, Multiplex::from_env()).await
+    }
+
+    /// [`PortForward::start`] with the given way of reaching the pods, for
+    /// tests of each one.
+    #[doc(hidden)]
+    pub async fn start_with(
+        client: &Client,
+        target: ForwardTarget,
+        remote: RemotePort,
+        local: LocalPort,
+        multiplex: Multiplex,
+    ) -> Result<Self> {
         let resolver = Resolver::new(client, &target, &remote)
             .await
             .map_err(|e| anyhow::anyhow!(describe_error(&e)))?;
@@ -139,9 +159,7 @@ impl PortForward {
         let task = tokio::spawn(serve(
             listener,
             Backends::new(resolver, client.clone(), ns.clone()),
-            Warmer::new(warm::version_of(client.clone())),
-            client.clone(),
-            ns,
+            Mux::new(client.clone(), ns, multiplex),
             shared.clone(),
             describe_target(&target),
         ));
@@ -242,13 +260,11 @@ fn bind_error(port: u16, e: &std::io::Error) -> anyhow::Error {
 async fn serve(
     listener: TcpListener,
     backends: Arc<Backends>,
-    warmer: Warmer,
-    client: Client,
-    namespace: String,
+    mux: Mux,
     shared: Arc<Shared>,
     what: String,
 ) {
-    let warmer = Arc::new(warmer);
+    let mux = Arc::new(mux);
     let what = Arc::new(what);
     // Connection tasks are aborted with the listener.
     let mut conns = tokio::task::JoinSet::new();
@@ -259,9 +275,7 @@ async fn serve(
                 conns.spawn(connect(
                     socket,
                     backends.clone(),
-                    warmer.clone(),
-                    client.clone(),
-                    namespace.clone(),
+                    mux.clone(),
                     shared.clone(),
                     what.clone(),
                 ));
@@ -284,9 +298,7 @@ impl Drop for Open {
 async fn connect(
     mut socket: tokio::net::TcpStream,
     backends: Arc<Backends>,
-    warmer: Arc<Warmer>,
-    client: Client,
-    namespace: String,
+    mux: Arc<Mux>,
     shared: Arc<Shared>,
     what: Arc<String>,
 ) {
@@ -309,9 +321,7 @@ async fn connect(
         list.swap(0, i);
     }
     for b in list.into_iter().take(TRIES_PER_CONNECTION) {
-        let tunnel = Tunnel::open(&client, &namespace, &b.pod, b.port).await;
-        // The tunnel took the pool's idle connection (or opened one).
-        warmer.used();
+        let tunnel = mux.tunnel(&b.pod, b.port).await;
         let (mut stream, remote_error, closer) = match tunnel {
             Ok(t) => t.into_parts(),
             Err(e) => {

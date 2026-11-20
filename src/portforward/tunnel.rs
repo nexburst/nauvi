@@ -27,7 +27,7 @@ pub const PING_EVERY: Duration = Duration::from_secs(60);
 const DATA: u8 = 0;
 const ERROR: u8 = 1;
 /// The local side's buffer, as kube-rs uses.
-const BUFFER: usize = 1024 * 1024;
+pub(crate) const BUFFER: usize = 1024 * 1024;
 
 /// A forwarded connection: `stream` reads and writes the pod's port, `error`
 /// resolves with the pod's error text (or fails when the connection ends
@@ -53,6 +53,19 @@ impl Tunnel {
             .map_err(kube::Error::BuildRequest)?;
         let connection = client.connect(request).await?;
         Ok(Self::over(connection.into_stream(), port, PING_EVERY))
+    }
+
+    /// A tunnel run by `task` (a multiplexed stream pair, #399).
+    pub(crate) fn from_parts(
+        stream: DuplexStream,
+        error: oneshot::Receiver<String>,
+        task: tokio::task::JoinHandle<()>,
+    ) -> Self {
+        Self {
+            stream,
+            error,
+            task: Closer(task),
+        }
     }
 
     /// Run the protocol over an open WebSocket.

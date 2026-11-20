@@ -19,6 +19,8 @@ repository = "https://github.com/nexburst/nauvi"
 [dependencies]
 anyhow = "1"
 base64 = "0.23"
+# SPDY frames of multiplexed port-forwards (#399); the version tokio uses.
+bytes = "1"
 jiff = "0.2"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
