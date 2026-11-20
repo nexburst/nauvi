@@ -166,9 +166,11 @@ for (const theme of ["light", "dark"] as const) {
     await openApp(page);
     await page.evaluate((t) => (document.documentElement.dataset.theme = t), theme);
     await openKind(page, "Pods");
+    // The default columns and the ⋮ fit at 1280 px: no sideways scrolling.
+    const scroller = page.locator(".table .scroller");
+    expect(await scroller.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
     // The ⋮ stays at the table's right edge, whole, even where the columns
     // scroll sideways (and after scrolling them).
-    const scroller = page.locator(".table .scroller");
     const inside = () =>
       more(page, "web-1").evaluate((btn) => {
         const b = btn.getBoundingClientRect();
