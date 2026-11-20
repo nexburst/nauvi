@@ -204,8 +204,8 @@ mod tests {
         let obj = with_last_applied("ConfigMap", applied);
         let d = detail_of(&rref("", "ConfigMap", "configmaps", true), &obj, vec![]).unwrap();
         let a = &d.annotations[LAST_APPLIED];
-        assert!(!a.contains("hunter2"), "{a}");
-        assert!(a.contains("\"mode\":\"fast\""), "{a}");
+        assert!(!a.contains("hunter2"), "the password reached the panel");
+        assert!(a.contains("\"mode\":\"fast\""));
         assert_eq!(d.annotations["team"], "a");
     }
 

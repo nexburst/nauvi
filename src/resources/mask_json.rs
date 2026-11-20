@@ -124,7 +124,7 @@ mod tests {
         assert!(hidden);
         let text = v.to_string();
         for secret in ["hunter2", "s3cr3t"] {
-            assert!(!text.contains(secret), "{secret} leaked: {text}");
+            assert!(!text.contains(secret), "a masked value reached the output");
         }
         let c = &v["spec"]["template"]["spec"]["containers"][0];
         assert_eq!(c["args"], json!(["--token=••••", "--port", "8080"]));
