@@ -117,7 +117,7 @@ async function exportToDownloads(app, stem) {
 }
 
 /** The footer's "N of M items". */
-const footerCount = (app) => app.js(`return document.querySelector('footer span')?.textContent ?? ""`);
+const footerCount = (app) => app.js(`return document.querySelector('footer [data-testid="status-count"]')?.textContent ?? ""`);
 
 describe("CSV export", { timeout: 15 * 60_000, skip }, () => {
   before(() => {

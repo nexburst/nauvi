@@ -109,7 +109,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     await waitNames(app, ["web-1"], "^web-\\d$");
     await app.filter("^(web|db)-1$");
     await waitNames(app, ["web-1", "db-1"], "^(web|db)-1$");
-    const footer = await app.js(`return document.querySelector("footer")?.innerText ?? ""`);
+    const footer = await app.js(`return document.querySelector('footer [data-testid="status-count"]')?.textContent ?? ""`);
     assert.match(footer, /2 of 5 items/);
     await shots(app, "regex");
   });
