@@ -11,7 +11,7 @@ use std::ffi::OsString;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 /// What to run in the PTY.
@@ -83,44 +83,13 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
         .find(|p| p.is_file())
 }
 
-/// What runs in the same terminal once the first program exits (#376: the
-/// user's shell after their AI CLI), and the line shown before it starts.
-#[derive(Debug, Clone)]
-pub(crate) struct Then {
-    pub(crate) spec: ShellSpec,
-    pub(crate) note: String,
-}
-
-/// The process the session kills when it is dropped: the first program,
-/// then the one [`Then`] started. `closed`: dropped, so nothing more starts.
-struct Running {
-    killer: Box<dyn ChildKiller + Send + Sync>,
-    closed: bool,
-}
-
 /// A running local shell. Dropping it kills the shell and deletes its temp
-/// files (kubeconfig, MCP config, prompt).
+/// files (kubeconfig; an Ask AI tab's MCP config and prompt).
 pub(crate) struct LocalShell {
     input: mpsc::Sender<Vec<u8>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
-    running: Arc<Mutex<Running>>,
+    killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     _files: Vec<TempKubeconfig>,
-}
-
-fn command(spec: &ShellSpec) -> CommandBuilder {
-    let mut cmd = CommandBuilder::new(&spec.program);
-    cmd.args(&spec.args);
-    if let Some(cwd) = &spec.cwd {
-        cmd.cwd(cwd);
-    }
-    // What the app set for its own webview (#353) is not the user's.
-    for var in crate::webkit_env::set_by_app() {
-        cmd.env_remove(var);
-    }
-    for (key, value) in &spec.env {
-        cmd.env(key, value);
-    }
-    cmd
 }
 
 impl LocalShell {
@@ -131,57 +100,35 @@ impl LocalShell {
         spec: &ShellSpec,
         cols: u16,
         rows: u16,
-        kubeconfig: Option<TempKubeconfig>,
-        on_output: impl FnMut(String) + Send + 'static,
-        on_exit: impl FnOnce() + Send + 'static,
-    ) -> Result<Self, String> {
-        Self::spawn_then(
-            spec,
-            None,
-            cols,
-            rows,
-            kubeconfig.into_iter().collect(),
-            on_output,
-            on_exit,
-        )
-    }
-
-    /// [`Self::spawn`], and when `spec` exits, `then` in the same terminal
-    /// (the session ends when that one exits). `files` are deleted when the
-    /// session is dropped.
-    pub(crate) fn spawn_then(
-        spec: &ShellSpec,
-        then: Option<Then>,
-        cols: u16,
-        rows: u16,
         files: Vec<TempKubeconfig>,
-        on_output: impl FnMut(String) + Send + 'static,
+        mut on_output: impl FnMut(String) + Send + 'static,
         on_exit: impl FnOnce() + Send + 'static,
     ) -> Result<Self, String> {
         let pair = native_pty_system()
             .openpty(size(cols, rows))
             .map_err(|e| format!("cannot open a terminal: {e}"))?;
-        let mut child = pair.slave.spawn_command(command(spec)).map_err(|e| {
+        let mut cmd = CommandBuilder::new(&spec.program);
+        cmd.args(&spec.args);
+        if let Some(cwd) = &spec.cwd {
+            cmd.cwd(cwd);
+        }
+        // What the app set for its own webview (#353) is not the user's.
+        for var in crate::webkit_env::set_by_app() {
+            cmd.env_remove(var);
+        }
+        for (key, value) in &spec.env {
+            cmd.env(key, value);
+        }
+        let mut child = pair.slave.spawn_command(cmd).map_err(|e| {
             format!(
                 "cannot start the shell {}: {e}",
                 spec.program.to_string_lossy()
             )
         })?;
         // Only the shell holds the terminal's other end now, so reads end
-        // when it exits. With `then`, the waiting thread keeps it to start
-        // the next program, and drops it once that one has started.
-        let slave = match then {
-            Some(then) => Some((pair.slave, then)),
-            None => {
-                drop(pair.slave);
-                None
-            }
-        };
-        let running = Arc::new(Mutex::new(Running {
-            killer: child.clone_killer(),
-            closed: false,
-        }));
-        let on_output = Arc::new(Mutex::new(on_output));
+        // when it exits.
+        drop(pair.slave);
+        let killer = child.clone_killer();
         let mut reader = pair
             .master
             .try_clone_reader()
@@ -207,7 +154,6 @@ impl LocalShell {
         });
 
         let (read_done, read_done_rx) = mpsc::channel::<()>();
-        let out = on_output.clone();
         std::thread::spawn(move || {
             let mut pending = Vec::new();
             // Big reads under a flood: fewer messages to the tab (#115).
@@ -218,7 +164,7 @@ impl LocalShell {
                     Ok(n) => {
                         let text = decode_utf8(&mut pending, &buf[..n]);
                         if !text.is_empty() {
-                            (*out.lock().unwrap())(text);
+                            on_output(text);
                         }
                     }
                 }
@@ -226,38 +172,8 @@ impl LocalShell {
             let _ = read_done.send(());
         });
 
-        let waiting = running.clone();
         std::thread::spawn(move || {
             let _ = child.wait();
-            if let Some((slave, then)) = slave {
-                // The first program's last output first, then the note.
-                std::thread::sleep(Duration::from_millis(100));
-                let next = {
-                    let mut r = waiting.lock().unwrap();
-                    if r.closed {
-                        None
-                    } else {
-                        (*on_output.lock().unwrap())(then.note.clone());
-                        match slave.spawn_command(command(&then.spec)) {
-                            Ok(next) => {
-                                r.killer = next.clone_killer();
-                                Some(next)
-                            }
-                            Err(e) => {
-                                (*on_output.lock().unwrap())(format!(
-                                    "cannot start the shell {}: {e}\r\n",
-                                    then.spec.program.to_string_lossy()
-                                ));
-                                None
-                            }
-                        }
-                    }
-                };
-                drop(slave);
-                if let Some(mut next) = next {
-                    let _ = next.wait();
-                }
-            }
             // Let the last output arrive first. A background job that keeps
             // the terminal open (or ConPTY, which only ends reads when the
             // console is closed) must not hold up the close.
@@ -268,7 +184,7 @@ impl LocalShell {
         Ok(LocalShell {
             input,
             master: Mutex::new(pair.master),
-            running,
+            killer: Mutex::new(killer),
             _files: files,
         })
     }
@@ -290,9 +206,7 @@ impl LocalShell {
 
 impl Drop for LocalShell {
     fn drop(&mut self) {
-        let mut r = self.running.lock().unwrap();
-        r.closed = true;
-        let _ = r.killer.kill();
+        let _ = self.killer.lock().unwrap().kill();
     }
 }
 
@@ -355,7 +269,7 @@ mod tests {
     fn run_in_pty(
         script: &str,
         env: Vec<(OsString, OsString)>,
-        kubeconfig: Option<TempKubeconfig>,
+        files: Vec<TempKubeconfig>,
     ) -> String {
         let spec = ShellSpec {
             program: "/bin/sh".into(),
@@ -369,7 +283,7 @@ mod tests {
             &spec,
             80,
             24,
-            kubeconfig,
+            files,
             move |text| {
                 let _ = out_tx.send(text);
             },
@@ -383,98 +297,6 @@ mod tests {
             .expect("the shell did not exit");
         drop(shell);
         out_rx.try_iter().collect()
-    }
-
-    #[cfg(unix)]
-    fn sh(script: &str) -> ShellSpec {
-        ShellSpec {
-            program: "/bin/sh".into(),
-            args: vec!["-c".into(), script.into()],
-            cwd: None,
-            env: vec![],
-        }
-    }
-
-    /// #376: when the first program exits, the next one runs in the same
-    /// terminal (it reads input and is the terminal's own), after the note.
-    #[cfg(unix)]
-    #[test]
-    fn then_runs_in_the_same_terminal_after_the_first_exits() {
-        let (out_tx, out_rx) = mpsc::channel::<String>();
-        let (exit_tx, exit_rx) = mpsc::channel::<()>();
-        let then = Then {
-            spec: sh("read line; echo \"second $line\"; test -t 0 && echo tty-ok"),
-            note: "[the CLI exited]\r\n".into(),
-        };
-        let shell = LocalShell::spawn_then(
-            &sh("echo first"),
-            Some(then),
-            80,
-            24,
-            vec![],
-            move |t| {
-                let _ = out_tx.send(t);
-            },
-            move || {
-                let _ = exit_tx.send(());
-            },
-        )
-        .unwrap();
-        let mut out = String::new();
-        let deadline = std::time::Instant::now() + Duration::from_secs(20);
-        while !out.contains("[the CLI exited]") {
-            assert!(std::time::Instant::now() < deadline, "{out:?}");
-            if let Ok(t) = out_rx.recv_timeout(Duration::from_millis(100)) {
-                out.push_str(&t);
-            }
-        }
-        shell.write(b"hi\n".to_vec()).unwrap();
-        exit_rx.recv_timeout(Duration::from_secs(20)).unwrap();
-        out.extend(out_rx.try_iter());
-        let first = out.find("first").expect(&out);
-        let note = out.find("[the CLI exited]").expect(&out);
-        assert!(first < note, "{out:?}");
-        assert!(out.contains("second hi"), "{out:?}");
-        assert!(out.contains("tty-ok"), "{out:?}");
-    }
-
-    /// Closing the tab while the first program runs starts nothing more.
-    #[cfg(unix)]
-    #[test]
-    fn then_does_not_start_after_the_session_is_dropped() {
-        let (out_tx, out_rx) = mpsc::channel::<String>();
-        let (exit_tx, exit_rx) = mpsc::channel::<()>();
-        let then = Then {
-            spec: sh("echo should-not-run"),
-            note: "note\r\n".into(),
-        };
-        let shell = LocalShell::spawn_then(
-            &sh("echo started; sleep 30"),
-            Some(then),
-            80,
-            24,
-            vec![],
-            move |t| {
-                let _ = out_tx.send(t);
-            },
-            move || {
-                let _ = exit_tx.send(());
-            },
-        )
-        .unwrap();
-        let mut out = String::new();
-        let deadline = std::time::Instant::now() + Duration::from_secs(20);
-        while !out.contains("started") {
-            assert!(std::time::Instant::now() < deadline, "{out:?}");
-            if let Ok(t) = out_rx.recv_timeout(Duration::from_millis(100)) {
-                out.push_str(&t);
-            }
-        }
-        drop(shell);
-        exit_rx.recv_timeout(Duration::from_secs(20)).unwrap();
-        out.extend(out_rx.try_iter());
-        assert!(!out.contains("should-not-run"), "{out:?}");
-        assert!(!out.contains("note"), "{out:?}");
     }
 
     #[cfg(unix)]
@@ -495,7 +317,7 @@ mod tests {
             &spec,
             100,
             30,
-            None,
+            vec![],
             move |t| {
                 let _ = out_tx.send(t);
             },
@@ -560,7 +382,7 @@ mod tests {
                 ("HOME".into(), home.clone().into_os_string()),
                 ("KUBECONFIG".into(), kubeconfig),
             ],
-            Some(temp),
+            vec![temp],
         );
         let lines: Vec<&str> = out.lines().map(str::trim).collect();
         assert!(lines.contains(&"two"), "{out:?}");

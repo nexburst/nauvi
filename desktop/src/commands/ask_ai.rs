@@ -11,7 +11,7 @@
 use crate::commands::local_shell::{shell_setup, ShellSetup};
 use crate::commands::term_frame::TermChannel;
 use crate::commands::term_out::{send_closed, send_data, TermOut};
-use crate::local_shell::{LocalShell, ShellSpec, Then};
+use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::{Settings, SettingsStore};
 use crate::state::mutation::Mutation;
 use crate::state::{next_session, LocalShellSession};
@@ -231,13 +231,25 @@ pub(crate) async fn cmd_ask_ai_start(
         mcp.as_ref(),
         prompt_file.as_deref(),
     );
+    // When the CLI exits, the user's shell in its place (Unix; on Windows
+    // the tab ends with the CLI).
+    #[cfg(unix)]
+    let launch = {
+        let note = format!(
+            "\n\x1b[90m{label} exited. This is your shell; kubectl still uses context {}, \
+             namespace {}.\x1b[0m\n",
+            plain(&generated.context),
+            plain(&generated.namespace)
+        );
+        ask_ai::then_shell(launch, &shell.program, &note)
+    };
     // The CLI where the shell would run: its working directory and
     // environment, plus what the CLI needs for this session.
     let spec = ShellSpec {
         program: launch.program.into_os_string(),
         args: launch.args,
-        cwd: shell.cwd.clone(),
-        env: shell.env.iter().cloned().chain(launch.env).collect(),
+        cwd: shell.cwd,
+        env: shell.env.into_iter().chain(launch.env).collect(),
     };
     tracing::info!(
         "Ask AI: starting {label} at {id} (MCP: {})",
@@ -249,21 +261,11 @@ pub(crate) async fn cmd_ask_ai_start(
             "read-only"
         }
     );
-    let then = Then {
-        note: format!(
-            "\r\n\x1b[90m{label} exited. This is your shell; kubectl still uses context {}, \
-             namespace {}.\x1b[0m\r\n",
-            generated.context, generated.namespace
-        ),
-        spec: shell,
-    };
-
     let session = next_session("local");
     let on_output = TermOut::new(on_output);
     let (out, exit_out) = (on_output.clone(), on_output.clone());
-    let terminal = LocalShell::spawn_then(
+    let terminal = LocalShell::spawn(
         &spec,
-        Some(then),
         cols,
         rows,
         files,
@@ -294,6 +296,13 @@ pub(crate) async fn cmd_ask_ai_start(
         },
         kubectl,
     })
+}
+
+/// `text` without control characters (a context name is the kubeconfig's
+/// text, printed in the terminal).
+#[cfg(unix)]
+fn plain(text: &str) -> String {
+    text.chars().filter(|c| !c.is_control()).collect()
 }
 
 /// The CLI `id`, its program and its name.

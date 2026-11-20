@@ -63,7 +63,7 @@ pub(crate) async fn cmd_local_shell_start(
         &spec,
         cols,
         rows,
-        Some(temp),
+        vec![temp],
         move |data| {
             send_data(&out, data.into_bytes());
         },

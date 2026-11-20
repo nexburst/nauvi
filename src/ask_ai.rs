@@ -346,9 +346,71 @@ pub fn launch(
     Launch { program, args, env }
 }
 
+/// The script that runs the CLI, then the user's shell in its place, in the
+/// same terminal. It is a constant: the note, the shell, the program and
+/// every argument come as positional parameters (`"$@"` keeps each one
+/// whole and is never parsed again), so nothing in them can become shell
+/// syntax. `trap :` keeps this script alive through a Ctrl-C meant for the
+/// CLI (the CLI itself gets the default handler: a caught signal is reset
+/// by `exec`).
+pub const THEN_SHELL_SCRIPT: &str =
+    r#"trap : INT QUIT; note=$1; shell=$2; shift 2; "$@"; printf '%s' "$note"; exec "$shell" -l"#;
+
+/// `launch`, then (when it exits) `shell -l` in the same terminal, after
+/// `note`: `/bin/sh -c` [`THEN_SHELL_SCRIPT`] with everything as
+/// arguments. Unix only (a terminal's session ends with its first process
+/// on macOS, so the shell cannot be started after it from outside).
+pub fn then_shell(launch: Launch, shell: &OsStr, note: &str) -> Launch {
+    let mut args: Vec<OsString> = vec![
+        "-c".into(),
+        THEN_SHELL_SCRIPT.into(),
+        "nauvi-ask-ai".into(),
+        note.into(),
+        shell.into(),
+        launch.program.into_os_string(),
+    ];
+    args.extend(launch.args);
+    Launch {
+        program: "/bin/sh".into(),
+        args,
+        env: launch.env,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The wrapper keeps every argument whole and runs none of it: a
+    /// prompt full of shell syntax reaches the program as one argument,
+    /// then the "shell" runs.
+    #[cfg(unix)]
+    #[test]
+    fn then_shell_passes_arguments_through_untouched() {
+        let dir = std::env::temp_dir().join(format!("nauvi-then-shell-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("pwned");
+        let evil = format!(
+            "x\"; touch {m}; echo \"$(touch {m})\" `touch {m}` '; touch {m}; '\n-n --flag",
+            m = marker.display()
+        );
+        let inner = Launch {
+            program: "/usr/bin/printf".into(),
+            args: vec!["<%s>\\n".into(), evil.clone().into(), "two words".into()],
+            env: vec![],
+        };
+        // `echo` stands in for the user's shell (it gets `-l`).
+        let l = then_shell(inner, OsStr::new("/bin/echo"), "NOTE\n");
+        assert_eq!(l.program, PathBuf::from("/bin/sh"));
+        let out = std::process::Command::new(&l.program)
+            .args(&l.args)
+            .output()
+            .unwrap();
+        let out = String::from_utf8_lossy(&out.stdout);
+        assert_eq!(out, format!("<{evil}>\n<two words>\nNOTE\n-l\n"));
+        assert!(!marker.exists(), "an argument ran as shell code");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn strs(v: &[OsString]) -> Vec<String> {
         v.iter().map(|s| s.to_string_lossy().into_owned()).collect()
