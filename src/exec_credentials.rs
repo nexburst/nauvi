@@ -16,7 +16,7 @@
 
 use base64::Engine as _;
 use jiff::Timestamp;
-use kube::client::{AuthError, Body, ClientBuilder};
+use kube::client::{AuthError, Body};
 use kube::config::{ExecConfig, ExecInteractiveMode};
 use kube::{Client, Config};
 use serde::Deserialize;
@@ -446,7 +446,7 @@ pub fn logs_in_with_exec(config: &Config) -> bool {
 /// its expiry, as kube does.
 pub async fn client_with_exec(mut config: Config) -> Result<Client, kube::Error> {
     let Some(exec) = config.auth_info.exec.take() else {
-        return Client::try_from(config);
+        return crate::forward_client::builder(config).map(|b| b.build());
     };
     let cred = credential(&exec).await.map_err(kube::Error::Auth)?;
     if let Some((cert, key)) = &cred.certificate {
@@ -455,7 +455,7 @@ pub async fn client_with_exec(mut config: Config) -> Result<Client, kube::Error>
         config.auth_info.client_key_data = Some(b64.encode(key).into());
         config.auth_info.client_certificate = None;
         config.auth_info.client_key = None;
-        return Ok(ClientBuilder::try_from(config)?
+        return Ok(crate::forward_client::builder(config)?
             .with_valid_until(cred.expires)
             .build());
     }
@@ -475,7 +475,7 @@ pub async fn client_with_exec(mut config: Config) -> Result<Client, kube::Error>
     });
     // The filter needs a service it can clone: a buffer in front of the
     // stack (kube puts one around the whole client too).
-    Ok(ClientBuilder::try_from(config)?
+    Ok(crate::forward_client::builder(config)?
         .with_layer(&tower::buffer::BufferLayer::new(1024))
         .with_layer(&add_token)
         .build())

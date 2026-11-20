@@ -24,7 +24,8 @@ const TIMEOUT: Duration = Duration::from_secs(120);
 
 async fn connect() -> Result<Client> {
     let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
-    tokio::time::timeout(Duration::from_secs(20), client_for_context(Some(&ctx)))
+    let build = nauvi::for_port_forwards(client_for_context(Some(&ctx)));
+    tokio::time::timeout(Duration::from_secs(20), build)
         .await
         .context("timed out building client")?
         .with_context(|| format!("cannot connect to context {ctx}"))
@@ -399,6 +400,73 @@ async fn an_idle_forwarded_connection_outlives_the_read_timeout() -> Result<()> 
     .await
 }
 
+/// How many connections the `counted` pod's server accepted: it logs a line
+/// for each one.
+async fn accepts(client: &Client, ns: &str) -> Result<usize> {
+    let logs = Api::<Pod>::namespaced(client.clone(), ns)
+        .logs("counted", &Default::default())
+        .await?;
+    Ok(logs.lines().filter(|l| *l == "accepted").count())
+}
+
+/// Nothing connects to the pod's port before a local client does (#374):
+/// the kubelet dials the port as soon as a port-forward upgrade completes,
+/// so a tunnel opened ahead of time would be a silent connection to the
+/// user's app. Starting the forward, waiting past a keep-warm refresh, and
+/// then one local connection make exactly one connection in the pod.
+#[tokio::test]
+#[ignore]
+async fn the_pod_sees_a_connection_only_when_a_client_connects() -> Result<()> {
+    in_temp_ns("kl-it-pf-quiet", |client, ns| async move {
+        let pod: Pod = serde_json::from_value(serde_json::json!({
+            "apiVersion": "v1", "kind": "Pod",
+            "metadata": { "name": "counted" },
+            "spec": {
+                "terminationGracePeriodSeconds": 0,
+                "containers": [{
+                    "name": "echo", "image": "busybox:1.36",
+                    "command": ["tcpsvd", "0.0.0.0", "7000", "sh", "-c", "echo accepted >&2; exec cat"],
+                    "ports": [{ "containerPort": 7000 }],
+                    "readinessProbe": { "exec": { "command": ["true"] }, "periodSeconds": 1 }
+                }]
+            }
+        }))?;
+        let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
+        pods.create(&PostParams::default(), &pod).await?;
+        eventually("the counted pod is ready", TIMEOUT, || async {
+            Ok(pods.get("counted").await.ok().filter(pod_is_ready).map(|_| ()))
+        })
+        .await?;
+        let fwd = PortForward::start(
+            &client,
+            target(ForwardKind::Pod, &ns, "counted"),
+            RemotePort::Number(7000),
+            LocalPort::Random,
+        )
+        .await?;
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let n = accepts(&client, &ns).await?;
+        ensure!(n == 0, "{n} connections reached the pod before any client");
+
+        let got = echo_through(fwd.local_port, b"hello\n".to_vec()).await?;
+        ensure!(got == b"hello\n");
+        let n = eventually("the pod logs the connection", TIMEOUT, || async {
+            let n = accepts(&client, &ns).await?;
+            Ok((n > 0).then_some(n))
+        })
+        .await?;
+        ensure!(n == 1, "{n} connections for one client");
+        // The forward keeps an API-server connection warm while in use:
+        // past a refresh, the pod still saw only the one.
+        tokio::time::sleep(Duration::from_secs(35)).await;
+        let n = accepts(&client, &ns).await?;
+        ensure!(n == 1, "{n} connections after the keep-warm refresh");
+        ensure!(fwd.status().total_connections == 1, "{:?}", fwd.status());
+        Ok(())
+    })
+    .await
+}
+
 /// 10 MB goes through the forward and back unchanged (#304: our own
 /// port-forward protocol code).
 #[tokio::test]
@@ -532,14 +600,22 @@ async fn kubectl_forward(ns: &str, pod: &str) -> Result<Option<(tokio::process::
     Ok(Some((child, port)))
 }
 
+/// How much slower than kubectl's a new connection's p50 may be, in ms.
+const KUBECTL_MARGIN_MS: f64 = 30.0;
+
 /// New connections through a forward (#374): 50 sequential requests, each
 /// on its own connection, alternating with the same requests through
 /// `kubectl port-forward` to the same pod. All of them succeed, and the p50
-/// stays close to kubectl's (before #374 every connection opened its own
-/// TLS connection and WebSocket to the API server).
+/// stays within [`KUBECTL_MARGIN_MS`] of kubectl's.
+///
+/// Each new connection is still one port-forward upgrade (kubectl opens a
+/// stream on its one connection instead), and on kind the API server takes
+/// ~15 ms to set up the kubelet side of an upgrade, plus slack for CI.
+/// Before #374 each one also waited ~40 ms for Nagle (TCP_NODELAY off) and
+/// made its own TCP and TLS handshakes: 56 ms against kubectl's 4 ms.
 #[tokio::test]
 #[ignore]
-async fn new_connections_are_about_as_fast_as_kubectl() -> Result<()> {
+async fn new_connections_are_close_to_kubectl() -> Result<()> {
     const N: usize = 50;
     in_temp_ns("kl-it-pf-lat", |client, ns| async move {
         create_web(&client, &ns).await?;
@@ -595,10 +671,9 @@ async fn new_connections_are_about_as_fast_as_kubectl() -> Result<()> {
             ensure!(st.total_connections as usize >= N + 3, "{st:?}");
             ensure!(st.last_error.is_empty(), "{st:?}");
         }
-        // The budget: within 25% (plus 2 ms of noise) of kubectl's p50; on
-        // kind both take a few ms. Without kubectl, a generous fixed one.
+        // Without kubectl, a fixed budget that a Nagle stall would break.
         let kubectl_p50 = stats.iter().find(|s| s.0 == "kubectl").map(|s| s.1);
-        let budget = kubectl_p50.map_or(100.0, |k| k * 1.25 + 2.0);
+        let budget = kubectl_p50.map_or(40.0, |k| k + KUBECTL_MARGIN_MS);
         for (name, p50) in stats.iter().filter(|s| s.0 != "kubectl") {
             ensure!(
                 *p50 <= budget,

@@ -56,7 +56,7 @@ impl Tunnel {
     }
 
     /// Run the protocol over an open WebSocket.
-    pub(crate) fn over<S>(ws: WebSocketStream<S>, port: u16, ping_every: Duration) -> Self
+    fn over<S>(ws: WebSocketStream<S>, port: u16, ping_every: Duration) -> Self
     where
         S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
     {
@@ -72,16 +72,6 @@ impl Tunnel {
             error,
             task: Closer(task),
         }
-    }
-
-    /// Whether the connection is still open and the pod sent no error yet:
-    /// a pre-opened tunnel that fails this is of no use any more (#374).
-    pub(crate) fn is_open(&mut self) -> bool {
-        !self.task.0.is_finished()
-            && matches!(
-                self.error.try_recv(),
-                Err(oneshot::error::TryRecvError::Empty)
-            )
     }
 
     /// The stream, the error and a guard that closes the connection when

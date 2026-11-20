@@ -4,9 +4,9 @@
 // system to open its URL, Copy URL puts it on the clipboard, Stop ends it.
 // #293: a client that resets its connection mid-response (as browsers do on
 // Windows) leaves the forward running without an error.
-// #374: 50 new connections in a row all answer (each one used to open its
-// own TLS connection and WebSocket to the API server; now the forward keeps
-// tunnels ready), and the row shows no error.
+// #374: 50 new connections in a row all answer (each one is a port-forward
+// upgrade over a warm, Nagle-free API-server connection), and the row shows
+// no error.
 
 import assert from "node:assert/strict";
 import { get } from "node:http";
