@@ -141,8 +141,9 @@ impl Session {
 
     /// Open a forwarded connection to `port`: an error and a data stream.
     /// Returns once the kubelet accepted the data stream; that is when it
-    /// dials the pod's port.
-    pub(crate) async fn open(&self, port: u16) -> Result<Tunnel, String> {
+    /// dials the pod's port. The connection keeps the session alive, also
+    /// once the pool has forgotten it (after a GOAWAY).
+    pub(crate) async fn open(self: &Arc<Self>, port: u16) -> Result<Tunnel, String> {
         let inner = &self.inner;
         let (data_tx, data_rx) = mpsc::channel(IN_QUEUE);
         let (err_tx, err_rx) = mpsc::channel(IN_QUEUE);
@@ -191,6 +192,7 @@ impl Session {
         let (ready_tx, ready) = oneshot::channel();
         let guard = Guard {
             inner: inner.clone(),
+            _session: self.clone(),
             err_id,
             data_id,
             sent_fin: AtomicBool::new(false),
@@ -216,6 +218,7 @@ impl Session {
 /// aborted: resets what is still open, forgets both streams.
 struct Guard {
     inner: Arc<Inner>,
+    _session: Arc<Session>,
     err_id: u32,
     data_id: u32,
     sent_fin: AtomicBool,
@@ -448,9 +451,9 @@ mod tests {
     use tokio::io::DuplexStream;
 
     /// A session over an in-memory connection, and the "kubelet" end.
-    fn pair(ping_every: Duration, idle_after: Duration) -> (Session, DuplexStream) {
+    fn pair(ping_every: Duration, idle_after: Duration) -> (Arc<Session>, DuplexStream) {
         let (a, b) = tokio::io::duplex(1024 * 1024);
-        (Session::new(a, ping_every, idle_after), b)
+        (Arc::new(Session::new(a, ping_every, idle_after)), b)
     }
 
     const HOUR: Duration = Duration::from_secs(3600);
@@ -542,7 +545,6 @@ mod tests {
     #[tokio::test]
     async fn connections_get_their_own_streams_and_request_ids() {
         let (s, mut k) = pair(HOUR, HOUR);
-        let s = Arc::new(s);
         let s2 = s.clone();
         let opens = tokio::spawn(async move {
             let a = s2.open(80).await.unwrap();
@@ -591,6 +593,33 @@ mod tests {
         let (_, _, data_id, _) = next_frame(&mut k).await;
         k.write_all(&spdy::rst_stream(data_id, 3)).await.unwrap();
         assert!(open.await.unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn after_goaway_open_connections_go_on_and_no_new_ones_open() {
+        let (s, mut k) = pair(HOUR, HOUR);
+        let s2 = s.clone();
+        let open = tokio::spawn(async move { s2.open(80).await });
+        let (_, data_id) = accept(&mut k).await;
+        let mut t = open.await.unwrap().unwrap();
+        k.write_all(&control(spdy::GOAWAY, 0, &[0; 8]))
+            .await
+            .unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !s.is_closed() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        // The pool forgets a closed session; its connection keeps it.
+        drop(s);
+        k.write_all(&spdy::data(data_id, b"still", false))
+            .await
+            .unwrap();
+        let mut got = [0u8; 5];
+        t.stream.read_exact(&mut got).await.unwrap();
+        assert_eq!(&got, b"still");
     }
 
     #[tokio::test]
