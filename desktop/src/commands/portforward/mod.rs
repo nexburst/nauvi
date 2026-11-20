@@ -11,7 +11,6 @@ pub(crate) mod saved;
 use crate::settings::{SavedForward, SettingsStore};
 use crate::state::mutation::ForwardStart;
 use crate::state::{next_session, AppState, Cluster, ForwardSession, SWITCHED};
-use kube::Client;
 use nauvi::{
     service_ports, ForwardStatus, ForwardTarget, LocalPort, PortForward, RemotePort,
     ServicePortInfo,
@@ -57,15 +56,11 @@ fn info(id: &str, s: &ForwardSession) -> ForwardInfo {
     }
 }
 
-/// Start `saved` in this window with `client`, the client of context
+/// Start `saved` in this window with its cluster's forward client (#374) on
 /// the cluster, stopping the run of it that is already going first (so an
 /// edited forward can take its old local port again). If the window left
 /// the cluster meanwhile, the new forward is dropped.
-async fn run_saved(
-    cluster: &Cluster,
-    client: &Client,
-    saved: &SavedForward,
-) -> Result<ForwardInfo, String> {
+async fn run_saved(cluster: &Cluster, saved: &SavedForward) -> Result<ForwardInfo, String> {
     let old: Vec<ForwardSession> = {
         let mut forwards = cluster.forwards.lock().unwrap();
         let ids: Vec<String> = forwards
@@ -85,8 +80,9 @@ async fn run_saved(
     if cluster.is_closed() {
         return Err(SWITCHED.into());
     }
+    // The forward client: Nagle off for its tunnels (#374).
     let forward = PortForward::start(
-        client,
+        &cluster.forward_client().await?,
         saved.target.clone(),
         remote,
         LocalPort::from_option(local),
@@ -149,12 +145,12 @@ pub(crate) async fn cmd_portforward_start(
             return Ok(info(id, s));
         }
     }
-    let (selected, client) = cluster.context_client().await?;
+    let (selected, _) = cluster.context_client().await?;
     let ctx = cluster.context_id_of(selected.as_deref())?;
     let remote_text = remote_port.trim().to_string();
     let known = saved::list(&settings.get(), &ctx);
     if let Some(s) = saved::matching(&known, &target, &remote_text, local_port) {
-        return run_saved(&cluster, &client, s).await;
+        return run_saved(&cluster, s).await;
     }
     let new = saved::normalize(SavedForward {
         id: String::new(),
@@ -169,7 +165,7 @@ pub(crate) async fn cmd_portforward_start(
     let mut stored = Err(String::new());
     settings.modify(|s| stored = saved::upsert(s, &ctx, new.clone()));
     let stored = stored?;
-    match run_saved(&cluster, &client, &stored).await {
+    match run_saved(&cluster, &stored).await {
         Ok(info) => Ok(info),
         Err(e) => {
             settings.modify(|s| saved::remove(s, &ctx, &stored.id));
@@ -277,11 +273,11 @@ pub(crate) async fn cmd_portforward_start_saved(
     settings: State<'_, Arc<SettingsStore>>,
     id: String,
 ) -> Result<ForwardInfo, String> {
-    let (selected, client) = cluster.context_client().await?;
+    let (selected, _) = cluster.context_client().await?;
     let ctx = cluster.context_id_of(selected.as_deref())?;
     let saved = saved::find(&settings.get(), &ctx, &id)
         .ok_or("this port-forward was deleted in the meantime")?;
-    run_saved(&cluster, &client, &saved).await
+    run_saved(&cluster, &saved).await
 }
 
 /// Stop the saved forward `id` and forget it. Deleting one that is gone is
@@ -341,7 +337,7 @@ pub(crate) async fn cmd_portforward_autostart(
             })
             .collect());
     }
-    let (_, client) = cluster.context_client().await?;
+    cluster.context_client().await?;
     let mut failed = Vec::new();
     for f in wanted {
         // Held until the forward runs (or failed), so a second window
@@ -353,7 +349,7 @@ pub(crate) async fn cmd_portforward_autostart(
         if cluster.is_closed() {
             break;
         }
-        if let Err(error) = run_saved(&cluster, &client, &f).await {
+        if let Err(error) = run_saved(&cluster, &f).await {
             failed.push(AutoStartError {
                 saved_id: f.id.clone(),
                 error,

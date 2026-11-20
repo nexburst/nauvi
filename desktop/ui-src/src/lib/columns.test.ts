@@ -91,8 +91,10 @@ describe("columnsFor", () => {
   it("computes age from the creation time", () => {
     const [age] = columnsFor(kindWith([["age", "age"]]));
     const r = row([""], { created: 100 });
-    expect(age.text(r, { metrics, now: 160_000 })).toBe("1m");
+    expect(age.text(r, { metrics, now: 160_000 })).toBe("60s");
+    expect(age.text(r, { metrics, now: 290_000 })).toBe("3m10s");
     expect(age.sort(r, ctx)).toBe(100);
+    expect(age.title?.(r, "utc")).toBe("Created 1970-01-01 00:01:40 UTC");
   });
 
   it("merges pod metrics by namespace/name", () => {

@@ -168,6 +168,9 @@ impl ClusterSession {
         }
         self.idle.idle.store(true, Ordering::SeqCst);
         drop(slot);
+        if let Ok(mut slot) = self.forward_client.try_lock() {
+            *slot = None;
+        }
         for task in super::take_all(&self.watches).into_values() {
             task.abort();
         }

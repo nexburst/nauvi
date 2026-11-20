@@ -211,7 +211,7 @@ async fn connect(
         .flatten();
     let client = match &exec {
         Some(_) => crate::exec_credentials::client_with_exec(config).await,
-        None => Client::try_from(config),
+        None => crate::forward_client::builder(config).map(|b| b.build()),
     }
     .map_err(|e| explain(describe_client_error(&e, &target)))?;
     if let Err(e) = client.apiserver_version().await {
