@@ -46,7 +46,7 @@ export function closeDetail() {
   });
 }
 
-function sameTarget(a: Target, b: Target): boolean {
+export function sameTarget(a: Target, b: Target): boolean {
   return (
     a.resource.group === b.resource.group &&
     a.resource.kind === b.resource.kind &&

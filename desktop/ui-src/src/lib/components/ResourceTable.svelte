@@ -13,7 +13,7 @@
   import { replicasFromRow } from "../actions";
   import { rangeKeys } from "../selection";
   import { requestAction, setNotice } from "../stores/actions.svelte";
-  import { detail } from "../stores/detail.svelte";
+  import { detail, sameTarget } from "../stores/detail.svelte";
   import { agentPrompt } from "../agent";
   import { deleteDenied, deniedActions, namespacesOf } from "../access";
   import { visibleCluster } from "../cluster";
@@ -317,6 +317,13 @@
     if (!row) return;
     if (verb === "prompt") return copyPrompt(row);
     if (verb === "edit") {
+      const t = detail.target;
+      if (t && sameTarget(t, { resource: kind.resource, namespace: row.namespace, name: row.name })) {
+        // Already open: its own Edit shows the YAML, without opening it again
+        // (that would rebuild the editor under the user).
+        document.querySelector<HTMLElement>('[data-testid="detail-panel"] button[data-action="edit"]')?.click();
+        return;
+      }
       detail.yaml = true;
       onselect?.(row);
       return;
