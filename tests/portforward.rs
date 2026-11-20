@@ -488,6 +488,85 @@ async fn the_pod_sees_a_connection_only_when_a_client_connects() -> Result<()> {
     .await
 }
 
+/// A pod deleted and recreated with the same name (a bare pod, or a
+/// StatefulSet's) while its forward runs: the forward's session to the old
+/// pod only answers with errors, so the forward opens one to the new pod
+/// (its UID differs, #399). The first connection after the new pod is ready
+/// already works, in each way of reaching the pod.
+#[tokio::test]
+#[ignore]
+async fn a_pod_recreated_with_the_same_name_gets_new_connections() -> Result<()> {
+    in_temp_ns("kl-it-pf-again", |client, ns| async move {
+        let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
+        let create = || async {
+            let pod: Pod = serde_json::from_value(serde_json::json!({
+                "apiVersion": "v1", "kind": "Pod",
+                "metadata": { "name": "again" },
+                "spec": {
+                    "terminationGracePeriodSeconds": 0,
+                    "containers": [{
+                        "name": "echo", "image": "busybox:1.36",
+                        "command": ["tcpsvd", "0.0.0.0", "7000", "cat"],
+                        "ports": [{ "containerPort": 7000 }],
+                        "readinessProbe": { "exec": { "command": ["true"] }, "periodSeconds": 1 }
+                    }]
+                }
+            }))?;
+            let uid = pods
+                .create(&PostParams::default(), &pod)
+                .await?
+                .metadata
+                .uid;
+            eventually("the pod is ready", TIMEOUT, || async {
+                Ok(pods
+                    .get("again")
+                    .await
+                    .ok()
+                    .filter(pod_is_ready)
+                    .map(|_| ()))
+            })
+            .await?;
+            anyhow::Ok(uid)
+        };
+        let first = create().await?;
+        let mut forwards = Vec::new();
+        for mode in [Multiplex::Auto, Multiplex::PlainSpdy, Multiplex::Off] {
+            let fwd = PortForward::start_with(
+                &client,
+                target(ForwardKind::Pod, &ns, "again"),
+                RemotePort::Number(7000),
+                LocalPort::Random,
+                mode,
+            )
+            .await?;
+            let got = echo_through(fwd.local_port, b"first\n".to_vec()).await?;
+            ensure!(got == b"first\n", "{mode:?}");
+            forwards.push((mode, fwd));
+        }
+
+        pods.delete("again", &DeleteParams::default()).await?;
+        eventually("the old pod is gone", TIMEOUT, || async {
+            Ok(pods.get_opt("again").await?.is_none().then_some(()))
+        })
+        .await?;
+        let second = create().await?;
+        ensure!(first != second, "the same UID: {first:?}");
+
+        for (mode, fwd) in &forwards {
+            for i in 0..3 {
+                let got = echo_through(fwd.local_port, b"again\n".to_vec())
+                    .await
+                    .with_context(|| format!("{mode:?}: connection {i} to the new pod"))?;
+                ensure!(got == b"again\n", "{mode:?}: connection {i}");
+            }
+            let st = fwd.status();
+            ensure!(st.last_error.is_empty(), "{mode:?}: {st:?}");
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// 10 MB goes through the forward and back unchanged (#304: our own
 /// port-forward protocol code).
 #[tokio::test]

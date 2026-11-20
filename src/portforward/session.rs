@@ -30,6 +30,9 @@ const OUT_QUEUE: usize = 64;
 /// Messages buffered per stream before the reader waits (each up to the
 /// kubelet's 32 KiB writes): about [`BUFFER`] per stream.
 const IN_QUEUE: usize = 32;
+/// The most of an error stream's text kept: the kubelet's messages are a
+/// few hundred bytes.
+const MAX_ERROR_TEXT: usize = 4096;
 /// Stream ids are 31 bits: a session that used them up takes no new ones.
 const LAST_STREAM_ID: u32 = 0x7fff_0000;
 
@@ -320,7 +323,10 @@ async fn relay(
         while let Some(m) = err_rx.recv().await {
             match m {
                 Inbound::Reply => {}
-                Inbound::Data(b) => text.extend_from_slice(&b),
+                Inbound::Data(b) => {
+                    let room = MAX_ERROR_TEXT.saturating_sub(text.len());
+                    text.extend_from_slice(&b[..b.len().min(room)]);
+                }
                 Inbound::Fin | Inbound::Reset => break,
             }
         }
@@ -500,6 +506,22 @@ mod tests {
         k.write_all(&reply(err_id)).await.unwrap();
         k.write_all(&reply(data_id)).await.unwrap();
         (err_id, data_id)
+    }
+
+    #[tokio::test]
+    async fn the_error_text_is_capped() {
+        let (s, mut k) = pair(HOUR, HOUR);
+        let s2 = s.clone();
+        let open = tokio::spawn(async move { s2.open(80).await });
+        let (err_id, _) = accept(&mut k).await;
+        let mut t = open.await.unwrap().unwrap();
+        for _ in 0..10 {
+            k.write_all(&spdy::data(err_id, &[b'x'; 1024], false))
+                .await
+                .unwrap();
+        }
+        k.write_all(&spdy::data(err_id, &[], true)).await.unwrap();
+        assert_eq!((&mut t.error).await.unwrap().len(), MAX_ERROR_TEXT);
     }
 
     #[tokio::test]

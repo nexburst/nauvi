@@ -1,6 +1,7 @@
 //! The ready backends of a forward, remembered between connections (#374).
 //!
-//! Listing EndpointSlices (a Service) or Pods (a workload) is one more API
+//! Listing EndpointSlices (a Service) or Pods (a workload, or a pod for its
+//! UID, #399) is one more API
 //! round trip before a new local connection can start. So a forward
 //! watches them and lists only after something changed: while the watch
 //! runs, a remembered list stays valid until the next change. When it does
@@ -82,9 +83,6 @@ impl Backends {
 
     /// The ready backends, best first; empty when none is ready.
     pub(crate) async fn get(self: &Arc<Self>) -> Result<Vec<Backend>> {
-        if !self.resolver.lists() {
-            return self.list().await;
-        }
         let refresh = {
             let mut s = self.state.lock().unwrap();
             let watched = s.watched;

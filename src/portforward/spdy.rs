@@ -33,8 +33,10 @@ pub(crate) const FLAG_FIN: u8 = 0x01;
 /// RST_STREAM status: CANCEL.
 pub(crate) const CANCEL: u32 = 5;
 
-/// The largest frame accepted: the 24-bit length field's limit.
-const MAX_LENGTH: usize = 0x00ff_ffff;
+/// The largest frame accepted. The kubelet writes at most 32 KiB at a
+/// time; the 24-bit length field would allow 16 MiB, and each stream
+/// queues up to 32 frames.
+pub(crate) const MAX_LENGTH: usize = 1024 * 1024;
 
 /// A frame from the server, with only what a port-forward uses.
 #[derive(Debug, PartialEq, Eq)]
@@ -227,6 +229,14 @@ mod tests {
         // WINDOW_UPDATE and SETTINGS are ignored.
         assert_eq!(parse(control(9, 0, &[0; 8])).await, Frame::Other);
         assert_eq!(parse(control(4, 0, &[0; 4])).await, Frame::Other);
+    }
+
+    #[tokio::test]
+    async fn a_frame_over_1_mib_is_an_error() {
+        let f = data(1, &vec![0u8; MAX_LENGTH + 1], false);
+        assert!(read_frame(&mut &f[..]).await.is_err());
+        let f = data(1, &vec![0u8; MAX_LENGTH], false);
+        assert!(read_frame(&mut &f[..]).await.is_ok());
     }
 
     #[tokio::test]

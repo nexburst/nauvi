@@ -14,6 +14,7 @@
 //! `NAUVI_PORT_FORWARD_MULTIPLEX=0` does that from the start (see
 //! [`Multiplex`]).
 
+use super::resolve::Backend;
 use super::session::Session;
 use super::tunnel::{Tunnel, BUFFER, PING_EVERY};
 use super::warm::{self, Warmer, IN_USE};
@@ -71,23 +72,52 @@ enum Transport {
     Spdy = 1,
 }
 
+/// Opens a session to a pod with one upgrade.
+type Opener = Arc<
+    dyn Fn(String, Transport) -> futures::future::BoxFuture<'static, Result<Session, String>>
+        + Send
+        + Sync,
+>;
+
+/// One pod's session, or none yet: its own lock, so opening a session to
+/// one pod never waits for another pod's upgrade.
+type Slot = Arc<tokio::sync::Mutex<Option<Arc<Session>>>>;
+
 pub(crate) struct Mux {
     client: Client,
     namespace: String,
-    sessions: tokio::sync::Mutex<HashMap<String, Arc<Session>>>,
+    /// By pod name and UID: a pod recreated with the same name is another
+    /// pod, and the old one's session would only answer with errors.
+    sessions: std::sync::Mutex<HashMap<String, Slot>>,
+    open: Opener,
     /// One upgrade per connection from now on.
     per_connection: AtomicBool,
     transport: AtomicU8,
     warmer: Warmer,
 }
 
+/// The key of a backend's session.
+fn key(b: &Backend) -> String {
+    format!("{}/{}", b.pod, b.uid)
+}
+
 impl Mux {
     pub(crate) fn new(client: Client, namespace: String, mode: Multiplex) -> Self {
+        let (c, ns) = (client.clone(), namespace.clone());
+        let open: Opener = Arc::new(move |pod, transport| {
+            let (c, ns) = (c.clone(), ns.clone());
+            Box::pin(async move { upgrade(&c, &ns, &pod, transport).await })
+        });
+        Self::with_opener(client, namespace, mode, open)
+    }
+
+    fn with_opener(client: Client, namespace: String, mode: Multiplex, open: Opener) -> Self {
         Self {
             warmer: Warmer::new(warm::version_of(client.clone())),
             client,
             namespace,
             sessions: Default::default(),
+            open,
             per_connection: AtomicBool::new(mode == Multiplex::Off),
             transport: AtomicU8::new(match mode {
                 Multiplex::PlainSpdy => Transport::Spdy,
@@ -96,17 +126,17 @@ impl Mux {
         }
     }
 
-    /// A forwarded connection to `port` of `pod`.
-    pub(crate) async fn tunnel(&self, pod: &str, port: u16) -> kube::Result<Tunnel> {
+    /// A forwarded connection to backend `b`.
+    pub(crate) async fn tunnel(&self, b: &Backend) -> kube::Result<Tunnel> {
         let why = if self.per_connection.load(Ordering::Relaxed) {
             None
         } else {
-            match self.stream(pod, port).await {
+            match self.stream(b).await {
                 Ok(t) => return Ok(t),
                 Err(e) => Some(e),
             }
         };
-        let tunnel = Tunnel::open(&self.client, &self.namespace, pod, port).await;
+        let tunnel = Tunnel::open(&self.client, &self.namespace, &b.pod, b.port).await;
         // The tunnel took the pool's idle connection (or opened one).
         self.warmer.used();
         if let (Some(why), Ok(_)) = (why, &tunnel) {
@@ -119,19 +149,25 @@ impl Mux {
         tunnel
     }
 
+    /// Forget `b`'s session: a connection through it got an error, and the
+    /// next one gets a new session. Open connections keep theirs.
+    pub(crate) fn forget(&self, b: &Backend) {
+        self.sessions.lock().unwrap().remove(&key(b));
+    }
+
     /// A stream pair on the pod's session, opening the session if needed;
     /// one more try on a fresh session when a reused one just failed.
-    async fn stream(&self, pod: &str, port: u16) -> Result<Tunnel, String> {
+    async fn stream(&self, b: &Backend) -> Result<Tunnel, String> {
         for _ in 0..2 {
-            let (session, fresh) = self.session(pod).await?;
-            match session.open(port).await {
+            let (slot, session, fresh) = self.session(b).await?;
+            match session.open(b.port).await {
                 Ok(t) => return Ok(t),
                 Err(e) if fresh => return Err(e),
                 Err(e) => {
-                    tracing::debug!("port-forward: pod {pod}: {e}; opening a new session");
-                    let mut sessions = self.sessions.lock().await;
-                    if sessions.get(pod).is_some_and(|s| Arc::ptr_eq(s, &session)) {
-                        sessions.remove(pod);
+                    tracing::debug!("port-forward: pod {}: {e}; opening a new session", b.pod);
+                    let mut current = slot.lock().await;
+                    if current.as_ref().is_some_and(|s| Arc::ptr_eq(s, &session)) {
+                        *current = None;
                     }
                 }
             }
@@ -139,12 +175,20 @@ impl Mux {
         Err("cannot open a stream".into())
     }
 
-    /// The pod's open session, or a new one (`true`).
-    async fn session(&self, pod: &str) -> Result<(Arc<Session>, bool), String> {
-        let mut sessions = self.sessions.lock().await;
-        sessions.retain(|_, s| !s.is_closed());
-        if let Some(s) = sessions.get(pod) {
-            return Ok((s.clone(), false));
+    /// The pod's open session, or a new one (`true`), and its slot.
+    async fn session(&self, b: &Backend) -> Result<(Slot, Arc<Session>, bool), String> {
+        let slot = {
+            let mut sessions = self.sessions.lock().unwrap();
+            // Drop the slots of closed sessions (not ones being opened).
+            sessions.retain(|_, slot| {
+                slot.try_lock()
+                    .map_or(true, |s| s.as_ref().is_some_and(|s| !s.is_closed()))
+            });
+            sessions.entry(key(b)).or_default().clone()
+        };
+        let mut current = slot.lock().await;
+        if let Some(s) = current.as_ref().filter(|s| !s.is_closed()) {
+            return Ok((slot.clone(), s.clone(), false));
         }
         let first = match self.transport.load(Ordering::Relaxed) {
             1 => Transport::Spdy,
@@ -156,12 +200,13 @@ impl Mux {
         };
         let mut errors = Vec::new();
         for transport in [first, other] {
-            match upgrade(&self.client, &self.namespace, pod, transport).await {
+            match (self.open)(b.pod.clone(), transport).await {
                 Ok(s) => {
                     self.transport.store(transport as u8, Ordering::Relaxed);
                     let s = Arc::new(s);
-                    sessions.insert(pod.to_string(), s.clone());
-                    return Ok((s, true));
+                    *current = Some(s.clone());
+                    drop(current);
+                    return Ok((slot, s, true));
                 }
                 Err(e) => errors.push(e),
             }
@@ -302,7 +347,80 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use tungstenite::protocol::Role;
+
+    /// A client that never reaches a server: the sessions come from the
+    /// test's opener.
+    fn offline_client() -> Client {
+        let svc = tower::service_fn(|_req: http::Request<Body>| async {
+            Err::<http::Response<Body>, tower::BoxError>("offline".into())
+        });
+        Client::new(svc, "default")
+    }
+
+    fn backend(pod: &str, uid: &str) -> Backend {
+        Backend {
+            pod: pod.into(),
+            port: 80,
+            uid: uid.into(),
+        }
+    }
+
+    /// Sessions over in-memory connections; the pod "slow" never answers
+    /// its upgrade. Counts the upgrades.
+    fn mux() -> (Mux, Arc<std::sync::atomic::AtomicUsize>) {
+        let n = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = n.clone();
+        let open: Opener = Arc::new(move |pod, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move {
+                if pod == "slow" {
+                    std::future::pending::<()>().await;
+                }
+                let (a, b) = tokio::io::duplex(1024);
+                // Keep the server end open.
+                std::mem::forget(b);
+                Ok(Session::new(a, PING_EVERY, IN_USE))
+            })
+        });
+        let m = Mux::with_opener(offline_client(), "ns".into(), Multiplex::Auto, open);
+        (m, n)
+    }
+
+    #[tokio::test]
+    async fn a_pod_whose_upgrade_hangs_does_not_hold_up_the_others() {
+        let (m, _) = mux();
+        let m = Arc::new(m);
+        let slow = {
+            let m = m.clone();
+            tokio::spawn(async move { m.session(&backend("slow", "1")).await.map(|_| ()) })
+        };
+        tokio::task::yield_now().await;
+        let fast = tokio::time::timeout(Duration::from_secs(5), m.session(&backend("fast", "2")))
+            .await
+            .expect("the other pod's session opens while one upgrade hangs");
+        assert!(fast.is_ok());
+        assert!(!slow.is_finished());
+        slow.abort();
+    }
+
+    #[tokio::test]
+    async fn sessions_are_per_pod_uid_and_forgotten_on_request() {
+        let (m, n) = mux();
+        let (_, a, fresh) = m.session(&backend("web-0", "1")).await.unwrap();
+        assert!(fresh);
+        let (_, again, fresh) = m.session(&backend("web-0", "1")).await.unwrap();
+        assert!(!fresh && Arc::ptr_eq(&a, &again));
+        // The same name with a new UID: a recreated pod, a new session.
+        let (_, b, fresh) = m.session(&backend("web-0", "2")).await.unwrap();
+        assert!(fresh && !Arc::ptr_eq(&a, &b));
+        // After an error the next connection gets a new session.
+        m.forget(&backend("web-0", "2"));
+        let (_, c, fresh) = m.session(&backend("web-0", "2")).await.unwrap();
+        assert!(fresh && !Arc::ptr_eq(&b, &c));
+        assert_eq!(n.load(Ordering::SeqCst), 3);
+    }
 
     #[tokio::test]
     async fn the_websocket_carries_bytes_both_ways() {

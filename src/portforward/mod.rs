@@ -321,7 +321,7 @@ async fn connect(
         list.swap(0, i);
     }
     for b in list.into_iter().take(TRIES_PER_CONNECTION) {
-        let tunnel = mux.tunnel(&b.pod, b.port).await;
+        let tunnel = mux.tunnel(&b).await;
         let (mut stream, remote_error, closer) = match tunnel {
             Ok(t) => t.into_parts(),
             Err(e) => {
@@ -349,6 +349,8 @@ async fn connect(
             Outcome::Error(msg) => {
                 shared.set_error(format!("pod {} port {}: {msg}", b.pod, b.port));
                 backends.forget();
+                // The session may be what is broken (a pod gone, #399).
+                mux.forget(&b);
             }
             Outcome::Answered => shared.clear_error(),
             Outcome::Nothing => {}
