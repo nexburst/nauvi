@@ -27,7 +27,7 @@ describe("parseCloudName", () => {
   });
 
   it("leaves other names alone", () => {
-    expect(parseCloudName("kind-kubeloupe-test")).toBeNull();
+    expect(parseCloudName("kind-nauvi-test")).toBeNull();
     expect(parseCloudName("aks-prod-admin")).toBeNull();
     expect(parseCloudName("arn:aws:iam::1:role/x")).toBeNull();
     expect(parseCloudName("gke_only_two")).toBeNull();

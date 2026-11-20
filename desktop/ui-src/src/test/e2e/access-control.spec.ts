@@ -9,7 +9,7 @@ const title = (page: Page) => panel(page).locator(".title");
 test("Access Control has the RBAC kinds, in Lens's order", async ({ page }) => {
   await openApp(page);
   const nav = page.getByRole("navigation");
-  const labels = await nav.locator("h4, button").allTextContents();
+  const labels = await nav.locator("h4, button:not(.section)").allTextContents();
   const start = labels.indexOf("Access Control");
   expect(labels.slice(start, start + 6)).toEqual([
     "Access Control",
