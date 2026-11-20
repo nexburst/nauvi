@@ -10,6 +10,7 @@ mod catalog;
 mod close_guard;
 mod commands;
 mod diagnostics;
+mod first_show;
 mod kubectl_fetch;
 mod links;
 mod local_shell;
@@ -101,6 +102,8 @@ fn main() {
             state::idle::start(app.handle().clone());
             commands::updater::manage(app.handle());
             windows::restore_windows(app.handle());
+            // The main window opens hidden until its page loads (#369).
+            first_show::fallback(app.handle(), state::MAIN_WINDOW);
             // Started from a nauvi:// link (#299).
             links::open_launch_link(app.handle());
             close_guard::install(app.handle());
