@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnKind, ResourceKind, ResourceRow } from "./bindings";
-import { columnsFor, EMPTY_METRICS, HIDDEN_METRICS, isNode, isPod, nodeReadyClass, shownColumns } from "./columns";
+import {
+  columnsFor,
+  EMPTY_METRICS,
+  HIDDEN_METRICS,
+  isNode,
+  isPod,
+  minColumnsWidth,
+  nodeReadyClass,
+  shownColumns,
+} from "./columns";
 import type { Ctx, Metrics } from "./columns";
 
 function kindWith(kinds: [string, ColumnKind][], kind = "Pod", group = ""): ResourceKind {
@@ -12,7 +21,7 @@ function kindWith(kinds: [string, ColumnKind][], kind = "Pod", group = ""): Reso
     crd: false,
     verbs: [],
     short_names: [],
-    columns: kinds.map(([key, k]) => ({ key, label: key.toUpperCase(), kind: k })),
+    columns: kinds.map(([key, k]) => ({ key, label: key.toUpperCase(), kind: k, default_hidden: false })),
     actions: [],
   };
 }
@@ -190,6 +199,28 @@ describe("columnsFor", () => {
     expect(shownColumns(pods, [], HIDDEN_METRICS).map((c) => c.key)).toEqual(["name"]);
     expect(shownColumns(nodes, [], withDisks).map((c) => c.key)).toEqual(["name", "cpu", "memory", "disk"]);
     expect(shownColumns(nodes, [], { ...withDisks, hidden: true }).map((c) => c.key)).toEqual(["name"]);
+  });
+
+  it("leaves off-by-default columns out until they are turned on (#378)", () => {
+    const kind = kindWith([
+      ["name", "text"],
+      ["owner", "owner"],
+      ["qos", "text"],
+    ]);
+    kind.columns[1].default_hidden = true;
+    kind.columns[2].default_hidden = true;
+    const cols = columnsFor(kind);
+    expect(cols.map((c) => c.defaultHidden)).toEqual([false, true, true]);
+    expect(shownColumns(cols, [], metrics).map((c) => c.key)).toEqual(["name"]);
+    expect(shownColumns(cols, [], metrics, ["qos"]).map((c) => c.key)).toEqual(["name", "qos"]);
+    // The owner column's cell is the owner, and links to it.
+    const owner = cols[1];
+    expect(owner.link).toBe("owner");
+    expect(owner.text(row(["web-1", "ReplicaSet/web-5d8f", ""]), ctx)).toBe("ReplicaSet/web-5d8f");
+  });
+
+  it("sums the columns' minimum widths", () => {
+    expect(minColumnsWidth([{ width: "64px" }, { width: "minmax(160px, 2.2fr)" }, { width: "1fr" }])).toBe(224);
   });
 
   it("tells pods and nodes apart from other kinds", () => {

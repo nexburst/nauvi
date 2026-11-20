@@ -1,6 +1,7 @@
 import type { ColumnDef, NodeDisk, NodeUsage, PodUsage, ResourceKind, ResourceRow, Spark, TimeZone } from "./bindings";
 import { diskPercent, diskText } from "./metricsAddons";
 import { createdAt, formatAge, formatCpu, formatMemory } from "./format";
+import { columnOn } from "./settings";
 
 export type Row = ResourceRow;
 
@@ -43,11 +44,29 @@ export interface Column {
   title?(row: Row, zone: TimeZone): string;
   /** Whether the column has anything to show; shown when missing. */
   shown?(metrics: Metrics): boolean;
+  /** Off until the user turns it on in the column chooser (#378). */
+  defaultHidden: boolean;
+  /** The cell links to the object it names (Controlled By, #378). */
+  link?: "owner";
 }
 
-/** The columns to draw: not hidden by the user, and with data where they need it. */
-export function shownColumns(cols: Column[], hidden: readonly string[], metrics: Metrics): Column[] {
-  return cols.filter((c) => !hidden.includes(c.key) && (c.shown?.(metrics) ?? true));
+/** The columns to draw: not hidden by the user (an off-by-default one only
+ *  once turned on, in `shown`), and with data where they need it. */
+export function shownColumns(
+  cols: Column[],
+  hidden: readonly string[],
+  metrics: Metrics,
+  shown: readonly string[] = [],
+): Column[] {
+  const picks = { hidden: [...hidden], shown: [...shown] };
+  return cols.filter((c) => columnOn(picks, c) && (c.shown?.(metrics) ?? true));
+}
+
+/** The narrowest the columns' tracks get, px: the sum of their minimums
+ *  (`64px`, `minmax(160px, 2fr)`). A table narrower than this scrolls
+ *  sideways instead of cutting the last columns off (#378). */
+export function minColumnsWidth(cols: readonly Pick<Column, "width">[]): number {
+  return cols.reduce((sum, c) => sum + Number(/^(?:minmax\()?(\d+)px/.exec(c.width)?.[1] ?? 0), 0);
 }
 
 export const EMPTY_METRICS: Metrics = { pods: new Map(), nodes: new Map(), sparks: new Map(), since: 0 };
@@ -82,6 +101,7 @@ function widthFor(def: ColumnDef): string {
   if (def.key === "name") return "minmax(160px, 2.2fr)";
   if (def.key === "namespace") return "minmax(120px, 1.2fr)";
   if (def.key === "message") return "minmax(240px, 3fr)";
+  if (def.kind === "owner") return "minmax(160px, 1.6fr)";
   // Wide enough for "CrashLoopBackOff" behind its dot.
   if (def.kind === "status") return "minmax(172px, 1fr)";
   return "minmax(80px, 1fr)";
@@ -94,7 +114,7 @@ function numeric(text: string): number {
 }
 
 function column(def: ColumnDef, index: number): Column {
-  const base = { key: def.key, label: def.label, width: widthFor(def) };
+  const base = { key: def.key, label: def.label, width: widthFor(def), defaultHidden: def.default_hidden };
   const cell = (r: Row) => r.cells[index] ?? "";
   switch (def.kind) {
     case "age":
@@ -173,6 +193,8 @@ function column(def: ColumnDef, index: number): Column {
       return { ...base, text: cell, sort: (r) => numeric(cell(r)) };
     case "status":
       return { ...base, text: cell, sort: cell, cls: (r) => `phase-${cell(r)}` };
+    case "owner":
+      return { ...base, text: cell, sort: cell, link: "owner" };
     default:
       return { ...base, text: cell, sort: cell };
   }

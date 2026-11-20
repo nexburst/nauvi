@@ -6,9 +6,9 @@ import type { Entry } from "./stores/keyed.svelte";
 import { visibleEntries } from "./view";
 
 const COLUMNS: ColumnDef[] = [
-  { key: "name", label: "Name", kind: "text" },
-  { key: "restarts", label: "Restarts", kind: "number" },
-  { key: "age", label: "Age", kind: "age" },
+  { key: "name", label: "Name", kind: "text", default_hidden: false },
+  { key: "restarts", label: "Restarts", kind: "number", default_hidden: false },
+  { key: "age", label: "Age", kind: "age", default_hidden: false },
 ];
 
 const KIND: ResourceKind = {

@@ -2,7 +2,8 @@
   import CalmWater from "./CalmWater.svelte";
   import { chart } from "../stores/chart.svelte";
   import { visibleRows } from "../stores/visibleRows.svelte";
-  import { app } from "../stores/app.svelte";
+  import { app, kinds, openObject } from "../stores/app.svelte";
+  import { ownerTarget } from "../owner";
   import { rowHeightPx } from "../preferences";
   import { onMount } from "svelte";
   import VirtualList from "./VirtualList.svelte";
@@ -22,7 +23,7 @@
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove } from "../stores/keyboard.svelte";
   import type { ResourceKind } from "../bindings";
-  import { columnsFor, shownColumns } from "../columns";
+  import { columnsFor, minColumnsWidth, shownColumns } from "../columns";
   import type { Metrics, Row } from "../columns";
   import type { KeyedStore } from "../stores/keyed.svelte";
   import type { Sort } from "../view";
@@ -74,8 +75,13 @@
   // The columns the user has not hidden (column chooser in the toolbar),
   // and the sort, both remembered per kind.
   const hidden = $derived(kindSettings(kind.id).hidden);
-  const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics));
+  const shownExtra = $derived(kindSettings(kind.id).shown ?? []);
+  const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics, shownExtra));
   const template = $derived(["32px", ...columns.map((c) => c.width)].join(" "));
+  // Columns that don't fit (extra ones turned on, the detail panel open)
+  // scroll sideways, the header with the rows, instead of being cut off.
+  const minWidth = $derived(32 + minColumnsWidth(columns));
+  let scrollLeft = $state(0);
   // svelte-ignore state_referenced_locally
   let sort = $state.raw<Sort | null>(sortOf(kindSettings(kind.id)));
 
@@ -384,7 +390,15 @@
     aria-activedescendant={focusedIndex >= 0 ? rowId(focusedIndex) : undefined}
     bind:this={gridEl}
   >
-    <div class="head" role="row" aria-rowindex={1} style:grid-template-columns={template} style:padding-right="{gutter}px">
+    <div
+      class="head"
+      role="row"
+      aria-rowindex={1}
+      style:grid-template-columns={template}
+      style:padding-right="{gutter}px"
+      style:min-width="{minWidth + gutter}px"
+      style:transform={scrollLeft ? `translateX(${-scrollLeft}px)` : undefined}
+    >
       <div class="th check" role="columnheader">
         <input
           type="checkbox"
@@ -409,7 +423,16 @@
       {/each}
     </div>
 
-    <VirtualList bind:this={list} count={visible.length} rowHeight={ROW_HEIGHT} {getKey} bind:scrollEl>
+    <VirtualList
+      bind:this={list}
+      count={visible.length}
+      rowHeight={ROW_HEIGHT}
+      {getKey}
+      bind:scrollEl
+      scrollX
+      {minWidth}
+      onscroll={(e) => (scrollLeft = (e.currentTarget as HTMLElement).scrollLeft)}
+    >
       {#snippet row(i)}
         {@const entry = visible[i]}
         {#if entry}
@@ -430,6 +453,7 @@
             aria-rowindex={i + 2}
             aria-selected={selected.has(entry.key)}
             style:grid-template-columns={template}
+            style:min-width="{minWidth}px"
             onclick={() => {
               focusedKey = entry.key;
               onselect?.(entry.row);
@@ -460,7 +484,26 @@
                 title={col.title?.(entry.row, settings.current.time_zone) ||
                   (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : text)}
               >
-                {text}{#if spark}<Sparkline values={spark} />{/if}
+                {#if col.link === "owner" && text}
+                  {@const target = ownerTarget(kinds.all, text, entry.row.namespace)}
+                  {#if target}
+                    <!-- Out of the tab order like the rows: the grid has the focus,
+                         and the detail panel's "Owned by" has the same link. -->
+                    <button
+                      type="button"
+                      class="cell-link"
+                      tabindex="-1"
+                      data-testid="owner-link"
+                      title="Open {text}"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        openObject(target.kind, target.namespace, target.name);
+                      }}>{text}</button
+                    >
+                  {:else}{text}{/if}
+                {:else}
+                  {text}{#if spark}<Sparkline values={spark} />{/if}
+                {/if}
               </div>
             {/each}
           </div>
@@ -636,6 +679,20 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* A link only on hover or focus, so the table doesn't turn blue (#382). */
+  .cell-link {
+    all: unset;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .cell-link:hover,
+  .cell-link:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
   }
   .empty {
     position: absolute;

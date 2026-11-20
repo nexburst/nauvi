@@ -130,6 +130,9 @@ pub(crate) struct KindSettings {
     pub(crate) sort_desc: bool,
     /// Keys of the columns the user hid.
     pub(crate) hidden: Vec<String>,
+    /// Keys of the off-by-default columns the user turned on (#378). Files
+    /// from before it have none, so those columns stay off.
+    pub(crate) shown: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -821,6 +824,10 @@ mod tests {
         assert_eq!(s.last_context, "kind-test");
         assert_eq!(s.kinds["v1/pods"].sort_key, "age");
         assert!(s.kinds["v1/pods"].sort_desc);
+        // From before off-by-default columns (#378): none turned on.
+        assert!(s.kinds["v1/pods"].shown.is_empty());
+        let on = parse(r#"{"kinds":{"v1/pods":{"hidden":["node"],"shown":["qos"]}}}"#).unwrap();
+        assert_eq!(on.kinds["v1/pods"].shown, ["qos"]);
         assert_eq!(parse(r#"{"version":0}"#).unwrap().version, SETTINGS_VERSION);
     }
 

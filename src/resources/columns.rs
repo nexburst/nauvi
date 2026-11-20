@@ -39,6 +39,15 @@ struct Col {
     label: &'static str,
     kind: ColumnKind,
     src: StaticSrc,
+    default_hidden: bool,
+}
+
+/// `c`, off by default: listed in the column chooser, unchecked.
+const fn off(c: Col) -> Col {
+    Col {
+        default_hidden: true,
+        ..c
+    }
 }
 
 const fn text(key: &'static str, label: &'static str, path: &'static str) -> Col {
@@ -47,6 +56,7 @@ const fn text(key: &'static str, label: &'static str, path: &'static str) -> Col
         label,
         kind: ColumnKind::Text,
         src: StaticSrc::Path(path),
+        default_hidden: false,
     }
 }
 const fn number(key: &'static str, label: &'static str, path: &'static str) -> Col {
@@ -55,6 +65,7 @@ const fn number(key: &'static str, label: &'static str, path: &'static str) -> C
         label,
         kind: ColumnKind::Number,
         src: StaticSrc::Path(path),
+        default_hidden: false,
     }
 }
 const fn status(key: &'static str, label: &'static str, f: fn(&Value) -> String) -> Col {
@@ -63,6 +74,7 @@ const fn status(key: &'static str, label: &'static str, f: fn(&Value) -> String)
         label,
         kind: ColumnKind::Status,
         src: StaticSrc::Func(f),
+        default_hidden: false,
     }
 }
 const fn func(key: &'static str, label: &'static str, f: fn(&Value) -> String) -> Col {
@@ -71,6 +83,16 @@ const fn func(key: &'static str, label: &'static str, f: fn(&Value) -> String) -
         label,
         kind: ColumnKind::Text,
         src: StaticSrc::Func(f),
+        default_hidden: false,
+    }
+}
+const fn owner(key: &'static str, label: &'static str) -> Col {
+    Col {
+        key,
+        label,
+        kind: ColumnKind::Owner,
+        src: StaticSrc::Func(controlled_by),
+        default_hidden: false,
     }
 }
 const fn ui(key: &'static str, label: &'static str, kind: ColumnKind) -> Col {
@@ -79,6 +101,7 @@ const fn ui(key: &'static str, label: &'static str, kind: ColumnKind) -> Col {
         label,
         kind,
         src: StaticSrc::Ui,
+        default_hidden: false,
     }
 }
 
@@ -117,6 +140,14 @@ pub(super) const KINDS: &[KindSpec] = &[
             AGE,
             ui("cpu", "CPU", ColumnKind::PodCpu),
             ui("memory", "Memory", ColumnKind::PodMemory),
+            off(owner("owner", "Controlled By")),
+            off(text("qos", "QoS", ".status.qosClass")),
+            off(text("ip", "IP", ".status.podIP")),
+            off(text(
+                "nominated",
+                "Nominated Node",
+                ".status.nominatedNodeName",
+            )),
         ],
     },
     KindSpec {
@@ -733,6 +764,7 @@ fn column_def(c: &Col) -> ColumnDef {
         key: c.key.to_string(),
         label: c.label.to_string(),
         kind: c.kind,
+        default_hidden: c.default_hidden,
         source: match c.src {
             StaticSrc::Ui => Source::Ui,
             StaticSrc::Path(p) => Source::Path(parse_path(p)),
@@ -775,6 +807,7 @@ fn fallback_columns(namespaced: bool, printer: &[PrinterColumn]) -> Vec<ColumnDe
                 "integer" | "number" => ColumnKind::Number,
                 _ => ColumnKind::Text,
             },
+            default_hidden: false,
             source: Source::Path(parse_path(&p.json_path)),
         });
     }
@@ -833,6 +866,34 @@ pub(super) fn pod_restarts(v: &Value) -> String {
 /// says more than "Running" / "Pending".
 pub(super) fn pod_status(v: &Value) -> String {
     super::printed_pod_status(v)
+}
+
+/// Groups whose kinds are named without the group in an owner cell: the
+/// built-in controllers of pods (ReplicaSet, StatefulSet, DaemonSet, Job) and
+/// the node of a static pod.
+pub(super) const PLAIN_OWNER_GROUPS: [&str; 3] = ["", "apps", "batch"];
+
+/// The controller owner reference (else the first one) as `Kind/name`, with
+/// the group after the kind outside [`PLAIN_OWNER_GROUPS`]:
+/// `Rollout.argoproj.io/web`, the way `kubectl get` names a resource.
+pub(super) fn controlled_by(v: &Value) -> String {
+    let owners: Vec<&Value> = array_at(v, "/metadata/ownerReferences").collect();
+    let Some(owner) = owners
+        .iter()
+        .find(|o| o.get("controller") == Some(&Value::Bool(true)))
+        .or(owners.first())
+    else {
+        return String::new();
+    };
+    let kind = path_str(owner, ".kind");
+    let name = path_str(owner, ".name");
+    let api_version = path_str(owner, ".apiVersion");
+    let group = api_version.rsplit_once('/').map_or("", |(g, _)| g);
+    if PLAIN_OWNER_GROUPS.contains(&group) {
+        format!("{kind}/{name}")
+    } else {
+        format!("{kind}.{group}/{name}")
+    }
 }
 
 fn service_external_ip(v: &Value) -> String {
@@ -1052,9 +1113,24 @@ mod tests {
                 "node",
                 "age",
                 "cpu",
-                "memory"
+                "memory",
+                "owner",
+                "qos",
+                "ip",
+                "nominated"
             ]
         );
+        let pods = columns_for(&rref("", "Pod", "pods", true), &[]);
+        let off: Vec<_> = pods
+            .iter()
+            .filter(|c| c.default_hidden)
+            .map(|c| c.key.as_str())
+            .collect();
+        assert_eq!(off, ["owner", "qos", "ip", "nominated"]);
+        // Every other kind's columns are on by default.
+        for k in KINDS.iter().filter(|k| k.kind != "Pod") {
+            assert!(k.columns.iter().all(|c| !c.default_hidden), "{}", k.kind);
+        }
         let nodes = columns_for(&rref("", "Node", "nodes", false), &[]);
         assert!(!nodes.iter().any(|c| c.key == "namespace"));
     }
@@ -1095,6 +1171,71 @@ mod tests {
         assert_eq!(row.cells[4], "");
         // Without printer columns: Name, Namespace, Age.
         assert_eq!(columns_for(&r, &[]).len(), 3);
+    }
+
+    #[test]
+    fn pod_optional_columns() {
+        let pod = json!({
+            "metadata": {
+                "name": "web-1", "namespace": "demo",
+                "ownerReferences": [
+                    {"apiVersion": "v1", "kind": "ConfigMap", "name": "not-me"},
+                    {"apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "web-7d9f",
+                     "controller": true}
+                ]
+            },
+            "spec": { "containers": [{"name": "a"}] },
+            "status": {
+                "phase": "Pending", "qosClass": "Burstable", "podIP": "10.244.0.7",
+                "nominatedNodeName": "node-2"
+            }
+        });
+        let c = cells("", "Pod", true, pod);
+        assert_eq!(cell(&c, "owner"), "ReplicaSet/web-7d9f");
+        assert_eq!(cell(&c, "qos"), "Burstable");
+        assert_eq!(cell(&c, "ip"), "10.244.0.7");
+        assert_eq!(cell(&c, "nominated"), "node-2");
+
+        // No owner, no IP yet, not nominated: empty cells.
+        let bare = cells("", "Pod", true, json!({"metadata": meta("p")}));
+        for key in ["owner", "qos", "ip", "nominated"] {
+            assert_eq!(cell(&bare, key), "", "{key}");
+        }
+    }
+
+    #[test]
+    fn controlled_by_names_the_group_outside_the_built_in_controllers() {
+        let owned = |refs: Value| controlled_by(&json!({"metadata": {"ownerReferences": refs}}));
+        assert_eq!(
+            owned(
+                json!([{"apiVersion": "batch/v1", "kind": "Job", "name": "j", "controller": true}])
+            ),
+            "Job/j"
+        );
+        // A static pod's mirror is owned by its node.
+        assert_eq!(
+            owned(
+                json!([{"apiVersion": "v1", "kind": "Node", "name": "kind-control-plane",
+                          "controller": true}])
+            ),
+            "Node/kind-control-plane"
+        );
+        assert_eq!(
+            owned(
+                json!([{"apiVersion": "argoproj.io/v1alpha1", "kind": "Rollout", "name": "web",
+                          "controller": true}])
+            ),
+            "Rollout.argoproj.io/web"
+        );
+        // No controller among them: the first owner.
+        assert_eq!(
+            owned(
+                json!([{"apiVersion": "v1", "kind": "ConfigMap", "name": "a"},
+                         {"apiVersion": "v1", "kind": "Secret", "name": "b"}])
+            ),
+            "ConfigMap/a"
+        );
+        assert_eq!(owned(json!([])), "");
     }
 
     #[test]

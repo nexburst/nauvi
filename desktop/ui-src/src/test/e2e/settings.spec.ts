@@ -48,7 +48,7 @@ test("hidden columns are chosen per kind and remembered", async ({ page }) => {
   await expect(header(page, "Status")).toBeVisible();
 
   await page.getByRole("button", { name: "Columns (1 hidden)" }).click();
-  await chooser.getByRole("button", { name: "Show all" }).click();
+  await chooser.getByRole("button", { name: "Default columns" }).click();
   await expect(header(page, "Node")).toBeVisible();
 });
 
