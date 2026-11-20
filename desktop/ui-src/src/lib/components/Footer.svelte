@@ -51,7 +51,7 @@
     <span class="here" data-testid="status-cluster"><ClusterLabel id={visible} title={`Shown: ${contextLabel(visible)}`} /></span>
     {#if version}<span class="version" data-testid="status-version" title="Kubernetes version of the cluster">{version}</span>{/if}
   {/if}
-  <span>{app.count}</span>
+  <span data-testid="status-count">{app.count}</span>
   <!-- Before the time, so the footer's text still ends with it. -->
   <WakeLine />
   <span class:stale={app.status.ok === false} data-testid="status-time">{timeLabel}</span>{#if others.length}
