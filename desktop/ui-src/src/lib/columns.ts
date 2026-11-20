@@ -188,7 +188,7 @@ export function nodeReadyClass(text: string): string {
 /** Node tables: the Ready cell is coloured and wide enough for "True,SchedulingDisabled". */
 function forNodes(cols: Column[]): Column[] {
   return cols.map((c) =>
-    c.key === "ready" ? { ...c, width: "minmax(200px, 1fr)", cls: (r: Row) => nodeReadyClass(c.text(r, NO_CTX)) } : c,
+    c.key === "ready" ? { ...c, width: "minmax(240px, 1fr)", cls: (r: Row) => nodeReadyClass(c.text(r, NO_CTX)) } : c,
   );
 }
 const NO_CTX: Ctx = { metrics: EMPTY_METRICS, now: 0 };

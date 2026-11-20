@@ -106,7 +106,7 @@
     </button>
   </div>
   <div class="cluster" class:ok={app.status.ok === true} class:error={app.status.ok === false}>
-    <span class="dot" aria-hidden="true">
+    <span class="dot" class:ok={app.status.ok === true} class:error={app.status.ok === false} aria-hidden="true">
       <!-- One ring per change of state, then still. -->
       {#key app.status.text}<span class="ping"></span>{/key}
     </span>

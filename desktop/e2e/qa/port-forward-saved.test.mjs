@@ -160,7 +160,7 @@ describe("saved port-forwards (#217)", { timeout: 15 * 60_000 }, () => {
     const deletes = await app.driver.findElements(By.css(`button[aria-label=${JSON.stringify(`Delete ${target()}`)}]`));
     await deletes[1].click();
     await app.waitFor(async () => (await rowTexts(app)).length === 1, { message: "one forward left" });
-    await app.find(By.xpath(`//*[@data-testid='port-forwards']//*[contains(normalize-space(), ${xq("Forwards are saved for this cluster.")})]`));
+    await app.find(By.xpath(`//*[@data-testid='port-forwards']//*[contains(normalize-space(), ${xq("Forwards are saved per cluster.")})]`));
   });
 
   /** Port Forwards in every window: `{ handle, row, red, body }` each. */

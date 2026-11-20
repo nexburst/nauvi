@@ -98,7 +98,8 @@ describe("area 1: status, Overview, Refresh, sidebar", { timeout: 10 * 60_000 },
     const warnings = await app.js(
       `return document.querySelector('.overview section[aria-label="Warnings"]')?.innerText ?? ""`,
     );
-    assert.match(warnings, /Warnings/);
+    // The heading is drawn in capitals.
+    assert.match(warnings, /Warnings/i);
   });
 
   // Running (one container still sleeps), not ready, STATUS "Error".
