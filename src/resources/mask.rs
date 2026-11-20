@@ -14,6 +14,8 @@
 //! `--token-path`, `--secret-name`, `--secrets-dir`) keep their value.
 //!
 //! A guess, not a guarantee: the YAML view still shows the spec as stored.
+//! [`super::mask_json`] applies the same rules to a whole JSON document
+//! (kubectl's last-applied-configuration annotation).
 
 /// What replaces a hidden value.
 pub const MASK: &str = "••••";
@@ -51,7 +53,7 @@ fn segments(n: &str) -> impl Iterator<Item = &str> {
     n.split(['-', '_', '.']).filter(|s| !s.is_empty())
 }
 
-fn sensitive(name: &str) -> bool {
+pub(super) fn sensitive(name: &str) -> bool {
     let n = name.trim_start_matches('-').to_ascii_lowercase();
     if n.is_empty()
         || !n
@@ -186,8 +188,7 @@ pub fn mask_args(argv: &[String]) -> (Vec<String>, bool) {
 
 /// One string (a whole `sh -c` script) with its
 /// secret-looking values replaced.
-#[cfg(test)]
-fn mask_text(s: &str) -> (String, bool) {
+pub(super) fn mask_text(s: &str) -> (String, bool) {
     let mut m = Masker {
         next: Next::Plain,
         hidden: false,

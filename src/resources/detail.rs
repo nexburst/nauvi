@@ -3,6 +3,7 @@
 
 use super::columns::age_text;
 use super::jsonpath::{array_at, first_of, path_str};
+use super::mask_json::mask_json;
 use super::ops::{is_secret, LAST_APPLIED};
 use super::pod_detail::pod_extras;
 use super::*;
@@ -39,10 +40,14 @@ pub fn detail_of(
     let created = created_secs(&meta.creation_timestamp);
 
     let mut annotations = meta.annotations.clone().unwrap_or_default();
-    if is_secret(r) {
-        if let Some(a) = annotations.get_mut(LAST_APPLIED) {
-            *a = REDACTED.into();
-        }
+    if let Some(a) = annotations.get_mut(LAST_APPLIED) {
+        // It repeats the whole object: a Secret's values, a pod's args and
+        // env. The panel gets it masked; the YAML tab shows it as stored.
+        *a = if is_secret(r) {
+            REDACTED.into()
+        } else {
+            mask_json(a).0
+        };
     }
     let owners = meta
         .owner_references
@@ -170,4 +175,44 @@ pub fn summarize_events(items: impl IntoIterator<Item = Event>) -> Vec<RelatedEv
         .collect();
     events.sort_by_key(|(ts, _)| std::cmp::Reverse(*ts));
     events.into_iter().take(50).map(|(_, e)| e).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::test_support::rref;
+    use super::*;
+
+    fn with_last_applied(kind: &str, applied: Value) -> DynamicObject {
+        serde_json::from_value(serde_json::json!({
+            "apiVersion": "v1",
+            "kind": kind,
+            "metadata": {
+                "name": "x",
+                "namespace": "demo",
+                "annotations": { LAST_APPLIED: applied.to_string(), "team": "a" }
+            }
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn last_applied_reaches_the_panel_masked() {
+        let applied = serde_json::json!({
+            "kind": "ConfigMap",
+            "data": { "password": "hunter2", "mode": "fast" }
+        });
+        let obj = with_last_applied("ConfigMap", applied);
+        let d = detail_of(&rref("", "ConfigMap", "configmaps", true), &obj, vec![]).unwrap();
+        let a = &d.annotations[LAST_APPLIED];
+        assert!(!a.contains("hunter2"), "{a}");
+        assert!(a.contains("\"mode\":\"fast\""), "{a}");
+        assert_eq!(d.annotations["team"], "a");
+    }
+
+    #[test]
+    fn a_secrets_last_applied_stays_redacted() {
+        let obj = with_last_applied("Secret", serde_json::json!({ "data": { "k": "dg==" } }));
+        let d = detail_of(&rref("", "Secret", "secrets", true), &obj, vec![]).unwrap();
+        assert_eq!(d.annotations[LAST_APPLIED], REDACTED);
+    }
 }

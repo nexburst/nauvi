@@ -7,6 +7,8 @@
   import { ageRedrawMs, formatAge } from "../format";
   import { onAgeTick } from "../ageClock";
   import { onDestroy } from "svelte";
+  import { LAST_APPLIED } from "../lastApplied";
+  import LastApplied from "./LastApplied.svelte";
 
   /** Identity, owners, labels, annotations and finalizers of any object.
    *  `children` adds rows to the identity list (the pod panel's phase, node...). */
@@ -87,7 +89,11 @@
     <dl class="annotations">
       {#each Object.entries(info.annotations) as [k, v] (k)}
         <dt>{k}</dt>
-        <dd class="mono">{v}</dd>
+        {#if k === LAST_APPLIED}
+          <dd class="full"><LastApplied value={v} /></dd>
+        {:else}
+          <dd class="mono">{v}</dd>
+        {/if}
       {/each}
     </dl>
   </details>
@@ -178,5 +184,9 @@
     word-break: break-all;
     max-height: 6em;
     overflow: auto;
+  }
+  dl.annotations dd.full {
+    max-height: none;
+    overflow: visible;
   }
 </style>

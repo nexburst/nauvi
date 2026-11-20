@@ -38,6 +38,7 @@ mod dra;
 mod jsonpath;
 mod manifests;
 mod mask;
+mod mask_json;
 mod ops;
 mod pod_detail;
 mod pod_printer;
