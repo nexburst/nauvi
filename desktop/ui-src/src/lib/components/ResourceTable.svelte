@@ -2,7 +2,8 @@
   import CalmWater from "./CalmWater.svelte";
   import { chart } from "../stores/chart.svelte";
   import { visibleRows } from "../stores/visibleRows.svelte";
-  import { app } from "../stores/app.svelte";
+  import { app, kinds, openObject } from "../stores/app.svelte";
+  import { ownerTarget } from "../owner";
   import { rowHeightPx } from "../preferences";
   import { onMount } from "svelte";
   import VirtualList from "./VirtualList.svelte";
@@ -74,7 +75,8 @@
   // The columns the user has not hidden (column chooser in the toolbar),
   // and the sort, both remembered per kind.
   const hidden = $derived(kindSettings(kind.id).hidden);
-  const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics));
+  const shownExtra = $derived(kindSettings(kind.id).shown ?? []);
+  const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics, shownExtra));
   const template = $derived(["32px", ...columns.map((c) => c.width)].join(" "));
   // svelte-ignore state_referenced_locally
   let sort = $state.raw<Sort | null>(sortOf(kindSettings(kind.id)));
@@ -460,7 +462,26 @@
                 title={col.title?.(entry.row, settings.current.time_zone) ||
                   (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : text)}
               >
-                {text}{#if spark}<Sparkline values={spark} />{/if}
+                {#if col.link === "owner" && text}
+                  {@const target = ownerTarget(kinds.all, text, entry.row.namespace)}
+                  {#if target}
+                    <!-- Out of the tab order like the rows: the grid has the focus,
+                         and the detail panel's "Owned by" has the same link. -->
+                    <button
+                      type="button"
+                      class="cell-link"
+                      tabindex="-1"
+                      data-testid="owner-link"
+                      title="Open {text}"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        openObject(target.kind, target.namespace, target.name);
+                      }}>{text}</button
+                    >
+                  {:else}{text}{/if}
+                {:else}
+                  {text}{#if spark}<Sparkline values={spark} />{/if}
+                {/if}
               </div>
             {/each}
           </div>
@@ -636,6 +657,20 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* A link only on hover or focus, so the table doesn't turn blue (#382). */
+  .cell-link {
+    all: unset;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .cell-link:hover,
+  .cell-link:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
   }
   .empty {
     position: absolute;

@@ -11,10 +11,11 @@
   // synthetic watch: no Tauri, no cluster. See the README for how to run it.
   const store = new KeyedStore<Row>((row) => row.key);
 
-  const col = (key: string, label: string, kind: ResourceKind["columns"][number]["kind"]) => ({
+  const col = (key: string, label: string, kind: ResourceKind["columns"][number]["kind"], off = false) => ({
     key,
     label,
     kind,
+    default_hidden: off,
   });
   // The same columns the backend registry declares for pods.
   const podKind: ResourceKind = {
@@ -36,6 +37,10 @@
       col("age", "Age", "age"),
       col("cpu", "CPU", "podCpu"),
       col("memory", "Memory", "podMemory"),
+      col("owner", "Controlled By", "owner", true),
+      col("qos", "QoS", "text", true),
+      col("ip", "IP", "text", true),
+      col("nominated", "Nominated Node", "text", true),
     ],
   };
   const STATUS_CELL = 3;
@@ -71,7 +76,15 @@
       created: Math.floor(Date.now() / 1000) - (i % 5000) * 60,
       name,
       namespace,
-      cells: [name, namespace, "1/1", phase, String(i % 7), `node-${i % 50}`, "", "", ""],
+      cells: [name, namespace, "1/1", phase, String(i % 7), `node-${i % 50}`,
+        "",
+        "",
+        "",
+        `ReplicaSet/web-${i % 100}`,
+        "Burstable",
+        `10.244.${(i >> 8) & 255}.${i & 255}`,
+        "",
+      ],
       problem: phase === "Failed" ? "Failed" : "",
       status: phase === "Failed" ? "Failed" : "Running",
     };

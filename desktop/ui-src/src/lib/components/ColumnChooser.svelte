@@ -2,11 +2,12 @@
   import { tick, untrack } from "svelte";
   import type { ResourceKind } from "../bindings";
   import { columnsFor } from "../columns";
-  import { ALWAYS_SHOWN, toggleHidden } from "../settings";
+  import { ALWAYS_SHOWN, columnOn, columnsChanged, DEFAULT_COLUMNS, toggleColumn } from "../settings";
   import { keyboard } from "../stores/keyboard.svelte";
   import { kindSettings, updateKind } from "../stores/settings.svelte";
 
-  /** Show or hide the table's columns; remembered per kind. */
+  /** Show or hide the table's columns; remembered per kind. Off-by-default
+   *  columns (#378) are listed apart, under "More columns". */
   let { kind }: { kind: ResourceKind } = $props();
 
   let open = $state(false);
@@ -14,8 +15,12 @@
   let trigger: HTMLButtonElement | undefined = $state();
 
   const columns = $derived(columnsFor(kind));
-  const hidden = $derived(kindSettings(kind.id).hidden);
-  const hiddenCount = $derived(columns.filter((c) => hidden.includes(c.key)).length);
+  const settings = $derived(kindSettings(kind.id));
+  const usual = $derived(columns.filter((c) => !c.defaultHidden));
+  const more = $derived(columns.filter((c) => c.defaultHidden));
+  // Hidden: the usual columns the user turned off; the extra ones are not
+  // "hidden" while they are off.
+  const hiddenCount = $derived(usual.filter((c) => !columnOn(settings, c)).length);
 
   // While open it handles its own keys (Esc), like a context menu.
   $effect(() => {
@@ -69,19 +74,27 @@
   >
   {#if open}
     <div class="popover" role="dialog" aria-label="Columns">
-      {#each columns as col (col.key)}
+      {#snippet choice(col: (typeof columns)[number])}
         <label>
           <input
             type="checkbox"
-            checked={!hidden.includes(col.key)}
+            checked={columnOn(settings, col)}
             disabled={ALWAYS_SHOWN.includes(col.key)}
-            onchange={() => updateKind(kind.id, { hidden: toggleHidden(hidden, col.key) })}
+            onchange={() => updateKind(kind.id, toggleColumn(settings, col))}
           />
           {col.label}
         </label>
-      {/each}
-      {#if hiddenCount}
-        <button type="button" class="btn reset" onclick={() => updateKind(kind.id, { hidden: [] })}>Show all</button>
+      {/snippet}
+      {#each usual as col (col.key)}{@render choice(col)}{/each}
+      {#if more.length}
+        <div class="group" role="presentation">More columns</div>
+        {#each more as col (col.key)}{@render choice(col)}{/each}
+      {/if}
+      {#if columnsChanged(settings, columns)}
+        <!-- Back to what a fresh install shows: every usual column, none of the extra ones. -->
+        <button type="button" class="btn reset" onclick={() => updateKind(kind.id, DEFAULT_COLUMNS)}
+          >Default columns</button
+        >
       {/if}
     </div>
   {/if}
@@ -157,5 +170,14 @@
   }
   .reset {
     margin-top: 6px;
+  }
+  .group {
+    margin-top: 6px;
+    padding: 6px 6px 2px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
   }
 </style>

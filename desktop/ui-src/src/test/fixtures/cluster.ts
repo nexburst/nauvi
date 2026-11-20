@@ -301,9 +301,9 @@ const WIDGETS: ResourceKind = {
   verbs: ["get", "list", "watch", "delete"],
   short_names: [],
   columns: [
-    { key: "name", label: "Name", kind: "text" },
-    { key: "namespace", label: "Namespace", kind: "text" },
-    { key: "age", label: "Age", kind: "age" },
+    { key: "name", label: "Name", kind: "text", default_hidden: false },
+    { key: "namespace", label: "Namespace", kind: "text", default_hidden: false },
+    { key: "age", label: "Age", kind: "age", default_hidden: false },
   ],
   actions: [{ id: "delete", label: "Delete", destructive: true, type_to_confirm: false, input: "none" }],
 };
@@ -326,7 +326,16 @@ export function defaultCluster(): FakeCluster {
       "v1/pods",
       ns,
       name,
-      { ready: status === "Running" ? "1/1" : "0/1", status, restarts, node },
+      {
+        ready: status === "Running" ? "1/1" : "0/1",
+        status,
+        restarts,
+        node,
+        // The off-by-default columns (#378): web-* belong to the web ReplicaSet.
+        owner: name.startsWith("web-") ? "ReplicaSet/web-5d8f" : "",
+        qos: status === "Running" ? "Burstable" : "BestEffort",
+        ip: status === "Pending" ? "" : `10.244.0.${name.length}`,
+      },
       undefined,
       podProblem(status),
     );

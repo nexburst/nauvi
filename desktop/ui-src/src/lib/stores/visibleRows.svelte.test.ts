@@ -14,7 +14,7 @@ const entry = (key: string, created: number): Entry<Row> => ({
 describe("visibleRows", () => {
   it("does not filter and sort again when only the clock ticks", () => {
     const sortAge = vi.fn((r: Row) => r.created);
-    const age: Column = { key: "age", label: "Age", width: "64px", text: () => "", sort: sortAge };
+    const age: Column = { key: "age", label: "Age", width: "64px", text: () => "", sort: sortAge, defaultHidden: false };
     let entries = $state.raw([entry("a", 2), entry("b", 1)]);
     let now = $state.raw(1000);
     let shown: string[] = [];
