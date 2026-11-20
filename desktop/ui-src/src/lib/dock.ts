@@ -31,7 +31,22 @@ export type DockTabSpec =
    * A shell on this machine, pointed at `context` and `namespace` as they
    * were when it opened. `seq` tells several of them apart.
    */
-  | { type: "localShell"; seq: number; context: string; namespace: string };
+  | { type: "localShell"; seq: number; context: string; namespace: string }
+  /**
+   * Ask AI (#376): the AI CLI `cli` in a local terminal at `context` and
+   * `namespace`, started with `prompt`; the shell when it exits. `title`:
+   * what it is asked about, for the tab.
+   */
+  | {
+      type: "askAi";
+      seq: number;
+      context: string;
+      namespace: string;
+      cli: string;
+      prompt: string;
+      allowWrites: boolean;
+      title: string;
+    };
 
 export type DockTab = DockTabSpec & {
   /** Stable per object and cluster: opening the same thing again focuses this tab. */
@@ -63,6 +78,8 @@ export function tabId(spec: DockTabSpec): string {
       return `node:${spec.node}`;
     case "localShell":
       return `local:${spec.seq}`;
+    case "askAi":
+      return `ai:${spec.seq}`;
   }
 }
 
@@ -89,6 +106,8 @@ export function tabTitle(spec: DockTabSpec): string {
       return `Node: ${spec.node}`;
     case "localShell":
       return localShellTitle(spec.context, spec.namespace);
+    case "askAi":
+      return spec.title;
   }
 }
 

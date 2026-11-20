@@ -10,6 +10,7 @@
   import { kindOfResource, requestAction } from "../stores/actions.svelte";
   import { openDockTab } from "../stores/dock.svelte";
   import { copyLink, prefetchLink } from "../stores/links.svelte";
+  import { askAiAvailable, openAskAi } from "../stores/askAi.svelte";
   import type { Target } from "../stores/detail.svelte";
 
   /** The detail panel's header of action icons (#218): the row menu's Logs
@@ -28,16 +29,27 @@
   let { target, disabled = false, onEdit, dockSpec = (s) => s }: Props = $props();
 
   const kind = $derived(kindOfResource(target.resource));
-  const items = $derived(
-    panelActions(dockMenuFor(target.resource, target.namespace, target.name), kind?.actions ?? []),
-  );
+  /** Ask AI about this object (#376), after Copy link, when an AI CLI is found. */
+  const ASK_AI: PanelAction<DockTabSpec> = {
+    id: "askAi",
+    label: "Ask AI about this…",
+    tip: "Ask AI about this",
+    danger: false,
+    run: "askAi",
+  };
+  const items = $derived.by(() => {
+    const list = panelActions(dockMenuFor(target.resource, target.namespace, target.name), kind?.actions ?? []);
+    if (!askAiAvailable()) return list;
+    const at = list.findIndex((a) => a.id === "link") + 1;
+    return [...list.slice(0, at), ASK_AI, ...list.slice(at)];
+  });
 
   /** Answers of the access check, by id. Until it answers, everything is offered. */
   let access = $state.raw(new Map<string, ActionAccess>());
   onMount(() => {
     prefetchLink(target.resource, target.namespace, target.name);
     let live = true;
-    const ids = items.map((a) => a.id).filter((id) => id !== "link");
+    const ids = items.map((a) => a.id).filter((id) => id !== "link" && id !== "askAi");
     api(visibleCluster())
       .cmdCheckActions(target.resource, target.namespace, ids)
       .then((list) => {
@@ -59,6 +71,8 @@
     if (a.run === "dock") openDockTab(dockSpec(a.spec));
     else if (a.run === "edit") onEdit();
     else if (a.run === "link") void copyLink(target.resource, target.namespace, target.name);
+    else if (a.run === "askAi")
+      openAskAi({ namespace: target.namespace, kind: target.resource.kind, name: target.name });
     else if (kind) requestAction(kind, [{ namespace: target.namespace, name: target.name }], a.action);
   }
 

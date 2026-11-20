@@ -107,6 +107,8 @@ export function describeMutation(
       return "Delete the node shell pods left behind";
     case "cmdLocalShellStart":
       return "Open a local terminal with this cluster's kubeconfig";
+    case "cmdAskAiStart":
+      return "Start your AI CLI in a local terminal with this cluster's kubeconfig";
     case "cmdHelmInstall":
       return `Install Helm release ${(args[0] as { name?: string } | undefined)?.name ?? ""}`.trim();
     case "cmdHelmUpgrade":

@@ -21,6 +21,7 @@
   import HelmRepos from "./helm/HelmRepos.svelte";
   import MetricsOffer from "./helm/MetricsOffer.svelte";
   import AboutSection from "./AboutSection.svelte";
+  import AskAiSettings from "./AskAiSettings.svelte";
   import { loadCharts } from "../stores/helmCharts.svelte";
   import { checkForUpdates, updates } from "../stores/updates.svelte";
   import { checkSummary } from "../updates";
@@ -221,6 +222,8 @@
         place of your own.
       </p>
     </fieldset>
+
+    <AskAiSettings />
 
     <fieldset data-testid="editor-settings">
       <legend>YAML editor</legend>

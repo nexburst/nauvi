@@ -130,6 +130,12 @@ export function dockContext(spec: DockTabSpec, opts: LogOptions & { shellContain
       ];
     case "localShell":
       return [text("Shell on this machine, kubectl pointed at namespace "), code(spec.namespace)];
+    case "askAi":
+      return [
+        text("AI CLI on this machine (then your shell), kubectl pointed at namespace "),
+        code(spec.namespace),
+        ...(spec.allowWrites ? [text(", with nauvi tools that can change the cluster")] : []),
+      ];
   }
 }
 
