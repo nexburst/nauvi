@@ -79,9 +79,13 @@ const toggle = (app, title) =>
      return true;`,
     title,
   );
-/** The sidebar column's scroll and visible heights. */
-const chartFit = (app) =>
-  app.js(`const b = document.querySelector("nav:not(.floating) .chart-body"); return b ? [b.scrollHeight, b.clientHeight] : null;`);
+/** How far down the column the shown cluster's kinds end, and the column's
+ *  visible height (other clusters' nodes below them may scroll). */
+const kindsFit = (app) =>
+  app.js(`const b = document.querySelector("nav:not(.floating) .chart-body");
+    const k = b?.querySelector('[data-testid="sidebar-kinds"]');
+    if (!k) return null;
+    return [Math.round(k.getBoundingClientRect().bottom - b.getBoundingClientRect().top + b.scrollTop), b.clientHeight];`);
 
 async function shots(app, label) {
   for (const theme of ["light", "dark"]) {
@@ -145,9 +149,11 @@ describe("collapsible sidebar and long context names", { timeout: 15 * 60_000 },
     for (const title of COLLAPSE) assert.equal(state[title], "false", `${title} collapsed`);
     assert.equal(state.Workloads, "true");
     await app.nav("Overview");
-    const [scroll, client] = await chartFit(app);
-    console.log(`sidebar: scrollHeight ${scroll}, clientHeight ${client}`);
-    assert.ok(scroll <= client, `the sidebar fits: ${scroll} <= ${client}`);
+    // payments-staging stayed expanded from the switch: fold it again.
+    await app.js(`document.querySelector(arguments[0] + " > .row .chevron[aria-expanded=true]")?.click()`, treeNode(STAGING));
+    const [bottom, client] = await kindsFit(app);
+    console.log(`sidebar: kinds end at ${bottom}, column height ${client}`);
+    assert.ok(bottom <= client, `the kinds fit: ${bottom} <= ${client}`);
     await shots(app, "collapsed");
   });
 
