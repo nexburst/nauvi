@@ -98,7 +98,8 @@ test("columns that don't fit scroll sideways, the header with the rows", async (
   await expect(async () => {
     const grid = (await page.locator(".table .grid").boundingBox())!;
     const head = (await header(page, "Nominated Node").boundingBox())!;
-    const cell = (await row(page, "web-1").getByRole("gridcell").last().boundingBox())!;
+    // The last cell before the row's ⋮ (#382).
+    const cell = (await row(page, "web-1").getByRole("gridcell").nth(-2).boundingBox())!;
     expect(Math.abs(head.x - cell.x)).toBeLessThan(1);
     expect(head.x + head.width).toBeLessThanOrEqual(grid.x + grid.width + 1);
   }).toPass();

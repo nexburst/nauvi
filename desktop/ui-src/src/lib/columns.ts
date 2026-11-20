@@ -105,6 +105,10 @@ function widthFor(def: ColumnDef): string {
   if (def.key === "name") return "minmax(160px, 2.2fr)";
   if (def.key === "namespace") return "minmax(120px, 1.2fr)";
   if (def.key === "message") return "minmax(240px, 3fr)";
+  // Short counts ("1/1", "12"): narrow minimums, so the default Pods table
+  // and its row ⋮ (#382) fit a 1280 px window without scrolling sideways.
+  if (def.key === "ready" && def.kind === "text") return "minmax(64px, 1fr)";
+  if (def.key === "restarts") return "minmax(56px, 1fr)";
   if (def.kind === "owner") return "minmax(160px, 1.6fr)";
   if (def.kind === "containers") return "minmax(120px, 1fr)";
   // "Scaled down" behind its square.
@@ -239,7 +243,7 @@ export function nodeReadyClass(text: string): string {
 /** Node tables: the Ready cell is coloured and wide enough for "True,SchedulingDisabled". */
 function forNodes(cols: Column[]): Column[] {
   return cols.map((c) =>
-    c.key === "ready" ? { ...c, width: "minmax(200px, 1fr)", cls: (r: Row) => nodeReadyClass(c.text(r, NO_CTX)) } : c,
+    c.key === "ready" ? { ...c, width: "minmax(224px, 1fr)", cls: (r: Row) => nodeReadyClass(c.text(r, NO_CTX)) } : c,
   );
 }
 const NO_CTX: Ctx = { metrics: EMPTY_METRICS, now: 0 };

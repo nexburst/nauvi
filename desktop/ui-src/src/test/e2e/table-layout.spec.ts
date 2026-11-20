@@ -19,7 +19,9 @@ async function expectAligned(page: Page, name: string) {
     .getByRole("gridcell")
     .evaluateAll((tds) => tds.map((td) => td.getBoundingClientRect().left));
   expect(cells).toHaveLength(heads.length);
-  for (let i = 0; i < heads.length; i++) {
+  // The last column is the row's ⋮ (#382): its cell sticks to the table's
+  // right edge when the columns scroll sideways, and its header is empty.
+  for (let i = 0; i < heads.length - 1; i++) {
     expect(Math.abs(heads[i] - cells[i]), `column ${i}`).toBeLessThanOrEqual(1);
   }
 }
