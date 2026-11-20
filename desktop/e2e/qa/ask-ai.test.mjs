@@ -149,7 +149,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     await (await app.find(byTestId("ask-ai-header"))).click();
     await waitDialog(app);
     const text = await dialogText(app);
-    assert.match(text, new RegExp(`Ask AI about the cluster\\s+on ${CONTEXT}`));
+    assert.match(text, new RegExp(`Ask AI about the cluster\\s+on\\s+${CONTEXT}`));
     assert.match(text, /Claude Code/);
     if (!noCli) assert.match(text, /nauvi MCP tools .* read-only/s);
     else assert.match(text, /nauvi CLI is not on PATH/);
