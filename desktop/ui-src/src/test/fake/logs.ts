@@ -9,6 +9,7 @@ export function logsHandlers(s: FakeState) {
       startStream(s, id, ch),
     cmdStreamWorkloadLogs: (_kind, _namespace, _name, _options, id, ch) => startStream(s, id, ch),
     cmdStreamPodAllLogs: (_namespace, _name, _options, id, ch) => startStream(s, id, ch),
+    cmdLogAck: () => null,
     cmdStopLogs: (id) => {
       s.logStreams.delete(id);
       return null;

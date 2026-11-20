@@ -617,6 +617,8 @@
     const onEvent = logChannel({
       lines: (lines) => id === streamId && onBatch(lines),
       event: (e) => id === streamId && onLogEvent(e),
+      // Lets the backend send more (pod streams only; #397).
+      ack: (bytes) => void api(cluster).cmdLogAck(id, bytes).catch(() => {}),
     });
     try {
       if (workload) {
@@ -742,6 +744,9 @@
       appliedSearch = { text: filterInput, regex, matchCase };
     }
     if (force || JSON.stringify([query, exclude]) !== before) renderLogs();
+    // Without a regex the worker is idle: drop it and its copy of the lines
+    // (#397). The next regex search starts a new one.
+    if (query.kind !== "regex" && exclude.kind !== "regex") searcher.stop();
   }
 
   // Typing is debounced: each search rebuilds the display from the buffer.

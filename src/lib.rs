@@ -34,6 +34,7 @@ pub mod context_mode;
 pub mod debug;
 pub mod errors;
 pub mod exec_credentials;
+pub mod heap;
 pub mod helm;
 pub mod kubectl_download;
 pub mod liveness;

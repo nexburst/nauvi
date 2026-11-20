@@ -327,7 +327,7 @@ async fn pod_rows_mark_problems_from_the_watch() -> Result<()> {
     }
 
     // The snapshot, or a later change of the pod, marks it too.
-    let (_store, mut updates) = watch_resource(
+    let mut updates = watch_resource(
         &client,
         &nauvi::liveness::Prober::new(client.clone()),
         pods,

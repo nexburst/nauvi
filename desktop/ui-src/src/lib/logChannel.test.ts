@@ -26,4 +26,13 @@ describe("log channel messages", () => {
     expect(lines).toEqual([["one", "two"]]);
     expect(events.map((e) => e.type)).toEqual(["error", "done"]);
   });
+
+  it("acknowledges the bytes of each raw batch, not of events", () => {
+    const acks: number[] = [];
+    const h = { lines: () => {}, event: () => {}, ack: (n: number) => acks.push(n) };
+    dispatchLogMessage(raw("one\ntwo"), h);
+    dispatchLogMessage(raw("ü"), h);
+    dispatchLogMessage({ type: "done" }, h);
+    expect(acks).toEqual([7, 2]);
+  });
 });

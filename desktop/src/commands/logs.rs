@@ -1,10 +1,11 @@
 //! Pod and workload log streams, and saving logs.
 
+use super::log_flow::{batch_with_credit, queue};
 use super::log_frame::{send, LogChannel, LogEvent, LogFrame};
 use crate::state::Cluster;
 use nauvi::{
-    batch_lines, stream_pod_containers_logs, stream_pod_logs, stream_workload_logs, LogOptions,
-    StopReason, WorkloadEvent, WorkloadKind,
+    stream_pod_containers_logs, stream_pod_logs_into, stream_workload_logs, LogOptions, StopReason,
+    WorkloadEvent, WorkloadKind,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -16,7 +17,9 @@ const LOG_BATCH_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Follow one container of a pod. Lines, errors and the end go to
 /// `on_event`, the channel of the tab that asked (#115); `stream_id` names
-/// the stream for `cmd_stop_logs`.
+/// the stream for `cmd_stop_logs` and `cmd_log_ack`: the tab acknowledges
+/// each batch of lines it gets, and at most `log_flow::WINDOW` bytes are
+/// sent ahead of that (#397).
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
@@ -41,21 +44,30 @@ pub(crate) async fn cmd_stream_pod_logs(
         since_seconds,
         timestamps: timestamps.unwrap_or(false),
     };
+    let credit = cluster.log_streams.new_credit(stream_id);
     cluster.log_streams.start(stream_id, move || {
         tauri::async_runtime::spawn(async move {
-            let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+            let (tx, rx) = queue();
             let emitter = out.clone();
-            let batcher = tauri::async_runtime::spawn(batch_lines(
+            let batcher = tauri::async_runtime::spawn(batch_with_credit(
                 rx,
                 LOG_BATCH_LINES,
                 LOG_BATCH_INTERVAL,
-                move |batch: Vec<String>| send(&emitter, LogFrame::lines(&batch)),
+                credit,
+                move |batch: Vec<String>| {
+                    let frame = LogFrame::lines(&batch);
+                    let bytes = match &frame {
+                        LogFrame::Lines(b) => b.len(),
+                        LogFrame::Event(_) => 0,
+                    };
+                    send(&emitter, frame);
+                    bytes
+                },
             ));
-            let result = stream_pod_logs(&client, &namespace, &name, &opts, move |line| {
-                let _ = tx.send(line);
-            })
-            .await;
-            // The sender was dropped with the closure, so the batcher flushes and exits.
+            // Aborting this task drops the reader but not the batcher.
+            let _abort = AbortOnDrop(batcher.inner().abort_handle());
+            let result = stream_pod_logs_into(&client, &namespace, &name, &opts, tx).await;
+            // The sender is gone, so the batcher flushes and exits.
             let _ = batcher.await;
             end_stream(&out, result);
         })
@@ -228,6 +240,28 @@ fn emit_tagged(out: &LogChannel, ev: WorkloadEvent) {
             }
         }
     }
+}
+
+/// Aborts a task when dropped.
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// The tab of pod log stream `stream_id` got `bytes` of lines (the length
+/// of the raw message), which lets the backend send more (#397).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_log_ack(
+    cluster: Cluster,
+    stream_id: u64,
+    bytes: u32,
+) -> Result<(), String> {
+    cluster.log_streams.ack(stream_id, bytes as usize);
+    Ok(())
 }
 
 /// Report how a log stream ended.

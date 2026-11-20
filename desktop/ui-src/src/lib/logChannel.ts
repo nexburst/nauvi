@@ -19,12 +19,19 @@ export function isRawLines(m: LogMessage | ArrayBufferView): m is ArrayBuffer | 
 export interface LogHandlers {
   lines(lines: string[]): void;
   event(event: LogEvent): void;
+  /**
+   * The tab got a raw batch of `bytes`: a pod stream sends at most a window
+   * ahead of these (`cmd_log_ack`, #397).
+   */
+  ack?(bytes: number): void;
 }
 
 /** Dispatch one channel message. */
 export function dispatchLogMessage(m: LogMessage, h: LogHandlers) {
-  if (isRawLines(m)) h.lines(decodeLines(m));
-  else h.event(m);
+  if (isRawLines(m)) {
+    h.lines(decodeLines(m));
+    h.ack?.(m.byteLength);
+  } else h.event(m);
 }
 
 /** A new channel for one log stream. */

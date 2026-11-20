@@ -69,6 +69,7 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdLocalShellClose", "ends a shell the gate allowed"),
     ("cmdLocalShellInput", "a shell the gate allowed"),
     ("cmdLocalShellResize", "a shell the gate allowed"),
+    ("cmdLogAck", "flow control of a log stream"),
     ("cmdMetricsAddonAccess", "access reviews"),
     ("cmdNodeDiskUsage", "reads"),
     ("cmdNodeShellLeftovers", "reads"),
