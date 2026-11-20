@@ -34,7 +34,7 @@ spec:
 /** The context line of a dock tab, as text. */
 function contextLine(app, id) {
   return app.js(
-    `const el = document.querySelector(arguments[0] + ' [data-testid="dock-context"]'); return el ? el.textContent.replace(/\s+/g, ' ').trim() : null;`,
+    `const el = document.querySelector(arguments[0] + ' [data-testid="dock-context"]'); return el ? el.textContent.replace(/\\s+/g, ' ').trim() : null;`,
     pane(id),
   );
 }
