@@ -116,6 +116,9 @@ pub(crate) struct ClusterSession {
     /// Client for the context, built lazily, with the liveness prober all
     /// its watches share (#90). Both are cheap to clone.
     client: tokio::sync::Mutex<Option<(Client, Prober)>>,
+    /// The client port-forwards open their tunnels with: the same context,
+    /// with Nagle off (#374). Built lazily after [`Self::client`].
+    forward_client: tokio::sync::Mutex<Option<Client>>,
     /// Running log streams (pod and workload), by stream id.
     pub(crate) log_streams: LogStreams,
     /// Open terminal sessions, by session id.
@@ -229,9 +232,35 @@ impl ClusterSession {
         if let Some(c) = slot.as_ref() {
             return Ok(c.clone());
         }
+        let c = self.build_client().await?;
+        let server = self.sources.server(self.context.as_deref());
+        let c = (c.clone(), Prober::for_server(c, &server));
+        *slot = Some(c.clone());
+        self.idle.connected();
+        Ok(c)
+    }
+
+    /// The client port-forwards use (#374): the context's, built again with
+    /// Nagle off ([`nauvi::for_port_forwards`]), on first use after
+    /// [`Self::client`] (which logs in, so its errors read as usual).
+    pub(crate) async fn forward_client(&self) -> Result<Client, String> {
+        self.client().await?;
+        let mut slot = self.forward_client.lock().await;
+        if self.is_closed() {
+            return Err(SWITCHED.into());
+        }
+        if let Some(c) = slot.as_ref() {
+            return Ok(c.clone());
+        }
+        let c = nauvi::for_port_forwards(self.build_client()).await?;
+        *slot = Some(c.clone());
+        Ok(c)
+    }
+
+    /// Build a client for the context.
+    async fn build_client(&self) -> Result<Client, String> {
         // A GUI can't answer an exec plugin's prompts.
-        let selected = self.context.as_deref();
-        let c = match selected {
+        match self.context.as_deref() {
             // The default kubeconfig's current-context, or in-cluster config.
             // Through the proxy set for it (#329), by its catalog id.
             None => {
@@ -241,12 +270,7 @@ impl ClusterSession {
             // from the file as it was read for that check (#242).
             Some(id) => self.sources.approved(Some(id))?.client().await,
         }
-        .map_err(|e| nauvi::error_text(&e))?;
-        let server = self.sources.server(selected);
-        let c = (c.clone(), Prober::for_server(c, &server));
-        *slot = Some(c.clone());
-        self.idle.connected();
-        Ok(c)
+        .map_err(|e| nauvi::error_text(&e))
     }
 
     /// The context, for what runs outside the client (helm, local shells),
@@ -285,6 +309,9 @@ impl ClusterSession {
         self.log_streams.close();
         // Its client goes with it once the last command holding it ends.
         if let Ok(mut slot) = self.client.try_lock() {
+            *slot = None;
+        }
+        if let Ok(mut slot) = self.forward_client.try_lock() {
             *slot = None;
         }
         self.stop_all()

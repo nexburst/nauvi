@@ -3,14 +3,23 @@
 //! kube-rs's `Portforwarder` hands out a raw stream per port and binds
 //! nothing itself, so [`PortForward::start`] binds a local TCP listener and,
 //! for each incoming connection, picks a backend pod that is ready right now
-//! ([`resolve`]) and opens a fresh port-forward to it. That is the kubectl
-//! semantics (several clients can connect at once), except that a Service or
-//! workload forward follows its pods: when the pod serving it goes away the
-//! next connection goes to another one.
+//! ([`resolve`], kept up to date by a watch in [`cache`]) and opens a fresh
+//! port-forward to it, over an API-server connection kept ready by [`warm`].
+//! That is the kubectl semantics (several clients can connect at once),
+//! except that a Service or workload forward follows its pods: when the pod
+//! serving it goes away the next connection goes to another one.
+//!
+//! Nothing connects to the pod's port before a local client connects: the
+//! kubelet dials the port as soon as a port-forward upgrade completes, so a
+//! tunnel opened ahead of time would be a real, silent connection to the
+//! user's app (#374). Use a client from [`crate::for_port_forwards`]: its
+//! connections have Nagle off, which saves ~40 ms per tunnel.
 
+mod cache;
 mod resolve;
 mod spec;
 mod tunnel;
+mod warm;
 
 pub use resolve::{
     container_port, describe_service_port, find_service_port, pod_is_ready, slice_backends, Backend,
@@ -20,6 +29,7 @@ pub use tunnel::PING_EVERY;
 
 use crate::actions::describe_error;
 use anyhow::{bail, Context, Result};
+use cache::Backends;
 use k8s_openapi::api::core::v1::Service;
 use kube::api::Api;
 use kube::Client;
@@ -30,6 +40,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use tunnel::Tunnel;
+use warm::Warmer;
 
 /// How many ready backends one connection tries before giving up.
 const TRIES_PER_CONNECTION: usize = 3;
@@ -88,10 +99,11 @@ pub struct PortForward {
 }
 
 impl PortForward {
-    /// Resolve the target, bind the local port, check that the API server
-    /// can forward to a backend, then serve until stopped. Fails with a
-    /// plain message when the target or port does not exist, no pod is
-    /// ready, or the local port is taken.
+    /// Resolve the target, check that RBAC allows port-forwarding, bind the
+    /// local port, then serve until stopped. Fails with a plain message when
+    /// the target or port does not exist, no pod is ready, port-forwarding is
+    /// not allowed, or the local port is taken. Nothing connects to the pod
+    /// until a local client does.
     pub async fn start(
         client: &Client,
         target: ForwardTarget,
@@ -114,25 +126,22 @@ impl PortForward {
         let listener = bind_local(local, remote_port).await?;
         let local_port = listener.local_addr()?.port();
 
-        // Probe: fail now instead of on the first connection.
-        let probe = Tunnel::open(client, &ns, &first.pod, first.port)
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "cannot forward to pod {ns}/{}: {}",
-                    first.pod,
-                    describe_error(&anyhow::Error::from(e))
-                )
-            })?;
-        probe.abort();
+        // Fail now instead of on the first connection, without connecting
+        // to the pod. A check that cannot be made counts as allowed.
+        if !crate::resources::can_i(client, "create", "", "pods", "portforward", Some(&ns)).await {
+            bail!(
+                "not allowed to port-forward to pods in namespace {ns} (needs create pods/portforward)"
+            );
+        }
 
         let shared = Arc::new(Shared::default());
         shared.set_pod(&first.pod);
         let task = tokio::spawn(serve(
             listener,
+            Backends::new(resolver, client.clone(), ns.clone()),
+            Warmer::new(warm::version_of(client.clone())),
             client.clone(),
             ns,
-            resolver,
             shared.clone(),
             describe_target(&target),
         ));
@@ -232,13 +241,14 @@ fn bind_error(port: u16, e: &std::io::Error) -> anyhow::Error {
 
 async fn serve(
     listener: TcpListener,
+    backends: Arc<Backends>,
+    warmer: Warmer,
     client: Client,
     namespace: String,
-    resolver: Resolver,
     shared: Arc<Shared>,
     what: String,
 ) {
-    let resolver = Arc::new(resolver);
+    let warmer = Arc::new(warmer);
     let what = Arc::new(what);
     // Connection tasks are aborted with the listener.
     let mut conns = tokio::task::JoinSet::new();
@@ -248,9 +258,10 @@ async fn serve(
                 let Ok((socket, _)) = accepted else { break };
                 conns.spawn(connect(
                     socket,
+                    backends.clone(),
+                    warmer.clone(),
                     client.clone(),
                     namespace.clone(),
-                    resolver.clone(),
                     shared.clone(),
                     what.clone(),
                 ));
@@ -272,13 +283,14 @@ impl Drop for Open {
 /// still is), forward, record what went wrong.
 async fn connect(
     mut socket: tokio::net::TcpStream,
+    backends: Arc<Backends>,
+    warmer: Arc<Warmer>,
     client: Client,
     namespace: String,
-    resolver: Arc<Resolver>,
     shared: Arc<Shared>,
     what: Arc<String>,
 ) {
-    let mut backends = match resolver.backends(&client, &namespace).await {
+    let mut list = match backends.get().await {
         Ok(b) if b.is_empty() => {
             shared.set_error(format!("no ready pod backs {what}"));
             return;
@@ -293,22 +305,25 @@ async fn connect(
         }
     };
     let current = shared.pod();
-    if let Some(i) = backends.iter().position(|b| b.pod == current) {
-        backends.swap(0, i);
+    if let Some(i) = list.iter().position(|b| b.pod == current) {
+        list.swap(0, i);
     }
-    for b in backends.into_iter().take(TRIES_PER_CONNECTION) {
-        let (mut stream, remote_error, closer) =
-            match Tunnel::open(&client, &namespace, &b.pod, b.port).await {
-                Ok(t) => t.into_parts(),
-                Err(e) => {
-                    shared.set_error(format!(
-                        "pod {}: {}",
-                        b.pod,
-                        describe_error(&anyhow::Error::from(e))
-                    ));
-                    continue;
-                }
-            };
+    for b in list.into_iter().take(TRIES_PER_CONNECTION) {
+        let tunnel = Tunnel::open(&client, &namespace, &b.pod, b.port).await;
+        // The tunnel took the pool's idle connection (or opened one).
+        warmer.used();
+        let (mut stream, remote_error, closer) = match tunnel {
+            Ok(t) => t.into_parts(),
+            Err(e) => {
+                shared.set_error(format!(
+                    "pod {}: {}",
+                    b.pod,
+                    describe_error(&anyhow::Error::from(e))
+                ));
+                backends.forget();
+                continue;
+            }
+        };
         shared.set_pod(&b.pod);
         shared.connections.fetch_add(1, Ordering::Relaxed);
         shared.total.fetch_add(1, Ordering::Relaxed);
@@ -322,7 +337,8 @@ async fn connect(
         drop(closer);
         match outcome(message, copied) {
             Outcome::Error(msg) => {
-                shared.set_error(format!("pod {} port {}: {msg}", b.pod, b.port))
+                shared.set_error(format!("pod {} port {}: {msg}", b.pod, b.port));
+                backends.forget();
             }
             Outcome::Answered => shared.clear_error(),
             Outcome::Nothing => {}

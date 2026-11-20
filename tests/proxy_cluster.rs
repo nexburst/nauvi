@@ -292,9 +292,16 @@ async fn the_proxy_carries_requests_watches_exec_and_forwards() -> Result<()> {
             out.stderr
         );
 
-        // A port-forward.
+        // A port-forward, with its own client (Nagle off, #374): through
+        // the same proxy, with the same percent-decoded credentials.
+        let before = seen.tunnels().len();
+        let forward_client = nauvi::for_port_forwards(client_via(&url, true)).await?;
+        ensure!(
+            seen.tunnels().len() > before,
+            "the forward client went around the proxy"
+        );
         let fwd = PortForward::start(
-            &client,
+            &forward_client,
             ForwardTarget {
                 kind: ForwardKind::Deployment,
                 namespace: "demo".into(),
@@ -400,5 +407,14 @@ async fn a_socks5_proxy_works_too() -> Result<()> {
     let tunnels = seen.tunnels();
     ensure!(!tunnels.is_empty(), "the SOCKS5 proxy saw nothing");
     ensure!(tunnels.iter().all(|t| *t == server), "{tunnels:?}");
+    // The port-forward client (#374) too.
+    let before = tunnels.len();
+    let forward_client =
+        nauvi::for_port_forwards(client_via(&format!("socks5://127.0.0.1:{port}"), true)).await?;
+    forward_client.apiserver_version().await?;
+    ensure!(
+        seen.tunnels().len() > before,
+        "the forward client went around the SOCKS5 proxy"
+    );
     Ok(())
 }
