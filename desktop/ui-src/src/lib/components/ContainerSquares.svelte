@@ -4,6 +4,7 @@
   // shape for its state (see `Look`), its colour, and a tooltip; the cell's
   // text alternative names every container for screen readers.
   import { containersSummary, lookTone, parseContainers, squareText } from "../containerStates";
+  import StateGlyph from "./StateGlyph.svelte";
 
   let { cell }: { cell: string } = $props();
 
@@ -22,31 +23,7 @@
       title={squareText(s)}
       aria-hidden="true"
     >
-      <svg viewBox="0 0 10 10" width="10" height="10">
-        {#if s.look === "ok"}
-          <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="currentColor" />
-        {:else if s.look === "warn"}
-          <rect x="1" y="1" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
-          <rect x="1" y="5" width="8" height="4" fill="currentColor" />
-        {:else if s.look === "bad"}
-          <rect x="0.5" y="0.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="currentColor" />
-          <path d="M3 3 L7 7 M7 3 L3 7" class="cut" stroke-width="1.5" stroke-linecap="round" />
-        {:else if s.look === "done"}
-          <rect x="1" y="1" width="8" height="8" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4" />
-        {:else}
-          <rect
-            x="1"
-            y="1"
-            width="8"
-            height="8"
-            rx="1.5"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.2"
-            stroke-dasharray="2 1.5"
-          />
-        {/if}
-      </svg>
+      <StateGlyph look={s.look} size={s.init ? 8 : 10} />
     </span>
   {/each}
   <span class="sr-only">{containersSummary(squares)}</span>
@@ -65,11 +42,8 @@
     display: inline-flex;
     flex-shrink: 0;
   }
-  /* Init containers are a touch smaller, and the rule sets them apart. */
-  .sq.init svg {
-    width: 8px;
-    height: 8px;
-  }
+  /* Init containers are a touch smaller (the glyph's size), and the rule
+     sets them apart. */
   .rule {
     flex-shrink: 0;
     width: 1px;
@@ -88,10 +62,6 @@
   }
   .tone-muted {
     color: var(--text-muted);
-  }
-  /* The cross is cut out of the red square in the row's background. */
-  .cut {
-    stroke: var(--bg-raised);
   }
   .sr-only {
     position: absolute;

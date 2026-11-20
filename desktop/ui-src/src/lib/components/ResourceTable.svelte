@@ -10,6 +10,7 @@
   import ContextMenu from "./ContextMenu.svelte";
   import Sparkline from "./Sparkline.svelte";
   import ContainerSquares from "./ContainerSquares.svelte";
+  import RolloutStatus from "./RolloutStatus.svelte";
   import { clockTime } from "../usage";
   import { watchGutter } from "../scrollGutter";
   import type { MenuItem } from "./ContextMenu.svelte";
@@ -504,6 +505,8 @@
                   {:else}{text}{/if}
                 {:else if col.draw === "containers"}
                   <ContainerSquares cell={text} />
+                {:else if col.draw === "rollout"}
+                  <RolloutStatus word={text} />
                 {:else}
                   {text}{#if spark}<Sparkline values={spark} />{/if}
                 {/if}

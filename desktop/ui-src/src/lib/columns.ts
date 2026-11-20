@@ -3,6 +3,7 @@ import { diskPercent, diskText } from "./metricsAddons";
 import { createdAt, formatAge, formatCpu, formatMemory } from "./format";
 import { columnOn } from "./settings";
 import { containersSummary, parseContainers, worstRank } from "./containerStates";
+import { rolloutRank, rolloutTitle } from "./rolloutStatus";
 
 export type Row = ResourceRow;
 
@@ -50,7 +51,7 @@ export interface Column {
   /** The cell links to the object it names (Controlled By, #378). */
   link?: "owner";
   /** The cell is drawn as one state square per container (#379). */
-  draw?: "containers";
+  draw?: "containers" | "rollout";
 }
 
 /** The columns to draw: not hidden by the user (an off-by-default one only
@@ -106,6 +107,8 @@ function widthFor(def: ColumnDef): string {
   if (def.key === "message") return "minmax(240px, 3fr)";
   if (def.kind === "owner") return "minmax(160px, 1.6fr)";
   if (def.kind === "containers") return "minmax(120px, 1fr)";
+  // "Scaled down" behind its square.
+  if (def.kind === "rollout") return "minmax(120px, 1fr)";
   // Wide enough for "CrashLoopBackOff" behind its dot.
   if (def.kind === "status") return "minmax(172px, 1fr)";
   return "minmax(80px, 1fr)";
@@ -207,6 +210,15 @@ function column(def: ColumnDef, index: number): Column {
         sort: (r) => worstRank(parseContainers(cell(r))),
         title: (r) => containersSummary(parseContainers(cell(r))),
         draw: "containers",
+      };
+    case "rollout":
+      // Sorted by how bad: descending puts Failed first (#381).
+      return {
+        ...base,
+        text: cell,
+        sort: (r) => rolloutRank(cell(r)),
+        title: (r) => rolloutTitle(cell(r), r.problem),
+        draw: "rollout",
       };
     default:
       return { ...base, text: cell, sort: cell };
