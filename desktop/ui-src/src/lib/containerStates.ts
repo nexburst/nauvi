@@ -4,8 +4,7 @@
 
 import { BAD_WAITING, type Tone } from "./containers";
 
-export type ContainerState =
-  "ready" | "running" | "waiting" | "done" | "failed" | "unknown";
+export type ContainerState = "ready" | "running" | "waiting" | "done" | "failed" | "unknown";
 
 /** How a square is drawn. Each look has its own shape, so the state does not
  *  rest on colour alone: filled (ok), half filled (not ready yet), filled with
@@ -22,14 +21,7 @@ export interface Square {
   look: Look;
 }
 
-const STATES = new Set<string>([
-  "ready",
-  "running",
-  "waiting",
-  "done",
-  "failed",
-  "unknown",
-]);
+const STATES = new Set<string>(["ready", "running", "waiting", "done", "failed", "unknown"]);
 
 function lookOf(state: ContainerState, reason: string): Look {
   switch (state) {
@@ -64,10 +56,7 @@ export function parseContainers(cell: string): Square[] {
     if (eq <= 0) continue;
     const [raw = "", reason = "", code] = body.slice(eq + 1).split(":");
     const state = (STATES.has(raw) ? raw : "unknown") as ContainerState;
-    const exit =
-      state === "failed" && code !== undefined && /^-?\d+$/.test(code)
-        ? Number(code)
-        : null;
+    const exit = state === "failed" && code !== undefined && /^-?\d+$/.test(code) ? Number(code) : null;
     out.push({
       name: body.slice(0, eq),
       init,
