@@ -3,7 +3,7 @@
   import type { ContextInfo } from "../bindings";
   import { groupContexts, sectionsOf, stateText } from "../clusterTree";
   import { app, currentContextName, openContextWindow } from "../stores/app.svelte";
-  import { contextLabel } from "../stores/catalog.svelte";
+  import { contextFullName, contextLabel } from "../stores/catalog.svelte";
   import { contextSettings, settings } from "../stores/settings.svelte";
   import {
     answerNode,
@@ -95,7 +95,7 @@
         type="button"
         class="name"
         aria-current={isVisible ? "true" : undefined}
-        title={`${label(id)}: ${idled ? "Disconnected while idle: it connects again when used" : stateText(n.state, isVisible)}`}
+        title={`${contextFullName(id)}: ${idled ? "Disconnected while idle: it connects again when used" : stateText(n.state, isVisible)}`}
         onclick={() => void showNode(id)}
       >
         <span
@@ -243,6 +243,7 @@
     color: var(--text);
   }
   .row {
+    position: relative;
     display: flex;
     align-items: center;
     min-width: 0;
@@ -278,11 +279,17 @@
     color: var(--text);
     font-weight: 600;
   }
+  /* The label is short already (#383); a long one wraps onto a second
+     line rather than losing its end. */
   .text {
     min-width: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    line-height: 1.3;
   }
   /* Not connected: hollow. Connected: filled. The shown one: accent. */
   .dot {
@@ -310,9 +317,15 @@
     border-color: var(--red);
     background: var(--red);
   }
+  /* Over the end of the row, so they take no room from the name. */
   .actions {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    transform: translateY(-50%);
     display: flex;
-    flex-shrink: 0;
+    background: var(--bg-sunken);
+    border-radius: 6px;
     opacity: 0;
   }
   .row:hover .actions,

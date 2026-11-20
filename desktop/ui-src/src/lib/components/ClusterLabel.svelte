@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { contextLabel } from "../stores/catalog.svelte";
+  import { contextFullName, contextLabel } from "../stores/catalog.svelte";
   import { contextSettings } from "../stores/settings.svelte";
 
   /** Which cluster something belongs to (ADR 0007): its name, with its
@@ -9,9 +9,12 @@
 
   const color = $derived(contextSettings(id).color);
   const name = $derived(contextLabel(id));
+  // The whole name is always in the tooltip (#383): the label may be short.
+  const full = $derived(contextFullName(id));
+  const tip = $derived(!title ? full : name === full || title.includes(full) ? title : `${title}\n${full}`);
 </script>
 
-<span class="cluster-label" data-testid="cluster-label" data-cluster={id} title={title || name}>
+<span class="cluster-label" data-testid="cluster-label" data-cluster={id} title={tip}>
   {#if color}<span class="swatch" style:background={color} data-testid="cluster-label-color" aria-hidden="true"></span>{/if}
   <span class="name">{name}</span>
 </span>

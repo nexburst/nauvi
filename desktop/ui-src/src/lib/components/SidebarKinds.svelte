@@ -13,6 +13,7 @@
   import { problems } from "../stores/problems.svelte";
   import { absentTitle, missingKinds } from "../sidebarExpected";
   import { chart } from "../stores/chart.svelte";
+  import { settings, updateSettings } from "../stores/settings.svelte";
 
   /** The chart's lens: what is typed narrows the kinds (label, kind or short name). */
   const lens = $derived(chart.pinned ? "" : chart.lens.trim().toLowerCase());
@@ -24,6 +25,25 @@
     void app.refreshNonce;
     untrack(refreshForwards);
   });
+
+  /** Sections the user collapsed (#383), remembered in the settings. */
+  const collapsed = $derived(new Set(settings.current.collapsed_sections));
+  /** While the lens narrows the kinds, every section is open. */
+  const isOpen = (id: string) => !!lens || !collapsed.has(id);
+  /** A collapsed section still shows the open view, so it is never lost. */
+  const shows = (id: string, view: string) => isOpen(id) || app.view === view;
+
+  function toggleSection(id: string) {
+    const list = settings.current.collapsed_sections;
+    void updateSettings({
+      collapsed_sections: list.includes(id) ? list.filter((s) => s !== id) : [...list, id],
+    });
+  }
+
+  /** The problem count of a collapsed section's kinds: its badges are hidden. */
+  function sectionProblems(list: ResourceKind[]): number {
+    return list.reduce((n, k) => n + (problems.byKind[k.id]?.count ?? 0), 0);
+  }
 
   const SECTIONS: { category: Category; title: string }[] = [
     { category: "workloads", title: "Workloads" },
@@ -94,19 +114,45 @@
   </button>
 {/snippet}
 
-{#snippet groups(title: string, list: [string, ResourceKind[]][], first: ResourceKind[] = [])}
+{#snippet heading(id: string, title: string, list: ResourceKind[] = [])}
+  {@const open = isOpen(id)}
+  {@const count = open ? 0 : sectionProblems(list)}
+  <h4 data-section={id}>
+    <button
+      type="button"
+      class="section"
+      aria-expanded={open}
+      title={open ? `Collapse ${title}` : `Expand ${title}`}
+      onclick={() => toggleSection(id)}
+      >{title}{#if count > 0}<span
+          class="problems"
+          data-testid="section-problems"
+          title={`${count} in ${title} need a look`}
+          aria-hidden="true">{count}</span
+        >{/if}</button
+    >
+  </h4>
+{/snippet}
+
+{#snippet groups(id: string, title: string, list: [string, ResourceKind[]][], first: ResourceKind[] = [])}
   {#if list.length > 0 || first.length > 0}
-    <h4>{title}</h4>
+    {@render heading(id, title, [...first, ...list.flatMap(([, items]) => items)])}
     {#each first as kind (kind.id)}
-      {@render item(kind)}
+      {#if shows(id, kind.id)}{@render item(kind)}{/if}
     {/each}
     {#each list as [group, items] (group)}
-      <details open={items.some((k) => k.id === app.view)}>
-        <summary title={group}>{group || "core"}</summary>
-        {#each items as kind (kind.id)}
+      {#if isOpen(id)}
+        <details open={items.some((k) => k.id === app.view)}>
+          <summary title={group}>{group || "core"}</summary>
+          {#each items as kind (kind.id)}
+            {@render item(kind)}
+          {/each}
+        </details>
+      {:else}
+        {#each items.filter((k) => k.id === app.view) as kind (kind.id)}
           {@render item(kind)}
         {/each}
-      </details>
+      {/if}
     {/each}
   {/if}
 {/snippet}
@@ -123,32 +169,33 @@
     {@const list = byCategory.get(section.category) ?? []}
     {@const absent = !lens && kinds.loaded && kinds.all.length > 0 ? missingKinds(section.category, kinds.all) : []}
     {#if list.length > 0 || absent.length > 0 || (section.category === "network" && forwards.list.length > 0)}
-      <h4>{section.title}</h4>
+      {@const id = section.category}
+      {@render heading(id, section.title, list)}
       {#if section.category === "workloads" && !lens}
         <!-- Not a kind: counts of every workload kind (#79). -->
-        <button
+        {#if shows(id, WORKLOADS_VIEW)}<button
           type="button"
           class:active={app.view === WORKLOADS_VIEW}
           aria-label="Workloads overview"
           onclick={() => setView(WORKLOADS_VIEW)}>Overview</button
-        >
+          >{/if}
         <!-- Not a kind: workloads grouped by app labels and Helm release (#226). -->
-        <button
+        {#if shows(id, APPLICATIONS_VIEW)}<button
           type="button"
           class:active={app.view === APPLICATIONS_VIEW}
           onclick={() => setView(APPLICATIONS_VIEW)}>Applications</button
-        >
+          >{/if}
       {/if}
       {#each list as kind (kind.id)}
-        {@render item(kind)}
+        {#if shows(id, kind.id)}{@render item(kind)}{/if}
       {/each}
       <!-- Expected kinds this cluster does not serve, greyed out (#332). -->
-      {#each absent as e (e.kind)}
+      {#each isOpen(id) ? absent : [] as e (e.kind)}
         <button type="button" class="kind absent" aria-disabled="true" title={absentTitle(e)}
           ><span class="label">{e.label}</span></button
         >
       {/each}
-      {#if section.category === "network" && inLens("port forwards")}
+      {#if section.category === "network" && inLens("port forwards") && shows(id, PORT_FORWARDS_VIEW)}
         <!-- Not a cluster kind: the forwards this app runs. -->
         <button
           type="button"
@@ -162,15 +209,19 @@
   {/each}
 
   {#if kinds.loaded && kinds.all.length > 0 && inLens("helm releases", "helm charts")}
-    <h4>Helm</h4>
-    <button type="button" class:active={app.view === HELM_VIEW} onclick={() => setView(HELM_VIEW)}>Releases</button>
-    <button type="button" class:active={app.view === HELM_CHARTS_VIEW} onclick={() => setView(HELM_CHARTS_VIEW)}
-      >Charts</button
-    >
+    {@render heading("helm", "Helm")}
+    {#if shows("helm", HELM_VIEW)}
+      <button type="button" class:active={app.view === HELM_VIEW} onclick={() => setView(HELM_VIEW)}>Releases</button>
+    {/if}
+    {#if shows("helm", HELM_CHARTS_VIEW)}
+      <button type="button" class:active={app.view === HELM_CHARTS_VIEW} onclick={() => setView(HELM_CHARTS_VIEW)}
+        >Charts</button
+      >
+    {/if}
   {/if}
 
-  {@render groups("Custom Resources", custom, definitions)}
-  {@render groups("Other", other)}
+  {@render groups("custom", "Custom Resources", custom, definitions)}
+  {@render groups("other", "Other", other)}
 
   {#if !kinds.loaded}
     <p class="muted note">Discovering…</p>
@@ -189,7 +240,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 16px 12px 4px;
+    margin: 6px 4px 0;
     font-family: var(--font-num);
     font-size: 10px;
     font-weight: 500;
@@ -202,6 +253,34 @@
     flex: 1;
     height: 1px;
     background: linear-gradient(90deg, var(--border), transparent);
+  }
+  /* A section's head toggles it (#383): a chevron, then the title. */
+  button.section {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: inherit;
+  }
+  button.section::before {
+    content: "";
+    width: 0;
+    height: 0;
+    border-left: 4px solid currentColor;
+    border-top: 3.5px solid transparent;
+    border-bottom: 3.5px solid transparent;
+    transform: rotate(90deg);
+    transition: transform 120ms ease;
+  }
+  button.section[aria-expanded="false"]::before {
+    transform: none;
+  }
+  button.section:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   summary {
     padding: 6px 12px;

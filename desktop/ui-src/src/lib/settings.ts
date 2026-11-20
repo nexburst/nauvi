@@ -60,6 +60,8 @@ export interface SettingsPatch {
   searches?: SearchHistory;
   /** Offer a kubectl matching the cluster in local terminals (#331). */
   kubectl_match?: boolean;
+  /** The collapsed sidebar sections, the whole list (#383). */
+  collapsed_sections?: string[];
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -88,6 +90,7 @@ export function defaultSettings(): Settings {
     forwards: {},
     searches: { recent: [], starred: [] },
     kubectl_match: false,
+    collapsed_sections: [],
   };
 }
 
@@ -148,6 +151,8 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
     next.idle_disconnect_minutes = clampIdleMinutes(patch.idle_disconnect_minutes);
   if (patch.searches != null) next.searches = normalizeHistory(patch.searches);
   if (patch.kubectl_match != null) next.kubectl_match = patch.kubectl_match;
+  if (patch.collapsed_sections != null)
+    next.collapsed_sections = [...new Set(patch.collapsed_sections.filter(Boolean))];
   return next;
 }
 

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { app, openContextWindow, refresh, setView, switchContext } from "../stores/app.svelte";
-  import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
+  import { CATALOG_VIEW, orderContexts } from "../catalog";
   import { shownContexts } from "../hidden";
+  import { contextFullName, contextLabel } from "../stores/catalog.svelte";
   import { contextSettings, settings } from "../stores/settings.svelte";
   import { live } from "../stores/live.svelte";
   import { openPalette, openSettings } from "../stores/keyboard.svelte";
@@ -50,7 +51,8 @@
   // Hidden ones are left out (ADR 0007), except the one shown.
   const listed = $derived(shownContexts(app.contexts, settings.current.hidden_contexts, [current]));
   const ordered = $derived(orderContexts(listed, settings.current.favourites));
-  const label = (id: string) => displayName({ name: id }, contextSettings(id));
+  // Short names for long cloud contexts (#383); the whole one is the tooltip.
+  const label = (id: string) => contextLabel(id);
   const color = $derived(contextSettings(current).color);
   const mode = $derived(contextMode(current));
   /** Bumped per click: the icon turns once per refresh, never idles. */
@@ -110,6 +112,7 @@
     class="select"
     class:invisible={listed.length <= 1}
     aria-label="Cluster context"
+    title={contextFullName(current)}
     value={current}
     onchange={(e) => onContextChange(e.currentTarget)}
   >

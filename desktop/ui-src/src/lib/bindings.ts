@@ -2463,6 +2463,8 @@ export type SettingsPatch_Deserialize = {
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Deserialize | null,
 	kubectl_match?: boolean | null,
+	/**  The whole list of collapsed sidebar sections (#383). */
+	collapsed_sections?: string[] | null,
 };
 
 /**
@@ -2492,6 +2494,8 @@ export type SettingsPatch_Serialize = {
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Serialize | null,
 	kubectl_match?: boolean | null,
+	/**  The whole list of collapsed sidebar sections (#383). */
+	collapsed_sections?: string[] | null,
 };
 
 export type Settings_Deserialize = {
@@ -2570,6 +2574,11 @@ export type Settings_Deserialize = {
 	 *  default; nothing is downloaded without a click.
 	 */
 	kubectl_match?: boolean,
+	/**
+	 *  The sidebar sections the user collapsed (#383), by id (`workloads`,
+	 *  `network`, `helm`, `custom`...). Empty: every section open.
+	 */
+	collapsed_sections?: string[],
 };
 
 export type Settings_Serialize = {
@@ -2648,6 +2657,11 @@ export type Settings_Serialize = {
 	 *  default; nothing is downloaded without a click.
 	 */
 	kubectl_match: boolean,
+	/**
+	 *  The sidebar sections the user collapsed (#383), by id (`workloads`,
+	 *  `network`, `helm`, `custom`...). Empty: every section open.
+	 */
+	collapsed_sections: string[],
 };
 
 /**  One source of contexts, for the catalog's list of sources. */
