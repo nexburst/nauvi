@@ -71,6 +71,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             cluster::cmd_get_metrics,
             cluster::cmd_list_contexts,
             cluster::cmd_list_namespaces,
+            cluster::cmd_server_version,
             cluster::cmd_set_context,
             clusters::cmd_cluster_connect,
             clusters::cmd_cluster_disconnect,

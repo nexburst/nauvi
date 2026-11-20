@@ -60,19 +60,10 @@ async fn checked_download(data: PathBuf, v: KubeVersion, p: Platform) -> Option<
 
 /// The API server's release, waiting at most `secs`.
 async fn server_version(cluster: &Cluster, secs: u64) -> Result<KubeVersion, String> {
-    let ask = async {
-        let client = cluster.client().await?;
-        client.apiserver_version().await.map_err(|e| {
-            format!(
-                "cannot read the API server's version: {}",
-                nauvi::errors::chain_text(&e)
-            )
-        })
-    };
-    let info = tokio::time::timeout(std::time::Duration::from_secs(secs), ask)
-        .await
-        .map_err(|_| "the API server did not say its version in time".to_string())??;
-    KubeVersion::parse(&info.git_version)
+    let shown =
+        crate::commands::cluster::server_version(cluster, std::time::Duration::from_secs(secs))
+            .await?;
+    KubeVersion::parse(&shown)
 }
 
 /// What to offer, given the server and installed versions.

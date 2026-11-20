@@ -17,6 +17,10 @@ export function clusterHandlers(s: FakeState) {
     cmdListNamespaces: () => served(s, "namespaces"),
     cmdDefaultNamespace: () => cluster.defaultNamespace,
     cmdDiscover: () => served(s, "kinds"),
+    cmdServerVersion: () => {
+      if (!cluster.serverVersion) throw "the API server did not say its version in time";
+      return cluster.serverVersion;
+    },
     cmdCheckAccess: (kinds, namespace) =>
       kinds.map((r) => {
         const id = kindOf(s, r).id;
