@@ -90,6 +90,7 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdPortforwardStop", "stops a port-forward"),
     ("cmdPrometheusStatus", "reads"),
     ("cmdRevealDataValue", "reads"),
+    ("cmdServerVersion", "reads"),
     ("cmdServicePorts", "reads"),
     ("cmdSetContext", "switches the window's session"),
     ("cmdStopLogs", "stops a stream"),
