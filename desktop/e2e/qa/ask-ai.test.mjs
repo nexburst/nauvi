@@ -15,8 +15,8 @@ import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
-import { byTestId, CONTEXT, REPO } from "../lib/app.mjs";
-import { deleteNamespace, httpPodYaml, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
+import { byTestId, CONTEXT, REPO, xq } from "../lib/app.mjs";
+import { deleteNamespace, httpPodYaml, kubectl, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
 import { closeTab, dockTabs } from "../lib/dock.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { createProfile } from "../lib/profile.mjs";
@@ -29,6 +29,26 @@ const CLI = process.env.NAUVI_CLI || join(target, "debug", "nauvi");
 const noCli = existsSync(CLI) ? false : `no nauvi CLI at ${CLI} (cargo build -p nauvi)`;
 const noPython = existsSync("/usr/bin/python3") ? false : "no /usr/bin/python3 for the fake AI CLI";
 const AI_NAMES = ["claude", "codex", "gemini"];
+// What the fake CLI scales through nauvi mcp when writes are on.
+const SCALED = `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scaled
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: scaled }
+  template:
+    metadata:
+      labels: { app: scaled }
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: main
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          command: ["sleep", "3600"]
+`;
 
 // The fake AI CLI. It records, prints a summary, speaks MCP if it can, then
 // waits for "done" on its terminal.
@@ -65,8 +85,9 @@ if config:
         rec["tools"] = [t["name"] for t in tools.get("result", {}).get("tools", [])]
         pods = call(3, "tools/call", {"name": "list", "arguments": {"kind": "pods", "namespace": ns}}) or {}
         rec["pods"] = "".join(c.get("text", "") for c in pods.get("result", {}).get("content", []))
-        scale = call(4, "tools/call", {"name": "scale", "arguments": {"kind": "deploy", "name": "x", "namespace": ns, "replicas": 0}}) or {}
+        scale = call(4, "tools/call", {"name": "scale", "arguments": {"kind": "deploy", "name": "scaled", "namespace": ns, "replicas": 2}}) or {}
         rec["scale"] = json.dumps(scale)[:400]
+        rec["scale_error"] = bool(scale.get("error")) or bool(scale.get("result", {}).get("isError"))
         p.stdin.close(); p.wait(timeout=10)
     except Exception as e:
         rec["mcp_error"] = repr(e)
@@ -127,7 +148,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
   let ns = "";
 
   before(() => {
-    ns = tempNamespace("qa-ask-ai", httpPodYaml("asked"));
+    ns = tempNamespace("qa-ask-ai", `${httpPodYaml("asked")}\n---\n${SCALED}`);
     waitPodReady(ns, "asked");
   });
   // Our own profile: PATH is set here, and must keep its xdg-open recorder.
@@ -201,7 +222,9 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     assert.match(rec.config_path, new RegExp(`^${tmp}/nauvi-shell-\\d+-\\d+\\.json$`));
     assert.equal(rec.config_mode, "0o600");
     const server = rec.config.mcpServers.nauvi;
-    assert.deepEqual(server.args, [`--context=${CONTEXT}`, "mcp"]);
+    assert.deepEqual([server.args[0], server.args[1]], [`--context=${CONTEXT}`, "mcp"]);
+    assert.match(server.args[2] ?? "", /^--mode-file=\//, server.args.join(" "));
+    assert.equal(server.args.length, 3, "read-only: no --allow-writes");
     assert.equal(server.env.KUBECONFIG, rec.kubeconfig);
     // No credentials on any command line: only paths and the context name.
     assert.ok(!JSON.stringify(rec.args).includes("token"), JSON.stringify(rec.args));
@@ -258,15 +281,70 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     await term.waitFor("nauvi tools that can change the cluster");
     const recs = records(record);
     const last = recs[recs.length - 1];
-    assert.deepEqual(last.config.mcpServers.nauvi.args, [`--context=${CONTEXT}`, "mcp", "--allow-writes"]);
+    const args = last.config.mcpServers.nauvi.args;
+    assert.deepEqual([args[0], args[1], args[args.length - 1]], [`--context=${CONTEXT}`, "mcp", "--allow-writes"]);
+    assert.match(args[2], /^--mode-file=\//, args.join(" "));
     assert.ok(last.tools.includes("scale"), last.tools.join(","));
+    // On a normal context the write goes through: nauvi mcp finds the
+    // context's mode from the file the app knows it from.
+    assert.equal(last.scale_error, false, last.scale);
+    assert.equal(kubectl(["-n", ns, "get", "deploy", "scaled", "-o", "jsonpath={.spec.replicas}"]).trim(), "2");
     await term.type("done");
     await term.waitFor("This is your shell", { timeout: 30_000 });
     await app.shot("after-the-cli-exited");
     const tab = (await dockTabs(app)).find((t) => t.title.startsWith("AI: "));
     await closeTab(app, tab.title);
   });
+
+  it("turning the context read-only closes the Ask AI terminal, and Ask AI then opens none", T, async () => {
+    const { app } = s;
+    await app.palette("ask ai", "Ask AI");
+    await waitDialog(app);
+    await (await app.find(byTestId("ask-ai-start"))).click();
+    const term = terminal(app);
+    await term.waitFor("Type done to exit", { timeout: 60_000 });
+
+    await setMode(app, "Read-only");
+    await closeClusterSettings(app);
+    await term.waitFor("is now read-only: this terminal was closed", { timeout: 30_000 });
+    await app.shot("closed-on-read-only");
+
+    await app.palette("ask ai", "Ask AI");
+    await waitDialog(app);
+    assert.match(await dialogText(app), /read-only, so nauvi opens no terminals/);
+    assert.equal((await app.driver.findElements(byTestId("ask-ai-start"))).length, 0);
+    await app.shot("blocked-on-read-only");
+    await closeDialog(app);
+
+    await setMode(app, "Normal");
+    await closeClusterSettings(app);
+    const tab = (await dockTabs(app)).find((t) => t.title.startsWith("AI: "));
+    if (tab) await closeTab(app, tab.title);
+  });
 });
+
+/** Pick a mode on this cluster's settings page (as context-mode.test.mjs). */
+async function setMode(app, label) {
+  if ((await app.driver.findElements(byTestId("cluster-settings"))).length === 0) {
+    await app.palette("cluster settings", "Cluster settings");
+  }
+  const dialog = await app.find(byTestId("cluster-settings"));
+  const radio = await dialog.findElement(
+    By.xpath(`.//label[contains(@class,'mode-choice')][.//strong[normalize-space()=${xq(label)}]]/input`),
+  );
+  await app.js("arguments[0].scrollIntoView({ block: 'center' })", radio);
+  await radio.click();
+  await app.waitFor(async () => radio.isSelected(), { message: `${label} selected` });
+}
+
+async function closeClusterSettings(app) {
+  if ((await app.driver.findElements(byTestId("cluster-settings"))).length === 0) return;
+  const dialog = await app.find(byTestId("cluster-settings"));
+  await (await dialog.findElement(By.xpath(".//button[normalize-space()='Close']"))).click();
+  await app.waitFor(async () => (await app.driver.findElements(byTestId("cluster-settings"))).length === 0, {
+    message: "the cluster settings to close",
+  });
+}
 
 describe("Ask AI without an AI CLI on PATH", { timeout: 10 * 60_000 }, () => {
   const profile = createProfile();

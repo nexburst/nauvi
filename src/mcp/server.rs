@@ -80,7 +80,11 @@ impl NauviMcp {
                 None => return Ok(()),
             },
         };
-        let kubeconfig = self.opts.kubeconfig.as_deref();
+        let kubeconfig = self
+            .opts
+            .mode_file
+            .as_deref()
+            .or(self.opts.kubeconfig.as_deref());
         match crate::context_mode::mode_for_cli(&path, kubeconfig, &context) {
             CliMode::Known(ContextMode::Normal) => Ok(()),
             CliMode::Known(ContextMode::ReadOnly) => Err(format!(
@@ -170,5 +174,83 @@ impl ServerHandler for NauviMcp {
             Err(text) => CallToolResult::error(vec![ContentBlock::text(text)]),
         };
         Ok(result.into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context_mode::ModeSource;
+    use std::path::{Path, PathBuf};
+
+    const KUBECONFIG: &str = "apiVersion: v1\nkind: Config\ncurrent-context: prod\n\
+        clusters:\n- name: c\n  cluster: {server: \"https://127.0.0.1:1\"}\n\
+        users:\n- name: u\n  user: {token: t}\n\
+        contexts:\n- name: prod\n  context: {cluster: c, user: u}\n";
+
+    fn opts(dir: &Path, mode_file: Option<PathBuf>) -> McpOptions {
+        McpOptions {
+            allow_writes: true,
+            // What an Ask AI terminal's client reads: a per-terminal file
+            // the app's catalog does not know.
+            kubeconfig: Some(dir.join("nauvi-shell-1-1.yaml")),
+            context: Some("prod".into()),
+            app_settings: Some(dir.join("settings.json")),
+            mode_file,
+        }
+    }
+
+    fn write_settings(dir: &Path, mode: Option<&str>) {
+        let work = dir.join("work.yaml");
+        let mut contexts = serde_json::Map::new();
+        if let Some(mode) = mode {
+            contexts.insert(
+                "prod (work.yaml)".into(),
+                serde_json::json!({
+                    "mode": mode,
+                    "mode_source": serde_json::to_value(ModeSource::new(&work, "prod")).unwrap(),
+                }),
+            );
+        }
+        let text = serde_json::json!({
+            "kubeconfig_sources": [work.display().to_string()],
+            "contexts": contexts,
+        });
+        std::fs::write(dir.join("settings.json"), text.to_string()).unwrap();
+    }
+
+    /// #376: an Ask AI terminal's `nauvi mcp` reads a per-terminal
+    /// kubeconfig; `--mode-file` names the file the app knows the context
+    /// from, so writes work on a normal context and are refused on a
+    /// protected or read-only one.
+    #[test]
+    fn mode_file_finds_the_apps_mode_of_the_context() {
+        let dir = std::env::temp_dir().join(format!("nauvi-376-mode-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("work.yaml"), KUBECONFIG).unwrap();
+        std::fs::write(dir.join("nauvi-shell-1-1.yaml"), KUBECONFIG).unwrap();
+        let work = Some(dir.join("work.yaml"));
+
+        write_settings(&dir, None);
+        // Without it, the per-terminal file is unknown: refused.
+        let err = NauviMcp::new(opts(&dir, None)).check_mode().unwrap_err();
+        assert!(err.contains("not in nauvi's cluster catalog"), "{err}");
+        // With it, a normal context allows writes.
+        assert_eq!(NauviMcp::new(opts(&dir, work.clone())).check_mode(), Ok(()));
+        write_settings(&dir, Some("normal"));
+        assert_eq!(NauviMcp::new(opts(&dir, work.clone())).check_mode(), Ok(()));
+
+        write_settings(&dir, Some("protected"));
+        let err = NauviMcp::new(opts(&dir, work.clone()))
+            .check_mode()
+            .unwrap_err();
+        assert!(err.contains("protected"), "{err}");
+        write_settings(&dir, Some("readOnly"));
+        let err = NauviMcp::new(opts(&dir, work.clone()))
+            .check_mode()
+            .unwrap_err();
+        assert!(err.contains("read-only"), "{err}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

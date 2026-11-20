@@ -159,6 +159,11 @@
             everything in it. Leave this off unless you will check each change it proposes.
           </p>
         {/if}
+        <p class="note small" data-testid="ask-ai-shell-note">
+          The read-only setting covers the nauvi tools only. The CLI also has a shell with this cluster's kubeconfig:
+          commands it runs there (<code>kubectl</code>, <code>helm</code>…) are allowed or refused by your CLI's own
+          approval prompts, not by nauvi, as in a local terminal.
+        </p>
         <p class="muted small">
           Your CLI and its provider decide what leaves this machine, as in any terminal. When the CLI exits, the tab is
           your shell.

@@ -197,13 +197,25 @@ pub fn split_command(text: &str) -> Result<Vec<String>, String> {
     Ok(words)
 }
 
-/// The prompt as it is passed on: control characters (an escape sequence
-/// the terminal would act on, a NUL) dropped, tabs as spaces, at most
-/// [`MAX_PROMPT`] characters.
+/// Whether `c` is never shown as written: a control character (an escape
+/// sequence the terminal would act on, a NUL), a zero-width character
+/// (U+200B to U+200D, U+2060, U+FEFF) or a bidi control (U+202A to U+202E,
+/// U+2066 to U+2069), which can make text read other than it is. The same
+/// set as the UI's `oneLine` drops.
+pub fn is_hidden_char(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c as u32,
+            0x200B..=0x200D | 0x2060 | 0xFEFF | 0x202A..=0x202E | 0x2066..=0x2069
+        )
+}
+
+/// The prompt as it is passed on: [`is_hidden_char`]s dropped (but line
+/// breaks kept), tabs as spaces, at most [`MAX_PROMPT`] characters.
 pub fn clean_prompt(text: &str) -> String {
     text.chars()
         .map(|c| if c == '\t' { ' ' } else { c })
-        .filter(|c| *c == '\n' || !c.is_control())
+        .filter(|c| *c == '\n' || !is_hidden_char(*c))
         .take(MAX_PROMPT)
         .collect::<String>()
         .trim()
@@ -214,11 +226,21 @@ pub fn clean_prompt(text: &str) -> String {
 /// current context). `--context=<name>` in one argument, so a context name
 /// that starts with `-` stays the value.
 pub fn mcp_args(context: &str, allow_writes: bool) -> Vec<String> {
+    mcp_args_for(context, None, allow_writes)
+}
+
+/// [`mcp_args`], with `--mode-file=<file>`: the kubeconfig file the app
+/// knows the context from, so `nauvi mcp` finds its read-only or protected
+/// mode although its `KUBECONFIG` starts with a per-terminal file.
+pub fn mcp_args_for(context: &str, mode_file: Option<&Path>, allow_writes: bool) -> Vec<String> {
     let mut args = Vec::new();
     if !context.is_empty() {
         args.push(format!("--context={context}"));
     }
     args.push("mcp".into());
+    if let Some(file) = mode_file {
+        args.push(format!("--mode-file={}", file.display()));
+    }
     if allow_writes {
         args.push("--allow-writes".into());
     }
@@ -446,6 +468,27 @@ mod tests {
         );
     }
 
+    /// Zero-width characters and bidi controls go too (security review).
+    #[test]
+    fn clean_prompt_drops_zero_width_and_bidi_characters() {
+        let hidden = [
+            0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, 0x2066,
+            0x2067, 0x2068, 0x2069,
+        ];
+        let text: String = hidden
+            .iter()
+            .map(|&u| format!("a{}", char::from_u32(u).unwrap()))
+            .collect();
+        assert_eq!(clean_prompt(&text), "a".repeat(hidden.len()));
+        for u in hidden {
+            assert!(is_hidden_char(char::from_u32(u).unwrap()), "{u:x}");
+        }
+        // Text around them, and other non-ASCII letters, stay.
+        for c in ['é', 'ж', '中', ' ', '-'] {
+            assert!(!is_hidden_char(c), "{c}");
+        }
+    }
+
     #[test]
     fn mcp_args_keep_the_context_in_one_argument() {
         assert_eq!(mcp_args("kind-x", false), ["--context=kind-x", "mcp"]);
@@ -454,6 +497,15 @@ mod tests {
             ["--context=-evil --allow-writes", "mcp"]
         );
         assert_eq!(mcp_args("", true), ["mcp", "--allow-writes"]);
+        assert_eq!(
+            mcp_args_for("prod", Some(Path::new("/home/me/.kube/work")), true),
+            [
+                "--context=prod",
+                "mcp",
+                "--mode-file=/home/me/.kube/work",
+                "--allow-writes"
+            ]
+        );
     }
 
     #[test]

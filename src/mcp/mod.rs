@@ -41,6 +41,12 @@ pub struct McpOptions {
     /// The app's settings file, for the context's read-only or protected
     /// mode (#338). `None`: where the desktop app keeps it.
     pub app_settings: Option<PathBuf>,
+    /// The kubeconfig file the context comes from in the app (`--mode-file`,
+    /// #376): the mode is looked up for the context of this file, not of
+    /// the files the client reads (an Ask AI terminal's `KUBECONFIG` starts
+    /// with a per-terminal file the app's catalog does not know). `None`:
+    /// `kubeconfig`, else the default kubeconfig files.
+    pub mode_file: Option<PathBuf>,
 }
 
 /// Serve MCP on stdin/stdout until the client closes stdin.

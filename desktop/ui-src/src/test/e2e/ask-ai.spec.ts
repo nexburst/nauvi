@@ -61,6 +61,9 @@ test("Ask AI about a pod starts the CLI in a dock tab, read-only, with the pod i
   await expect(dialog(page).getByTestId("ask-ai-mcp")).toContainText("read-only");
   await expect(dialog(page).getByTestId("ask-ai-writes")).not.toBeChecked();
   await expect(dialog(page).getByTestId("ask-ai-writes-warning")).toHaveCount(0);
+  // The CLI's own shell commands are its prompts' to approve, not nauvi's.
+  await expect(dialog(page).getByTestId("ask-ai-shell-note")).toContainText("covers the nauvi tools only");
+  await expect(dialog(page).getByTestId("ask-ai-shell-note")).toContainText("your CLI's own approval prompts");
 
   // The user edits the prompt, then starts.
   await prompt.press("End");

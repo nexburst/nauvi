@@ -74,7 +74,9 @@
     A program on PATH or a full path, then its arguments. It runs as it is, never through a shell. It gets the prompt
     in the file named by <code>NAUVI_PROMPT_FILE</code> and the nauvi MCP server (<code>mcpServers</code> JSON) in
     <code>NAUVI_MCP_CONFIG</code>. nauvi never changes your CLIs' own settings: the MCP server is given to each session
-    only, read-only unless you allow writes when you start it.
+    only, read-only unless you allow writes when you start it. That covers the nauvi tools only: commands the CLI runs
+    in its own shell (<code>kubectl</code>…) are approved by the CLI's prompts, not by nauvi. Like a local terminal,
+    Ask AI opens nothing on a read-only context, and its terminals close when a context turns read-only.
   </p>
 </fieldset>
 

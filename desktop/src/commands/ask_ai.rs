@@ -14,7 +14,7 @@ use crate::commands::term_out::{send_closed, send_data, TermOut};
 use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::{Settings, SettingsStore};
 use crate::state::mutation::Mutation;
-use crate::state::{next_session, LocalShellSession};
+use crate::state::{next_session, AppState, LocalShellSession};
 use nauvi::ask_ai::{self, Cli, KNOWN_CLIS};
 use nauvi::context_mode::ContextMode;
 use nauvi::{TempExt, TempKubeconfig};
@@ -157,6 +157,7 @@ fn nauvi_cli(path: Option<&OsStr>) -> Option<PathBuf> {
 pub(crate) async fn cmd_ask_ai_start(
     cluster: Mutation,
     settings: State<'_, Arc<SettingsStore>>,
+    state: State<'_, AppState>,
     namespace: Option<String>,
     cli: String,
     prompt: String,
@@ -188,7 +189,16 @@ pub(crate) async fn cmd_ask_ai_start(
 
     let mut files = vec![temp];
     let nauvi = nauvi_cli(path);
-    let mcp_args = ask_ai::mcp_args(&generated.context, allow_writes);
+    // The file the app knows the context from, so `nauvi mcp` finds the
+    // context's read-only or protected mode (its KUBECONFIG starts with the
+    // per-terminal file, which the catalog does not know).
+    let mode_file = state
+        .sources
+        .catalog()
+        .find(&id)
+        .filter(|c| c.context == generated.context && !c.file.is_empty())
+        .map(|c| PathBuf::from(&c.file));
+    let mcp_args = ask_ai::mcp_args_for(&generated.context, mode_file.as_deref(), allow_writes);
     let config = match &nauvi {
         Some(nauvi) => {
             // The same KUBECONFIG as the terminal, in a file only the user
@@ -298,11 +308,13 @@ pub(crate) async fn cmd_ask_ai_start(
     })
 }
 
-/// `text` without control characters (a context name is the kubeconfig's
-/// text, printed in the terminal).
+/// `text` without control, zero-width or bidi characters (a context name
+/// is the kubeconfig's text, printed in the terminal).
 #[cfg(unix)]
 fn plain(text: &str) -> String {
-    text.chars().filter(|c| !c.is_control()).collect()
+    text.chars()
+        .filter(|c| !ask_ai::is_hidden_char(*c))
+        .collect()
 }
 
 /// The CLI `id`, its program and its name.
@@ -398,6 +410,21 @@ mod tests {
         );
         assert!(resolve("rm", &s, Some(&path)).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// The note after the CLI names the context: nothing in its name may
+    /// act on the terminal or reorder the text (security review).
+    #[cfg(unix)]
+    #[test]
+    fn plain_drops_control_zero_width_and_bidi_characters() {
+        let name: String = ["prod", "\u{1b}[2J", "\u{0}", "-", "\u{9b}", "eu"].concat();
+        assert_eq!(plain(&name), "prod[2J-eu");
+        let hidden: String = [0x200B, 0x200D, 0x2060, 0xFEFF, 0x202E, 0x2066, 0x2069]
+            .iter()
+            .map(|&u| char::from_u32(u).unwrap())
+            .collect();
+        assert_eq!(plain(&format!("a{hidden}b")), "ab");
+        assert_eq!(plain("café-東京"), "café-東京");
     }
 
     #[test]
