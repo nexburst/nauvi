@@ -324,7 +324,7 @@ impl Default for Settings {
             theme: Theme::System,
             logs: LogDefaults::default(),
             check_updates: true,
-            detail_width: 420,
+            detail_width: 520,
             dock_height: 0,
             contexts: BTreeMap::new(),
             kinds: BTreeMap::new(),
@@ -715,7 +715,7 @@ mod tests {
     fn missing_fields_take_their_defaults() {
         let s = parse(r#"{"version":1,"theme":"light"}"#).unwrap();
         assert_eq!(s.theme, Theme::Light);
-        assert_eq!(s.detail_width, 420);
+        assert_eq!(s.detail_width, 520);
         assert_eq!(s.logs, LogDefaults::default());
         assert!(s.check_updates);
         assert!(s.contexts.is_empty());
@@ -829,7 +829,7 @@ mod tests {
     fn a_bad_field_keeps_the_others() {
         let s = parse(r#"{"theme":"purple","detail_width":"wide","last_context":"prod"}"#).unwrap();
         assert_eq!(s.theme, Theme::System);
-        assert_eq!(s.detail_width, 420);
+        assert_eq!(s.detail_width, 520);
         assert_eq!(s.last_context, "prod");
     }
 

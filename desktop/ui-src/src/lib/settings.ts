@@ -100,7 +100,7 @@ export function defaultSettings(): Settings {
   };
 }
 
-export const DEFAULT_DETAIL_WIDTH = 420;
+export const DEFAULT_DETAIL_WIDTH = 520;
 export const MIN_DETAIL_WIDTH = 320;
 /** The panel may take at most this share of the window. */
 export const MAX_DETAIL_SHARE = 0.75;

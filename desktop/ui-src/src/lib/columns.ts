@@ -102,20 +102,38 @@ function widthFor(def: ColumnDef): string {
     case "nodeDisk":
       return "minmax(170px, 1fr)";
   }
-  if (def.key === "name") return "minmax(160px, 2.2fr)";
-  if (def.key === "namespace") return "minmax(120px, 1.2fr)";
+  // Name takes the slack (#384): on a kind with few columns the width goes
+  // to it, not into even gaps between short columns.
+  if (def.key === "name") return "minmax(160px, 3fr)";
+  if (def.key === "namespace") return "minmax(120px, 1fr)";
   if (def.key === "message") return "minmax(240px, 3fr)";
-  // Short counts ("1/1", "12"): narrow minimums, so the default Pods table
-  // and its row ⋮ (#382) fit a 1280 px window without scrolling sideways.
-  if (def.key === "ready" && def.kind === "text") return "minmax(64px, 1fr)";
-  if (def.key === "restarts") return "minmax(56px, 1fr)";
+  // Short values ("1/1", "12", "Running") grow only to about their header's
+  // width, capped in px (#384), and leave the rest to the flexible columns.
+  // Their minimums stay narrow, so the default Pods table and its row ⋮
+  // (#382) fit a 1280 px window without scrolling sideways.
+  if (def.key === "ready" && def.kind === "text") return "minmax(64px, 84px)";
+  if (def.key === "restarts") return "minmax(56px, 96px)";
+  if (def.kind === "number") return "minmax(64px, 112px)";
   if (def.kind === "owner") return "minmax(160px, 1.6fr)";
   if (def.kind === "containers") return "minmax(120px, 1fr)";
   // "Scaled down" behind its square.
-  if (def.kind === "rollout") return "minmax(120px, 1fr)";
-  // Wide enough for "CrashLoopBackOff" behind its dot.
-  if (def.kind === "status") return "minmax(172px, 1fr)";
+  if (def.kind === "rollout") return "minmax(120px, 200px)";
+  // Wide enough for "CrashLoopBackOff" behind its dot; a longer reason is
+  // cut, with the whole text in the cell's title.
+  if (def.kind === "status") return "minmax(172px, 240px)";
   return "minmax(80px, 1fr)";
+}
+
+/** A column label in sentence case (#384): "Controlled By" -> "Controlled
+ *  by". A word with a capital after its first letter (CPU, QoS, IP) is kept.
+ *  A label with no lower case at all and a space or a run of four capitals
+ *  (a CRD's "NAME", "LAST SEEN") is shouting, and is lowered first. */
+export function headerLabel(label: string): string {
+  const shouted = !/[a-z]/.test(label) && /\s|[A-Z]{4}/.test(label);
+  return (shouted ? label.toLowerCase() : label)
+    .split(" ")
+    .map((w, i) => (i === 0 ? w.charAt(0).toUpperCase() + w.slice(1) : /^.[^A-Z]*$/.test(w) ? w.toLowerCase() : w))
+    .join(" ");
 }
 
 /** Number to sort a numeric cell by ("3", or the leading number of "1/2"). */
@@ -125,7 +143,7 @@ function numeric(text: string): number {
 }
 
 function column(def: ColumnDef, index: number): Column {
-  const base = { key: def.key, label: def.label, width: widthFor(def), defaultHidden: def.default_hidden };
+  const base = { key: def.key, label: headerLabel(def.label), width: widthFor(def), defaultHidden: def.default_hidden };
   const cell = (r: Row) => r.cells[index] ?? "";
   switch (def.kind) {
     case "age":

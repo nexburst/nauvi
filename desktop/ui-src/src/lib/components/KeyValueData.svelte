@@ -517,7 +517,7 @@
   }
   .key {
     font-weight: 600;
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
   .meta {
     font-size: 11px;
@@ -549,7 +549,7 @@
     max-height: 160px;
     overflow: auto;
     white-space: pre-wrap;
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
   .masked {
     display: block;

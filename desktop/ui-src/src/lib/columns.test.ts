@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ColumnKind, ResourceKind, ResourceRow } from "./bindings";
 import {
   columnsFor,
+  headerLabel,
   EMPTY_METRICS,
   HIDDEN_METRICS,
   isNode,
@@ -60,10 +61,10 @@ const metrics: Metrics = {
 const ctx: Ctx = { metrics, now: 0 };
 
 describe("columnsFor", () => {
-  it("keeps the backend's keys and labels, and caches per kind", () => {
+  it("keeps the backend's keys, sentence-cases its labels, and caches per kind", () => {
     const k = kindWith([["name", "text"]]);
     const cols = columnsFor(k);
-    expect(cols.map((c) => [c.key, c.label])).toEqual([["name", "NAME"]]);
+    expect(cols.map((c) => [c.key, c.label])).toEqual([["name", "Name"]]);
     expect(columnsFor(k)).toBe(cols);
   });
 
@@ -77,11 +78,29 @@ describe("columnsFor", () => {
       ]),
     );
     expect(cols.map((c) => c.width)).toEqual([
-      "minmax(160px, 2.2fr)",
+      "minmax(160px, 3fr)",
       "minmax(240px, 3fr)",
       "64px",
       "minmax(80px, 1fr)",
     ]);
+  });
+
+  it("caps short columns in px, so the slack goes to Name (#384)", () => {
+    const cols = columnsFor(
+      kindWith([
+        ["name", "text"],
+        ["namespace", "text"],
+        ["ready", "text"],
+        ["uptodate", "number"],
+        ["status", "rollout"],
+        ["age", "age"],
+      ]),
+    );
+    const [name, ns, ...short] = cols.map((c) => c.width);
+    expect(name).toBe("minmax(160px, 3fr)");
+    expect(ns).toBe("minmax(120px, 1fr)");
+    // No fr: they stop growing at their cap.
+    for (const w of short) expect(w).not.toMatch(/fr/);
   });
 
   it("sorts numeric cells by their leading number, unknown last", () => {
@@ -240,5 +259,26 @@ describe("columnsFor", () => {
     // Only nodes: a pod's "ready" is a count.
     const [, podReady] = columnsFor(kindWith([["name", "text"], ["ready", "text"]]));
     expect(podReady.cls).toBeUndefined();
+  });
+});
+
+describe("headerLabel", () => {
+  it("puts the backend's labels in sentence case (#384)", () => {
+    expect(headerLabel("Controlled By")).toBe("Controlled by");
+    expect(headerLabel("Nominated Node")).toBe("Nominated node");
+    expect(headerLabel("Up-to-date")).toBe("Up-to-date");
+    expect(headerLabel("Name")).toBe("Name");
+  });
+
+  it("keeps acronyms and mixed-case words", () => {
+    expect(headerLabel("CPU")).toBe("CPU");
+    expect(headerLabel("QoS")).toBe("QoS");
+    expect(headerLabel("External IP")).toBe("External IP");
+  });
+
+  it("lowers a label written in capitals, as some CRDs do", () => {
+    expect(headerLabel("NAME")).toBe("Name");
+    expect(headerLabel("LAST SEEN")).toBe("Last seen");
+    expect(headerLabel("ready")).toBe("Ready");
   });
 });

@@ -689,13 +689,11 @@
     padding: 0 10px;
     background: transparent;
     border: none;
+    /* Sentence case at the rows' size (#384); the weight and colour, not
+       capitals, set it apart from the cells. */
     color: var(--text-muted);
     font: inherit;
-    font-family: var(--font-num);
-    font-size: 10.5px;
     font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
     cursor: pointer;
     white-space: nowrap;
   }
