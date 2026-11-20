@@ -28,6 +28,7 @@ import { ARTIFACTS, CONTEXT } from "../lib/app.mjs";
 import { deleteNamespace, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
 import { appPid, closeTab, logStatus, openPodLogs } from "../lib/dock.mjs";
 import { measure } from "../lib/memory.mjs";
+import { closePanel } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { setTheme } from "../lib/theme.mjs";
 
@@ -55,12 +56,17 @@ const BUDGET = {
   coreSecondVisit: 40,
   // The page's rows (and their search text) while the table shows.
   webTable: 60,
+  // The rest are measured from the Overview after the tables, with the
+  // pod's table and detail panel open next to the log tab.
   // A 50,000-line log tab: the lines in the page.
   webLog: 80,
-  // The log tab closed.
-  webLogClosed: 40,
   // The log stream in the core: bounded by its flow control.
   coreLog: 25,
+  // The tab closed, back on the Overview: the core gives it back. The
+  // page's JS heap is collected when WebKit decides; it must not grow
+  // after the tab closed, at least.
+  coreLogClosed: 10,
+  webLogClosedOverOpen: 5,
 };
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -111,9 +117,9 @@ async function sample(app, label) {
   return step;
 }
 
-/** Growth of step `label` over the baseline, MB. */
-function growth(label, key) {
-  const base = steps.find((s) => s.label === "baseline");
+/** Growth of step `label` over step `from` (the baseline), MB. */
+function growth(label, key, from = "baseline") {
+  const base = steps.find((s) => s.label === from);
   const s = steps.find((x) => x.label === label);
   return s && base ? round(s[key] - base[key]) : NaN;
 }
@@ -276,15 +282,19 @@ describe("memory growth with a big table and a big log", { skip, timeout: 30 * 6
     await app.shot("log-50k");
 
     await closeTab(app, "Logs: biglog");
-    await sleep(SETTLE_MS);
+    await closePanel(app);
+    await overview(app);
+    await sleep(2 * SETTLE_MS);
     await sample(app, "log tab closed");
     await app.shot("log-closed");
 
+    const before = "table left again";
     assert.deepEqual(
       over([
-        ["core, log tab", growth("log tab", "core"), BUDGET.coreLog],
-        ["web, log tab", growth("log tab", "web"), BUDGET.webLog],
-        ["web, log tab closed", growth("log tab closed", "web"), BUDGET.webLogClosed],
+        ["core, log tab", growth("log tab", "core", before), BUDGET.coreLog],
+        ["web, log tab", growth("log tab", "web", before), BUDGET.webLog],
+        ["core, log tab closed", growth("log tab closed", "core", before), BUDGET.coreLogClosed],
+        ["web, log tab closed", growth("log tab closed", "web", "log tab"), BUDGET.webLogClosedOverOpen],
       ]),
       [],
       `growth of the log tab (${BUILD}) over its budget`,

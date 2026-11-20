@@ -287,6 +287,39 @@ async fn stream_logs_yields_lines() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
+async fn stream_logs_into_a_bounded_queue_waits_and_stops_with_its_reader() -> Result<()> {
+    // #397: a full queue holds up the read; a dropped receiver ends it.
+    let client = connect().await?;
+    let pod = first_running_demo_pod(&client, "logger-").await?;
+    let opts = LogOptions {
+        tail_lines: Some(5),
+        ..LogOptions::default()
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    let task = {
+        let client = client.clone();
+        tokio::spawn(
+            async move { nauvi::stream_pod_logs_into(&client, "demo", &pod, &opts, tx).await },
+        )
+    };
+    let first = within("a first line", TIMEOUT, async {
+        rx.recv().await.context("stream ended")
+    })
+    .await?;
+    ensure!(first.contains("hello from logger"), "{first}");
+    // Five lines are waiting, one fits in the queue: the reader waits.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    ensure!(
+        !task.is_finished(),
+        "the reader should wait on the full queue"
+    );
+    drop(rx);
+    within("the reader to end", TIMEOUT, async { Ok(task.await??) }).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
 async fn stream_logs_previous_ends() -> Result<()> {
     let client = connect().await?;
     let opts = LogOptions {
