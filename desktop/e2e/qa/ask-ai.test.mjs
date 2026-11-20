@@ -230,7 +230,11 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     const { app } = s;
     const [rec] = records(record);
     await closeTab(app, "AI: asked");
-    await app.waitFor(async () => !existsSync(rec.kubeconfig.split(":")[0]), { message: "the temp kubeconfig to go" });
+    // The session's files go one after the other when it is dropped.
+    await app.waitFor(async () => readdirSync(tmp).every((f) => !f.startsWith("nauvi-shell-")), {
+      message: "the tab's temp files to go",
+    });
+    assert.ok(!existsSync(rec.kubeconfig.split(":")[0]), "the temp kubeconfig was deleted");
     if (rec.config_path) assert.ok(!existsSync(rec.config_path), "the MCP config was deleted");
     assert.deepEqual(
       readdirSync(tmp).filter((f) => f.startsWith("nauvi-shell-")),
