@@ -43,17 +43,20 @@ const SAMPLES = 5;
 const SETTLE_MS = 15_000;
 
 /**
- * Growth over the baseline, MB of private dirty memory. Measured on this
- * scenario (#397): see the PR for the numbers; the limits leave room for
- * the allocator's and the JS garbage collector's timing.
+ * Growth over the baseline, MB of private dirty memory, release build on a
+ * qa.yml runner (#397). Before: table +84, left +87, second visit +139,
+ * left again +140 (the reflector store). After: +14, +12, +17, +16. What
+ * stays after leaving is not the rows (likely allocator fragmentation and
+ * connection buffers), and it does not add up over visits. The limits leave about 10 MB for noise and stay far
+ * under the old numbers.
  */
 const BUDGET = {
   // The table open: the rows in the core (and the batcher's copy of them).
-  coreTable: 40,
+  coreTable: 30,
   // After leaving it: the rows are gone.
-  coreLeft: 15,
+  coreLeft: 25,
   // The second visit costs what the first did, not more.
-  coreSecondVisit: 40,
+  coreSecondVisit: 30,
   // The page's rows (and their search text) while the table shows.
   webTable: 60,
   // The rest are measured from the Overview after the tables, with the
