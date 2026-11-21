@@ -50,6 +50,7 @@ fn timed_out() -> String {
 }
 
 /// Why no stream could be opened on a session.
+#[derive(Debug)]
 enum NoStream {
     /// An upgrade hung: fail this connection, the next one tries again.
     TimedOut,
