@@ -45,6 +45,7 @@ pub mod mcp;
 pub mod node_shell;
 pub mod poll;
 pub mod proxy;
+pub mod proxy_tls;
 pub mod reconnect;
 pub mod resources;
 pub mod terminal;

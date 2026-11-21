@@ -444,9 +444,15 @@ pub fn logs_in_with_exec(config: &Config) -> bool {
 /// is refreshed when it expires. A client certificate is part of the TLS
 /// setup and cannot be swapped later: the client's `valid_until` is set to
 /// its expiry, as kube does.
-pub async fn client_with_exec(mut config: Config) -> Result<Client, kube::Error> {
+///
+/// `proxy_trust` is what an `https://` proxy's certificate is checked
+/// against (see [`crate::proxy_tls`]).
+pub async fn client_with_exec(
+    mut config: Config,
+    proxy_trust: &crate::proxy_tls::ProxyTrust,
+) -> Result<Client, kube::Error> {
     let Some(exec) = config.auth_info.exec.take() else {
-        return crate::forward_client::builder(config).map(|b| b.build());
+        return crate::forward_client::builder(config, proxy_trust).map(|b| b.build());
     };
     let cred = credential(&exec).await.map_err(kube::Error::Auth)?;
     if let Some((cert, key)) = &cred.certificate {
@@ -455,7 +461,7 @@ pub async fn client_with_exec(mut config: Config) -> Result<Client, kube::Error>
         config.auth_info.client_key_data = Some(b64.encode(key).into());
         config.auth_info.client_certificate = None;
         config.auth_info.client_key = None;
-        return Ok(crate::forward_client::builder(config)?
+        return Ok(crate::forward_client::builder(config, proxy_trust)?
             .with_valid_until(cred.expires)
             .build());
     }
@@ -475,7 +481,7 @@ pub async fn client_with_exec(mut config: Config) -> Result<Client, kube::Error>
     });
     // The filter needs a service it can clone: a buffer in front of the
     // stack (kube puts one around the whole client too).
-    Ok(crate::forward_client::builder(config)?
+    Ok(crate::forward_client::builder(config, proxy_trust)?
         .with_layer(&tower::buffer::BufferLayer::new(1024))
         .with_layer(&add_token)
         .build())
@@ -643,7 +649,9 @@ mod tests {
         let exec = exec_for(&script, "refresh-s3cret-env");
         let mut config = Config::new("http://127.0.0.1:9".parse().unwrap());
         config.auth_info.exec = Some(exec.clone());
-        let client = client_with_exec(config).await.unwrap();
+        let client = client_with_exec(config, &crate::proxy_tls::ProxyTrust::system())
+            .await
+            .unwrap();
 
         std::fs::write(
             &script,

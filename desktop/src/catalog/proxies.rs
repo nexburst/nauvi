@@ -15,6 +15,9 @@ struct Saved {
     url: String,
     #[serde(default)]
     local: bool,
+    /// An https:// proxy's CA file (#362).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ca_file: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -43,6 +46,7 @@ impl ProxyStore {
                     ClusterProxy {
                         url,
                         local: s.local,
+                        ca_file: s.ca_file.map(PathBuf::from),
                     },
                 ))
             })
@@ -81,6 +85,7 @@ impl ProxyStore {
                     Saved {
                         url: p.url.secret_text(),
                         local: p.local,
+                        ca_file: p.ca_file.as_ref().map(|f| f.display().to_string()),
                     },
                 )
             })
@@ -106,6 +111,7 @@ mod tests {
         ClusterProxy {
             url: ProxyUrl::parse(url).unwrap(),
             local,
+            ca_file: None,
         }
     }
 
@@ -121,6 +127,11 @@ mod tests {
         store
             .set("prod", Some(proxy("socks5://10.0.0.1", false)))
             .unwrap();
+        let tls = ClusterProxy {
+            ca_file: Some("/etc/proxy-ca.pem".into()),
+            ..proxy("https://tls.example:3129", false)
+        };
+        store.set("tls", Some(tls.clone())).unwrap();
         let again = ProxyStore::load(Some(path.clone()));
         assert_eq!(
             again.get("kind"),
@@ -130,6 +141,10 @@ mod tests {
             again.get("prod"),
             Some(proxy("socks5://10.0.0.1:1080", false))
         );
+        assert_eq!(again.get("tls"), Some(tls));
+        // No ca_file key for a proxy without one.
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(text.matches("ca_file").count(), 1, "{text}");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -154,8 +169,8 @@ mod tests {
         assert_eq!(store.get("a"), None);
         assert_eq!(store.get("b"), None);
         assert_eq!(store.get("c"), Some(proxy("http://ok:1", false)));
-        // Saved before HTTPS proxies were refused: not used.
-        assert_eq!(store.get("d"), None);
+        // HTTPS proxies are taken since #362.
+        assert_eq!(store.get("d"), Some(proxy("https://tls:1", false)));
         std::fs::write(&path, "not json").unwrap();
         assert_eq!(ProxyStore::load(Some(path)).get("c"), None);
         std::fs::remove_dir_all(&d).unwrap();

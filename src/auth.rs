@@ -92,6 +92,16 @@ pub fn describe_client_error(err: &(dyn StdError + 'static), target: &AuthTarget
         }
     }
     let chain = error_chain(err);
+    // The proxy's certificate (#362), not the cluster's: checked against the
+    // system's trust store and the proxy's CA file.
+    if chain.contains(crate::proxy_tls::PROXY_TLS_FAILED) {
+        return format!(
+            "{CERTIFICATE_PROBLEM} with the proxy of `{ctx}`: {chain}. An https:// proxy's \
+             certificate must be trusted by the system or signed by the CA file set with the \
+             proxy; the cluster's certificate-authority and insecure-skip-tls-verify are not \
+             used for it."
+        );
+    }
     if is_tls_error(&chain) {
         return format!(
             "{CERTIFICATE_PROBLEM} connecting to `{ctx}` ({}): {chain}. Check the cluster's \
@@ -401,6 +411,17 @@ mod tests {
         let tls = anyhow::anyhow!("invalid peer certificate: UnknownIssuer");
         let msg = describe_client_error(tls.as_ref(), &target());
         assert!(msg.starts_with(CERTIFICATE_PROBLEM), "{msg}");
+        assert!(msg.contains("certificate-authority data"), "{msg}");
+
+        // The proxy's certificate: not the cluster's CA to check.
+        let proxy = anyhow::anyhow!(
+            "{}: invalid peer certificate: UnknownIssuer",
+            crate::proxy_tls::PROXY_TLS_FAILED
+        );
+        let msg = describe_client_error(proxy.as_ref(), &target());
+        assert!(msg.starts_with(CERTIFICATE_PROBLEM), "{msg}");
+        assert!(msg.contains("with the proxy of `"), "{msg}");
+        assert!(msg.contains("CA file set with the proxy"), "{msg}");
 
         let refused = anyhow::anyhow!("tcp connect error: Connection refused");
         let msg = describe_client_error(refused.as_ref(), &target());
