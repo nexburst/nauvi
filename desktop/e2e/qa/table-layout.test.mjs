@@ -53,7 +53,10 @@ const layout = (app) =>
 function assertLayout(what, l) {
   console.log(`${what}: ${JSON.stringify(l)}`);
   assert.equal(l.cells.length, l.heads.length);
-  l.heads.forEach((h, i) => assert.ok(Math.abs(h - l.cells[i]) <= 1, `${what}, column ${i}: header at ${h}, cells at ${l.cells[i]}`));
+  // The last column is the row's ⋮ (#382): its cell sticks to the table's
+  // right edge when the columns scroll sideways (the 520 px panel, #384),
+  // and its header is empty.
+  l.heads.slice(0, -1).forEach((h, i) => assert.ok(Math.abs(h - l.cells[i]) <= 1, `${what}, column ${i}: header at ${h}, cells at ${l.cells[i]}`));
   assert.deepEqual(l.overflowing, [], `${what}: header labels running past their column`);
   for (const c of l.cut) {
     assert.equal(c.ellipsis, "ellipsis", `${what}: ${c.label} is cut with an ellipsis`);
