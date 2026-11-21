@@ -2,9 +2,9 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { openApp, openKind, row } from "./helpers";
 
-// Table and detail density (#384): sentence-case headers at the rows' size,
+// Table and detail density (#384): headers keep the #390 capitals over sentence-case labels,
 // short columns at about their content's width with the slack going to Name,
-// a 520 px detail panel, and single-token values on one line with a title.
+// and single-token values on one line with a title.
 
 const grid = (page: Page) =>
   page.getByTestId("resource-table").getByRole("grid");
@@ -17,7 +17,7 @@ const LONG_NODE =
 
 for (const theme of ["light", "dark"] as const) {
   for (const rows of ["normal", "compact"] as const) {
-    test(`headers are sentence case at the rows' size (${theme}, ${rows} rows)`, async ({
+    test(`headers keep their capitals; the Pods table fits (${theme}, ${rows} rows)`, async ({
       page,
     }) => {
       await page.setViewportSize({ width: 1280, height: 800 });
@@ -49,8 +49,7 @@ for (const theme of ["light", "dark"] as const) {
           cell: getComputedStyle(cell).fontSize,
         };
       });
-      expect(style.transform).toBe("none");
-      expect(style.size).toBe(style.cell);
+      expect(style.transform).toBe("uppercase");
       // The default Pods table still fits 1280 px (#417).
       const scroller = page.locator(".table .scroller");
       expect(
@@ -103,7 +102,7 @@ test("on Deployments the slack goes to Name, not to the short columns (#384)", a
   await page.screenshot({ path: test.info().outputPath("deployments.png") });
 });
 
-test("the detail panel opens at 520 px; a long node name is on one line with a title (#384)", async ({
+test("the detail panel opens at 420 px; a long node name is on one line with a title (#384)", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
@@ -114,7 +113,7 @@ test("the detail panel opens at 520 px; a long node name is on one line with a t
   await openKind(page, "Pods");
   await row(page, "web-1").click();
   await expect(panel(page)).toBeVisible();
-  expect(Math.round((await panel(page).boundingBox())!.width)).toBe(520);
+  expect(Math.round((await panel(page).boundingBox())!.width)).toBe(420);
 
   const node = panel(page).getByTestId("meta-node");
   await expect(node).toHaveText(LONG_NODE);

@@ -3,7 +3,7 @@
 // - open a Deployment, Service, Ingress, Node, PVC, ConfigMap, Secret,
 //   CronJob and HPA and click a related row: the linked object opens
 // - scale a Deployment: its panel's Pods group and the Pods table follow
-// - the panel at its default 520 px: wide related tables scroll inside the
+// - the panel at its default 420 px: wide related tables scroll inside the
 //   panel, the page does not scroll sideways
 // - Role -> RoleBinding -> ServiceAccount -> back, ClusterRole and its
 //   bindings, a PDB with its pods
@@ -374,7 +374,7 @@ describe("area 3: related objects and Access Control sections (#64, #87)", { tim
     await assertOpenedRow(app, ns, "qa-app");
   });
 
-  it("Node: its pods and allocated resources; wide tables scroll inside the 520 px panel", T, async () => {
+  it("Node: its pods and allocated resources; wide tables scroll inside the 420 px panel", T, async () => {
     const { app } = s;
     const node = kubectl(["-n", ns, "get", "pod", podNames(ns, "app=qa-app")[0], "-o", "jsonpath={.spec.nodeName}"]);
     await openClusterDetail(app, "Nodes", node);
@@ -387,7 +387,7 @@ describe("area 3: related objects and Access Control sections (#64, #87)", { tim
       return { panel: p.getBoundingClientRect().width, page: document.documentElement.scrollWidth,
                view: window.innerWidth, scrollers };`);
     console.log(`node panel layout: ${JSON.stringify(layout)}`);
-    assert.ok(Math.abs(layout.panel - 520) <= 2, `panel width ${layout.panel}`);
+    assert.ok(Math.abs(layout.panel - 420) <= 2, `panel width ${layout.panel}`);
     assert.ok(layout.page <= layout.view, "no sideways page scroll");
     assert.ok(layout.scrollers.every((x) => x.cw <= layout.panel), "tables stay inside the panel");
     await app.js(`document.querySelector('[data-testid="detail-panel"] [data-testid="related-group"][aria-label="Pods"]')?.scrollIntoView()`);

@@ -1,9 +1,9 @@
 // Table and detail density (#384), and the toolbar beside the inspector
 // (part of #392), in WebKitGTK at 1280x800:
-// - table headers in sentence case at the rows' size, not small capitals;
+// - table headers keep the #390 style (mono capitals); labels are sentence case;
 // - the default Pods table still fits without scrolling sideways;
 // - Deployments: the short columns stay narrow and Name takes the slack;
-// - the detail panel opens at 520 px; a long pod name is one line, cut, with
+// - the detail panel opens at 420 px; a long pod name is one line, cut, with
 //   its whole value in the title; the panel never scrolls sideways;
 // - with a long namespace picked and the inspector open, "+ Create" stays on
 //   the toolbar's row;
@@ -103,8 +103,7 @@ describe("table and detail density (#384), toolbar one row (#392)", { timeout: 2
     await app.find(app.row(POD, ns), { timeout: 60_000 });
     const t = await tableStyle(app);
     console.log(`pods ${theme} ${rows}: ${JSON.stringify(t)}`);
-    assert.equal(t.transform, "none", "headers are not upper-cased");
-    assert.equal(t.headSize, t.cellSize, "headers at the rows' size");
+    assert.equal(t.transform, "uppercase", "headers keep the #390 capitals");
     assert.ok(t.labels.includes("Name") && t.labels.includes("Restarts"), `sentence-case labels: ${t.labels}`);
     assert.ok(t.sideways <= 0, `the default Pods table fits 1280 px (${t.sideways} px over)`);
     assert.equal(Math.round(t.rowHeight), rows === "compact" ? 22 : 28, "row height");
@@ -122,7 +121,7 @@ describe("table and detail density (#384), toolbar one row (#392)", { timeout: 2
       return l.name ? l : null;
     }, { message: "the pod's details" });
     console.log(`detail ${theme}: ${JSON.stringify(p)}`);
-    assert.ok(Math.abs(p.panel - 520) <= 2, `panel width ${p.panel}`);
+    assert.ok(Math.abs(p.panel - 420) <= 2, `panel width ${p.panel}`);
     assert.ok(p.sideways <= 0, `the panel does not scroll sideways (${p.sideways})`);
     assert.equal(p.name.title, POD);
     assert.ok(p.name.height < p.name.line * 1.5, `the name is one line (${p.name.height} px)`);
@@ -136,7 +135,7 @@ describe("table and detail density (#384), toolbar one row (#392)", { timeout: 2
   }
 
   for (const theme of ["light", "dark"]) {
-    it(`Pods: sentence-case headers at the rows' size, fits 1280 px (${theme})`, T, async () => {
+    it(`Pods: header labels, fits 1280 px (${theme})`, T, async () => {
       await waitLive(s.app);
       await checkPods(s.app, theme, "normal");
     });
@@ -153,7 +152,7 @@ describe("table and detail density (#384), toolbar one row (#392)", { timeout: 2
       assert.ok(t.widths.Name > 2 * t.widths["Up-to-date"], `Name takes the slack: ${JSON.stringify(t.widths)}`);
     });
 
-    it(`pod detail: 520 px, a long name on one line with a title; toolbar one row (${theme})`, T, async () => {
+    it(`pod detail: 420 px, a long name on one line with a title; toolbar one row (${theme})`, T, async () => {
       await checkDetail(s.app, theme);
     });
   }

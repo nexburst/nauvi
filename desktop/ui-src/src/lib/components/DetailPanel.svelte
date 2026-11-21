@@ -147,7 +147,7 @@
     font-weight: 400;
   }
   aside {
-    width: min(var(--detail-width, 520px), 75vw);
+    width: min(var(--detail-width, 420px), 75vw);
     flex-shrink: 0;
     background: var(--bg-raised);
     border-left: 1px solid var(--border);
