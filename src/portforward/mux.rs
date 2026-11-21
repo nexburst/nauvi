@@ -13,6 +13,10 @@
 //! on, over the connection kept warm by [`Warmer`]. Setting
 //! `NAUVI_PORT_FORWARD_MULTIPLEX=0` does that from the start (see
 //! [`Multiplex`]).
+//!
+//! Every upgrade, a session's or a connection's, gets [`UPGRADE_TIMEOUT`]:
+//! one that hangs fails that connection with a plain error and leaves no
+//! session behind, so the next connection upgrades again (#422).
 
 use super::resolve::Backend;
 use super::session::Session;
@@ -25,6 +29,7 @@ use kube::Client;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_tungstenite::tungstenite::{self, Message};
 use tokio_tungstenite::WebSocketStream;
@@ -32,6 +37,25 @@ use tokio_tungstenite::WebSocketStream;
 /// The WebSocket subprotocol of tunnelled SPDY port-forwarding.
 const WS_PROTOCOL: &str = "SPDY/3.1+portforward.k8s.io";
 const SPDY_PROTOCOL: &str = "portforward.k8s.io";
+/// How long an upgrade may take, a session's or a connection's: the API
+/// server answers one in well under a second, also through a slow kubelet.
+pub(crate) const UPGRADE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// The error of an upgrade that did not finish in time.
+fn timed_out() -> String {
+    format!(
+        "the port-forward upgrade got no answer within {} s",
+        UPGRADE_TIMEOUT.as_secs()
+    )
+}
+
+/// Why no stream could be opened on a session.
+enum NoStream {
+    /// An upgrade hung: fail this connection, the next one tries again.
+    TimedOut,
+    /// Multiplexing does not work here: one upgrade per connection.
+    Failed(String),
+}
 
 /// How a forward reaches its pods: an internal switch, for tests and for
 /// a cluster where multiplexing misbehaves.
@@ -127,16 +151,22 @@ impl Mux {
     }
 
     /// A forwarded connection to backend `b`.
-    pub(crate) async fn tunnel(&self, b: &Backend) -> kube::Result<Tunnel> {
+    /// The error is plain text, for the forward's status.
+    pub(crate) async fn tunnel(&self, b: &Backend) -> Result<Tunnel, String> {
         let why = if self.per_connection.load(Ordering::Relaxed) {
             None
         } else {
             match self.stream(b).await {
                 Ok(t) => return Ok(t),
-                Err(e) => Some(e),
+                Err(NoStream::TimedOut) => return Err(timed_out()),
+                Err(NoStream::Failed(e)) => Some(e),
             }
         };
-        let tunnel = Tunnel::open(&self.client, &self.namespace, &b.pod, b.port).await;
+        let open = Tunnel::open(&self.client, &self.namespace, &b.pod, b.port);
+        let tunnel = match tokio::time::timeout(UPGRADE_TIMEOUT, open).await {
+            Ok(t) => t.map_err(|e| crate::actions::describe_error(&anyhow::Error::from(e))),
+            Err(_) => Err(timed_out()),
+        };
         // The tunnel took the pool's idle connection (or opened one).
         self.warmer.used();
         if let (Some(why), Ok(_)) = (why, &tunnel) {
@@ -157,12 +187,12 @@ impl Mux {
 
     /// A stream pair on the pod's session, opening the session if needed;
     /// one more try on a fresh session when a reused one just failed.
-    async fn stream(&self, b: &Backend) -> Result<Tunnel, String> {
+    async fn stream(&self, b: &Backend) -> Result<Tunnel, NoStream> {
         for _ in 0..2 {
             let (slot, session, fresh) = self.session(b).await?;
             match session.open(b.port).await {
                 Ok(t) => return Ok(t),
-                Err(e) if fresh => return Err(e),
+                Err(e) if fresh => return Err(NoStream::Failed(e)),
                 Err(e) => {
                     tracing::debug!("port-forward: pod {}: {e}; opening a new session", b.pod);
                     let mut current = slot.lock().await;
@@ -172,11 +202,13 @@ impl Mux {
                 }
             }
         }
-        Err("cannot open a stream".into())
+        Err(NoStream::Failed("cannot open a stream".into()))
     }
 
-    /// The pod's open session, or a new one (`true`), and its slot.
-    async fn session(&self, b: &Backend) -> Result<(Slot, Arc<Session>, bool), String> {
+    /// The pod's open session, or a new one (`true`), and its slot. An
+    /// upgrade that hangs leaves the slot empty and is not followed by the
+    /// other transport: it would most likely hang too.
+    async fn session(&self, b: &Backend) -> Result<(Slot, Arc<Session>, bool), NoStream> {
         let slot = {
             let mut sessions = self.sessions.lock().unwrap();
             // Drop the slots of closed sessions (not ones being opened).
@@ -200,7 +232,12 @@ impl Mux {
         };
         let mut errors = Vec::new();
         for transport in [first, other] {
-            match (self.open)(b.pod.clone(), transport).await {
+            let upgrade = (self.open)(b.pod.clone(), transport);
+            let Ok(result) = tokio::time::timeout(UPGRADE_TIMEOUT, upgrade).await else {
+                tracing::debug!("port-forward: pod {}: {}", b.pod, timed_out());
+                return Err(NoStream::TimedOut);
+            };
+            match result {
                 Ok(s) => {
                     self.transport.store(transport as u8, Ordering::Relaxed);
                     let s = Arc::new(s);
@@ -211,7 +248,7 @@ impl Mux {
                 Err(e) => errors.push(e),
             }
         }
-        Err(errors.join("; "))
+        Err(NoStream::Failed(errors.join("; ")))
     }
 }
 
@@ -420,6 +457,56 @@ mod tests {
         let (_, c, fresh) = m.session(&backend("web-0", "2")).await.unwrap();
         assert!(fresh && !Arc::ptr_eq(&b, &c));
         assert_eq!(n.load(Ordering::SeqCst), 3);
+    }
+
+    /// A client whose requests never get an answer: a hung upgrade.
+    fn hanging_client() -> Client {
+        let svc = tower::service_fn(|_req: http::Request<Body>| async {
+            std::future::pending::<Result<http::Response<Body>, tower::BoxError>>().await
+        });
+        Client::new(svc, "default")
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_session_upgrade_times_out_and_the_next_connection_tries_again() {
+        let n = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = n.clone();
+        // The first upgrade hangs, the next ones work.
+        let open: Opener = Arc::new(move |_, _| {
+            let first = count.fetch_add(1, Ordering::SeqCst) == 0;
+            Box::pin(async move {
+                if first {
+                    std::future::pending::<()>().await;
+                }
+                let (a, b) = tokio::io::duplex(1024);
+                std::mem::forget(b);
+                Ok(Session::new(a, PING_EVERY, IN_USE))
+            })
+        });
+        let m = Mux::with_opener(hanging_client(), "ns".into(), Multiplex::Auto, open);
+        let b = backend("web-0", "1");
+        let started = tokio::time::Instant::now();
+        let err = m.tunnel(&b).await.err().expect("the hung upgrade fails");
+        assert_eq!(err, "the port-forward upgrade got no answer within 10 s");
+        assert_eq!(started.elapsed(), UPGRADE_TIMEOUT);
+        // Neither the other transport nor one upgrade per connection was
+        // tried, and multiplexing stays on.
+        assert_eq!(n.load(Ordering::SeqCst), 1);
+        assert!(!m.per_connection.load(Ordering::Relaxed));
+        // No session was kept: the next connection upgrades again.
+        let (_, _, fresh) = m.session(&b).await.ok().unwrap();
+        assert!(fresh);
+        assert_eq!(n.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_per_connection_upgrade_times_out() {
+        let open: Opener = Arc::new(|_, _| Box::pin(async { Err("unused".to_string()) }));
+        let m = Mux::with_opener(hanging_client(), "ns".into(), Multiplex::Off, open);
+        let started = tokio::time::Instant::now();
+        let err = m.tunnel(&backend("web-0", "1")).await.err().unwrap();
+        assert_eq!(err, "the port-forward upgrade got no answer within 10 s");
+        assert_eq!(started.elapsed(), UPGRADE_TIMEOUT);
     }
 
     #[tokio::test]
