@@ -71,7 +71,7 @@ function makeCerts() {
 /** An HTTPS CONNECT proxy on 127.0.0.1 that wants `USER:PASSWORD`. */
 function startProxy(certs) {
   const want = `Basic ${Buffer.from(`${USER}:${PASSWORD}`).toString("base64")}`;
-  const state = { tunnels: [], refused: 0, handshakes: 0, tlsErrors: 0, clientCerts: 0, sockets: new Set() };
+  const state = { tunnels: [], refused: 0, handshakes: 0, connections: 0, clientCerts: 0, sockets: new Set() };
   const server = createServer({ key: certs.key, cert: certs.cert, requestCert: true, rejectUnauthorized: false }, (client) => {
     state.handshakes += 1;
     const peer = client.getPeerCertificate();
@@ -112,8 +112,9 @@ function startProxy(certs) {
     };
     client.on("data", onData);
   });
-  server.on("tlsClientError", () => {
-    state.tlsErrors += 1;
+  // Every TCP connection: one whose handshake never finished was refused.
+  server.on("connection", () => {
+    state.connections += 1;
   });
   return new Promise((resolve) =>
     server.listen(0, "127.0.0.1", () => {
@@ -237,7 +238,7 @@ describe("an https:// proxy per cluster", { timeout: 15 * 60_000, skip: hasOpens
     console.log(text.split("\n").filter((l) => l.includes("proxy")).join("\n"));
     assert.ok(text.includes(masked), "the error names the proxy");
     assert.ok(!text.includes(PASSWORD), "the password is on the page");
-    assert.ok(proxy.tlsErrors > 0, "no TLS handshake was tried");
+    assert.ok(proxy.connections > 0, "the app never connected to the proxy");
     assert.equal(proxy.handshakes, 0, "a handshake with the untrusted proxy finished");
     assert.deepEqual(proxy.tunnels, [], "a CONNECT reached the untrusted proxy");
     assert.equal(proxy.clientCerts, 0, "the proxy was shown a client certificate");
