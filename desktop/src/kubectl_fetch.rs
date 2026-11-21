@@ -6,7 +6,11 @@
 //! - Through the cluster's proxy setting (#329) when one is set, else
 //!   directly: like the cluster connection, proxy environment variables
 //!   (`HTTPS_PROXY`) are not used. The proxy is used even for a cluster on
-//!   this machine, since dl.k8s.io is not.
+//!   this machine, since dl.k8s.io is not. An `https://` proxy (#362)
+//!   must have a certificate the system trusts: reqwest has one trust store
+//!   for the proxy and the download host, so the proxy's own CA file is not
+//!   added to it (it would let the proxy's CA vouch for dl.k8s.io too), and
+//!   the download refuses such a proxy instead.
 //! - Debug builds only: `NAUVI_KUBECTL_DOWNLOAD_BASE` points at another
 //!   `https://` origin and `NAUVI_KUBECTL_DOWNLOAD_CA` (a PEM file) is
 //!   then the only CA trusted, for the QA scenario's local HTTPS server.
@@ -96,6 +100,14 @@ impl HttpsFetch {
             .read_timeout(Duration::from_secs(60))
             .user_agent(concat!("nauvi/", env!("CARGO_PKG_VERSION")));
         builder = match proxy {
+            Some(p) if p.url.scheme() == "https" && p.ca_file.is_some() => {
+                return Err(format!(
+                    "the cluster's proxy {} has a CA file of its own, which the kubectl download \
+                     does not use; add that CA to the system's trust store, or download \
+                     kubectl yourself",
+                    p.url
+                ))
+            }
             Some(p) => builder.proxy(
                 reqwest::Proxy::all(p.url.secret_text())
                     .map_err(|e| redact_credentials(&format!("the cluster's proxy: {e}")))?,
@@ -199,5 +211,23 @@ mod tests {
             e.to_lowercase().contains("https") || e.contains("scheme"),
             "{e}"
         );
+    }
+
+    #[test]
+    fn an_https_proxy_with_its_own_ca_is_not_used_for_the_download() {
+        let proxy = |url: &str, ca: Option<&str>| ClusterProxy {
+            url: nauvi::proxy::ProxyUrl::parse(url).unwrap(),
+            local: false,
+            ca_file: ca.map(Into::into),
+        };
+        let base = DownloadBase::official();
+        let with_ca = proxy("https://me:pw@proxy.example:3129", Some("/ca.pem"));
+        let e = HttpsFetch::new(&base, Some(&with_ca), None)
+            .err()
+            .expect("refused");
+        assert!(e.contains("CA file of its own"), "{e}");
+        assert!(!e.contains(":pw@"), "{e}");
+        let system = proxy("https://proxy.example:3129", None);
+        assert!(HttpsFetch::new(&base, Some(&system), None).is_ok());
     }
 }

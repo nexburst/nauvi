@@ -464,11 +464,14 @@ export const commands = {
 	/**  The proxy of the cluster of context `id`. */
 	cmdGetClusterProxy: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<ClusterProxyInfo>("cmd_get_cluster_proxy", { id }, options),
 	/**
-	 *  Set the proxy of the cluster of context `id`: `url` a proxy URL (http://
-	 *  or socks5://), `""` to remove it, or left out to keep the saved
-	 *  one and change only `local`.
+	 *  Set the proxy of the cluster of context `id`: `url` a proxy URL
+	 *  (http://, https:// or socks5://), `""` to remove it, or left out to keep
+	 *  the saved one and change only `local` or the CA file. `ca_file`, for an
+	 *  https:// proxy: the full path of a PEM file of CA certificates its
+	 *  certificate may be signed by (#362), `""` for none, or left out to keep
+	 *  the saved one.
 	 */
-	cmdSetClusterProxy: (id: string, url: string | null, local: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ClusterProxyInfo>("cmd_set_cluster_proxy", { id, url, local }, options),
+	cmdSetClusterProxy: (id: string, url: string | null, local: boolean, caFile: string | null, options?: InvokeOptions) => __TAURI_INVOKE<ClusterProxyInfo>("cmd_set_cluster_proxy", { id, url, local, caFile }, options),
 	/**
 	 *  Create or update the objects of a (multi-document) YAML manifest. The
 	 *  batch is validated with a dry run first; unless `dry_run`, it is applied
@@ -937,6 +940,11 @@ export type ClusterProxyInfo = {
 	has_credentials: boolean,
 	/**  Use the proxy for a cluster on this machine too. */
 	local: boolean,
+	/**
+	 *  An https:// proxy's CA file, besides the system's trust store
+	 *  (`""`: none).
+	 */
+	ca_file: string,
 	/**  The kubeconfig's own proxy-url for the cluster, masked (`""`: none). */
 	kubeconfig_proxy: string,
 	/**  The API server is on this machine (localhost, 127.0.0.1, ::1). */

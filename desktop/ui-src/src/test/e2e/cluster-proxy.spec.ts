@@ -53,7 +53,12 @@ test("a proxy is saved for its cluster and shown without its password", async ({
   ).toHaveCount(0);
   expect(await page.locator("body").innerText()).not.toContain("hunter2");
   expect(await fake.calls("cmdSetClusterProxy")).toEqual([
-    { id: "prod", url: "http://me:hunter2@proxy.example:3128", local: false },
+    {
+      id: "prod",
+      url: "http://me:hunter2@proxy.example:3128",
+      local: false,
+      caFile: null,
+    },
   ]);
 
   // Reopened, it is still there; another cluster has none.
@@ -82,12 +87,7 @@ test("a bad proxy URL says what is wrong and saves nothing", async ({
   await field.fill("ftp://me:hunter2@proxy.example");
   await field.press("Enter");
   await expect(section(page).getByTestId("proxy-error")).toHaveText(
-    "A proxy URL starts with http:// or socks5://, not ftp://.",
-  );
-  await field.fill("https://proxy.example:3128");
-  await field.press("Enter");
-  await expect(section(page).getByTestId("proxy-error")).toHaveText(
-    "HTTPS proxies aren't supported yet; use http:// or socks5://.",
+    "A proxy URL starts with http://, https:// or socks5://, not ftp://.",
   );
   await field.fill("socks5://me:pw@proxy.example");
   await section(page).getByRole("button", { name: "Save proxy" }).click();
@@ -133,6 +133,7 @@ test("the proxy can be used for a local cluster, changed and removed", async ({
     id: "kind-dev",
     url: null,
     local: true,
+    caFile: null,
   });
   // The cluster this window shows: it can reconnect now.
   await expect(
@@ -167,7 +168,9 @@ test("Reconnect now opens a fresh session on the same cluster", async ({
   ).toHaveValue("kind-dev");
 });
 
-test("the kubeconfig's own proxy-url is shown, and which proxy is in effect", async ({ page }) => {
+test("the kubeconfig's own proxy-url is shown, and which proxy is in effect", async ({
+  page,
+}) => {
   await openApp(page, (cluster) => {
     cluster.kubeconfigProxies = { prod: "http://[redacted]@corp.example:8080" };
   });
@@ -184,7 +187,9 @@ test("the kubeconfig's own proxy-url is shown, and which proxy is in effect", as
   await field.press("Enter");
   await expect(section(page)).toContainText("Proxy (in effect)");
   await expect(section(page)).toContainText("Kubeconfig proxy (replaced)");
-  await expect(section(page).getByTestId("proxy-route")).toHaveText("Connects through http://proxy.example:3128.");
+  await expect(section(page).getByTestId("proxy-route")).toHaveText(
+    "Connects through http://proxy.example:3128.",
+  );
 });
 
 test("an error from the backend shows in the section", async ({ page }) => {
@@ -203,4 +208,71 @@ test("an error from the backend shows in the section", async ({ page }) => {
   await expect(section(page).getByTestId("proxy-error")).toHaveText(
     "Could not save the proxy in /cfg/proxies.json: disk full",
   );
+});
+
+test("an https:// proxy takes a CA file, which can be changed and removed (#362)", async ({
+  page,
+}) => {
+  const fake = await openApp(page);
+  await openSettingsFor(page, "prod");
+  const field = section(page).getByRole("textbox", { name: "Proxy URL" });
+  const ca = section(page).getByRole("textbox", { name: "Proxy CA file" });
+  // Only for an https:// proxy.
+  await field.fill("http://proxy.example:3128");
+  await expect(ca).toHaveCount(0);
+  await field.fill("https://me:hunter2@proxy.example:3129");
+  await expect(ca).toBeVisible();
+
+  // A CA file that is not there: the backend says so, nothing is saved.
+  await ca.fill("/missing/proxy-ca.pem");
+  await ca.press("Enter");
+  await expect(section(page).getByTestId("proxy-error")).toContainText(
+    "Cannot read the proxy's CA file /missing/proxy-ca.pem",
+  );
+  await expect(section(page).getByTestId("proxy-current")).toHaveCount(0);
+
+  await ca.fill("/etc/nauvi/proxy-ca.pem");
+  await section(page).getByRole("button", { name: "Save proxy" }).click();
+  await expect(section(page).getByTestId("proxy-current")).toHaveText(
+    "https://[redacted]@proxy.example:3129",
+  );
+  await expect(section(page).getByTestId("proxy-ca")).toHaveText(
+    "/etc/nauvi/proxy-ca.pem",
+  );
+  await expect(section(page).getByTestId("proxy-route")).toHaveText(
+    "Connects through https://[redacted]@proxy.example:3129, its certificate checked " +
+      "against the system's trust store and /etc/nauvi/proxy-ca.pem.",
+  );
+  await expect(section(page).getByTestId("proxy-error")).toHaveCount(0);
+  expect(await page.locator("body").innerText()).not.toContain("hunter2");
+  expect(await fake.lastCall("cmdSetClusterProxy")).toEqual({
+    id: "prod",
+    url: "https://me:hunter2@proxy.example:3129",
+    local: false,
+    caFile: "/etc/nauvi/proxy-ca.pem",
+  });
+
+  // A new CA file alone, without retyping the URL.
+  await ca.fill("/etc/nauvi/other-ca.pem");
+  await ca.press("Enter");
+  await expect(section(page).getByTestId("proxy-ca")).toHaveText(
+    "/etc/nauvi/other-ca.pem",
+  );
+  expect(await fake.lastCall("cmdSetClusterProxy")).toEqual({
+    id: "prod",
+    url: null,
+    local: false,
+    caFile: "/etc/nauvi/other-ca.pem",
+  });
+
+  // Removed: the system's trust store only.
+  await section(page).getByRole("button", { name: "Remove CA file" }).click();
+  await expect(section(page).getByTestId("proxy-ca")).toHaveCount(0);
+  await expect(section(page).getByTestId("proxy-route")).toHaveText(
+    "Connects through https://[redacted]@proxy.example:3129, its certificate checked " +
+      "against the system's trust store.",
+  );
+  await expect(
+    section(page).getByRole("button", { name: "Remove CA file" }),
+  ).toHaveCount(0);
 });
