@@ -67,8 +67,7 @@ describe("area 1: status, Overview, Refresh, sidebar", { timeout: 10 * 60_000 },
     assert.doesNotMatch(url, /localhost:1420/);
     assert.ok(await app.find(By.css("header .brand")));
     await waitLive(app);
-    const dot = await app.find(By.css("header .dot"));
-    assert.match(await dot.getAttribute("class"), /\bok\b/);
+    assert.equal(await app.statusState(), "ok");
     // One context in the kubeconfig: the select is there but hidden.
     const select = await app.driver.findElement(By.css('select[aria-label="Cluster context"]'));
     assert.match(await select.getAttribute("class"), /invisible/);
@@ -288,7 +287,7 @@ describe("area 1: an unreachable cluster", { timeout: 5 * 60_000 }, () => {
     const text = await app.js("return arguments[0].innerText", banner);
     console.log(`banner: ${text}; status: ${await app.statusText()}`);
     assert.match(text, /reach|connect/i);
-    assert.match(await (await app.find(By.css("header .dot"))).getAttribute("class"), /\berror\b/);
+    assert.equal(await app.statusState(), "error");
     // Each retry shows "Retrying…" (the first attempt said "Connecting…"), then fails.
     await app.js(`
       const el = document.querySelector('[data-testid="connection-status"]');
@@ -302,7 +301,7 @@ describe("area 1: an unreachable cluster", { timeout: 5 * 60_000 }, () => {
     );
     console.log(`status: ${(await app.js("return window.__qaStatus")).join(" -> ")}`);
     // Still red, still the banner.
-    assert.match(await (await app.find(By.css("header .dot"))).getAttribute("class"), /\berror\b/);
+    assert.equal(await app.statusState(), "error");
     assert.match(await bannerText(app), /reach|connect/i);
   });
 });

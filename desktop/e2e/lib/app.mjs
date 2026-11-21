@@ -383,6 +383,11 @@ export class App {
     return (await this.driver.findElement(byTestId("connection-status"))).getText();
   }
 
+  /** The header status indicator: "ok" (green), "error" (red) or "pending". */
+  async statusState() {
+    return (await this.driver.findElement(byTestId("cluster-status"))).getAttribute("data-state");
+  }
+
   /** The sidebar button of a kind (or Overview), by its label (in a span for kinds; a count or problem badge may follow it). */
   navButton(label) {
     return By.xpath(

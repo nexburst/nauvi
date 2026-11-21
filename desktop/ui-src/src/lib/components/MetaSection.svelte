@@ -2,6 +2,13 @@
   import type { Snippet } from "svelte";
   import type { OwnerLink, ResourceDetail } from "../bindings";
   import { kindOf, openObject } from "../stores/app.svelte";
+  import { settings } from "../stores/settings.svelte";
+  import { dateTime } from "../timeZone";
+  import { ageRedrawMs, formatAge } from "../format";
+  import { onAgeTick } from "../ageClock";
+  import { onDestroy } from "svelte";
+  import { LAST_APPLIED } from "../lastApplied";
+  import LastApplied from "./LastApplied.svelte";
 
   /** Identity, owners, labels, annotations and finalizers of any object.
    *  `children` adds rows to the identity list (the pod panel's phase, node...). */
@@ -11,6 +18,14 @@
   function ownerKind(o: OwnerLink) {
     return kindOf(o.api_version, o.kind);
   }
+
+  // The age ticks like the table's (#380): every second while it shows seconds.
+  let now = $state.raw(Date.now());
+  onDestroy(
+    onAgeTick((t) => {
+      if (t - now >= ageRedrawMs(info.created, t) - 50) now = t;
+    }),
+  );
 
   function openOwner(o: OwnerLink) {
     const kind = ownerKind(o);
@@ -24,16 +39,21 @@
   <dt>Kind</dt>
   <dd>{info.kind} <span class="muted">({info.api_version})</span></dd>
   <dt>Name</dt>
-  <dd>{info.name}</dd>
+  <dd class="token" title={info.name}>{info.name}</dd>
   {#if info.namespace}
     <dt>Namespace</dt>
-    <dd>{info.namespace}</dd>
+    <dd class="token" title={info.namespace}>{info.namespace}</dd>
   {/if}
   <dt>Age</dt>
-  <dd>{info.age || "—"}</dd>
+  <dd data-testid="meta-age">
+    {formatAge(info.created, now, info.age) || "—"}
+    {#if info.created > 0}
+      <span class="muted" data-testid="meta-created">({dateTime(info.created * 1000, settings.current.time_zone)})</span>
+    {/if}
+  </dd>
   {@render children?.()}
   <dt>UID</dt>
-  <dd class="mono">{info.uid}</dd>
+  <dd class="mono token" title={info.uid}>{info.uid}</dd>
 </dl>
 
 {#if info.owners.length > 0}
@@ -69,7 +89,11 @@
     <dl class="annotations">
       {#each Object.entries(info.annotations) as [k, v] (k)}
         <dt>{k}</dt>
-        <dd class="mono">{v}</dd>
+        {#if k === LAST_APPLIED}
+          <dd class="full"><LastApplied value={v} /></dd>
+        {:else}
+          <dd class="mono">{v}</dd>
+        {/if}
       {/each}
     </dl>
   </details>
@@ -89,7 +113,8 @@
   }
   dl.meta {
     display: grid;
-    grid-template-columns: 90px 1fr;
+    /* minmax(0, …): a long value is cut or wrapped, never widens the panel. */
+    grid-template-columns: 90px minmax(0, 1fr);
     gap: 4px 12px;
     margin: 0;
     font-size: 13px;
@@ -97,9 +122,18 @@
   dl.meta :global(dt) {
     color: var(--text-muted);
   }
+  /* Prose (a message, the kind) wraps between words; a word longer than
+     the line breaks only as a last resort (#384). */
   dl.meta :global(dd) {
     margin: 0;
-    word-break: break-all;
+    overflow-wrap: break-word;
+  }
+  /* One token (a name, an IP, a UID): on one line, cut with an ellipsis. The
+     whole value is in its title, and selecting it copies all of it. */
+  dl.meta :global(dd.token) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .mono {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -136,7 +170,7 @@
     border-radius: 4px;
     padding: 2px 6px;
     font-size: 12px;
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
   details {
     margin-top: 12px;
@@ -153,12 +187,16 @@
   dl.annotations dt {
     color: var(--text-muted);
     margin-top: 6px;
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
   dl.annotations dd {
     margin: 0;
-    word-break: break-all;
+    overflow-wrap: anywhere;
     max-height: 6em;
     overflow: auto;
+  }
+  dl.annotations dd.full {
+    max-height: none;
+    overflow: visible;
   }
 </style>

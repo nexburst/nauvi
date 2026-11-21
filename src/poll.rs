@@ -17,13 +17,10 @@ use crate::watch::{Keyed, Update, WatchState};
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
 use kube::api::{ListParams, ObjectList};
-use kube::runtime::reflector::{self, Store};
-use kube::runtime::watcher::Event;
 use kube::{Api, Resource};
 use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::hash::Hash;
 use std::time::Duration;
 
 /// Time between lists of a kind that cannot be watched.
@@ -109,55 +106,46 @@ impl<T: Keyed + Clone> Poller<T> {
     }
 }
 
-/// List `api` now and then every `interval`, keeping a reflector [`Store`]
-/// of the full objects and yielding summaries (via `convert`). A failed list
+/// List `api` now and then every `interval`, yielding summaries (via
+/// `convert`); only the rows of the last list are kept, never the objects. A failed list
 /// is retried at the next interval; a 403 ends the stream after a
 /// [`WatchState::Forbidden`]. Otherwise it never ends on its own; drop it to
 /// stop.
 pub fn poll_with<K, T>(
     api: Api<K>,
     prober: &Prober,
-    dyntype: K::DynamicType,
     interval: Duration,
     convert: impl Fn(&K) -> T + Send + 'static,
-) -> (Store<K>, BoxStream<'static, Update<T>>)
+) -> BoxStream<'static, Update<T>>
 where
     K: Resource + Clone + DeserializeOwned + Debug + Send + Sync + 'static,
-    K::DynamicType: Eq + Hash + Clone + Send + Sync + Unpin,
     T: Keyed + Clone + Send + 'static,
 {
-    let writer = reflector::store::Writer::new(dyntype);
-    let store = writer.as_reader();
     let mut poller = Poller::new(interval);
     poller.server = prober.server().to_string();
     // A guard that lost the connection starts listing again, at once, when
     // the server answers.
     let lists = guard_client(prober, move || lists(api.clone(), interval));
     let updates = stream::unfold(
-        (lists, writer, poller, convert),
-        |(mut lists, mut writer, mut p, convert)| async move {
+        (lists, poller, convert),
+        |(mut lists, mut p, convert)| async move {
             if p.done {
                 return None;
             }
             let out = match lists.next().await? {
                 Guarded::Lost(error) => p.lost(crate::reconnect::retrying(&error)),
-                Guarded::Item(listed) => p.step(listed.map(|list| {
-                    writer.apply_watcher_event(&Event::Init);
-                    for o in &list.items {
-                        writer.apply_watcher_event(&Event::InitApply(o.clone()));
-                    }
-                    writer.apply_watcher_event(&Event::InitDone);
-                    list.items.iter().map(&convert).collect()
-                })),
+                Guarded::Item(listed) => {
+                    p.step(listed.map(|list| list.items.iter().map(&convert).collect()))
+                }
             };
-            Some((out, (lists, writer, p, convert)))
+            Some((out, (lists, p, convert)))
         },
     )
     .flat_map(stream::iter);
     let first = stream::once(futures::future::ready(Update::State(
         WatchState::Connecting,
     )));
-    (store, first.chain(updates).boxed())
+    first.chain(updates).boxed()
 }
 
 /// The result of listing `api` now and then every `interval`.

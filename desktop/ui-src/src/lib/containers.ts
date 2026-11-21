@@ -1,10 +1,10 @@
-import type { ContainerDetail, StateInfo } from "./bindings";
+import type { EnvInfo, MountInfo, StateInfo } from "./bindings";
 
 /** How a container state is coloured: red for failures, amber for not yet. */
 export type Tone = "ok" | "warn" | "bad" | "muted";
 
 /** Waiting reasons that mean something is broken, not just starting. */
-const BAD_WAITING = new Set([
+export const BAD_WAITING: ReadonlySet<string> = new Set([
   "CrashLoopBackOff",
   "ImagePullBackOff",
   "ErrImagePull",
@@ -46,15 +46,59 @@ export function stateSince(s: StateInfo): string {
   return s.state === "running" ? `started ${s.since} ago` : `${s.since} ago`;
 }
 
-/** `cpu 100m / 500m · memory 64Mi / —`: request / limit per resource. */
-export function resourcesText(c: Pick<ContainerDetail, "requests" | "limits">): string {
-  const names = [...new Set([...Object.keys(c.requests), ...Object.keys(c.limits)])].sort();
-  return names
-    .map((n) => `${n} ${c.requests[n] ?? "—"} / ${c.limits[n] ?? "—"}`)
-    .join(" · ");
+/** `cpu 100m · memory 64Mi`, or `—` when nothing is set. */
+export function quantitiesText(q: Partial<Record<string, string>>): string {
+  const names = Object.keys(q).sort();
+  return names.length ? names.map((n) => `${n} ${q[n]}`).join(" · ") : "—";
 }
 
-/** `secret:db/password` → a readable hint; literal values show nothing. */
+const SOURCE_KINDS: Record<string, string> = {
+  secret: "Secret",
+  configmap: "ConfigMap",
+  field: "field",
+  resource: "resource",
+};
+
+/** `secret:db/password` → `Secret db/password`. */
+function refText(source: string): string {
+  const i = source.indexOf(":");
+  if (i < 0) return source;
+  const kind = source.slice(0, i);
+  return `${SOURCE_KINDS[kind] ?? kind} ${source.slice(i + 1)}`;
+}
+
+/** `from Secret db/password`; a literal value shows only that it is set. */
 export function envSourceText(source: string): string {
-  return source ? `from ${source}` : "value set";
+  return source ? `from ${refText(source)}` : "value set";
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** `3 variables (1 from a Secret) · all of ConfigMap app-cfg`. */
+export function envSummary(env: EnvInfo[]): string {
+  // `envFrom` entries are named `<prefix>*`: every key of their source.
+  const vars = env.filter((e) => !e.name.endsWith("*"));
+  const whole = env.filter((e) => e.name.endsWith("*"));
+  const parts: string[] = [];
+  if (vars.length || !whole.length) {
+    const secrets = vars.filter((e) => e.source.startsWith("secret:")).length;
+    let text = plural(vars.length, "variable", "variables");
+    if (secrets) text += ` (${secrets === 1 ? "1 from a Secret" : `${secrets} from Secrets`})`;
+    parts.push(text);
+  }
+  for (const e of whole) parts.push(`all of ${refText(e.source)}`);
+  return parts.join(" · ");
+}
+
+/** `/etc/app ← configmap app-cfg (ro)`: the volume's source, else its name. */
+export function mountText(m: MountInfo): string {
+  const sub = m.sub_path ? ` (subPath ${m.sub_path})` : "";
+  return `${m.path} ← ${m.source || m.name}${sub}${m.read_only ? " (ro)" : ""}`;
+}
+
+const SAFE = /^[\w@%+=:,./•-]+$/u;
+
+/** argv as a shell line: `sh -c 'echo "hi"; sleep 1'`. */
+export function shellJoin(argv: string[]): string {
+  return argv.map((a) => (a !== "" && SAFE.test(a) ? a : `'${a.replaceAll("'", `'\\''`)}'`)).join(" ");
 }

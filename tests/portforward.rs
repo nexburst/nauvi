@@ -12,11 +12,12 @@ use std::time::Duration;
 use anyhow::{bail, ensure, Context, Result};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
+use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::api::{Api, DeleteParams, ListParams, PostParams};
 use kube::Client;
 use nauvi::{
-    client_for_context, pod_is_ready, ForwardKind, ForwardTarget, LocalPort, PortForward,
-    RemotePort,
+    client_for_context, pod_is_ready, slice_backends, ForwardKind, ForwardTarget, LocalPort,
+    Multiplex, PortForward, RemotePort,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -24,7 +25,8 @@ const TIMEOUT: Duration = Duration::from_secs(120);
 
 async fn connect() -> Result<Client> {
     let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
-    tokio::time::timeout(Duration::from_secs(20), client_for_context(Some(&ctx)))
+    let build = nauvi::for_port_forwards(client_for_context(Some(&ctx)));
+    tokio::time::timeout(Duration::from_secs(20), build)
         .await
         .context("timed out building client")?
         .with_context(|| format!("cannot connect to context {ctx}"))
@@ -134,6 +136,25 @@ async fn ready_pods(client: &Client, ns: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+/// The pods listed as ready endpoints of Service `web`'s port.
+async fn ready_endpoints(client: &Client, ns: &str) -> Result<Vec<String>> {
+    let svc = Api::<Service>::namespaced(client.clone(), ns)
+        .get("web")
+        .await?;
+    let port = svc
+        .spec
+        .and_then(|s| s.ports)
+        .and_then(|p| p.into_iter().next())
+        .context("service web has no port")?;
+    let slices = Api::<EndpointSlice>::namespaced(client.clone(), ns)
+        .list(&ListParams::default().labels("kubernetes.io/service-name=web"))
+        .await?;
+    Ok(slice_backends(&slices.items, &port)
+        .into_iter()
+        .map(|b| b.pod)
+        .collect())
+}
+
 async fn wait_ready_pods(client: &Client, ns: &str, n: usize) -> Result<Vec<String>> {
     eventually(&format!("{n} ready web pods"), TIMEOUT, || async {
         let ready = ready_pods(client, ns).await?;
@@ -195,14 +216,26 @@ async fn service_forward_survives_deleting_the_serving_pod() -> Result<()> {
         Api::<Pod>::namespaced(client.clone(), &ns)
             .delete(&first, &DeleteParams::default())
             .await?;
-        let body = eventually("a request after the pod is gone", TIMEOUT, || async {
+        // The deleted pod can serve until it leaves the ready endpoints,
+        // and the forward's watch sees that a moment later. Wait for the
+        // endpoints first, then for a request served by another pod.
+        eventually(
+            "the endpoints to drop the deleted pod and list a replacement",
+            TIMEOUT,
+            || async {
+                let ready = ready_endpoints(&client, &ns).await?;
+                Ok((ready.len() >= 2 && !ready.contains(&first)).then_some(()))
+            },
+        )
+        .await?;
+        let (body, now) = eventually("a request served by another pod", TIMEOUT, || async {
             let body = http_get(fwd.local_port).await.unwrap_or_default();
-            Ok(body.contains("Welcome to nginx").then_some(body))
+            let now = fwd.status();
+            let moved = body.contains("Welcome to nginx") && now.pod != first;
+            Ok(moved.then_some((body, now)))
         })
         .await?;
         ensure!(body.contains(" 200 OK"), "{body}");
-        let now = fwd.status();
-        ensure!(now.pod != first, "still served by the deleted pod: {now:?}");
         ensure!(now.total_connections >= 2, "{now:?}");
 
         // By name, through the Deployment as well.
@@ -399,6 +432,173 @@ async fn an_idle_forwarded_connection_outlives_the_read_timeout() -> Result<()> 
     .await
 }
 
+/// How many connections the `counted` pod's server accepted: it logs a line
+/// for each one.
+async fn accepts(client: &Client, ns: &str) -> Result<usize> {
+    let logs = Api::<Pod>::namespaced(client.clone(), ns)
+        .logs("counted", &Default::default())
+        .await?;
+    Ok(logs.lines().filter(|l| *l == "accepted").count())
+}
+
+/// Nothing connects to the pod's port before a local client does (#374):
+/// with one upgrade per connection the kubelet dials the port as soon as
+/// the upgrade completes, so a tunnel opened ahead of time would be a
+/// silent connection to the user's app; with a session (#399) it dials when
+/// a connection's streams arrive. For each way of reaching the pod (a
+/// WebSocket-tunnelled or plain SPDY session, one upgrade per connection):
+/// starting the forward makes no connection in the pod, and each local
+/// connection exactly one, also past a keep-warm refresh.
+#[tokio::test]
+#[ignore]
+async fn the_pod_sees_a_connection_only_when_a_client_connects() -> Result<()> {
+    in_temp_ns("kl-it-pf-quiet", |client, ns| async move {
+        let pod: Pod = serde_json::from_value(serde_json::json!({
+            "apiVersion": "v1", "kind": "Pod",
+            "metadata": { "name": "counted" },
+            "spec": {
+                "terminationGracePeriodSeconds": 0,
+                "containers": [{
+                    "name": "echo", "image": "busybox:1.36",
+                    "command": ["tcpsvd", "0.0.0.0", "7000", "sh", "-c", "echo accepted >&2; exec cat"],
+                    "ports": [{ "containerPort": 7000 }],
+                    "readinessProbe": { "exec": { "command": ["true"] }, "periodSeconds": 1 }
+                }]
+            }
+        }))?;
+        let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
+        pods.create(&PostParams::default(), &pod).await?;
+        eventually("the counted pod is ready", TIMEOUT, || async {
+            Ok(pods.get("counted").await.ok().filter(pod_is_ready).map(|_| ()))
+        })
+        .await?;
+        let modes = [Multiplex::Auto, Multiplex::PlainSpdy, Multiplex::Off];
+        let mut forwards = Vec::new();
+        for mode in modes {
+            let fwd = PortForward::start_with(
+                &client,
+                target(ForwardKind::Pod, &ns, "counted"),
+                RemotePort::Number(7000),
+                LocalPort::Random,
+                mode,
+            )
+            .await?;
+            forwards.push((mode, fwd));
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        let n = accepts(&client, &ns).await?;
+        ensure!(n == 0, "{n} connections reached the pod before any client");
+
+        let mut want = 0;
+        // Two connections each: the second one is a new stream on the
+        // forward's open session.
+        for (mode, fwd) in forwards.iter().chain(forwards.iter()) {
+            let got = echo_through(fwd.local_port, b"hello\n".to_vec()).await?;
+            ensure!(got == b"hello\n", "{mode:?}");
+            want += 1;
+            let n = eventually("the pod logs the connection", TIMEOUT, || async {
+                let n = accepts(&client, &ns).await?;
+                Ok((n >= want).then_some(n))
+            })
+            .await?;
+            ensure!(n == want, "{mode:?}: {n} connections for {want} clients");
+        }
+        // The forwards keep an API-server connection warm, or ping their
+        // session: past a refresh, the pod still saw only the clients'.
+        tokio::time::sleep(Duration::from_secs(35)).await;
+        let n = accepts(&client, &ns).await?;
+        ensure!(n == want, "{n} connections after the keep-warm refresh");
+        for (mode, fwd) in &forwards {
+            ensure!(
+                fwd.status().total_connections == 2,
+                "{mode:?}: {:?}",
+                fwd.status()
+            );
+        }
+        Ok(())
+    })
+    .await
+}
+
+/// A pod deleted and recreated with the same name (a bare pod, or a
+/// StatefulSet's) while its forward runs: the forward's session to the old
+/// pod only answers with errors, so the forward opens one to the new pod
+/// (its UID differs, #399). The first connection after the new pod is ready
+/// already works, in each way of reaching the pod.
+#[tokio::test]
+#[ignore]
+async fn a_pod_recreated_with_the_same_name_gets_new_connections() -> Result<()> {
+    in_temp_ns("kl-it-pf-again", |client, ns| async move {
+        let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
+        let create = || async {
+            let pod: Pod = serde_json::from_value(serde_json::json!({
+                "apiVersion": "v1", "kind": "Pod",
+                "metadata": { "name": "again" },
+                "spec": {
+                    "terminationGracePeriodSeconds": 0,
+                    "containers": [{
+                        "name": "echo", "image": "busybox:1.36",
+                        "command": ["tcpsvd", "0.0.0.0", "7000", "cat"],
+                        "ports": [{ "containerPort": 7000 }],
+                        "readinessProbe": { "exec": { "command": ["true"] }, "periodSeconds": 1 }
+                    }]
+                }
+            }))?;
+            let uid = pods
+                .create(&PostParams::default(), &pod)
+                .await?
+                .metadata
+                .uid;
+            eventually("the pod is ready", TIMEOUT, || async {
+                Ok(pods
+                    .get("again")
+                    .await
+                    .ok()
+                    .filter(pod_is_ready)
+                    .map(|_| ()))
+            })
+            .await?;
+            anyhow::Ok(uid)
+        };
+        let first = create().await?;
+        let mut forwards = Vec::new();
+        for mode in [Multiplex::Auto, Multiplex::PlainSpdy, Multiplex::Off] {
+            let fwd = PortForward::start_with(
+                &client,
+                target(ForwardKind::Pod, &ns, "again"),
+                RemotePort::Number(7000),
+                LocalPort::Random,
+                mode,
+            )
+            .await?;
+            let got = echo_through(fwd.local_port, b"first\n".to_vec()).await?;
+            ensure!(got == b"first\n", "{mode:?}");
+            forwards.push((mode, fwd));
+        }
+
+        pods.delete("again", &DeleteParams::default()).await?;
+        eventually("the old pod is gone", TIMEOUT, || async {
+            Ok(pods.get_opt("again").await?.is_none().then_some(()))
+        })
+        .await?;
+        let second = create().await?;
+        ensure!(first != second, "the same UID: {first:?}");
+
+        for (mode, fwd) in &forwards {
+            for i in 0..3 {
+                let got = echo_through(fwd.local_port, b"again\n".to_vec())
+                    .await
+                    .with_context(|| format!("{mode:?}: connection {i} to the new pod"))?;
+                ensure!(got == b"again\n", "{mode:?}: connection {i}");
+            }
+            let st = fwd.status();
+            ensure!(st.last_error.is_empty(), "{mode:?}: {st:?}");
+        }
+        Ok(())
+    })
+    .await
+}
+
 /// 10 MB goes through the forward and back unchanged (#304: our own
 /// port-forward protocol code).
 #[tokio::test]
@@ -441,6 +641,205 @@ async fn twenty_parallel_connections_each_get_their_own_echo() -> Result<()> {
         let st = fwd.status();
         ensure!(st.total_connections >= 20, "{st:?}");
         ensure!(st.last_error.is_empty(), "{st:?}");
+        Ok(())
+    })
+    .await
+}
+
+/// p50 and p90 of `times`, in ms.
+fn percentiles(times: &mut [Duration]) -> (f64, f64) {
+    times.sort();
+    let at = |q: f64| {
+        let i = ((times.len() as f64 * q).ceil() as usize).clamp(1, times.len()) - 1;
+        times[i].as_secs_f64() * 1000.0
+    };
+    (at(0.5), at(0.9))
+}
+
+/// One HTTP request on a new connection, timed from connect to the last
+/// byte of the body (as `curl -w %{time_total}`): not to the server's close,
+/// which takes about a second to come back through the API server, for
+/// kubectl as well.
+async fn timed_get(port: u16) -> Result<Duration> {
+    let t = std::time::Instant::now();
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut s = tokio::net::TcpStream::connect(("127.0.0.1", port)).await?;
+        s.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            .await?;
+        let mut got = Vec::new();
+        let mut buf = [0u8; 4096];
+        loop {
+            let n = s.read(&mut buf).await?;
+            ensure!(n > 0, "closed early: {}", String::from_utf8_lossy(&got));
+            got.extend_from_slice(&buf[..n]);
+            let text = String::from_utf8_lossy(&got);
+            let Some(end) = text.find("\r\n\r\n") else {
+                continue;
+            };
+            ensure!(text.starts_with("HTTP/1.1 200 OK"), "{text}");
+            let len: usize = text[..end]
+                .lines()
+                .find_map(|l| {
+                    l.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|v| v.trim().to_string())
+                })
+                .context("no Content-Length")?
+                .parse()?;
+            if got.len() >= end + 4 + len {
+                return Ok(());
+            }
+        }
+    })
+    .await
+    .context("http request timed out")??;
+    Ok(t.elapsed())
+}
+
+/// `kubectl port-forward` to port 80 of `pod` on a free local port, or
+/// `None` without kubectl.
+async fn kubectl_forward(ns: &str, pod: &str) -> Result<Option<(tokio::process::Child, u16)>> {
+    let ctx = std::env::var("NAUVI_TEST_CONTEXT").unwrap_or_else(|_| "kind-nauvi-test".to_string());
+    let child = tokio::process::Command::new("kubectl")
+        .args(["--context", &ctx, "-n", ns, "port-forward"])
+        .args(["--address", "127.0.0.1"])
+        .arg(format!("pod/{pod}"))
+        .arg(":80")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn();
+    let mut child = match child {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    let stdout = child.stdout.take().context("kubectl stdout")?;
+    let mut lines = tokio::io::AsyncBufReadExt::lines(tokio::io::BufReader::new(stdout));
+    let line = tokio::time::timeout(Duration::from_secs(30), lines.next_line())
+        .await
+        .context("kubectl port-forward did not start")??
+        .context("kubectl port-forward exited")?;
+    // "Forwarding from 127.0.0.1:41235 -> 80"
+    let port = line
+        .split_whitespace()
+        .nth(2)
+        .and_then(|a| a.rsplit(':').next())
+        .and_then(|p| p.parse().ok())
+        .with_context(|| format!("unexpected kubectl output: {line}"))?;
+    // Keep reading, so kubectl never blocks on a full pipe.
+    tokio::spawn(async move { while let Ok(Some(_)) = lines.next_line().await {} });
+    Ok(Some((child, port)))
+}
+
+/// How much slower than kubectl's a new connection's p50 may be, in ms,
+/// when it is a new stream on the forward's session (#399), as kubectl's.
+const KUBECTL_MARGIN_MS: f64 = 5.0;
+/// The same, with one upgrade per connection (the fallback, #374): the API
+/// server and kubelet take ~15 ms to set up each upgrade on kind, plus
+/// slack for CI.
+const PER_CONNECTION_MARGIN_MS: f64 = 30.0;
+
+/// New connections through a forward (#374, #399): 50 sequential requests,
+/// each on its own connection, alternating with the same requests through
+/// `kubectl port-forward` to the same pod. All of them succeed, and the p50
+/// stays within [`KUBECTL_MARGIN_MS`] of kubectl's for multiplexed
+/// forwards (WebSocket-tunnelled SPDY, plain SPDY, a Service), within
+/// [`PER_CONNECTION_MARGIN_MS`] with one upgrade per connection.
+///
+/// Before #374 each new connection also waited ~40 ms for Nagle (TCP_NODELAY
+/// off) and made its own TCP and TLS handshakes: 56 ms against kubectl's
+/// 4 ms; after it, one upgrade per connection took 16 ms. A stream on an
+/// open session takes about as long as kubectl's: 2.8 ms against 3.4 ms.
+#[tokio::test]
+#[ignore]
+async fn new_connections_are_close_to_kubectl() -> Result<()> {
+    const N: usize = 50;
+    in_temp_ns("kl-it-pf-lat", |client, ns| async move {
+        create_web(&client, &ns).await?;
+        let pod = ready_pods(&client, &ns).await?.remove(0);
+        let pod_forward = |mode| {
+            let client = client.clone();
+            let target = target(ForwardKind::Pod, &ns, &pod);
+            async move {
+                PortForward::start_with(
+                    &client,
+                    target,
+                    RemotePort::Number(80),
+                    LocalPort::Random,
+                    mode,
+                )
+                .await
+            }
+        };
+        let pod_fwd = pod_forward(Multiplex::Auto).await?;
+        let spdy_fwd = pod_forward(Multiplex::PlainSpdy).await?;
+        let v4_fwd = pod_forward(Multiplex::Off).await?;
+        let svc = target(ForwardKind::Service, &ns, "web");
+        let svc_fwd = eventually("service forward starts", TIMEOUT, || async {
+            match PortForward::start_with(
+                &client,
+                svc.clone(),
+                RemotePort::Number(80),
+                LocalPort::Random,
+                Multiplex::Auto,
+            )
+            .await
+            {
+                Ok(f) => Ok(Some(f)),
+                Err(e) if e.to_string().contains("no ready pod") => Ok(None),
+                Err(e) => Err(e),
+            }
+        })
+        .await?;
+        let kubectl = kubectl_forward(&ns, &pod).await?;
+        let mut ports = vec![
+            ("pod", pod_fwd.local_port),
+            ("service", svc_fwd.local_port),
+            ("pod/spdy", spdy_fwd.local_port),
+            ("pod/v4", v4_fwd.local_port),
+        ];
+        if let Some((_, port)) = &kubectl {
+            ports.push(("kubectl", *port));
+        }
+        // Warm up: the first requests pay for nginx and kubectl starting.
+        for (_, port) in &ports {
+            for _ in 0..3 {
+                timed_get(*port).await?;
+            }
+        }
+        let mut times: Vec<Vec<Duration>> = vec![Vec::new(); ports.len()];
+        for _ in 0..N {
+            for (i, (_, port)) in ports.iter().enumerate() {
+                times[i].push(timed_get(*port).await?);
+            }
+        }
+        let mut stats = Vec::new();
+        for ((name, _), t) in ports.iter().zip(times.iter_mut()) {
+            let (p50, p90) = percentiles(t);
+            println!("{name:8} p50 {p50:6.1} ms  p90 {p90:6.1} ms  ({N} new connections)");
+            stats.push((*name, p50));
+        }
+        for f in [&pod_fwd, &svc_fwd, &spdy_fwd, &v4_fwd] {
+            let st = f.status();
+            ensure!(st.total_connections as usize >= N + 3, "{st:?}");
+            ensure!(st.last_error.is_empty(), "{st:?}");
+        }
+        // Without kubectl, a fixed budget that an upgrade per connection
+        // (or a Nagle stall) would break.
+        let kubectl_p50 = stats.iter().find(|s| s.0 == "kubectl").map(|s| s.1);
+        for (name, p50) in stats.iter().filter(|s| s.0 != "kubectl") {
+            let margin = if *name == "pod/v4" {
+                PER_CONNECTION_MARGIN_MS
+            } else {
+                KUBECTL_MARGIN_MS
+            };
+            let budget = kubectl_p50.unwrap_or(5.0) + margin;
+            ensure!(
+                *p50 <= budget,
+                "{name} forward: p50 {p50:.1} ms over the budget of {budget:.1} ms"
+            );
+        }
         Ok(())
     })
     .await

@@ -11,7 +11,9 @@ use tauri::{Manager, Runtime, Webview};
 use crate::state::AppState;
 
 pub(crate) fn on_page_load<R: Runtime>(webview: &Webview<R>, payload: &PageLoadPayload<'_>) {
-    if payload.event() != PageLoadEvent::Started {
+    if payload.event() == PageLoadEvent::Finished {
+        // Windows open hidden until now (#369).
+        crate::first_show::on_load_finished(webview);
         return;
     }
     let label = webview.label();

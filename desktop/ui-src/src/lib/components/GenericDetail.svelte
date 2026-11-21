@@ -71,14 +71,16 @@
   });
   // Ctrl/Cmd+1…9 picks a tab.
   onMount(() => registerTabs({ count: () => tabs.length, select: (i) => (tab = tabs[i].id) }));
-
-  const title = $derived(target.namespace ? `${target.namespace}/${target.name}` : target.name);
 </script>
 
 <aside data-testid="detail-panel">
   <div class="top">
     <div class="header">
-      <span class="title"><span class="muted">{target.resource.kind}</span> {title}</span>
+      <!-- A long title breaks after the namespace's slash first (#384). -->
+      <span class="title"
+        ><span class="muted">{target.resource.kind}</span>
+        {#if target.namespace}{target.namespace}/<wbr />{/if}{target.name}</span
+      >
       <button type="button" class="close" aria-label="Close details" onclick={closeDetail}>✕</button>
     </div>
     <ActionBar {target} disabled={live.deleted} onEdit={() => (tab = "yaml")} />
@@ -171,7 +173,13 @@
     padding: 10px 16px 2px;
     font-weight: 600;
     font-size: 13px;
-    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+  /* Clear of the Widen button, which App.svelte lays over the header's
+     right end: a long title wraps before it, never under it (#384). */
+  .title {
+    min-width: 0;
+    padding-right: 34px;
   }
   .close {
     background: transparent;

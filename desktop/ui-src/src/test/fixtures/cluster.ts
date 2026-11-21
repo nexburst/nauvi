@@ -59,6 +59,8 @@ export interface FakeCluster {
   namespaces: NamespaceInfo[] | null;
   /** What `cmd_default_namespace` returns (`null` = all namespaces). */
   defaultNamespace: string | null;
+  /** What `cmd_server_version` returns; `""`: it fails, like a cluster that does not say. */
+  serverVersion: string;
   /** What `cmd_discover` returns. */
   kinds: ResourceKind[];
   /** Kind ids `cmd_check_access` denies, in every scope. */
@@ -142,6 +144,18 @@ export interface FakeCluster {
   /** The kubectl versions `cmd_kubectl_match` reports (#331); by default the
    *  user's v1.28.0 against a v1.31.2 server, nothing downloaded. */
   kubectl?: FakeKubectl;
+  /** Ask AI (#376): the CLIs on PATH (by id), whether the nauvi CLI is
+   *  there too, and why the custom command cannot run. By default no CLI
+   *  (so no Ask AI anywhere), and nauvi. */
+  askAi?: FakeAskAi;
+}
+
+/** What `cmd_ask_ai_setup` finds in the fake (#376). */
+export interface FakeAskAi {
+  found: string[];
+  nauvi: boolean;
+  /** Why the custom command cannot run (`""`: it can). */
+  customError: string;
 }
 
 /** The kubectl download (#331) in the fake. */
@@ -180,6 +194,9 @@ export function container(name: string, image: string, more: Partial<ContainerDe
     kind: "regular",
     image,
     image_id: `docker.io/library/${image}@sha256:0123`,
+    command: [],
+    args: [],
+    secrets_hidden: false,
     state: { ...NO_STATE, state: "running", since: "1h" },
     last_state: NO_STATE,
     ready: true,
@@ -299,11 +316,18 @@ const WIDGETS: ResourceKind = {
   verbs: ["get", "list", "watch", "delete"],
   short_names: [],
   columns: [
-    { key: "name", label: "Name", kind: "text" },
-    { key: "namespace", label: "Namespace", kind: "text" },
-    { key: "age", label: "Age", kind: "age" },
+    { key: "name", label: "Name", kind: "text", default_hidden: false },
+    { key: "namespace", label: "Namespace", kind: "text", default_hidden: false },
+    { key: "age", label: "Age", kind: "age", default_hidden: false },
   ],
   actions: [{ id: "delete", label: "Delete", destructive: true, type_to_confirm: false, input: "none" }],
+};
+
+/** The Containers cells (#379) of the demo pods that are not one ready `app`. */
+const POD_CONTAINERS: Record<string, string> = {
+  "web-1": "init:init-db=done app=ready sidecar=ready",
+  "web-2": "app=ready sidecar=waiting:CrashLoopBackOff",
+  crashed: "app=waiting:CrashLoopBackOff",
 };
 
 export function defaultCluster(): FakeCluster {
@@ -324,7 +348,18 @@ export function defaultCluster(): FakeCluster {
       "v1/pods",
       ns,
       name,
-      { ready: status === "Running" ? "1/1" : "0/1", status, restarts, node },
+      {
+        ready: status === "Running" ? "1/1" : "0/1",
+        status,
+        restarts,
+        node,
+        // The off-by-default columns (#378): web-* belong to the web ReplicaSet.
+        owner: name.startsWith("web-") ? "ReplicaSet/web-5d8f" : "",
+        qos: status === "Running" ? "Burstable" : "BestEffort",
+        ip: status === "Pending" ? "" : `10.244.0.${name.length}`,
+        // #379: web-1 has the init container and sidecar of its detail.
+        containers: POD_CONTAINERS[name] ?? (status === "Running" ? "app=ready" : "app=unknown"),
+      },
       undefined,
       podProblem(status),
     );
@@ -336,6 +371,7 @@ export function defaultCluster(): FakeCluster {
     ],
     catalog: defaultCatalog(),
     defaultNamespace: null,
+    serverVersion: "v1.31.2",
     namespaces: ["default", "demo", "kube-system"].map((name) => ({
       name,
       status: "Active",
@@ -355,8 +391,8 @@ export function defaultCluster(): FakeCluster {
         pod("kube-system", "coredns-1", "Running"),
       ],
       "apps/v1/deployments": [
-        row("apps/v1/deployments", "demo", "web", { ready: "2/2", uptodate: "2", available: "2" }),
-        row("apps/v1/deployments", "demo", "api", { ready: "1/3", uptodate: "3", available: "1" }, undefined, "1 of 3 ready"),
+        row("apps/v1/deployments", "demo", "web", { status: "Running", ready: "2/2", uptodate: "2", available: "2" }),
+        row("apps/v1/deployments", "demo", "api", { status: "Scaling", ready: "1/3", uptodate: "3", available: "1" }, undefined, "1 of 3 ready"),
       ],
       "v1/nodes": [
         row("v1/nodes", "", "node-1", { ready: "True", version: "v1.37.0" }),
@@ -601,7 +637,31 @@ function podDetails(kinds: ResourceKind[]): Record<string, ResourceDetail> {
           probes: [
             { kind: "liveness", summary: "http-get :8080/healthz delay=5s timeout=1s period=10s #success=1 #failure=3" },
           ],
-          mounts: [{ name: "config", path: "/etc/nginx/conf.d", sub_path: "", read_only: true }],
+          command: ["/docker-entrypoint.sh"],
+          // As the backend sends it: the token already masked.
+          args: [
+            "nginx",
+            "-g",
+            "daemon off; worker_processes 2; error_log /dev/stderr info; pid /tmp/nginx.pid;",
+            "--token=••••",
+          ],
+          secrets_hidden: true,
+          mounts: [
+            {
+              name: "config",
+              path: "/etc/nginx/conf.d",
+              sub_path: "",
+              read_only: true,
+              source: "configmap nginx-conf",
+            },
+            {
+              name: "kube-api-access-x7k2p",
+              path: "/var/run/secrets/kubernetes.io/serviceaccount",
+              sub_path: "",
+              read_only: true,
+              source: "projected (service account token)",
+            },
+          ],
           env: [
             { name: "MODE", source: "" },
             { name: "DB_PASSWORD", source: "secret:db-creds/password" },

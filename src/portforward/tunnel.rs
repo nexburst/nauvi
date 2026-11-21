@@ -27,16 +27,16 @@ pub const PING_EVERY: Duration = Duration::from_secs(60);
 const DATA: u8 = 0;
 const ERROR: u8 = 1;
 /// The local side's buffer, as kube-rs uses.
-const BUFFER: usize = 1024 * 1024;
+pub(crate) const BUFFER: usize = 1024 * 1024;
 
 /// A forwarded connection: `stream` reads and writes the pod's port, `error`
 /// resolves with the pod's error text (or fails when the connection ends
-/// without one). The connection stays open until [`Tunnel::abort`], or the
-/// [`Closer`] from [`Tunnel::into_parts`] is dropped, or a side closes it.
+/// without one). The connection stays open until the tunnel (or the
+/// [`Closer`] from [`Tunnel::into_parts`]) is dropped, or a side closes it.
 pub struct Tunnel {
     pub stream: DuplexStream,
     pub error: oneshot::Receiver<String>,
-    task: tokio::task::JoinHandle<()>,
+    task: Closer,
 }
 
 impl Tunnel {
@@ -55,6 +55,19 @@ impl Tunnel {
         Ok(Self::over(connection.into_stream(), port, PING_EVERY))
     }
 
+    /// A tunnel run by `task` (a multiplexed stream pair, #399).
+    pub(crate) fn from_parts(
+        stream: DuplexStream,
+        error: oneshot::Receiver<String>,
+        task: tokio::task::JoinHandle<()>,
+    ) -> Self {
+        Self {
+            stream,
+            error,
+            task: Closer(task),
+        }
+    }
+
     /// Run the protocol over an open WebSocket.
     fn over<S>(ws: WebSocketStream<S>, port: u16, ping_every: Duration) -> Self
     where
@@ -70,19 +83,14 @@ impl Tunnel {
         Self {
             stream,
             error,
-            task,
+            task: Closer(task),
         }
-    }
-
-    /// Close the connection now.
-    pub fn abort(&self) {
-        self.task.abort();
     }
 
     /// The stream, the error and a guard that closes the connection when
     /// dropped, to drop the stream first and still wait for the error.
     pub fn into_parts(self) -> (DuplexStream, oneshot::Receiver<String>, Closer) {
-        (self.stream, self.error, Closer(self.task))
+        (self.stream, self.error, self.task)
     }
 }
 

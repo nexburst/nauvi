@@ -287,6 +287,39 @@ async fn stream_logs_yields_lines() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
+async fn stream_logs_into_a_bounded_queue_waits_and_stops_with_its_reader() -> Result<()> {
+    // #397: a full queue holds up the read; a dropped receiver ends it.
+    let client = connect().await?;
+    let pod = first_running_demo_pod(&client, "logger-").await?;
+    let opts = LogOptions {
+        tail_lines: Some(5),
+        ..LogOptions::default()
+    };
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+    let task = {
+        let client = client.clone();
+        tokio::spawn(
+            async move { nauvi::stream_pod_logs_into(&client, "demo", &pod, &opts, tx).await },
+        )
+    };
+    let first = within("a first line", TIMEOUT, async {
+        rx.recv().await.context("stream ended")
+    })
+    .await?;
+    ensure!(first.contains("hello from logger"), "{first}");
+    // Five lines are waiting, one fits in the queue: the reader waits.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    ensure!(
+        !task.is_finished(),
+        "the reader should wait on the full queue"
+    );
+    drop(rx);
+    within("the reader to end", TIMEOUT, async { task.await? }).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
 async fn stream_logs_previous_ends() -> Result<()> {
     let client = connect().await?;
     let opts = LogOptions {
@@ -1031,7 +1064,7 @@ async fn generic_watch_sees_configmap_changes() -> Result<()> {
     in_temp_ns("kl-it-gwatch", |client, ns| async move {
         let kind = kind_named(&client, "configmaps").await?;
         let r = &kind.resource;
-        let (_store, mut updates) = nauvi::watch::watch_resource(
+        let mut updates = nauvi::watch::watch_resource(
             &client,
             &nauvi::liveness::Prober::new(client.clone()),
             &kind,
@@ -1103,7 +1136,7 @@ async fn kinds_without_watch_are_listed_instead() -> Result<()> {
     let client = connect().await?;
     let kind = kind_named(&client, "componentstatuses").await?;
     ensure!(!nauvi::watch::can_watch(&kind), "verbs: {:?}", kind.verbs);
-    let (store, mut updates) = nauvi::watch::watch_resource(
+    let mut updates = nauvi::watch::watch_resource(
         &client,
         &nauvi::liveness::Prober::new(client.clone()),
         &kind,
@@ -1129,10 +1162,6 @@ async fn kinds_without_watch_are_listed_instead() -> Result<()> {
     })
     .await?;
     ensure!(names.contains("scheduler"), "{names:?}");
-    ensure!(
-        store.state().len() == names.len(),
-        "the store holds the list"
-    );
     Ok(())
 }
 
@@ -1144,7 +1173,7 @@ async fn polled_kind_sees_creates_and_deletes() -> Result<()> {
         let mut kind = kind_named(&client, "configmaps").await?;
         kind.verbs.retain(|v| v != "watch");
         let r = kind.resource.clone();
-        let (_store, mut updates) = nauvi::watch::poll_resource(
+        let mut updates = nauvi::watch::poll_resource(
             &client,
             &nauvi::liveness::Prober::new(client.clone()),
             &kind,
@@ -2137,7 +2166,7 @@ async fn limited_user_forbidden_watch_stops() -> Result<()> {
     let pods = kind_named(&client, "pods").await?;
 
     // In its namespace: the watch goes live.
-    let (_store, mut updates) = nauvi::watch::watch_resource(
+    let mut updates = nauvi::watch::watch_resource(
         &client,
         &nauvi::liveness::Prober::new(client.clone()),
         &pods,
@@ -2156,7 +2185,7 @@ async fn limited_user_forbidden_watch_stops() -> Result<()> {
     .await?;
 
     // Across the cluster: one Forbidden, then the stream ends (no retries).
-    let (_store, updates) = nauvi::watch::watch_resource(
+    let updates = nauvi::watch::watch_resource(
         &client,
         &nauvi::liveness::Prober::new(client.clone()),
         &pods,

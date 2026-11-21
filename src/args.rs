@@ -76,6 +76,11 @@ pub enum Commands {
         /// deletes everything under it
         #[arg(long)]
         allow_writes: bool,
+        /// The kubeconfig file the context comes from in the app, for its
+        /// read-only or protected mode (the app passes it for Ask AI, whose
+        /// KUBECONFIG starts with a per-terminal file)
+        #[arg(long, value_name = "PATH", hide = true)]
+        mode_file: Option<PathBuf>,
     },
     /// Stream live changes to any resource type (until Ctrl-C)
     Watch {

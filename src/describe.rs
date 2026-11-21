@@ -6,6 +6,7 @@ use crate::resources::{
     self, align_columns, ContainerDetail, ContainerKind, PodExtras, Related, ResourceDetail,
     StateInfo,
 };
+use crate::text;
 use anyhow::Result;
 use kube::Client;
 use std::collections::BTreeMap;
@@ -122,7 +123,7 @@ fn related_section(out: &mut String, r: &Related) {
         field(out, &f.label, &f.value);
     }
     for g in &r.groups {
-        out.push_str(&g.to_text());
+        out.push_str(&text::multi_line(&g.to_text()));
     }
 }
 
@@ -171,6 +172,12 @@ fn pod_section(out: &mut String, p: &PodExtras) {
 
 fn container_fields(out: &mut String, c: &ContainerDetail) {
     field(out, "Image", &c.image);
+    if !c.command.is_empty() {
+        field(out, "Command", &c.command.join("\n"));
+    }
+    if !c.args.is_empty() {
+        field(out, "Args", &c.args.join("\n"));
+    }
     field(out, "State", &state_text(&c.state));
     if !c.last_state.state.is_empty() {
         field(out, "Last State", &state_text(&c.last_state));
@@ -208,7 +215,12 @@ fn container_fields(out: &mut String, c: &ContainerDetail) {
                     format!(" (path {})", m.sub_path)
                 };
                 let ro = if m.read_only { " (ro)" } else { "" };
-                format!("{} from {}{sub}{ro}", m.path, m.name)
+                let source = if m.source.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", m.source)
+                };
+                format!("{} from {}{source}{sub}{ro}", m.path, m.name)
             })
             .collect();
         field(out, "Mounts", &mounts.join("\n"));
@@ -259,8 +271,10 @@ fn capitalized(s: &str) -> String {
 }
 
 /// `Label:   value`, continuation lines of a multi-line value indented under
-/// the first.
+/// the first. The value comes from the cluster, so it is cleaned
+/// ([`text::multi_line`]): only its line breaks are kept.
 fn field(out: &mut String, label: &str, value: &str) {
+    let value = text::multi_line(value);
     let mut lines = value.lines();
     let first = lines.next().unwrap_or("");
     let label = format!("{label}:");
@@ -282,8 +296,9 @@ fn section(out: &mut String, label: &str, table: &[Vec<String>]) {
     }
 }
 
+/// A table row; each cell on one line, cleaned ([`text::single_line`]).
 fn row(cells: &[&str]) -> Vec<String> {
-    cells.iter().map(|c| c.to_string()).collect()
+    cells.iter().map(|c| text::single_line(c)).collect()
 }
 
 fn pairs(map: &BTreeMap<String, String>) -> String {
@@ -367,6 +382,9 @@ mod tests {
                     kind: ContainerKind::Regular,
                     image: "nginx:1.27".into(),
                     image_id: String::new(),
+                    command: vec![],
+                    args: vec![],
+                    secrets_hidden: false,
                     state: StateInfo {
                         state: "waiting".into(),
                         reason: "ContainerCreating".into(),
@@ -500,9 +518,36 @@ Events:
             bytes: 8,
         }];
         let out = render_describe(&d);
-        assert!(out.contains("Data:\n  password: 8 bytes\n"), "{out}");
-        assert!(out.ends_with("Events:          <none>\n"), "{out}");
+        // The output is not printed on failure (it names a Secret key).
+        assert!(out.contains("Data:\n  password: 8 bytes\n"));
+        assert!(out.ends_with("Events:          <none>\n"));
         assert!(!out.contains("Controlled By"));
         assert!(!out.contains("Conditions"));
+    }
+
+    #[test]
+    fn cluster_text_is_cleaned() {
+        let mut d = detail();
+        d.pod.reason = "Evicted\u{1b}[2J".into();
+        d.pod.message = "low\u{202E}gnp.exe\u{202C} memory\r\nsecond\u{200B} line".into();
+        d.pod.containers[0].last_state.reason = "Error\u{1b}]0;title\u{7}".into();
+        d.conditions[0].message = "0/2 nodes\n\u{1b}[31mavailable\u{2066}".into();
+        d.events[0].reason = "Failed\u{FEFF}Scheduling".into();
+        d.events[0].message = "line one\nline two\u{202E}".into();
+        // Only the cleaned text is compared; the output is not printed (it
+        // holds the fixture's env names).
+        let out = render_describe(&d);
+        let lines: Vec<&str> = out.lines().collect();
+        assert!(lines.contains(&"Reason:          Evicted[2J"));
+        assert!(lines.contains(&"Message:         lowgnp.exe memory"));
+        assert!(lines.contains(&"                 second line"));
+        assert!(out.contains("Terminated: Error]0;title (exit code 1)"));
+        assert!(out.contains("0/2 nodes [31mavailable\n"));
+        assert!(out.contains("FailedScheduling"));
+        assert!(out.contains("line one line two\n"));
+        let hidden = [
+            '\u{1b}', '\u{7}', '\u{202E}', '\u{202C}', '\u{2066}', '\u{200B}', '\u{FEFF}', '\r',
+        ];
+        assert!(!out.chars().any(|c| hidden.contains(&c)));
     }
 }

@@ -45,12 +45,17 @@ where
 {
     watch::run_batched(updates, watch::DEFAULT_FLUSH, |out| match out {
         watch::Output::Batch(batch) => {
+            let snapshot = batch.snapshot;
             win.emit(WatchBatch {
                 id: id.clone(),
-                snapshot: batch.snapshot,
+                snapshot,
                 applied: batch.applied,
                 deleted: batch.deleted,
             });
+            // The pages of the list that built it are freed by now (#397).
+            if snapshot {
+                nauvi::heap::release();
+            }
         }
         watch::Output::State(state) => {
             win.emit(WatchStateChanged {
@@ -92,7 +97,7 @@ pub(crate) async fn cmd_watch_start(
     let (client, prober) = cluster.watch_client().await?;
     let kind = kind_of(&cluster, &client, &resource).await?;
     let id = next_session("watch");
-    let (_store, updates) = watch::watch_resource(&client, &prober, &kind, namespace.as_deref());
+    let updates = watch::watch_resource(&client, &prober, &kind, namespace.as_deref());
     let task = tauri::async_runtime::spawn(pump_watch(cluster.emitter(), id.clone(), updates));
     cluster.add_watch(id.clone(), task);
     Ok(id)
@@ -130,12 +135,17 @@ pub(crate) async fn cmd_detail_watch(
     Ok(id)
 }
 
-/// Stop a table watch or a detail watch.
+/// Stop a table watch or a detail watch, and give the memory its rows took
+/// back to the system once the task is gone (#397).
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_watch_stop(cluster: Cluster, id: String) -> Result<(), String> {
-    if let Some(task) = cluster.watches.lock().unwrap().remove(&id) {
+    let task = cluster.watches.lock().unwrap().remove(&id);
+    if let Some(task) = task {
         task.abort();
+        // Resolves (cancelled) once the task's rows and batcher are dropped.
+        let _ = task.await;
+        nauvi::heap::release();
     }
     Ok(())
 }

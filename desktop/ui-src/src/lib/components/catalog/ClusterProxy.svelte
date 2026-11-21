@@ -14,6 +14,8 @@
 
   let info = $state<ClusterProxyInfo | null>(null);
   let url = $state("");
+  /** A new CA file for an https:// proxy (#362); "" keeps the saved one. */
+  let caFile = $state("");
   let local = $state(false);
   let error = $state("");
   let saving = $state(false);
@@ -26,6 +28,9 @@
 
   /** Whether the app's proxy applies: else the kubeconfig's proxy-url, if any. */
   const settingApplies = $derived(!!info?.url && (info.local || !info.server_local));
+  /** The proxy typed, else the saved one, is https://: it may have a CA file. */
+  const https = $derived(/^https:\/\//i.test(url.trim() || info?.url || ""));
+  const canSave = $derived(!!url.trim() || (https && !!caFile.trim()));
 
   async function load() {
     try {
@@ -37,13 +42,15 @@
   }
   void load();
 
-  async function save(next: string | null, nextLocal = local) {
+  /** `ca`: a CA file, "" for none, null to keep the saved one. */
+  async function save(next: string | null, nextLocal = local, ca: string | null = null) {
     saving = true;
     try {
-      info = await commands.cmdSetClusterProxy(id, next, nextLocal);
+      info = await commands.cmdSetClusterProxy(id, next, nextLocal, ca);
       local = info.local;
       error = "";
       url = "";
+      caFile = "";
       changed = true;
     } catch (e) {
       error = String(e);
@@ -61,10 +68,16 @@
     if (info?.url) void save(null, checked);
   }
 
+  /** Save what was typed: a new URL and/or a new CA file. */
+  function saveTyped() {
+    const ca = https && caFile.trim() ? caFile.trim() : null;
+    void save(url.trim() ? url : null, local, ca);
+  }
+
   function onkeydown(e: KeyboardEvent) {
-    if (e.key === "Enter" && url.trim()) {
+    if (e.key === "Enter" && canSave) {
       e.preventDefault();
-      void save(url);
+      saveTyped();
     }
   }
 
@@ -89,6 +102,12 @@
         <span class="current mono" data-testid="proxy-current">{info.url}</span>
       </div>
     {/if}
+    {#if info.url && info.ca_file}
+      <div class="row">
+        <span>Proxy CA file</span>
+        <span class="current mono" data-testid="proxy-ca">{info.ca_file}</span>
+      </div>
+    {/if}
     {#if info.kubeconfig_proxy}
       <div class="row">
         <span>Kubeconfig proxy {settingApplies ? "(replaced)" : "(in effect)"}</span>
@@ -109,6 +128,20 @@
       {onkeydown}
     />
   </label>
+  {#if https}
+    <label class="row">
+      <span>{info?.ca_file ? "New proxy CA file" : "Proxy CA file (optional)"}</span>
+      <input
+        class="input mono"
+        aria-label="Proxy CA file"
+        placeholder="/path/to/proxy-ca.pem"
+        spellcheck="false"
+        autocomplete="off"
+        bind:value={caFile}
+        {onkeydown}
+      />
+    </label>
+  {/if}
   <label class="choice">
     <input
       type="checkbox"
@@ -120,7 +153,10 @@
   </label>
   {#if error}<p class="hint error-text" data-testid="proxy-error">{error}</p>{/if}
   <div class="actions">
-    <button type="button" class="btn" disabled={saving || !url.trim()} onclick={() => save(url)}>Save proxy</button>
+    <button type="button" class="btn" disabled={saving || !canSave} onclick={saveTyped}>Save proxy</button>
+    {#if info?.url && info.ca_file}
+      <button type="button" class="btn" disabled={saving} onclick={() => save(null, local, "")}>Remove CA file</button>
+    {/if}
     {#if info?.url}
       <button type="button" class="btn" disabled={saving} onclick={() => save("")}>Remove proxy</button>
     {/if}
@@ -132,10 +168,11 @@
     </p>
   {/if}
   <p class="muted hint">
-    An http:// or socks5:// proxy for every request, watch, terminal and port-forward of this cluster,
+    An http://, https:// or socks5:// proxy for every request, watch, terminal and port-forward of this cluster,
     instead of the kubeconfig's proxy-url. A user name and password go in the URL (http://user:password@host:port);
-    nauvi keeps them in its own config folder, never in the kubeconfig, and shows them masked. Helm and local terminals
-    do not use it.
+    nauvi keeps them in its own config folder, never in the kubeconfig, and shows them masked. An https:// proxy's
+    certificate is checked against the system's trust store and the CA file set here, never the cluster's certificate
+    authority, and the proxy never gets the cluster's client certificate. Helm and local terminals do not use it.
   </p>
 </fieldset>
 

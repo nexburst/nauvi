@@ -3,7 +3,7 @@
   import type { ForwardTarget } from "../bindings";
   import { parseLocalPort, parseRemotePort, PORT_FORWARDS_VIEW, sameTarget } from "../forwards";
   import type { PodRef } from "../stores/detail.svelte";
-  import { forwards, openForward, pollForwards, startForward, stopForward } from "../stores/forwards.svelte";
+  import { forwards, noticeForwardStarted, openForward, pollForwards, startForward, stopForward } from "../stores/forwards.svelte";
   import { setView } from "../stores/app.svelte";
 
   /** Port-forwards of this pod. They run in the backend: closing the panel
@@ -37,6 +37,7 @@
       const f = await startForward(target, remote.value, loc.value);
       startedId = f.id;
       status = `Forwarding ${f.url} → ${pod.name}:${f.remote}`;
+      noticeForwardStarted(f);
     } catch (e) {
       status = "Could not start port-forward: " + e;
     }

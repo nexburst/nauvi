@@ -4,8 +4,12 @@
 // system to open its URL, Copy URL puts it on the clipboard, Stop ends it.
 // #293: a client that resets its connection mid-response (as browsers do on
 // Windows) leaves the forward running without an error.
+// #374, #399: 50 new connections in a row all answer (each one is a new
+// stream pair on the forward's one SPDY session to the pod), then 20 at
+// once, and the row shows no error.
 
 import assert from "node:assert/strict";
+import { get } from "node:http";
 import { connect } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
@@ -40,6 +44,19 @@ function resetMidResponse(port, bytes) {
     });
     sock.on("close", () => resolve(got));
     sock.on("error", reject);
+  });
+}
+
+/** GET `url` on a new connection (no keep-alive): [ms until the whole body, body]. */
+function freshGet(url) {
+  return new Promise((resolve, reject) => {
+    const t = performance.now();
+    get(url, { agent: false }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (d) => (body += d));
+      res.on("end", () => resolve([performance.now() - t, body]));
+    }).on("error", reject);
   });
 }
 
@@ -91,6 +108,50 @@ describe("port-forward: open in browser and copy URL", { timeout: 10 * 60_000 },
     assert.doesNotMatch(status.text, /reset|broken pipe|aborted/i);
     // The forward still answers.
     assert.match(await (await fetch(url)).text(), /hello from nauvi qa/);
+  });
+
+  it("50 new connections in a row all answer (#374)", T, async () => {
+    const { app } = s;
+    const times = [];
+    for (let i = 0; i < 50; i++) {
+      const [ms, body] = await freshGet(url);
+      assert.match(body, /hello from nauvi qa/, `connection ${i}`);
+      times.push(ms);
+    }
+    times.sort((a, b) => a - b);
+    const p = (q) => times[Math.ceil(times.length * q) - 1].toFixed(1);
+    console.log(`50 new connections: p50 ${p(0.5)} ms, p90 ${p(0.9)} ms, max ${p(1)} ms`);
+    // Let the view poll the forward's status.
+    await new Promise((r) => setTimeout(r, 2500));
+    const row = await app.js(
+      `const r = document.querySelector('[data-testid="forward-row"]');
+       return { text: r?.innerText.replace(/\\s+/g, " ") ?? "", red: !!r?.querySelector(".error-text") };`,
+    );
+    console.log(`row after 50 connections: ${JSON.stringify(row)}`);
+    await app.shot("after-50-connections");
+    assert.equal(row.red, false, `no error in the row: ${row.text}`);
+  });
+
+  it("20 connections at once all answer over one session (#399)", T, async () => {
+    const { app } = s;
+    const t = performance.now();
+    const results = await Promise.all(Array.from({ length: 20 }, () => freshGet(url)));
+    for (const [i, [, body]] of results.entries()) {
+      assert.match(body, /hello from nauvi qa/, `connection ${i}`);
+    }
+    const times = results.map(([ms]) => ms).sort((a, b) => a - b);
+    console.log(
+      `20 parallel connections: all done in ${(performance.now() - t).toFixed(1)} ms, ` +
+        `p50 ${times[9].toFixed(1)} ms, max ${times[19].toFixed(1)} ms`,
+    );
+    await new Promise((r) => setTimeout(r, 2500));
+    const row = await app.js(
+      `const r = document.querySelector('[data-testid="forward-row"]');
+       return { text: r?.innerText.replace(/\\s+/g, " ") ?? "", red: !!r?.querySelector(".error-text") };`,
+    );
+    console.log(`row after 20 parallel connections: ${JSON.stringify(row)}`);
+    await app.shot("after-20-parallel-connections");
+    assert.equal(row.red, false, `no error in the row: ${row.text}`);
   });
 
   it("Open asks the system to open the URL", T, async () => {

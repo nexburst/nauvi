@@ -1,8 +1,9 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import type { ForwardInfo, ForwardTarget, SavedForward } from "../bindings";
-import { forwardLabel, isLocalUrl, parseLocalPort, parseRemotePort } from "../forwards";
+import { forwardLabel, isLocalUrl, parseLocalPort, parseRemotePort, PORT_FORWARDS_VIEW } from "../forwards";
 import { setNotice } from "./actions.svelte";
+import { setView } from "./app.svelte";
 
 /**
  * Port-forwards run in the backend, independent of any panel: closing a
@@ -71,6 +72,17 @@ export function pollForwards(): () => void {
       timer = null;
     }
   };
+}
+
+/** The banner after a forward starts (#386): where it listens, with Open
+ *  (the browser) and Port Forwards (the view) buttons. */
+export function noticeForwardStarted(f: ForwardInfo) {
+  setNotice(true, `Forwarding ${f.url} → ${forwardLabel(f.target)}:${f.remote}`, {
+    actions: [
+      { label: "Open", run: () => void openForward(f) },
+      { label: "Port Forwards", run: () => setView(PORT_FORWARDS_VIEW) },
+    ],
+  });
 }
 
 /** Start a forward (or get the one already running). Throws the backend's message. */
@@ -234,7 +246,7 @@ export async function confirmForwardDialog() {
       setError(saved.id, "");
       await refreshForwards();
       if (saved.open_in_browser) void openForward(f);
-      setNotice(true, `Forwarding ${f.url} → ${forwardLabel(target)}:${f.remote}`);
+      noticeForwardStarted(f);
     } else {
       setNotice(true, `Saved the port-forward to ${forwardLabel(target)}:${saved.remote}`);
     }

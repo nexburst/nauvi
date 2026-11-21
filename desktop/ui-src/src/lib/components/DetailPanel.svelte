@@ -87,7 +87,7 @@
 <aside data-testid="detail-panel">
   <div class="top">
     <div class="header">
-      <span class="title kinded">{pod.namespace}/{pod.name}</span>
+      <span class="title kinded">{pod.namespace}/<wbr />{pod.name}</span>
       <button type="button" class="close" aria-label="Close details" onclick={closeDetail}>✕</button>
     </div>
     <ActionBar {target} disabled={live.deleted} onEdit={showYaml} {dockSpec} />
@@ -112,21 +112,22 @@
           <dd>{extras.message}</dd>
         {/if}
         <dt>Node</dt>
-        <dd>{extras.node || "—"}</dd>
+        <!-- Names and IPs stay on one line, cut with the whole in a title (#384). -->
+        <dd class="token" data-testid="meta-node" title={extras.node || undefined}>{extras.node || "—"}</dd>
         <dt>Pod IPs</dt>
         <dd>{extras.pod_ips.join(", ") || "—"}</dd>
         {#if extras.host_ip}
           <dt>Host IP</dt>
-          <dd>{extras.host_ip}</dd>
+          <dd class="token" title={extras.host_ip}>{extras.host_ip}</dd>
         {/if}
         <dt>QoS</dt>
         <dd>{extras.qos_class || "—"}</dd>
         {#if extras.priority_class}
           <dt>Priority</dt>
-          <dd>{extras.priority_class}</dd>
+          <dd class="token" title={extras.priority_class}>{extras.priority_class}</dd>
         {/if}
         <dt>Service acct</dt>
-        <dd>{extras.service_account || "—"}</dd>
+        <dd class="token" title={extras.service_account || undefined}>{extras.service_account || "—"}</dd>
       </MetaSection>
 
       <UsageCharts what="pods" namespace={target.namespace} name={target.name} />
@@ -196,7 +197,13 @@
     padding: 10px 16px 2px;
     font-weight: 600;
     font-size: 13px;
-    word-break: break-all;
+    overflow-wrap: anywhere;
+  }
+  /* Clear of the Widen button, which App.svelte lays over the header's
+     right end: a long title wraps before it, never under it (#384). */
+  .title {
+    min-width: 0;
+    padding-right: 34px;
   }
   .close {
     background: transparent;

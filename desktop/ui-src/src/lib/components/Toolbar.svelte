@@ -87,7 +87,8 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 12px;
+    /* 12px, down to 8px when the row is short of room (#392). */
+    gap: 12px clamp(8px, 1.6%, 12px);
     padding: 12px 16px;
     border-bottom: 1px solid var(--border);
   }
@@ -113,6 +114,17 @@
   .namespaces {
     /* The picker's button is 160px; its chips wrap below it. */
     min-width: 160px;
+  }
+  /* Beside the inspector at 1280 px (#392): the picker and the filter give
+     way before anything wraps, so "+ Create" stays on the row. */
+  @container toolbar (max-width: 720px) {
+    /* A wrapping row breaks lines at each item's basis, so the picker is
+       placed at its minimum and grows back to its content's width. */
+    .namespaces {
+      flex: 1 1 112px;
+      min-width: 112px;
+      max-width: max-content;
+    }
   }
   .create {
     margin-left: auto;

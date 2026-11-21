@@ -22,6 +22,7 @@ import { PROBLEMS_STATUS } from "../workloads";
 import { closeNotifications, notifications } from "./notifications.svelte";
 import { watch } from "./watch.svelte";
 import { openLocalShell } from "./localShell";
+import { askAi } from "./askAi.svelte";
 import { zoomIn, zoomOut, zoomReset } from "./settings.svelte";
 import { unsaved } from "./unsaved.svelte";
 import { refresh } from "./app.svelte";
@@ -139,7 +140,8 @@ function modalOpen(): boolean {
     charts.deploy !== null ||
     createUi.open ||
     unsaved.asking ||
-    catalog.settingsFor !== null
+    catalog.settingsFor !== null ||
+    askAi.scope !== null
   );
 }
 

@@ -4,11 +4,12 @@
 
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
+  import type { Snippet } from "svelte";
   import VirtualList from "./VirtualList.svelte";
   import { commands } from "../bindings";
   import { api, visibleCluster } from "../cluster";
   import type { LogContainer, LogEvent, WorkloadNotice } from "../bindings";
-  import { logChannel } from "../logChannel";
+  import { logChannel, sendAck } from "../logChannel";
   import {
     ALL_CONTAINERS,
     LogBuffer,
@@ -51,9 +52,11 @@
     hidden?: boolean;
     /** The cluster it streams from (ADR 0007): by default the one shown. */
     cluster?: string;
+    /** Above the options: the dock's context line (#386), given the picks. */
+    context?: Snippet<[{ container: string; since: string }]>;
   }
 
-  let { pod, workload, containers = [], ready = true, hidden = false, cluster = visibleCluster() }: Props = $props();
+  let { pod, workload, containers = [], ready = true, hidden = false, cluster = visibleCluster(), context }: Props = $props();
   const isWorkload = $derived(workload !== undefined);
   const title = $derived(workload ? `${workload.namespace}/${workload.name}` : pod ? `${pod.namespace}/${pod.name}` : "");
 
@@ -155,6 +158,8 @@
   // only the new lines.
   const searcher = new LogSearcher();
   searcher.attach(buf);
+  /** The channel of the stream this tab runs now. */
+  let channel: ReturnType<typeof logChannel> | null = null;
   /** Search hits of the pod prefixes, by tag id, for the query in use. */
   let prefixHits = new Map<number, Hits>();
   /** Time on the main thread before a long rebuild lets a frame through. */
@@ -614,10 +619,12 @@
     prefixHits = new Map();
     truncatedNote = "";
     const id = streamId;
-    const onEvent = logChannel({
+    const onEvent = (channel = logChannel({
       lines: (lines) => id === streamId && onBatch(lines),
       event: (e) => id === streamId && onLogEvent(e),
-    });
+      // Lets the backend send more (pod streams only; #397).
+      ack: (bytes) => void sendAck(() => api(cluster).cmdLogAck(id, bytes)),
+    }));
     try {
       if (workload) {
         await api(cluster).cmdStreamWorkloadLogs(
@@ -742,6 +749,9 @@
       appliedSearch = { text: filterInput, regex, matchCase };
     }
     if (force || JSON.stringify([query, exclude]) !== before) renderLogs();
+    // Without a regex the worker is idle: drop it and its copy of the lines
+    // (#397). The next regex search starts a new one.
+    if (query.kind !== "regex" && exclude.kind !== "regex") searcher.stop();
   }
 
   // Typing is debounced: each search rebuilds the display from the buffer.
@@ -901,6 +911,12 @@
     clearTimeout(filterTimer);
     gen++;
     searcher.stop();
+    // The channel's callback stays registered until the backend closes it;
+    // it must not keep this tab's lines alive meanwhile (#397).
+    if (channel) channel.onmessage = () => {};
+    buf.clear();
+    d.lines = [];
+    d.matches = [];
     clearTimeout(savedTimer);
     const ownStream = streamId;
     streamId = ++streamCounter;
@@ -916,6 +932,7 @@
 
 <!-- One line: what is tailed, how, and what to do with it. The parts keep
      their own elements (the header, the options); the line lays them out. -->
+{@render context?.({ container, since })}
 <div class="logs-top">
 <div class="logs-header section-header">
   <h3>Logs<span class="muted"> · {title}</span></h3>

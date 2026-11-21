@@ -80,20 +80,20 @@ test("times show in UTC when chosen", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Pods");
   await page.evaluate(() => window.__fake.emitWatchBatch({ deleted: ["demo/web-1"] }));
-  await expect(page.locator("footer")).toContainText(/Updated \d\d:\d\d:\d\d$/);
+  await expect(page.locator("footer")).toContainText(/Live · last change \d\d:\d\d:\d\d$/);
   await openSettings(page);
   const dialog = settingsDialog(page);
   await expect(dialog.getByRole("radio", { name: "Local time" })).toBeChecked();
   await dialog.getByRole("radio", { name: "UTC" }).check();
   // The footer's clock switches at once, without a new update.
-  await expect(page.locator("footer")).toContainText(/Updated \d\d:\d\d:\d\d UTC/);
+  await expect(page.locator("footer")).toContainText(/Live · last change \d\d:\d\d:\d\d UTC/);
   await closeSettings(page);
   expect((await fake.lastCall("cmdUpdateSettings")).patch).toEqual({ time_zone: "utc" });
   // And after a restart.
   await page.reload();
   await openKind(page, "Pods");
   await page.evaluate(() => window.__fake.emitWatchBatch({ deleted: ["demo/web-2"] }));
-  await expect(page.locator("footer")).toContainText(/Updated \d\d:\d\d:\d\d UTC/);
+  await expect(page.locator("footer")).toContainText(/Live · last change \d\d:\d\d:\d\d UTC/);
   expect(fake.errors).toEqual([]);
 });
 

@@ -1,7 +1,8 @@
 <script lang="ts">
   import { app, openContextWindow, refresh, setView, switchContext } from "../stores/app.svelte";
-  import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
+  import { CATALOG_VIEW, orderContexts } from "../catalog";
   import { shownContexts } from "../hidden";
+  import { contextFullName, contextLabel } from "../stores/catalog.svelte";
   import { contextSettings, settings } from "../stores/settings.svelte";
   import { live } from "../stores/live.svelte";
   import { openPalette, openSettings } from "../stores/keyboard.svelte";
@@ -18,6 +19,7 @@
   import { confirmDiscard } from "../stores/unsaved.svelte";
   import { isMacPlatform, shortcutHint } from "../keys";
   import HelpMenu from "./HelpMenu.svelte";
+  import AskAiButton from "./AskAiButton.svelte";
   import NotificationBell from "./NotificationBell.svelte";
   import ModeBadge from "./ModeBadge.svelte";
   import { contextMode, contextNameOf } from "../stores/contextMode.svelte";
@@ -50,7 +52,8 @@
   // Hidden ones are left out (ADR 0007), except the one shown.
   const listed = $derived(shownContexts(app.contexts, settings.current.hidden_contexts, [current]));
   const ordered = $derived(orderContexts(listed, settings.current.favourites));
-  const label = (id: string) => displayName({ name: id }, contextSettings(id));
+  // Short names for long cloud contexts (#383); the whole one is the tooltip.
+  const label = (id: string) => contextLabel(id);
   const color = $derived(contextSettings(current).color);
   const mode = $derived(contextMode(current));
   const band = $derived(color || (mode === "protected" ? "var(--red)" : mode === "readOnly" ? "var(--amber)" : ""));
@@ -105,8 +108,14 @@
       </svg>
     </button>
   </div>
-  <div class="cluster" class:ok={app.status.ok === true} class:error={app.status.ok === false}>
-    <span class="dot" class:ok={app.status.ok === true} class:error={app.status.ok === false} aria-hidden="true">
+  <div
+    class="cluster"
+    class:ok={app.status.ok === true}
+    class:error={app.status.ok === false}
+    data-testid="cluster-status"
+    data-state={app.status.ok === true ? "ok" : app.status.ok === false ? "error" : "pending"}
+  >
+    <span class="dot" aria-hidden="true">
       <!-- One ring per change of state, then still. -->
       {#key app.status.text}<span class="ping"></span>{/key}
     </span>
@@ -119,6 +128,7 @@
     class="select"
     class:invisible={listed.length <= 1}
     aria-label="Cluster context"
+    title={contextFullName(current)}
     value={current}
     onchange={(e) => onContextChange(e.currentTarget)}
   >
@@ -246,6 +256,7 @@
     {/key}
     <span class="sr">Refresh</span>
   </button>
+  <AskAiButton />
   <NotificationBell />
   <HelpMenu />
   <button class="gear" type="button" aria-label="Settings" title="Settings" onclick={openSettings}>

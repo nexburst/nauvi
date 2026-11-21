@@ -43,6 +43,20 @@ export const commands = {
 	 */
 	cmdApplicationsStart: (cluster: string, id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_start", { cluster, id, namespaces }, options),
 	cmdApplicationsStop: (cluster: string, id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_stop", { cluster, id }, options),
+	/**
+	 *  The CLIs Ask AI can start, from this process's `PATH` (the login
+	 *  shell's, imported at start-up) and the settings. Reads only.
+	 */
+	cmdAskAiSetup: (options?: InvokeOptions) => __TAURI_INVOKE<AskAiSetup>("cmd_ask_ai_setup", undefined, options),
+	/**
+	 *  Start the AI CLI `cli` (an id of [`AskAiSetup::found`]) in a new local
+	 *  terminal at the app's context and `namespace` (`null`: the context's
+	 *  own), with `prompt` as its first message, and the nauvi MCP tools for
+	 *  that context: read-only, unless `allow_writes` and the context is
+	 *  normal. On a protected or read-only context writes are refused here,
+	 *  and `nauvi mcp` itself refuses them too.
+	 */
+	cmdAskAiStart: (cluster: MutationTarget, namespace: string | null, cli: string, prompt: string, allowWrites: boolean, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<AskAiStarted>("cmd_ask_ai_start", { cluster, namespace, cli, prompt, allowWrites, cols, rows, onOutput }, options),
 	/**  Whether the app starts when the user logs in. */
 	cmdAutostartEnabled: (options?: InvokeOptions) => __TAURI_INVOKE<boolean>("cmd_autostart_enabled", undefined, options),
 	/**  Turn start at login on or off; returns the state afterwards. */
@@ -119,6 +133,11 @@ export const commands = {
 	 *  UI then lets them type one).
 	 */
 	cmdListNamespaces: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<NamespaceInfo[] | null>("cmd_list_namespaces", { cluster }, options),
+	/**
+	 *  The cluster's Kubernetes version for the status bar (#387). The UI
+	 *  shows nothing when this fails.
+	 */
+	cmdServerVersion: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_server_version", { cluster }, options),
 	/**
 	 *  Show context `name` (`null`: the kubeconfig's current-context) in the
 	 *  calling window: its own session, opened unless the window is connected
@@ -319,6 +338,11 @@ export const commands = {
 	 */
 	cmdLocalShellStart: (cluster: MutationTarget, namespace: string | null, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<LocalShellStarted>("cmd_local_shell_start", { cluster, namespace, cols, rows, onOutput }, options),
 	/**
+	 *  The tab of pod log stream `stream_id` got `bytes` of lines (the length
+	 *  of the raw message), which lets the backend send more (#397).
+	 */
+	cmdLogAck: (cluster: string, streamId: number, bytes: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_log_ack", { cluster, streamId, bytes }, options),
+	/**
 	 *  Save log text to the user's Downloads folder and return the path. A
 	 *  webview Blob download is not reliable across the platforms Tauri targets
 	 *  and there is no file dialog without an extra plugin, so we write directly.
@@ -339,7 +363,9 @@ export const commands = {
 	/**
 	 *  Follow one container of a pod. Lines, errors and the end go to
 	 *  `on_event`, the channel of the tab that asked (#115); `stream_id` names
-	 *  the stream for `cmd_stop_logs`.
+	 *  the stream for `cmd_stop_logs` and `cmd_log_ack`: the tab acknowledges
+	 *  each batch of lines it gets, and at most `log_flow::WINDOW` bytes are
+	 *  sent ahead of that (#397).
 	 */
 	cmdStreamPodLogs: (cluster: string, namespace: string, name: string, container: string | null, previous: boolean | null, tailLines: number | null, sinceSeconds: number | null, timestamps: boolean | null, streamId: number, onEvent: Channel<LogMessage>, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_stream_pod_logs", { cluster, namespace, name, container, previous, tailLines, sinceSeconds, timestamps, streamId, onEvent }, options),
 	/**
@@ -438,11 +464,14 @@ export const commands = {
 	/**  The proxy of the cluster of context `id`. */
 	cmdGetClusterProxy: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<ClusterProxyInfo>("cmd_get_cluster_proxy", { id }, options),
 	/**
-	 *  Set the proxy of the cluster of context `id`: `url` a proxy URL (http://
-	 *  or socks5://), `""` to remove it, or left out to keep the saved
-	 *  one and change only `local`.
+	 *  Set the proxy of the cluster of context `id`: `url` a proxy URL
+	 *  (http://, https:// or socks5://), `""` to remove it, or left out to keep
+	 *  the saved one and change only `local` or the CA file. `ca_file`, for an
+	 *  https:// proxy: the full path of a PEM file of CA certificates its
+	 *  certificate may be signed by (#362), `""` for none, or left out to keep
+	 *  the saved one.
 	 */
-	cmdSetClusterProxy: (id: string, url: string | null, local: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ClusterProxyInfo>("cmd_set_cluster_proxy", { id, url, local }, options),
+	cmdSetClusterProxy: (id: string, url: string | null, local: boolean, caFile: string | null, options?: InvokeOptions) => __TAURI_INVOKE<ClusterProxyInfo>("cmd_set_cluster_proxy", { id, url, local, caFile }, options),
 	/**
 	 *  Create or update the objects of a (multi-document) YAML manifest. The
 	 *  batch is validated with a dry run first; unless `dry_run`, it is applied
@@ -526,7 +555,10 @@ export const commands = {
 	 *  watch id carried by the `watch-batch` / `watch-state` events.
 	 */
 	cmdWatchStart: (cluster: string, resource: ResourceRef, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { cluster, resource, namespace }, options),
-	/**  Stop a table watch or a detail watch. */
+	/**
+	 *  Stop a table watch or a detail watch, and give the memory its rows took
+	 *  back to the system once the task is gone (#397).
+	 */
 	cmdWatchStop: (cluster: string, id: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_watch_stop", { cluster, id }, options),
 	/**
 	 *  The user discarded this window's unsaved edits after an
@@ -785,6 +817,56 @@ export type ApplyStatus =
  */
 "pending";
 
+/**  A CLI Ask AI can start. */
+export type AskAiCli = {
+	/**  `claude`, `codex`, `gemini` or `custom`. */
+	id: string,
+	label: string,
+	/**  Where it was found (`""`: not found). */
+	path: string,
+	/**  How to install it (`""` for the custom command). */
+	install: string,
+};
+
+/**  What Ask AI can start on this machine. */
+export type AskAiSetup = {
+	/**
+	 *  The known CLIs found on `PATH`, then the custom command if it is set
+	 *  and can run.
+	 */
+	found: AskAiCli[],
+	/**  The known CLIs not on `PATH`, with how to install them. */
+	missing: AskAiCli[],
+	/**
+	 *  The one Ask AI starts: the one set in Settings if it is found, else
+	 *  the first found (`""`: none).
+	 */
+	chosen: string,
+	/**  The `nauvi` CLI that serves the MCP tools (`""`: not on `PATH`). */
+	nauvi: string,
+	/**
+	 *  Why the custom command set in Settings cannot run (`""`: it can, or
+	 *  none is set).
+	 */
+	custom_error: string,
+};
+
+/**  A started Ask AI terminal. */
+export type AskAiStarted = {
+	session: string,
+	context: string,
+	namespace: string,
+	/**  The CLI's name. */
+	cli: string,
+	/**
+	 *  The nauvi MCP tools offered: `read-only`, `writes`, or `""` (the
+	 *  `nauvi` CLI is not on `PATH`).
+	 */
+	mcp: string,
+	/**  As in a local shell: the downloaded kubectl first on `PATH`. */
+	kubectl: string,
+};
+
 /**  A saved forward that did not start automatically, and why. */
 export type AutoStartError = {
 	saved_id: string,
@@ -858,6 +940,11 @@ export type ClusterProxyInfo = {
 	has_credentials: boolean,
 	/**  Use the proxy for a cluster on this machine too. */
 	local: boolean,
+	/**
+	 *  An https:// proxy's CA file, besides the system's trust store
+	 *  (`""`: none).
+	 */
+	ca_file: string,
 	/**  The kubeconfig's own proxy-url for the cluster, masked (`""`: none). */
 	kubeconfig_proxy: string,
 	/**  The API server is on this machine (localhost, 127.0.0.1, ::1). */
@@ -891,6 +978,11 @@ export type ColumnDef = {
 	key: string,
 	label: string,
 	kind: ColumnKind,
+	/**
+	 *  Off until the user turns it on in the column chooser (IP, QoS, ...);
+	 *  the CLI's tables leave it out.
+	 */
+	default_hidden: boolean,
 };
 
 /**  How a column's cell is produced and rendered. */
@@ -904,7 +996,24 @@ export type ColumnKind = "text" |
 /**  Live usage merged in by the UI from the metrics API. */
 "podCpu" | "podMemory" | "nodeCpu" | "nodeMemory" | 
 /**  A node's root filesystem, from Prometheus (node-exporter). */
-"nodeDisk";
+"nodeDisk" | 
+/**
+ *  The controller of the object: `Kind/name`, or `Kind.group/name`
+ *  outside the core, `apps` and `batch` groups. The UI links it to the
+ *  owner's detail.
+ */
+"owner" | 
+/**
+ *  A pod's containers and their states (`init:setup=done app=ready`,
+ *  see `pod_containers`), drawn by the UI as one square each.
+ */
+"containers" | 
+/**
+ *  What a Deployment, StatefulSet or DaemonSet controller is doing
+ *  (`Running`, `Scaling`, `Updating`, `Failed`, ... see
+ *  `workload_status`), drawn by the UI with a shape and a colour.
+ */
+"rollout";
 
 export type ConditionInfo = {
 	type: string,
@@ -924,6 +1033,15 @@ export type ContainerDetail = {
 	kind: ContainerKind,
 	image: string,
 	image_id: string,
+	/**
+	 *  The entrypoint override (`command`), empty for the image's own.
+	 *  Values that look like secrets are replaced by `••••`.
+	 */
+	command: string[],
+	/**  `args`, masked like `command`. */
+	args: string[],
+	/**  Whether anything in `command` or `args` was hidden. */
+	secrets_hidden: boolean,
 	state: StateInfo,
 	last_state: StateInfo,
 	ready: boolean,
@@ -1601,7 +1719,9 @@ export type HelpItem =
 /**  A new GitHub issue with the diagnostics filled in. */
 "report_bug" | 
 /**  The folder with the app log, in the file manager. */
-"log_folder";
+"log_folder" | 
+/**  The README's section on AI assistants and `nauvi mcp` (#376). */
+"ai_assistants";
 
 /**  The counts of one workload kind. */
 export type KindCounts = {
@@ -1626,6 +1746,11 @@ export type KindSettings_Deserialize = {
 	sort_desc?: boolean,
 	/**  Keys of the columns the user hid. */
 	hidden?: string[],
+	/**
+	 *  Keys of the off-by-default columns the user turned on (#378). Files
+	 *  from before it have none, so those columns stay off.
+	 */
+	shown?: string[],
 };
 
 /**  What is remembered per kind (by kind id). */
@@ -1635,6 +1760,11 @@ export type KindSettings_Serialize = {
 	sort_desc: boolean,
 	/**  Keys of the columns the user hid. */
 	hidden: string[],
+	/**
+	 *  Keys of the off-by-default columns the user turned on (#378). Files
+	 *  from before it have none, so those columns stay off.
+	 */
+	shown: string[],
 };
 
 /**
@@ -1851,6 +1981,12 @@ export type MountInfo = {
 	path: string,
 	sub_path: string,
 	read_only: boolean,
+	/**
+	 *  What the volume is: `secret db-creds`, `configmap cfg`, `pvc data`,
+	 *  `projected (service account token)`, `emptyDir`. Empty when the pod
+	 *  has no volume of that name.
+	 */
+	source: string,
 };
 
 /**  The `cluster` argument of a mutating command. */
@@ -2463,6 +2599,10 @@ export type SettingsPatch_Deserialize = {
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Deserialize | null,
 	kubectl_match?: boolean | null,
+	/**  The whole list of collapsed sidebar sections (#383). */
+	collapsed_sections?: string[] | null,
+	ask_ai_cli?: string | null,
+	ask_ai_command?: string | null,
 };
 
 /**
@@ -2492,6 +2632,10 @@ export type SettingsPatch_Serialize = {
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Serialize | null,
 	kubectl_match?: boolean | null,
+	/**  The whole list of collapsed sidebar sections (#383). */
+	collapsed_sections?: string[] | null,
+	ask_ai_cli?: string | null,
+	ask_ai_command?: string | null,
 };
 
 export type Settings_Deserialize = {
@@ -2570,6 +2714,21 @@ export type Settings_Deserialize = {
 	 *  default; nothing is downloaded without a click.
 	 */
 	kubectl_match?: boolean,
+	/**
+	 *  The sidebar sections the user collapsed (#383), by id (`workloads`,
+	 *  `network`, `helm`, `custom`...). Empty: every section open.
+	 */
+	collapsed_sections?: string[],
+	/**
+	 *  Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
+	 *  (the first known one found on `PATH`).
+	 */
+	ask_ai_cli?: string,
+	/**
+	 *  Ask AI's custom command, the program and its arguments (#376). Split
+	 *  into words, never run through a shell.
+	 */
+	ask_ai_command?: string,
 };
 
 export type Settings_Serialize = {
@@ -2648,6 +2807,21 @@ export type Settings_Serialize = {
 	 *  default; nothing is downloaded without a click.
 	 */
 	kubectl_match: boolean,
+	/**
+	 *  The sidebar sections the user collapsed (#383), by id (`workloads`,
+	 *  `network`, `helm`, `custom`...). Empty: every section open.
+	 */
+	collapsed_sections: string[],
+	/**
+	 *  Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
+	 *  (the first known one found on `PATH`).
+	 */
+	ask_ai_cli: string,
+	/**
+	 *  Ask AI's custom command, the program and its arguments (#376). Split
+	 *  into words, never run through a shell.
+	 */
+	ask_ai_command: string,
 };
 
 /**  One source of contexts, for the catalog's list of sources. */

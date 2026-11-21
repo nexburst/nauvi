@@ -60,6 +60,12 @@ export interface SettingsPatch {
   searches?: SearchHistory;
   /** Offer a kubectl matching the cluster in local terminals (#331). */
   kubectl_match?: boolean;
+  /** The collapsed sidebar sections, the whole list (#383). */
+  collapsed_sections?: string[];
+  /** Ask AI's CLI (#376): an id, `custom`, or "" for the first found. */
+  ask_ai_cli?: string;
+  /** Ask AI's custom command (#376). */
+  ask_ai_command?: string;
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -88,6 +94,9 @@ export function defaultSettings(): Settings {
     forwards: {},
     searches: { recent: [], starred: [] },
     kubectl_match: false,
+    collapsed_sections: [],
+    ask_ai_cli: "",
+    ask_ai_command: "",
   };
 }
 
@@ -113,7 +122,7 @@ export const EMPTY_CONTEXT: ContextSettings = {
   mode: "normal",
   mode_source: { file: "", given: "", context: "" },
 };
-export const EMPTY_KIND: KindSettings = { sort_key: "", sort_desc: false, hidden: [] };
+export const EMPTY_KIND: KindSettings = { sort_key: "", sort_desc: false, hidden: [], shown: [] };
 
 /** What is wrong with a Prometheus Service typed in Settings ("" if nothing):
  *  empty (detect), `off`, or `namespace/service[:port]`. */
@@ -148,6 +157,10 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
     next.idle_disconnect_minutes = clampIdleMinutes(patch.idle_disconnect_minutes);
   if (patch.searches != null) next.searches = normalizeHistory(patch.searches);
   if (patch.kubectl_match != null) next.kubectl_match = patch.kubectl_match;
+  if (patch.collapsed_sections != null)
+    next.collapsed_sections = [...new Set(patch.collapsed_sections.filter(Boolean))];
+  if (patch.ask_ai_cli != null) next.ask_ai_cli = patch.ask_ai_cli.trim();
+  if (patch.ask_ai_command != null) next.ask_ai_command = patch.ask_ai_command.trim();
   return next;
 }
 
@@ -191,6 +204,38 @@ export const ALWAYS_SHOWN = ["name"];
 export function toggleHidden(hidden: readonly string[], key: string): string[] {
   if (ALWAYS_SHOWN.includes(key)) return [...hidden];
   return hidden.includes(key) ? hidden.filter((k) => k !== key) : [...hidden, key];
+}
+
+/** What the column chooser needs to know of a column. */
+export interface ColumnChoice {
+  key: string;
+  /** Off until the user turns it on (#378). */
+  defaultHidden: boolean;
+}
+
+/** Whether `col` shows: an off-by-default column once turned on, any
+ *  other until hidden. */
+export function columnOn(kind: Pick<KindSettings, "hidden" | "shown">, col: ColumnChoice): boolean {
+  return col.defaultHidden ? (kind.shown ?? []).includes(col.key) : !kind.hidden.includes(col.key);
+}
+
+/** The change to a kind's settings that turns `col` on or off. */
+export function toggleColumn(
+  kind: Pick<KindSettings, "hidden" | "shown">,
+  col: ColumnChoice,
+): Pick<KindSettings, "hidden"> | Pick<KindSettings, "shown"> {
+  if (!col.defaultHidden) return { hidden: toggleHidden(kind.hidden, col.key) };
+  const shown = kind.shown ?? [];
+  return { shown: shown.includes(col.key) ? shown.filter((k) => k !== col.key) : [...shown, col.key] };
+}
+
+/** "Default columns" in the chooser: what the kind shows on a fresh install
+ *  (every column but the off-by-default ones). */
+export const DEFAULT_COLUMNS: Pick<KindSettings, "hidden" | "shown"> = { hidden: [], shown: [] };
+
+/** Whether the user changed which columns of the kind show. */
+export function columnsChanged(kind: Pick<KindSettings, "hidden" | "shown">, cols: readonly ColumnChoice[]): boolean {
+  return cols.some((c) => columnOn(kind, c) === c.defaultHidden);
 }
 
 /** The panel width, kept within what fits the window. */

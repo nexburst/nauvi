@@ -142,7 +142,7 @@ export function sameResource(a: ResourceRef, b: ResourceRef): boolean {
 
 /** What a detail panel action is checked and drawn as: an ActionId, or
  *  one of the panel's own entries. */
-export type PanelActionId = ActionId | "logs" | "shell" | "edit" | "link";
+export type PanelActionId = ActionId | "logs" | "shell" | "edit" | "link" | "askAi";
 
 /** One icon in the detail panel's action header (#218). */
 export type PanelAction<Spec> = {
@@ -152,7 +152,13 @@ export type PanelAction<Spec> = {
   /** The tooltip: the label without its "…". */
   tip: string;
   danger: boolean;
-} & ({ run: "dock"; spec: Spec } | { run: "edit" } | { run: "link" } | { run: "action"; action: ActionDef });
+} & (
+  | { run: "dock"; spec: Spec }
+  | { run: "edit" }
+  | { run: "link" }
+  | { run: "askAi" }
+  | { run: "action"; action: ActionDef }
+);
 
 /**
  * The detail panel's actions: the row menu's dock entries (Logs, Shell) and

@@ -27,7 +27,8 @@ test("match case and regex narrow the rows; ^ and $ match per field", async ({ p
     const p = c.rows["v1/pods"][0];
     p.name = "Web-1";
     p.key = "demo/Web-1";
-    p.cells[0] = "Web-1";
+    // Every cell, the Controlled By one (#378) too: "web" must not match it.
+    p.cells = p.cells.map((c) => c.replace("web", "Web"));
   });
   await openKind(page, "Pods");
   await filter(page).fill("web");

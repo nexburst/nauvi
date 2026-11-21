@@ -60,6 +60,8 @@ import ShortcutHelp from "./components/ShortcutHelp.svelte";
 import UnsavedDialog from "./components/UnsavedDialog.svelte";
 import UpdateBanner from "./components/UpdateBanner.svelte";
 import WorkloadsOverview from "./components/WorkloadsOverview.svelte";
+import AskAiDialog from "./components/AskAiDialog.svelte";
+import { askAi, loadAskAiSetup } from "./stores/askAi.svelte";
 
 /** A view of its own (not a resource table), shown when `app.view` is `id`. */
 export interface View {
@@ -156,6 +158,8 @@ export const DIALOGS: Slot[] = [
   slot(ProtectedConfirm, { when: () => protect.queue.length > 0 }),
   // "Remove = hide" (ADR 0007, #333).
   slot(HideClusterDialog, { when: () => hideDialog.id !== "" }),
+  // Ask AI (#376).
+  slot(AskAiDialog, { when: () => askAi.scope !== null, key: () => askAi.scope }),
 ];
 
 /** Event subscriptions, made before the first watch starts; each returns its unlisten. */
@@ -180,4 +184,6 @@ export const AFTER_START: (() => Promise<void>)[] = [
   startupCheck,
   // A nauvi:// link that came while the window started (#299).
   takePendingLink,
+  // Which AI CLIs are on PATH, for Ask AI (#376).
+  loadAskAiSetup,
 ];

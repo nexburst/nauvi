@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { ColumnKind, ResourceKind, ResourceRow } from "./bindings";
-import { columnsFor, EMPTY_METRICS, HIDDEN_METRICS, isNode, isPod, nodeReadyClass, shownColumns } from "./columns";
+import {
+  columnsFor,
+  headerLabel,
+  EMPTY_METRICS,
+  HIDDEN_METRICS,
+  isNode,
+  isPod,
+  minColumnsWidth,
+  nodeReadyClass,
+  shownColumns,
+} from "./columns";
 import type { Ctx, Metrics } from "./columns";
 
 function kindWith(kinds: [string, ColumnKind][], kind = "Pod", group = ""): ResourceKind {
@@ -12,7 +22,7 @@ function kindWith(kinds: [string, ColumnKind][], kind = "Pod", group = ""): Reso
     crd: false,
     verbs: [],
     short_names: [],
-    columns: kinds.map(([key, k]) => ({ key, label: key.toUpperCase(), kind: k })),
+    columns: kinds.map(([key, k]) => ({ key, label: key.toUpperCase(), kind: k, default_hidden: false })),
     actions: [],
   };
 }
@@ -51,10 +61,10 @@ const metrics: Metrics = {
 const ctx: Ctx = { metrics, now: 0 };
 
 describe("columnsFor", () => {
-  it("keeps the backend's keys and labels, and caches per kind", () => {
+  it("keeps the backend's keys, sentence-cases its labels, and caches per kind", () => {
     const k = kindWith([["name", "text"]]);
     const cols = columnsFor(k);
-    expect(cols.map((c) => [c.key, c.label])).toEqual([["name", "NAME"]]);
+    expect(cols.map((c) => [c.key, c.label])).toEqual([["name", "Name"]]);
     expect(columnsFor(k)).toBe(cols);
   });
 
@@ -68,11 +78,29 @@ describe("columnsFor", () => {
       ]),
     );
     expect(cols.map((c) => c.width)).toEqual([
-      "minmax(160px, 2.2fr)",
+      "minmax(140px, 3fr)",
       "minmax(240px, 3fr)",
       "64px",
       "minmax(80px, 1fr)",
     ]);
+  });
+
+  it("caps short columns in px, so the slack goes to Name (#384)", () => {
+    const cols = columnsFor(
+      kindWith([
+        ["name", "text"],
+        ["namespace", "text"],
+        ["ready", "text"],
+        ["uptodate", "number"],
+        ["status", "rollout"],
+        ["age", "age"],
+      ]),
+    );
+    const [name, ns, ...short] = cols.map((c) => c.width);
+    expect(name).toBe("minmax(140px, 3fr)");
+    expect(ns).toBe("minmax(120px, 1fr)");
+    // No fr: they stop growing at their cap.
+    for (const w of short) expect(w).not.toMatch(/fr/);
   });
 
   it("sorts numeric cells by their leading number, unknown last", () => {
@@ -91,8 +119,10 @@ describe("columnsFor", () => {
   it("computes age from the creation time", () => {
     const [age] = columnsFor(kindWith([["age", "age"]]));
     const r = row([""], { created: 100 });
-    expect(age.text(r, { metrics, now: 160_000 })).toBe("1m");
+    expect(age.text(r, { metrics, now: 160_000 })).toBe("60s");
+    expect(age.text(r, { metrics, now: 290_000 })).toBe("3m10s");
     expect(age.sort(r, ctx)).toBe(100);
+    expect(age.title?.(r, "utc")).toBe("Created 1970-01-01 00:01:40 UTC");
   });
 
   it("merges pod metrics by namespace/name", () => {
@@ -190,6 +220,28 @@ describe("columnsFor", () => {
     expect(shownColumns(nodes, [], { ...withDisks, hidden: true }).map((c) => c.key)).toEqual(["name"]);
   });
 
+  it("leaves off-by-default columns out until they are turned on (#378)", () => {
+    const kind = kindWith([
+      ["name", "text"],
+      ["owner", "owner"],
+      ["qos", "text"],
+    ]);
+    kind.columns[1].default_hidden = true;
+    kind.columns[2].default_hidden = true;
+    const cols = columnsFor(kind);
+    expect(cols.map((c) => c.defaultHidden)).toEqual([false, true, true]);
+    expect(shownColumns(cols, [], metrics).map((c) => c.key)).toEqual(["name"]);
+    expect(shownColumns(cols, [], metrics, ["qos"]).map((c) => c.key)).toEqual(["name", "qos"]);
+    // The owner column's cell is the owner, and links to it.
+    const owner = cols[1];
+    expect(owner.link).toBe("owner");
+    expect(owner.text(row(["web-1", "ReplicaSet/web-5d8f", ""]), ctx)).toBe("ReplicaSet/web-5d8f");
+  });
+
+  it("sums the columns' minimum widths", () => {
+    expect(minColumnsWidth([{ width: "64px" }, { width: "minmax(160px, 2.2fr)" }, { width: "1fr" }])).toBe(224);
+  });
+
   it("tells pods and nodes apart from other kinds", () => {
     expect(isPod(kindWith([], "Pod"))).toBe(true);
     expect(isPod(kindWith([], "Pod", "metrics.k8s.io"))).toBe(false);
@@ -207,5 +259,26 @@ describe("columnsFor", () => {
     // Only nodes: a pod's "ready" is a count.
     const [, podReady] = columnsFor(kindWith([["name", "text"], ["ready", "text"]]));
     expect(podReady.cls).toBeUndefined();
+  });
+});
+
+describe("headerLabel", () => {
+  it("puts the backend's labels in sentence case (#384)", () => {
+    expect(headerLabel("Controlled By")).toBe("Controlled by");
+    expect(headerLabel("Nominated Node")).toBe("Nominated node");
+    expect(headerLabel("Up-to-date")).toBe("Up-to-date");
+    expect(headerLabel("Name")).toBe("Name");
+  });
+
+  it("keeps acronyms and mixed-case words", () => {
+    expect(headerLabel("CPU")).toBe("CPU");
+    expect(headerLabel("QoS")).toBe("QoS");
+    expect(headerLabel("External IP")).toBe("External IP");
+  });
+
+  it("lowers a label written in capitals, as some CRDs do", () => {
+    expect(headerLabel("NAME")).toBe("Name");
+    expect(headerLabel("LAST SEEN")).toBe("Last seen");
+    expect(headerLabel("ready")).toBe("Ready");
   });
 });

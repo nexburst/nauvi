@@ -87,7 +87,11 @@ async fn run(cli: Cli) -> Result<()> {
         clap_complete::generate(shell, &mut Cli::command(), "nauvi", &mut std::io::stdout());
         return Ok(());
     }
-    if let Commands::Mcp { allow_writes } = cli.command {
+    if let Commands::Mcp {
+        allow_writes,
+        mode_file,
+    } = cli.command
+    {
         // Connects on the first tool call, never interactively: stdin is
         // the protocol.
         let opts = nauvi::mcp::McpOptions {
@@ -95,16 +99,22 @@ async fn run(cli: Cli) -> Result<()> {
             kubeconfig: cli.kubeconfig,
             context: cli.context,
             app_settings: None,
+            mode_file,
         };
         return nauvi::mcp::serve_stdio(opts).await;
     }
     // Exec credential plugins may prompt only when we have a terminal.
-    let client = client_with(
+    let build = client_with(
         cli.kubeconfig.as_deref(),
         cli.context.as_deref(),
         std::io::stdin().is_terminal(),
-    )
-    .await?;
+    );
+    // A port-forward's tunnels want Nagle off (#374).
+    let client = if matches!(cli.command, Commands::PortForward { .. }) {
+        nauvi::for_port_forwards(build).await?
+    } else {
+        build.await?
+    };
     match cli.command {
         Commands::Completions { .. } | Commands::Mcp { .. } => unreachable!("handled above"),
         Commands::Pods { namespace } => list_pods(&client, namespace.as_deref()).await?,

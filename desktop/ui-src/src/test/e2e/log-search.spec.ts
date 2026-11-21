@@ -328,3 +328,45 @@ test("a regex search stays right as lines come in and the buffer is trimmed", as
   await expect(logLines(page).first()).toHaveText("req 10000 status 500");
   expect(fake.errors).toEqual([]);
 });
+
+test("the search worker starts with the first regex and is dropped when no regex is left (#397)", async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __workers: { made: number; ended: number } };
+    w.__workers = { made: 0, ended: 0 };
+    const Real = window.Worker;
+    window.Worker = class extends Real {
+      constructor(url: string | URL, opts?: WorkerOptions) {
+        super(url, opts);
+        w.__workers.made++;
+      }
+      terminate() {
+        w.__workers.ended++;
+        super.terminate();
+      }
+    };
+  });
+  const workers = () => page.evaluate(() => (window as unknown as { __workers: unknown }).__workers);
+  const fake = await openPodLogs(page);
+  await fake.emitLogLines(LINES);
+  await expect(logLines(page)).toHaveCount(5);
+  // Plain text runs on the page: no worker.
+  await search(page).fill("error");
+  await expect(logLines(page)).toHaveCount(2);
+  expect(await workers()).toEqual({ made: 0, ended: 0 });
+
+  await toggle(page, "Regular expression").click();
+  await search(page).fill("5\\d\\d");
+  await expect(logLines(page)).toHaveText(["GET /api 500 error", "GET /api 503"]);
+  expect(await workers()).toEqual({ made: 1, ended: 0 });
+
+  // Cleared: the worker and its copy of the lines go.
+  await search(page).fill("");
+  await expect(logLines(page)).toHaveCount(5);
+  await expect.poll(workers).toEqual({ made: 1, ended: 1 });
+
+  // The next regex starts a new one, with the lines.
+  await search(page).fill("^all");
+  await expect(logLines(page)).toHaveText(["all good"]);
+  expect(await workers()).toEqual({ made: 2, ended: 1 });
+  expect(fake.errors).toEqual([]);
+});

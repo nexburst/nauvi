@@ -48,6 +48,64 @@ pub(crate) async fn cmd_local_shell_start(
     rows: u16,
     on_output: TermChannel,
 ) -> Result<LocalShellStarted, String> {
+    let ShellSetup {
+        spec,
+        generated,
+        temp,
+        kubectl,
+        ..
+    } = shell_setup(&cluster, &settings, namespace.as_deref()).await?;
+
+    let session = next_session("local");
+    let on_output = TermOut::new(on_output);
+    let (out, exit_out) = (on_output.clone(), on_output.clone());
+    let shell = LocalShell::spawn(
+        &spec,
+        cols,
+        rows,
+        vec![temp],
+        move |data| {
+            send_data(&out, data.into_bytes());
+        },
+        move || {
+            send_closed(&exit_out);
+        },
+    )?;
+    cluster.add_local_shell(
+        session.clone(),
+        LocalShellSession {
+            shell,
+            out: on_output,
+        },
+    );
+    Ok(LocalShellStarted {
+        session,
+        context: generated.context,
+        namespace: generated.namespace,
+        kubectl,
+    })
+}
+
+/// What a local terminal at a cluster starts with: the user's shell in the
+/// cluster's working directory, with its temp kubeconfig in `KUBECONFIG`
+/// (`kubeconfig`: that value) and a matching kubectl first on `PATH`.
+pub(crate) struct ShellSetup {
+    pub(crate) spec: ShellSpec,
+    pub(crate) generated: ShellKubeconfig,
+    pub(crate) temp: TempKubeconfig,
+    pub(crate) kubeconfig: OsString,
+    /// The downloaded kubectl's release first on `PATH` (`""`: none).
+    pub(crate) kubectl: String,
+}
+
+/// The [`ShellSetup`] of a local terminal at `cluster` with `namespace`
+/// (`None`: the context's own). It starts in the cluster's working
+/// directory from its settings (#78), else the home directory.
+pub(crate) async fn shell_setup(
+    cluster: &Cluster,
+    settings: &SettingsStore,
+    namespace: Option<&str>,
+) -> Result<ShellSetup, String> {
     let approved = cluster.target()?;
     let target = &approved.target;
     let current = settings.get();
@@ -68,42 +126,20 @@ pub(crate) async fn cmd_local_shell_start(
         }
         spec.cwd = Some(dir);
     }
-    let (generated, temp, env) = shell_kubeconfig_for(&approved, namespace.as_deref())?;
-    spec.env.push(("KUBECONFIG".into(), env));
+    let (generated, temp, env) = shell_kubeconfig_for(&approved, namespace)?;
+    spec.env.push(("KUBECONFIG".into(), env.clone()));
     // A kubectl matching the cluster, downloaded before (#331): first on
     // PATH in this shell's environment only.
-    let matched = crate::commands::kubectl::terminal_kubectl(&cluster, current.kubectl_match).await;
+    let matched = crate::commands::kubectl::terminal_kubectl(cluster, current.kubectl_match).await;
     if let Some((_, dir)) = &matched {
         let path = path_with_first(dir, std::env::var_os("PATH").as_deref());
         spec.env.push(("PATH".into(), path));
     }
-
-    let session = next_session("local");
-    let on_output = TermOut::new(on_output);
-    let (out, exit_out) = (on_output.clone(), on_output.clone());
-    let shell = LocalShell::spawn(
-        &spec,
-        cols,
-        rows,
-        Some(temp),
-        move |data| {
-            send_data(&out, data.into_bytes());
-        },
-        move || {
-            send_closed(&exit_out);
-        },
-    )?;
-    cluster.add_local_shell(
-        session.clone(),
-        LocalShellSession {
-            shell,
-            out: on_output,
-        },
-    );
-    Ok(LocalShellStarted {
-        session,
-        context: generated.context,
-        namespace: generated.namespace,
+    Ok(ShellSetup {
+        spec,
+        generated,
+        temp,
+        kubeconfig: env,
         kubectl: matched.map(|(v, _)| v.tag()).unwrap_or_default(),
     })
 }

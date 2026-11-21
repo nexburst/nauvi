@@ -9,7 +9,7 @@ const title = (page: Page) => panel(page).locator(".title");
 test("Access Control has the RBAC kinds, in Lens's order", async ({ page }) => {
   await openApp(page);
   const nav = page.getByRole("navigation");
-  const labels = await nav.locator("h4, button").allTextContents();
+  const labels = await nav.locator("h4, button:not(.section)").allTextContents();
   const start = labels.indexOf("Access Control");
   expect(labels.slice(start, start + 6)).toEqual([
     "Access Control",
@@ -59,8 +59,8 @@ test("a Role shows its rules and bindings; the binding links to its role and sub
 test("a PodDisruptionBudget shows its disruption status and pods", async ({ page }) => {
   await openApp(page);
   await openKind(page, "Pod Disruption Budgets");
-  expect(await column(page, "Allowed Disruptions")).toEqual(["1"]);
-  expect(await column(page, "Max Unavailable")).toEqual(["N/A"]);
+  expect(await column(page, "Allowed disruptions")).toEqual(["1"]);
+  expect(await column(page, "Max unavailable")).toEqual(["N/A"]);
   await row(page, "web").click();
   await expect(panel(page).getByTestId("kind-summary")).toHaveText("1 disruption allowed · 2/1 healthy");
   await expect(group(page, "Pods").locator("tbody tr")).toHaveCount(2);

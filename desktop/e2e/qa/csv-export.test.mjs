@@ -117,7 +117,7 @@ async function exportToDownloads(app, stem) {
 }
 
 /** The footer's "N of M items". */
-const footerCount = (app) => app.js(`return document.querySelector('footer > span:not(.here)')?.textContent ?? ""`);
+const footerCount = (app) => app.js(`return document.querySelector('footer [data-testid="status-count"]')?.textContent ?? ""`);
 
 describe("CSV export", { timeout: 15 * 60_000, skip }, () => {
   before(() => {
@@ -214,7 +214,7 @@ message: '${FORMULA}'
     // Back to the defaults for the next tests.
     await name.click();
     await (await app.find(By.xpath("//button[starts-with(normalize-space(), 'Columns')]"))).click();
-    await (await app.find(By.xpath("//*[@role='dialog'][@aria-label='Columns']//button[normalize-space()='Show all']"))).click();
+    await (await app.find(By.xpath("//*[@role='dialog'][@aria-label='Columns']//button[normalize-space()='Default columns']"))).click();
     await (await app.find(By.xpath("//button[starts-with(normalize-space(), 'Columns')]"))).click();
   });
 

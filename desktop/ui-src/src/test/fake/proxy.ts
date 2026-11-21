@@ -10,6 +10,8 @@ import type { AreaHandlers, FakeState } from "./state";
 interface Saved {
   url: string;
   local: boolean;
+  /** An https:// proxy's CA file (#362), "" for none. */
+  caFile: string;
 }
 
 const stores = new WeakMap<FakeState, Map<string, Saved>>();
@@ -32,16 +34,36 @@ function redact(url: string): string {
 /** The backend's checks, in short (`nauvi::proxy::ProxyUrl::parse`). */
 function parse(text: string): string {
   const t = text.trim();
-  const m = /^([a-z0-9]+):\/\/(?:([^@/]*)@)?([^/:@\s]+)(?::(\d*))?\/?$/i.exec(t);
-  if (!t.includes("://")) throw "Start the proxy URL with http:// or socks5://, for example http://proxy.example:3128.";
+  const m = /^([a-z0-9]+):\/\/(?:([^@/]*)@)?([^/:@\s]+)(?::(\d*))?\/?$/i.exec(
+    t,
+  );
+  if (!t.includes("://"))
+    throw "Start the proxy URL with http://, https:// or socks5://, for example http://proxy.example:3128.";
   const scheme = t.split("://")[0].toLowerCase();
-  if (scheme === "https") throw "HTTPS proxies aren't supported yet; use http:// or socks5://.";
-  if (!["http", "socks5"].includes(scheme)) throw `A proxy URL starts with http:// or socks5://, not ${scheme}://.`;
+  if (!["http", "https", "socks5"].includes(scheme))
+    throw `A proxy URL starts with http://, https:// or socks5://, not ${scheme}://.`;
   if (!m) throw `Not a valid proxy URL: ${redact(t)}.`;
   if (m[2] !== undefined && scheme === "socks5")
     throw "A user name and password are not supported for SOCKS5 proxies; use an HTTP proxy for that, or a SOCKS5 proxy without them.";
-  const port = m[4] || { http: "80", socks5: "1080" }[scheme];
+  const port = m[4] || { http: "80", https: "443", socks5: "1080" }[scheme];
   return `${scheme}://${m[2] !== undefined ? m[2] + "@" : ""}${m[3]}:${port}`;
+}
+
+/** The backend's CA file checks, in short (`commands/proxy.rs::with_ca`):
+ *  a full path ending in `.pem` that does not start with `/missing` is taken. */
+function withCa(url: string, caFile: string | null, saved: string): string {
+  const https = url.startsWith("https://");
+  if (caFile === null) return https ? saved : "";
+  const ca = caFile.trim();
+  if (ca === "") return "";
+  if (!https) throw "A CA file is only used for an https:// proxy.";
+  if (!ca.startsWith("/"))
+    throw `Give the full path of the proxy's CA file, not ${ca}.`;
+  if (ca.startsWith("/missing"))
+    throw `Cannot read the proxy's CA file ${ca}: No such file or directory (os error 2).`;
+  if (!ca.endsWith(".pem"))
+    throw `The proxy's CA file ${ca} has no PEM certificate (-----BEGIN CERTIFICATE-----).`;
+  return ca;
 }
 
 function isLocal(server: string): boolean {
@@ -55,9 +77,13 @@ export function proxyHandlers(s: FakeState) {
     const saved = fakeProxies(s).get(cluster);
     const serverLocal = isLocal(fullContext(ctx).server);
     const kubeconfigProxy = s.cluster.kubeconfigProxies?.[cluster] ?? "";
+    const https = !!saved && saved.url.startsWith("https://");
+    const checked = saved?.caFile
+      ? `, its certificate checked against the system's trust store and ${saved.caFile}.`
+      : ", its certificate checked against the system's trust store.";
     const route =
       saved && (saved.local || !serverLocal)
-        ? `Connects through ${redact(saved.url)}.`
+        ? `Connects through ${redact(saved.url)}${https ? checked : "."}`
         : kubeconfigProxy
           ? `Connects through the kubeconfig's proxy-url, ${kubeconfigProxy}.`
           : saved
@@ -67,6 +93,7 @@ export function proxyHandlers(s: FakeState) {
       url: saved ? redact(saved.url) : "",
       has_credentials: !!saved && saved.url !== redact(saved.url),
       local: saved?.local ?? false,
+      ca_file: saved?.caFile ?? "",
       kubeconfig_proxy: kubeconfigProxy,
       server_local: serverLocal,
       route,
@@ -74,18 +101,21 @@ export function proxyHandlers(s: FakeState) {
   };
   return {
     cmdGetClusterProxy: (id) => info(id),
-    cmdSetClusterProxy: (id, url, local) => {
+    cmdSetClusterProxy: (id, url, local, caFile) => {
       info(id);
       const proxies = fakeProxies(s);
-      if (url === null) {
-        const saved = proxies.get(id);
-        if (!saved) throw `No proxy is set for ${id}.`;
-        proxies.set(id, { ...saved, local });
-      } else if (url.trim() === "") {
+      const saved = proxies.get(id);
+      if (url !== null && url.trim() === "") {
         proxies.delete(id);
-      } else {
-        proxies.set(id, { url: parse(url), local });
+        return info(id);
       }
+      if (url === null && !saved) throw `No proxy is set for ${id}.`;
+      const next = url === null ? (saved?.url ?? "") : parse(url);
+      proxies.set(id, {
+        url: next,
+        local,
+        caFile: withCa(next, caFile, saved?.caFile ?? ""),
+      });
       return info(id);
     },
   } satisfies AreaHandlers;

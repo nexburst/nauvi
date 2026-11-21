@@ -7,6 +7,7 @@
 
 import { actionsHandlers } from "./actions";
 import { applicationsHandlers } from "./applications";
+import { askAiHandlers } from "./ask-ai";
 import { autostartHandlers } from "./autostart";
 import { catalogHandlers } from "./catalog";
 import { clusterHandlers } from "./cluster";
@@ -41,6 +42,7 @@ export function allHandlers(s: FakeState): Handlers {
   return {
     ...actionsHandlers(s),
     ...applicationsHandlers(s),
+    ...askAiHandlers(s),
     ...autostartHandlers(s),
     ...catalogHandlers(s),
     ...clusterHandlers(s),

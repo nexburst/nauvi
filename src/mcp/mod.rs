@@ -4,6 +4,7 @@
 //! - `server`: the protocol, through the `rmcp` SDK (the only file that uses it)
 //! - `tools`: the tool catalogue and the dispatcher
 //! - `read_tools`: list, get, describe, logs, events, top
+//! - `problems`: what is unhealthy, and why, in one call
 //! - `write_tools`: scale, restart, delete, apply (only with `--allow-writes`)
 //! - `redact`: Secret values and last-applied, never returned
 //! - `limits`: caps on lines and bytes per call
@@ -15,6 +16,8 @@
 //! on a context the app marks read-only or protected. Diagnostics go to stderr: stdout carries the protocol.
 
 mod limits;
+mod list_table;
+mod problems;
 mod read_tools;
 mod redact;
 mod server;
@@ -38,6 +41,12 @@ pub struct McpOptions {
     /// The app's settings file, for the context's read-only or protected
     /// mode (#338). `None`: where the desktop app keeps it.
     pub app_settings: Option<PathBuf>,
+    /// The kubeconfig file the context comes from in the app (`--mode-file`,
+    /// #376): the mode is looked up for the context of this file, not of
+    /// the files the client reads (an Ask AI terminal's `KUBECONFIG` starts
+    /// with a per-terminal file the app's catalog does not know). `None`:
+    /// `kubeconfig`, else the default kubeconfig files.
+    pub mode_file: Option<PathBuf>,
 }
 
 /// Serve MCP on stdin/stdout until the client closes stdin.

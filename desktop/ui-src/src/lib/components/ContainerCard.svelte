@@ -1,17 +1,52 @@
 <script lang="ts">
   import type { ContainerDetail } from "../bindings";
-  import { envSourceText, resourcesText, stateSince, stateText, stateTone } from "../containers";
+  import {
+    envSourceText,
+    envSummary,
+    mountText,
+    quantitiesText,
+    shellJoin,
+    stateSince,
+    stateText,
+    stateTone,
+  } from "../containers";
 
-  /** One container of the pod panel: state, last termination, resources,
-   *  ports (each with a Forward button), probes, mounts and env names. */
+  /** One container of the pod panel: state, then a key/value summary (image,
+   *  command, args, requests, limits, env count, mounts with their source),
+   *  then ports (each with a Forward button), probes and the full mount and
+   *  env lists. Command and args arrive masked from the backend. */
   let {
     container: c,
     onForward,
     disabled = false,
   }: { container: ContainerDetail; onForward: (port: number) => void; disabled?: boolean } = $props();
 
-  const resources = $derived(resourcesText(c));
+  /** Longer than this, a command or args line starts folded to one line. */
+  const LONG = 72;
+  /** Mounts listed in the summary; the rest are in the folded list. */
+  const SHOWN_MOUNTS = 3;
+
+  const command = $derived(shellJoin(c.command));
+  const args = $derived(shellJoin(c.args));
+  const hasResources = $derived(Object.keys(c.requests).length + Object.keys(c.limits).length > 0);
+  let open = $state<Record<string, boolean>>({});
 </script>
+
+{#snippet longValue(key: string, text: string)}
+  {@const long = text.length > LONG}
+  <dd class="mono long" data-testid="container-{key}">
+    <span class="value" class:folded={long && !open[key]} title={long ? text : undefined}>{text}</span>
+    {#if long}
+      <button
+        type="button"
+        class="link"
+        aria-expanded={!!open[key]}
+        aria-label="{open[key] ? 'Fold' : 'Show all of'} {key}"
+        onclick={() => (open[key] = !open[key])}>{open[key] ? "less" : "more"}</button
+      >
+    {/if}
+  </dd>
+{/snippet}
 
 <section class="card" aria-label="Container {c.name}">
   <div class="head">
@@ -19,7 +54,6 @@
     {#if c.kind !== "regular"}<span class="tag">{c.kind}</span>{/if}
     <span class="ready" class:ok={c.ready}>{c.ready ? "ready" : "not ready"}</span>
   </div>
-  <div class="image mono" title={c.image_id}>{c.image}</div>
 
   <div class="state tone-{stateTone(c.state)}" data-testid="container-state">
     {stateText(c.state)}
@@ -27,7 +61,41 @@
   </div>
   {#if c.state.message}<div class="message">{c.state.message}</div>{/if}
 
-  <dl>
+  <dl class="summary" data-testid="container-summary">
+    <dt>Image</dt>
+    <dd class="mono image" title={c.image_id ? `${c.image}\n${c.image_id}` : c.image}>{c.image}</dd>
+    {#if c.command.length > 0}
+      <dt>Command</dt>
+      {@render longValue("command", command)}
+    {/if}
+    {#if c.args.length > 0}
+      <dt>Args</dt>
+      {@render longValue("args", args)}
+    {/if}
+    {#if c.secrets_hidden}
+      <dd class="note muted" data-testid="secrets-hidden">Values that look like secrets are hidden (••••).</dd>
+    {/if}
+    {#if hasResources}
+      <dt>Requests</dt>
+      <dd>{quantitiesText(c.requests)}</dd>
+      <dt>Limits</dt>
+      <dd>{quantitiesText(c.limits)}</dd>
+    {/if}
+    {#if c.env.length > 0}
+      <dt>Env</dt>
+      <dd data-testid="container-env">{envSummary(c.env)}</dd>
+    {/if}
+    {#if c.mounts.length > 0}
+      <dt>Mounts</dt>
+      <dd data-testid="container-mounts">
+        {#each c.mounts.slice(0, SHOWN_MOUNTS) as m (m.path)}
+          <div class="mono mount" title="volume {m.name}">{mountText(m)}</div>
+        {/each}
+        {#if c.mounts.length > SHOWN_MOUNTS}
+          <div class="muted">+{c.mounts.length - SHOWN_MOUNTS} more below</div>
+        {/if}
+      </dd>
+    {/if}
     <dt>Restarts</dt>
     <dd>{c.restarts}</dd>
     {#if c.last_state.state}
@@ -36,10 +104,6 @@
         {stateText(c.last_state)}
         {#if stateSince(c.last_state)}<span class="muted"> · {stateSince(c.last_state)}</span>{/if}
       </dd>
-    {/if}
-    {#if resources}
-      <dt>Resources</dt>
-      <dd>{resources} <span class="muted">(request / limit)</span></dd>
     {/if}
   </dl>
 
@@ -80,7 +144,11 @@
         {#each c.mounts as m (m.path)}
           <li>
             <span class="mono">{m.path}</span>
-            <span class="muted">from {m.name}{m.sub_path ? `/${m.sub_path}` : ""}{m.read_only ? " (ro)" : ""}</span>
+            <span class="muted"
+              >from {m.name}{m.sub_path ? `/${m.sub_path}` : ""}{m.source ? ` · ${m.source}` : ""}{m.read_only
+                ? " (ro)"
+                : ""}</span
+            >
           </li>
         {/each}
       </ul>
@@ -129,13 +197,53 @@
   .ready.ok {
     color: var(--green);
   }
+  /* One token: on one line, cut, the whole image in the title (#384). */
   .image {
-    color: var(--text-muted);
-    word-break: break-all;
-    margin: 2px 0 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .state {
     font-weight: 600;
+    margin-top: 2px;
+  }
+  dd.long {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  .value {
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .value.folded {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .note {
+    grid-column: 2;
+    font-size: 11px;
+  }
+  .mount {
+    overflow-wrap: anywhere;
+  }
+  .mount + .mount {
+    margin-top: 2px;
+  }
+  .link {
+    flex: none;
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+  }
+  .link:hover {
+    text-decoration: underline;
   }
   .message {
     margin-top: 2px;
@@ -153,7 +261,7 @@
   }
   dl {
     display: grid;
-    grid-template-columns: 80px 1fr;
+    grid-template-columns: 80px minmax(0, 1fr);
     gap: 2px 10px;
     margin: 6px 0 0;
   }
@@ -179,7 +287,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
   details {
     margin-top: 6px;

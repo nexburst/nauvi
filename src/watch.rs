@@ -494,15 +494,17 @@ pub fn can_watch(kind: &ResourceKind) -> bool {
 /// Watch any discovered kind, optionally in one namespace, yielding table
 /// rows built from the kind's column definitions. A kind without the `watch`
 /// verb is listed every [`crate::poll::POLL_INTERVAL`] instead.
+///
+/// No reflector store: only the rows exist (and the batcher's copy of
+/// them), so a table of 5,000 objects costs what its rows cost, not what
+/// 5,000 parsed objects cost (#397). Whoever needs a full object (the
+/// detail panel) fetches it.
 pub fn watch_resource(
     client: &Client,
     prober: &Prober,
     kind: &ResourceKind,
     namespace: Option<&str>,
-) -> (
-    Store<DynamicObject>,
-    BoxStream<'static, Update<ResourceRow>>,
-) {
+) -> BoxStream<'static, Update<ResourceRow>> {
     poll_resource(client, prober, kind, namespace, crate::poll::POLL_INTERVAL)
 }
 
@@ -514,18 +516,15 @@ pub fn poll_resource(
     kind: &ResourceKind,
     namespace: Option<&str>,
     interval: Duration,
-) -> (
-    Store<DynamicObject>,
-    BoxStream<'static, Update<ResourceRow>>,
-) {
+) -> BoxStream<'static, Update<ResourceRow>> {
     let api = crate::resources::dyn_api(client, &kind.resource, namespace);
     let columns = Arc::new(kind.columns.clone());
     let resource = kind.resource.clone();
     let convert = move |o: &DynamicObject| make_row(&resource, &columns, o);
     if can_watch(kind) {
-        watch_with(api, prober, kind.resource.api_resource(), convert)
+        watch_summaries(api, prober, watcher::Config::default(), convert)
     } else {
-        crate::poll::poll_with(api, prober, kind.resource.api_resource(), interval, convert)
+        crate::poll::poll_with(api, prober, interval, convert)
     }
 }
 

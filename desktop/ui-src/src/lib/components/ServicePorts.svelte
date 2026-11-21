@@ -3,7 +3,7 @@
   import { api, visibleCluster } from "../cluster";
   import type { ForwardTarget, ServicePortInfo } from "../bindings";
   import { sameTarget } from "../forwards";
-  import { forwards, openForward, pollForwards, startForward } from "../stores/forwards.svelte";
+  import { forwards, noticeForwardStarted, openForward, pollForwards, startForward } from "../stores/forwards.svelte";
   import { setNotice } from "../stores/actions.svelte";
 
   /** A Service's ports, each with a Forward button. The forward picks a
@@ -34,7 +34,7 @@
     busy = p.port;
     try {
       const f = await startForward(target, String(p.port), null);
-      setNotice(true, `Forwarding ${f.url} → svc/${namespace}/${name}:${p.port}`);
+      noticeForwardStarted(f);
     } catch (e) {
       setNotice(false, `Port forward svc/${namespace}/${name}:${p.port}: ${e}`);
     } finally {

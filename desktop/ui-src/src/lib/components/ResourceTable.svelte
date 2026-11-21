@@ -1,12 +1,16 @@
 <script lang="ts">
   import CalmWater from "./CalmWater.svelte";
   import { chart } from "../stores/chart.svelte";
-  import { app } from "../stores/app.svelte";
+  import { visibleRows } from "../stores/visibleRows.svelte";
+  import { app, kinds, openObject, switchNamespace } from "../stores/app.svelte";
+  import { cellLink, type CellLink } from "../cellLinks";
   import { rowHeightPx } from "../preferences";
   import { onMount } from "svelte";
   import VirtualList from "./VirtualList.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import Sparkline from "./Sparkline.svelte";
+  import ContainerSquares from "./ContainerSquares.svelte";
+  import RolloutStatus from "./RolloutStatus.svelte";
   import { clockTime } from "../usage";
   import { watchGutter } from "../scrollGutter";
   import type { MenuItem } from "./ContextMenu.svelte";
@@ -23,10 +27,9 @@
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove } from "../stores/keyboard.svelte";
   import type { ResourceKind } from "../bindings";
-  import { columnsFor, shownColumns } from "../columns";
+  import { columnsFor, minColumnsWidth, shownColumns } from "../columns";
   import type { Metrics, Row } from "../columns";
   import type { KeyedStore } from "../stores/keyed.svelte";
-  import { visibleEntries } from "../view";
   import type { Sort } from "../view";
   import { ListFilter } from "../stores/tableFilter.svelte";
   import { rawHay } from "../tableFilter";
@@ -76,8 +79,15 @@
   // The columns the user has not hidden (column chooser in the toolbar),
   // and the sort, both remembered per kind.
   const hidden = $derived(kindSettings(kind.id).hidden);
-  const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics));
-  const template = $derived(["32px", ...columns.map((c) => c.width)].join(" "));
+  const shownExtra = $derived(kindSettings(kind.id).shown ?? []);
+  const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics, shownExtra));
+  // The checkbox, the columns, then the row's ⋮ menu (#382).
+  const MORE_PX = 28;
+  const template = $derived(["32px", ...columns.map((c) => c.width), `${MORE_PX}px`].join(" "));
+  // Columns that don't fit (extra ones turned on, the detail panel open)
+  // scroll sideways, the header with the rows, instead of being cut off.
+  const minWidth = $derived(32 + minColumnsWidth(columns) + MORE_PX);
+  let scrollLeft = $state(0);
   // svelte-ignore state_referenced_locally
   let sort = $state.raw<Sort | null>(sortOf(kindSettings(kind.id)));
 
@@ -89,7 +99,12 @@
     lower: (e) => e.hay,
     text: (e) => rawHay(e.row),
   });
-  const visible = $derived(visibleEntries(store.entries, filter.match, sort, columns, { metrics, now }, status));
+  // The clock is read untracked there: an age tick redraws the Age cells only.
+  const rows = visibleRows(
+    () => ({ entries: store.entries, match: filter.match, sort, columns, metrics, status }),
+    () => now,
+  );
+  const visible = $derived(rows.value);
   const getKey = $derived((i: number) => visible[i]?.key ?? i);
 
   $effect(() => {
@@ -103,7 +118,7 @@
     const row = selectedKey ? store.entries.find((e) => e.key === selectedKey)?.row : undefined;
     // With how often it restarted, when the table has that column.
     const at = columns.findIndex((c) => c.key === "restarts");
-    const restarts = row && at >= 0 ? Number(columns[at].text(row, { metrics, now })) : 0;
+    const restarts = row && at >= 0 ? Number(columns[at].text(row, { metrics, now: 0 })) : 0;
     chart.verdict = row?.problem ? `${row.problem}${restarts > 0 ? ` · ${restarts} restart${restarts === 1 ? "" : "s"}` : ""}` : "";
   });
 
@@ -150,6 +165,42 @@
     if (deleteAction) requestAction(kind, targetsOf(selected), deleteAction);
   }
 
+  // The cluster these rows are of. A link or menu acts only while it is still
+  // the one on screen (#382): a click that lands during a cluster switch
+  // must not open a namespace or object in the other cluster.
+  const ownCluster = visibleCluster();
+  const stillOwnCluster = () => visibleCluster() === ownCluster;
+
+  function followLink(link: CellLink) {
+    if (!stillOwnCluster()) return;
+    if (link.to === "namespace") switchNamespace(link.namespace);
+    else openObject(link.kind, link.namespace, link.name);
+  }
+
+  // A cell link follows a click, with or without Ctrl/Cmd/Shift (no new
+  // window, no row selection); a middle click does nothing at all.
+  function follow(e: MouseEvent, link: CellLink) {
+    e.stopPropagation();
+    followLink(link);
+  }
+  function noMiddle(e: MouseEvent) {
+    if (e.button === 1) e.preventDefault();
+  }
+  function swallow(e: MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  // The row's ⋮ button: the same menu as a right-click, under the button.
+  function openMenuFromButton(e: MouseEvent, row: Row) {
+    e.stopPropagation();
+    focusedKey = row.key;
+    // The grid keeps the keyboard; the menu gives the focus back to it.
+    gridEl?.focus({ preventScroll: true });
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    openMenuAt(r.right, r.bottom, row);
+  }
+
   // Right-click menu, built from the same registry as the detail panels.
   let menu = $state.raw<{ x: number; y: number; title: string; items: MenuItem[] } | null>(null);
 
@@ -160,6 +211,7 @@
   }
 
   function openMenuAt(x: number, y: number, row: Row) {
+    if (!stillOwnCluster()) return;
     let items: (MenuItem & { id?: string })[];
     let title: string;
     if (selected.has(row.key) && selected.size > 1) {
@@ -269,6 +321,13 @@
     const entry = focusedEntry();
     if (!entry) return;
     list?.scrollToIndex(focusedIndex);
+    // Under the row's ⋮ button when it is in view, as a click on it would.
+    const more = document.getElementById(rowId(focusedIndex))?.querySelector('[data-testid="row-menu"]');
+    const m = more?.getBoundingClientRect();
+    if (m && m.width > 0 && m.right <= window.innerWidth) {
+      openMenuAt(m.right, m.bottom, entry.row);
+      return;
+    }
     const rect = document.getElementById(rowId(focusedIndex))?.getBoundingClientRect();
     openMenuAt(rect ? rect.left + 40 : 100, rect ? rect.bottom : 100, entry.row);
   }
@@ -458,12 +517,20 @@
     tabindex="0"
     aria-label={kind.label}
     aria-rowcount={visible.length + 1}
-    aria-colcount={columns.length + 1}
+    aria-colcount={columns.length + 2}
     aria-multiselectable="true"
     aria-activedescendant={focusedIndex >= 0 ? rowId(focusedIndex) : undefined}
     bind:this={gridEl}
   >
-    <div class="head" role="row" aria-rowindex={1} style:grid-template-columns={template} style:padding-right="{gutter}px">
+    <div
+      class="head"
+      role="row"
+      aria-rowindex={1}
+      style:grid-template-columns={template}
+      style:padding-right="{gutter}px"
+      style:min-width="{minWidth + gutter}px"
+      style:transform={scrollLeft ? `translateX(${-scrollLeft}px)` : undefined}
+    >
       <div class="th check" role="columnheader">
         <input
           type="checkbox"
@@ -486,9 +553,19 @@
           {#if sort?.key === col.key}<span class="arrow">{sort.dir === "asc" ? "▲" : "▼"}</span>{/if}
         </button>
       {/each}
+      <div class="th more" role="columnheader" aria-label="Actions"></div>
     </div>
 
-    <VirtualList bind:this={list} count={visible.length} rowHeight={ROW_HEIGHT} {getKey} bind:scrollEl>
+    <VirtualList
+      bind:this={list}
+      count={visible.length}
+      rowHeight={ROW_HEIGHT}
+      {getKey}
+      bind:scrollEl
+      scrollX
+      {minWidth}
+      onscroll={(e) => (scrollLeft = (e.currentTarget as HTMLElement).scrollLeft)}
+    >
       {#snippet row(i)}
         {@const entry = visible[i]}
         {#if entry}
@@ -509,6 +586,7 @@
             aria-rowindex={i + 2}
             aria-selected={selected.has(entry.key)}
             style:grid-template-columns={template}
+            style:min-width="{minWidth}px"
             onclick={() => {
               focusedKey = entry.key;
               // E's flag is still set if its panel never opened (discard refused).
@@ -535,14 +613,96 @@
             {#each columns as col (col.key)}
               {@const text = col.text(entry.row, { metrics, now })}
               {@const spark = col.spark?.(entry.row, { metrics, now })}
+              {@const link = cellLink(kinds.all, kind, col, text, entry.row.namespace)}
               <div
                 class="td {col.cls?.(entry.row) ?? ''}"
                 role="gridcell"
-                title={spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : text}
+                title={col.title?.(entry.row, settings.current.time_zone) ||
+                  (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : text)}
               >
-                {text}{#if spark}<Sparkline values={spark} />{/if}
+                {#if link && col.link === "owner"}
+                  <!-- The owner's name is the link (#378). Out of the tab order
+                       like the rows: the grid has the focus. -->
+                  <button
+                    type="button"
+                    class="cell-link"
+                    tabindex="-1"
+                    data-testid="owner-link"
+                    title={link.title}
+                    onmousedown={noMiddle}
+                    onauxclick={swallow}
+                    onclick={(e) => follow(e, link)}>{text}</button
+                  >
+                {:else if link}
+                  <!-- A namespace or node: the text stays the row's (a click on
+                       it opens the row, as everywhere in the row); a small link
+                       after it, shown on hover and focus, leads to what it
+                       names (#382). -->
+                  <span class="linked"
+                    ><span class="linked-text">{text}</span><button
+                      type="button"
+                      class="link-icon"
+                      tabindex="-1"
+                      data-testid={link.to === "namespace" ? "namespace-link" : "node-link"}
+                      aria-label={link.title}
+                      title={link.title}
+                      onmousedown={noMiddle}
+                      onauxclick={swallow}
+                      onclick={(e) => follow(e, link)}
+                    >
+                      {#if link.to === "namespace"}
+                        <!-- A funnel: show only this namespace. -->
+                        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                          <path
+                            d="M2.5 3h11l-4.2 5.2v4.3l-2.6 1.3V8.2z"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.4"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      {:else}
+                        <!-- An arrow: open the node. -->
+                        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+                          <path
+                            d="M5 11l6-6M6 5h5v5"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                          />
+                        </svg>
+                      {/if}
+                    </button></span
+                  >
+                {:else if col.draw === "containers"}
+                  <ContainerSquares cell={text} />
+                {:else if col.draw === "rollout"}
+                  <RolloutStatus word={text} />
+                {:else}
+                  {text}{#if spark}<Sparkline values={spark} />{/if}
+                {/if}
               </div>
             {/each}
+            <div class="td more" role="gridcell">
+              <button
+                type="button"
+                class="more-btn"
+                tabindex="-1"
+                data-testid="row-menu"
+                aria-label="Actions for {entry.row.name}"
+                title="Actions (Shift+F10)"
+                aria-haspopup="menu"
+                onclick={(e) => openMenuFromButton(e, entry.row)}
+              >
+                <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                  <circle cx="8" cy="3.5" r="1.4" fill="currentColor" />
+                  <circle cx="8" cy="8" r="1.4" fill="currentColor" />
+                  <circle cx="8" cy="12.5" r="1.4" fill="currentColor" />
+                </svg>
+              </button>
+            </div>
           </div>
         {/if}
       {/snippet}
@@ -653,9 +813,11 @@
     align-items: center;
     height: 100%;
     border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+    /* The row's tint, as a variable so the sticky ⋮ cell can paint it too. */
+    background: var(--row-bg, transparent);
   }
   .tr:hover {
-    background: var(--bg-hover);
+    --row-bg: var(--bg-hover);
   }
   /* A status cell leads with a dot of its colour (the phase-* classes). */
   .td[class*="phase-"]::before {
@@ -673,21 +835,21 @@
   }
   /* The row open in the detail panel: lit teal, as the sidebar's view. */
   .tr.selected {
-    background: var(--accent-soft);
+    --row-bg: var(--accent-soft);
     box-shadow: inset 2px 0 0 var(--accent);
   }
   .tr.checked {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    --row-bg: color-mix(in srgb, var(--accent) 16%, transparent);
   }
   /* Needs attention (the backend's `problem`): a red edge and a faint tint. */
   .tr.problem {
     box-shadow: inset 2px 0 0 var(--red);
   }
   .tr.problem:not(.selected, .checked) {
-    background: color-mix(in srgb, var(--red) 7%, transparent);
+    --row-bg: color-mix(in srgb, var(--red) 7%, transparent);
   }
   .tr.problem:not(.selected, .checked):hover {
-    background: color-mix(in srgb, var(--red) 12%, transparent);
+    --row-bg: color-mix(in srgb, var(--red) 12%, transparent);
   }
   .tr.problem.focused {
     box-shadow: inset 3px 0 0 var(--accent);
@@ -751,6 +913,96 @@
     border: 1px solid var(--border-strong);
     border-radius: 3px;
     color: var(--text);
+  }
+  /* A link only on hover or focus, so the table doesn't turn blue (#382). */
+  .cell-link {
+    all: unset;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .cell-link:hover,
+  .cell-link:focus-visible {
+    color: var(--accent);
+    text-decoration: underline;
+  }
+  /* The text keeps the whole cell; the link sits over the cell's right end,
+     in the row's tint, and only while the row is hovered or focused, so the
+     table stays calm and the text is not cut short for it. */
+  .td:has(.linked) {
+    position: relative;
+  }
+  .link-icon {
+    all: unset;
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    background:
+      linear-gradient(var(--row-bg, transparent), var(--row-bg, transparent)),
+      var(--bg);
+    cursor: pointer;
+    opacity: 0;
+  }
+  .tr:hover .link-icon,
+  .tr.focused .link-icon,
+  .link-icon:focus-visible {
+    opacity: 1;
+  }
+  .link-icon:hover,
+  .link-icon:focus-visible {
+    color: var(--accent);
+    background: var(--bg-hover);
+  }
+  .link-icon:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  /* The ⋮ stays at the right edge when the columns scroll sideways, over
+     the cells, in the row's own tint. */
+  .td.more {
+    position: sticky;
+    right: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    padding: 0;
+    background:
+      linear-gradient(var(--row-bg, transparent), var(--row-bg, transparent)),
+      var(--bg);
+  }
+  .th.more {
+    cursor: default;
+  }
+  .more-btn {
+    all: unset;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 5px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .more-btn:hover,
+  .more-btn:focus-visible {
+    color: var(--text);
+    background: var(--bg-hover);
+  }
+  .more-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   .empty {
     position: absolute;

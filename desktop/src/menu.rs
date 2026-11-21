@@ -22,7 +22,12 @@ pub(crate) enum HelpItem {
     ReportBug,
     /// The folder with the app log, in the file manager.
     LogFolder,
+    /// The README's section on AI assistants and `nauvi mcp` (#376).
+    AiAssistants,
 }
+
+/// The README's section on `nauvi mcp`.
+const AI_DOCS_URL: &str = "https://github.com/nexburst/nauvi#use-nauvi-from-an-ai-assistant-mcp";
 
 /// Do what `item` says. The URLs and the folder are fixed here: the page
 /// only names the item.
@@ -31,6 +36,9 @@ pub(crate) fn open<R: Runtime>(app: &AppHandle<R>, item: HelpItem) -> Result<(),
     match item {
         HelpItem::Documentation => opener
             .open_url(crate::diagnostics::DOCS_URL, None::<&str>)
+            .map_err(|e| format!("Could not open the documentation in the browser: {e}")),
+        HelpItem::AiAssistants => opener
+            .open_url(AI_DOCS_URL, None::<&str>)
             .map_err(|e| format!("Could not open the documentation in the browser: {e}")),
         HelpItem::ReportBug => opener
             .open_url(crate::diagnostics::bug_report_url(), None::<&str>)

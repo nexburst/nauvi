@@ -130,6 +130,9 @@ pub(crate) struct KindSettings {
     pub(crate) sort_desc: bool,
     /// Keys of the columns the user hid.
     pub(crate) hidden: Vec<String>,
+    /// Keys of the off-by-default columns the user turned on (#378). Files
+    /// from before it have none, so those columns stay off.
+    pub(crate) shown: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -196,6 +199,15 @@ pub(crate) struct Settings {
     /// terminal when the installed one is too far from it (#331). Off by
     /// default; nothing is downloaded without a click.
     pub(crate) kubectl_match: bool,
+    /// The sidebar sections the user collapsed (#383), by id (`workloads`,
+    /// `network`, `helm`, `custom`...). Empty: every section open.
+    pub(crate) collapsed_sections: Vec<String>,
+    /// Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
+    /// (the first known one found on `PATH`).
+    pub(crate) ask_ai_cli: String,
+    /// Ask AI's custom command, the program and its arguments (#376). Split
+    /// into words, never run through a shell.
+    pub(crate) ask_ai_command: String,
 }
 
 /// `searches` as read from the file: each entry parsed on its own, so one
@@ -330,6 +342,9 @@ impl Default for Settings {
             forwards: BTreeMap::new(),
             searches: SearchHistory::default(),
             kubectl_match: false,
+            collapsed_sections: Vec::new(),
+            ask_ai_cli: String::new(),
+            ask_ai_command: String::new(),
         }
     }
 }
@@ -408,6 +423,13 @@ pub(crate) struct SettingsPatch {
     pub(crate) searches: Option<SearchHistory>,
     #[specta(optional)]
     pub(crate) kubectl_match: Option<bool>,
+    /// The whole list of collapsed sidebar sections (#383).
+    #[specta(optional)]
+    pub(crate) collapsed_sections: Option<Vec<String>>,
+    #[specta(optional)]
+    pub(crate) ask_ai_cli: Option<String>,
+    #[specta(optional)]
+    pub(crate) ask_ai_command: Option<String>,
 }
 
 impl Settings {
@@ -437,13 +459,7 @@ impl Settings {
             self.favourites = v;
         }
         if let Some(v) = patch.hidden_contexts {
-            let mut out: Vec<String> = Vec::new();
-            for id in v {
-                if !id.is_empty() && !out.contains(&id) {
-                    out.push(id);
-                }
-            }
-            self.hidden_contexts = out;
+            self.hidden_contexts = unique_ids(v);
         }
         if let Some(v) = patch.zoom {
             self.zoom = v.clamp(ZOOM_RANGE.0, ZOOM_RANGE.1);
@@ -473,6 +489,15 @@ impl Settings {
         if let Some(v) = patch.kubectl_match {
             self.kubectl_match = v;
         }
+        if let Some(v) = patch.collapsed_sections {
+            self.collapsed_sections = unique_ids(v);
+        }
+        if let Some(v) = patch.ask_ai_cli {
+            self.ask_ai_cli = v.trim().to_string();
+        }
+        if let Some(v) = patch.ask_ai_command {
+            self.ask_ai_command = v.trim().to_string();
+        }
         for (id, mut ctx) in patch.contexts.unwrap_or_default() {
             // The mode has its own command (#338).
             let old = self.contexts.get(&id).cloned().unwrap_or_default();
@@ -482,6 +507,17 @@ impl Settings {
         }
         self.kinds.extend(patch.kinds.unwrap_or_default());
     }
+}
+
+/// `ids` without empty and repeated entries, in their first order.
+fn unique_ids(ids: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for id in ids {
+        if !id.is_empty() && !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    out
 }
 
 /// Bring a file written by an older version up to `SETTINGS_VERSION`.
@@ -753,6 +789,32 @@ mod tests {
     }
 
     #[test]
+    fn collapsed_sections_survive_a_restart() {
+        let mut s = Settings::default();
+        assert!(s.collapsed_sections.is_empty());
+        s.apply(SettingsPatch {
+            collapsed_sections: Some(vec![
+                "network".into(),
+                "".into(),
+                "network".into(),
+                "helm".into(),
+            ]),
+            ..Default::default()
+        });
+        assert_eq!(s.collapsed_sections, ["network", "helm"]);
+        let saved = serde_json::to_string(&s).unwrap();
+        assert_eq!(
+            parse(&saved).unwrap().collapsed_sections,
+            ["network", "helm"]
+        );
+        // A file from before has none; a bad value costs no other field.
+        assert!(parse("{}").unwrap().collapsed_sections.is_empty());
+        let s = parse(r#"{"collapsed_sections":3,"theme":"light"}"#).unwrap();
+        assert!(s.collapsed_sections.is_empty());
+        assert_eq!(s.theme, Theme::Light);
+    }
+
+    #[test]
     fn unknown_fields_are_ignored() {
         let s = parse(
             r#"{"version":1,"theme":"dark","fromTheFuture":[1,2],"logs":{"wrap":true,"x":1}}"#,
@@ -780,6 +842,10 @@ mod tests {
         assert_eq!(s.last_context, "kind-test");
         assert_eq!(s.kinds["v1/pods"].sort_key, "age");
         assert!(s.kinds["v1/pods"].sort_desc);
+        // From before off-by-default columns (#378): none turned on.
+        assert!(s.kinds["v1/pods"].shown.is_empty());
+        let on = parse(r#"{"kinds":{"v1/pods":{"hidden":["node"],"shown":["qos"]}}}"#).unwrap();
+        assert_eq!(on.kinds["v1/pods"].shown, ["qos"]);
         assert_eq!(parse(r#"{"version":0}"#).unwrap().version, SETTINGS_VERSION);
     }
 

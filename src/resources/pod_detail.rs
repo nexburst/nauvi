@@ -1,8 +1,11 @@
 //! The pod section of the detail panel: pod-level facts plus a summary of
 //! every container (init, regular, ephemeral). Env values never leave here:
-//! only variable names and where `valueFrom` points.
+//! only variable names and where `valueFrom` points. Command and args go
+//! through [`super::mask`], which hides values that look like secrets.
 
 use super::columns::age_text;
+use super::mask::mask_args;
+use super::volume_source::volume_source;
 use crate::LogContainer;
 use k8s_openapi::api::core::v1::{
     ContainerState, ContainerStatus, EnvFromSource, EnvVar, Pod, Probe, ResourceRequirements,
@@ -78,6 +81,10 @@ pub struct MountInfo {
     pub path: String,
     pub sub_path: String,
     pub read_only: bool,
+    /// What the volume is: `secret db-creds`, `configmap cfg`, `pvc data`,
+    /// `projected (service account token)`, `emptyDir`. Empty when the pod
+    /// has no volume of that name.
+    pub source: String,
 }
 
 /// An env variable. Literal values are never included.
@@ -99,6 +106,13 @@ pub struct ContainerDetail {
     pub kind: ContainerKind,
     pub image: String,
     pub image_id: String,
+    /// The entrypoint override (`command`), empty for the image's own.
+    /// Values that look like secrets are replaced by `••••`.
+    pub command: Vec<String>,
+    /// `args`, masked like `command`.
+    pub args: Vec<String>,
+    /// Whether anything in `command` or `args` was hidden.
+    pub secrets_hidden: bool,
     pub state: StateInfo,
     pub last_state: StateInfo,
     pub ready: bool,
@@ -115,6 +129,8 @@ pub struct ContainerDetail {
 struct SpecView<'a> {
     name: &'a str,
     image: Option<&'a String>,
+    command: Option<&'a Vec<String>>,
+    args: Option<&'a Vec<String>>,
     resources: Option<&'a ResourceRequirements>,
     ports: Vec<PortInfo>,
     probes: [(&'static str, Option<&'a Probe>); 3],
@@ -129,6 +145,8 @@ macro_rules! spec_view {
         SpecView {
             name: &c.name,
             image: c.image.as_ref(),
+            command: c.command.as_ref(),
+            args: c.args.as_ref(),
             resources: c.resources.as_ref(),
             ports: c
                 .ports
@@ -154,6 +172,7 @@ macro_rules! spec_view {
                     path: m.mount_path.clone(),
                     sub_path: m.sub_path.clone().unwrap_or_default(),
                     read_only: m.read_only.unwrap_or(false),
+                    source: String::new(),
                 })
                 .collect(),
             env: c.env.as_ref(),
@@ -200,6 +219,15 @@ pub fn pod_extras(pod: &Pod) -> PodExtras {
                 statuses(ContainerKind::Ephemeral),
             ));
         }
+    }
+    let volumes: BTreeMap<&str, String> = spec
+        .and_then(|s| s.volumes.as_ref())
+        .into_iter()
+        .flatten()
+        .map(|v| (v.name.as_str(), volume_source(v)))
+        .collect();
+    for m in containers.iter_mut().flat_map(|c| c.mounts.iter_mut()) {
+        m.source = volumes.get(m.name.as_str()).cloned().unwrap_or_default();
     }
     let log_containers = containers
         .iter()
@@ -260,11 +288,16 @@ fn container_detail(
             })
             .unwrap_or_default()
     };
+    let (command, command_hidden) = mask_args(spec.command.map(Vec::as_slice).unwrap_or(&[]));
+    let (args, args_hidden) = mask_args(spec.args.map(Vec::as_slice).unwrap_or(&[]));
     ContainerDetail {
         name: spec.name.to_string(),
         kind,
         image: spec.image.cloned().unwrap_or_default(),
         image_id: st.map(|s| s.image_id.clone()).unwrap_or_default(),
+        command,
+        args,
+        secrets_hidden: command_hidden || args_hidden,
         state: st
             .and_then(|s| s.state.as_ref())
             .map(state_info)
@@ -353,15 +386,8 @@ pub fn probe_summary(p: &Probe) -> String {
             port_text(&t.port)
         )
     } else if let Some(e) = &p.exec {
-        format!(
-            "exec [{}]",
-            e.command
-                .iter()
-                .flatten()
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(" ")
-        )
+        let argv: &[String] = e.command.as_deref().unwrap_or(&[]);
+        format!("exec [{}]", mask_args(argv).0.join(" "))
     } else if let Some(g) = &p.grpc {
         match g.service.as_deref().filter(|s| !s.is_empty()) {
             Some(svc) => format!("grpc :{} {svc}", g.port),
@@ -525,6 +551,7 @@ mod tests {
                     "livenessProbe": { "httpGet": { "path": "/healthz", "port": 8080 } },
                     "volumeMounts": [{ "name": "data", "mountPath": "/data", "readOnly": true, "subPath": "x" }]
                 }],
+                "volumes": [{ "name": "data", "persistentVolumeClaim": { "claimName": "data-claim" } }],
                 "ephemeralContainers": [{ "name": "debugger", "image": "busybox:1.36" }]
             },
             "status": {
@@ -608,7 +635,8 @@ mod tests {
                 name: "data".into(),
                 path: "/data".into(),
                 sub_path: "x".into(),
-                read_only: true
+                read_only: true,
+                source: "pvc data-claim".into(),
             }]
         );
 
@@ -646,5 +674,53 @@ mod tests {
         assert!(x.pod_ips.is_empty());
         assert_eq!(x.containers[0].state.state, "");
         assert_eq!(x.containers[0].restarts, 0);
+    }
+
+    #[test]
+    fn command_args_and_mount_sources_hide_secrets() {
+        let p = pod(json!({
+            "spec": {
+                "containers": [{
+                    "name": "app",
+                    "command": ["/bin/server"],
+                    "args": ["--listen=:8080", "--token=abc.def.ghi", "--db-password", "hunter2"],
+                    "volumeMounts": [
+                        { "name": "kube-api-access-x7k2p", "mountPath": "/var/run/secrets/kubernetes.io/serviceaccount", "readOnly": true },
+                        { "name": "cfg", "mountPath": "/etc/app" },
+                        { "name": "gone", "mountPath": "/gone" }
+                    ],
+                    "livenessProbe": { "exec": { "command": ["check", "--password=pw1"] } }
+                }, { "name": "plain", "image": "nginx:1.27" }],
+                "volumes": [
+                    { "name": "kube-api-access-x7k2p", "projected": { "sources": [
+                        { "serviceAccountToken": { "path": "token" } }
+                    ] } },
+                    { "name": "cfg", "configMap": { "name": "app-cfg" } }
+                ]
+            }
+        }));
+        let x = pod_extras(&p);
+        let app = &x.containers[0];
+        assert_eq!(app.command, ["/bin/server"]);
+        assert_eq!(
+            app.args,
+            ["--listen=:8080", "--token=••••", "--db-password", "••••"]
+        );
+        assert!(app.secrets_hidden);
+        let sources: Vec<&str> = app.mounts.iter().map(|m| m.source.as_str()).collect();
+        assert_eq!(
+            sources,
+            ["projected (service account token)", "configmap app-cfg", ""]
+        );
+        assert!(app.probes[0]
+            .summary
+            .starts_with("exec [check --password=••••] "));
+        let plain = &x.containers[1];
+        assert!(plain.command.is_empty() && plain.args.is_empty() && !plain.secrets_hidden);
+
+        let text = serde_json::to_string(&x).unwrap();
+        for secret in ["abc.def.ghi", "hunter2", "pw1"] {
+            assert!(!text.contains(secret), "a masked value reached the detail");
+        }
     }
 }

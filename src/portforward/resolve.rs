@@ -2,8 +2,9 @@
 //!
 //! A pod target always uses that pod. A Service maps its port to the
 //! `targetPort` and picks a ready endpoint from its EndpointSlices; a
-//! workload picks a ready pod by its selector. Both are asked again for
-//! every new local connection, so a forward follows pod restarts.
+//! workload picks a ready pod by its selector. All of them are watched
+//! ([`super::cache`]), so a forward follows pod restarts, and a pod
+//! recreated with the same name (a new UID) gets a new session (#399).
 
 use super::spec::{ForwardKind, ForwardTarget, RemotePort};
 use crate::workload_selector;
@@ -19,6 +20,18 @@ use kube::Client;
 pub struct Backend {
     pub pod: String,
     pub port: u16,
+    /// The pod's UID, empty when unknown: a pod recreated with the same
+    /// name is another backend (its forward needs a new session, #399).
+    pub uid: String,
+}
+
+/// What a watch of the backends saw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Change {
+    /// The watch has the current state: from now on it sees every change.
+    Synced,
+    /// Something changed.
+    Changed,
 }
 
 /// How to find the backends of a forward.
@@ -108,13 +121,61 @@ impl Resolver {
         }
     }
 
+    /// A stream with an item for every change to what decides the
+    /// backends (the Service's EndpointSlices, or the workload's pods), or
+    /// It retries with a backoff on its own; an `Err` says it is not
+    /// watching right now.
+    pub(crate) fn changes(
+        &self,
+        client: &Client,
+        namespace: &str,
+    ) -> Option<futures::stream::BoxStream<'static, Result<Change, String>>> {
+        use futures::StreamExt;
+        use kube::runtime::{watcher, WatchStreamExt};
+        fn map<K>(e: Result<watcher::Event<K>, watcher::Error>) -> Result<Change, String> {
+            match e {
+                Ok(watcher::Event::InitDone) => Ok(Change::Synced),
+                Ok(_) => Ok(Change::Changed),
+                Err(e) => Err(e.to_string()),
+            }
+        }
+        match self {
+            Self::Pod { name, .. } => {
+                let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+                let config = watcher::Config::default().fields(&format!("metadata.name={name}"));
+                Some(watcher(api, config).default_backoff().map(map).boxed())
+            }
+            Self::Service { name, .. } => {
+                let api: Api<EndpointSlice> = Api::namespaced(client.clone(), namespace);
+                let config = watcher::Config::default()
+                    .labels(&format!("kubernetes.io/service-name={name}"));
+                Some(watcher(api, config).default_backoff().map(map).boxed())
+            }
+            Self::Workload { selector, .. } => {
+                let api: Api<Pod> = Api::namespaced(client.clone(), namespace);
+                let config = watcher::Config::default().labels(selector);
+                Some(watcher(api, config).default_backoff().map(map).boxed())
+            }
+        }
+    }
+
     /// The ready backends right now, best first. Empty when none is ready.
     pub(crate) async fn backends(&self, client: &Client, namespace: &str) -> Result<Vec<Backend>> {
         match self {
-            Self::Pod { name, port } => Ok(vec![Backend {
-                pod: name.clone(),
-                port: *port,
-            }]),
+            // The pod as long as it exists, ready or not (as kubectl).
+            Self::Pod { name, port } => {
+                let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
+                Ok(pods
+                    .get_opt(name)
+                    .await?
+                    .map(|p| Backend {
+                        pod: name.clone(),
+                        port: *port,
+                        uid: p.metadata.uid.unwrap_or_default(),
+                    })
+                    .into_iter()
+                    .collect())
+            }
             Self::Service { name, port } => {
                 let slices: Api<EndpointSlice> = Api::namespaced(client.clone(), namespace);
                 let lp =
@@ -132,6 +193,7 @@ impl Resolver {
                         Some(Backend {
                             pod: p.metadata.name.clone()?,
                             port: container_port(p, remote)?,
+                            uid: p.metadata.uid.clone().unwrap_or_default(),
                         })
                     })
                     .collect();
@@ -206,11 +268,15 @@ pub fn slice_backends(slices: &[EndpointSlice], port: &ServicePort) -> Vec<Backe
             let pod = ep
                 .target_ref
                 .as_ref()
-                .filter(|r| r.kind.as_deref() == Some("Pod"))
-                .and_then(|r| r.name.clone());
-            if let (true, Some(pod)) = (ready, pod) {
-                if !out.iter().any(|b: &Backend| b.pod == pod) {
-                    out.push(Backend { pod, port: number });
+                .filter(|r| r.kind.as_deref() == Some("Pod"));
+            if let (true, Some(r)) = (ready, pod) {
+                let Some(name) = r.name.clone() else { continue };
+                if !out.iter().any(|b: &Backend| b.pod == name) {
+                    out.push(Backend {
+                        pod: name,
+                        port: number,
+                        uid: r.uid.clone().unwrap_or_default(),
+                    });
                 }
             }
         }
@@ -289,7 +355,7 @@ mod tests {
         json!({
             "addresses": ["10.0.0.1"],
             "conditions": { "ready": ready },
-            "targetRef": { "kind": "Pod", "name": pod },
+            "targetRef": { "kind": "Pod", "name": pod, "uid": format!("uid-{pod}") },
         })
     }
 
@@ -332,15 +398,18 @@ mod tests {
             vec![
                 Backend {
                     pod: "a".into(),
-                    port: 8080
+                    port: 8080,
+                    uid: "uid-a".into(),
                 },
                 Backend {
                     pod: "b".into(),
-                    port: 8080
+                    port: 8080,
+                    uid: "uid-b".into(),
                 },
                 Backend {
                     pod: "c".into(),
-                    port: 8081
+                    port: 8081,
+                    uid: "uid-c".into(),
                 },
             ]
         );

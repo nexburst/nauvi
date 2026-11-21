@@ -22,6 +22,7 @@ import { history } from "./history.svelte";
 import { filterKeeps } from "./tableFilter.svelte";
 import { startupLinkContext } from "./links.svelte";
 import { notify } from "./notifications.svelte";
+import { becameLive } from "../statusTime";
 
 /** `"overview"`, or the id of a discovered kind (`apps/v1/deployments`). */
 export type View = string;
@@ -214,7 +215,11 @@ export function openObject(kind: ResourceKind, namespace: string, name: string) 
 }
 
 export function setStatus(ok: boolean | null, text: string) {
-  app.status = { ok, text };
+  const next = { ok, text };
+  // A watch that comes back without a re-list sends no batch: its rows are
+  // current again from now (#387).
+  if (app.updatedAt && becameLive(app.status, next)) stamp();
+  app.status = next;
 }
 
 export function showError(message: string) {

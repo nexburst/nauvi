@@ -13,7 +13,9 @@
 //! - `ops`: list / get / YAML get and apply / delete
 //! - `manifests`, `apply`: create or update objects from a manifest file
 //! - `detail`: the detail panel for any kind
-//! - `pod_detail`: the pod section of the detail panel (containers, probes, ...)
+//! - `pod_detail`: the pod section of the detail panel (containers, probes, ...);
+//!   `volume_source` says what a mounted volume is, `mask` hides secret-looking
+//!   values in command lines
 //! - `detail_watch`: live updates of one object's detail
 //! - `related`: related objects and a per-kind summary (`related_local`,
 //!   `related_summary`, `related_crd` hold the pure per-kind parts)
@@ -26,6 +28,8 @@
 
 mod apply;
 mod columns;
+#[cfg(test)]
+mod columns_cost;
 mod data;
 mod detail;
 mod detail_watch;
@@ -33,7 +37,10 @@ mod discovery;
 mod dra;
 mod jsonpath;
 mod manifests;
+mod mask;
+mod mask_json;
 mod ops;
+mod pod_containers;
 mod pod_detail;
 mod pod_printer;
 mod problems;
@@ -42,8 +49,11 @@ mod related;
 mod related_crd;
 mod related_local;
 mod related_summary;
+mod secret_copy;
 mod status;
 mod table;
+mod volume_source;
+mod workload_status;
 
 #[cfg(feature = "mcp")]
 pub(crate) use apply::result_line;
@@ -68,6 +78,7 @@ pub use pod_detail::{
 pub use pod_printer::printed_pod_status;
 pub use problems::{not_ready_reason, row_problem};
 pub use related::{get_related, related_objects, Fact, Related, RelatedGroup, RelatedItem};
+pub use secret_copy::secret_copy_keys;
 pub use status::{classify, pod_status_of, statuses_of, WorkloadStatus, STARTING, WORKLOAD_KINDS};
 pub use table::{align_columns, render_table, table_cells, table_header};
 
@@ -163,6 +174,17 @@ pub enum ColumnKind {
     NodeMemory,
     /// A node's root filesystem, from Prometheus (node-exporter).
     NodeDisk,
+    /// The controller of the object: `Kind/name`, or `Kind.group/name`
+    /// outside the core, `apps` and `batch` groups. The UI links it to the
+    /// owner's detail.
+    Owner,
+    /// A pod's containers and their states (`init:setup=done app=ready`,
+    /// see `pod_containers`), drawn by the UI as one square each.
+    Containers,
+    /// What a Deployment, StatefulSet or DaemonSet controller is doing
+    /// (`Running`, `Scaling`, `Updating`, `Failed`, ... see
+    /// `workload_status`), drawn by the UI with a shape and a colour.
+    Rollout,
 }
 
 /// A table column as the UI sees it.
@@ -172,6 +194,9 @@ pub struct ColumnDef {
     pub key: String,
     pub label: String,
     pub kind: ColumnKind,
+    /// Off until the user turns it on in the column chooser (IP, QoS, ...);
+    /// the CLI's tables leave it out.
+    pub default_hidden: bool,
     #[serde(skip)]
     #[cfg_attr(feature = "specta", specta(skip))]
     source: Source,

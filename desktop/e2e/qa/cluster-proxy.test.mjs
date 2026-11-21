@@ -4,6 +4,7 @@
 // - none set: the cluster settings' Network section says it connects
 //   directly (empty state)
 // - a bad URL: the backend's error, the password not repeated (error state)
+//   (https:// proxies: cluster-proxy-https.test.mjs, #362)
 // - set with a password, for a cluster on this machine too: shown masked,
 //   "Reconnect now" reconnects through it, the Pods table loads, the proxy
 //   saw the tunnels
@@ -184,11 +185,6 @@ describe("a proxy per cluster", { timeout: 15 * 60_000 }, () => {
     await setTheme(app, "dark");
     await typeUrl(app, `ftp://${USER}:${PASSWORD}@127.0.0.1:${proxy.port}`);
     await app.waitFor(async () => /not ftp:\/\//.test(await sectionText(app)), { message: "the scheme error" });
-    await typeUrl(app, `https://${USER}:${PASSWORD}@127.0.0.1:${proxy.port}`);
-    await app.waitFor(async () => /HTTPS proxies aren't supported yet/.test(await sectionText(app)), {
-      message: "the HTTPS proxy error",
-    });
-    assert.ok(!(await bodyText(app)).includes(PASSWORD));
     assert.ok(!(await bodyText(app)).includes(PASSWORD));
     await typeUrl(app, `http://${USER}:${PASSWORD}@127.0.0.1:${proxy.port}/some/path`);
     await app.waitFor(async () => /no path or query/.test(await sectionText(app)), { message: "the path error" });

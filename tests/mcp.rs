@@ -209,7 +209,7 @@ fn tools_are_read_only_unless_writes_are_allowed() {
     s.initialize();
     assert_eq!(
         s.tool_names(),
-        ["list", "get", "describe", "logs", "events", "top"]
+        ["list", "get", "describe", "logs", "events", "problems", "top"]
     );
     let reply = s.request("tools/list", json!({}));
     for t in reply["result"]["tools"].as_array().unwrap() {
@@ -220,7 +220,7 @@ fn tools_are_read_only_unless_writes_are_allowed() {
     let mut w = offline(&["--allow-writes"]);
     w.initialize();
     let names = w.tool_names();
-    assert_eq!(&names[6..], ["scale", "restart", "delete", "apply"]);
+    assert_eq!(&names[7..], ["scale", "restart", "delete", "apply"]);
 }
 
 #[test]
@@ -244,7 +244,7 @@ fn a_missing_kubeconfig_is_a_tool_error_not_a_crash() {
     assert!(err, "{text}");
     assert!(text.to_lowercase().contains("kubeconfig"), "{text}");
     // The server is still there.
-    assert_eq!(s.tool_names().len(), 6);
+    assert_eq!(s.tool_names().len(), 7);
 }
 
 #[test]
@@ -605,4 +605,166 @@ fn mcp_limited_user_is_bound_by_rbac() {
         json!({ "kind": "deploy/coredns", "namespace": "kube-system" }),
     );
     assert!(err && text.contains("Not allowed"), "{text}");
+}
+
+/// What `problems` must find (#377): a crash loop, an OOM kill with its
+/// limit, a failed Job and a Deployment short of ready replicas; a healthy
+/// pod never appears. `hog` restarts: the runtime sometimes reports a
+/// memory kill as `Error (exit 137)`, so the test waits for a run that
+/// reports `OOMKilled` (#403).
+const PROBLEM_FIXTURES: &str = r#"
+apiVersion: v1
+kind: Pod
+metadata: { name: crasher }
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - { name: c, image: "busybox:1.36", command: ["sh", "-c", "echo boom; exit 3"] }
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: hog }
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: c
+      image: "busybox:1.36"
+      command: ["tail", "/dev/zero"]
+      resources: { limits: { memory: 16Mi } }
+---
+apiVersion: v1
+kind: Pod
+metadata: { name: healthy }
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - { name: c, image: "busybox:1.36", command: ["sleep", "3600"] }
+---
+apiVersion: batch/v1
+kind: Job
+metadata: { name: doomed }
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      terminationGracePeriodSeconds: 0
+      containers:
+        - { name: c, image: "busybox:1.36", command: ["sh", "-c", "exit 1"] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: never-ready }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: never-ready } }
+  template:
+    metadata: { labels: { app: never-ready } }
+    spec:
+      terminationGracePeriodSeconds: 0
+      containers:
+        - name: c
+          image: "busybox:1.36"
+          command: ["sleep", "3600"]
+          readinessProbe: { exec: { command: ["false"] }, periodSeconds: 2 }
+"#;
+
+/// The line of a `problems` table whose NAME column is `name`.
+fn problem_line(text: &str, name: &str) -> String {
+    text.lines()
+        .find(|l| l.split_whitespace().nth(2) == Some(name))
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// The line of a `list` table whose first column is `name`.
+fn row_of(text: &str, name: &str) -> String {
+    text.lines()
+        .find(|l| l.split_whitespace().next() == Some(name))
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[tokio::test]
+#[ignore]
+async fn mcp_problems_on_the_cluster() -> Result<()> {
+    let client = connect().await?;
+    let ns = temp_ns(&client, "it-mcp-p").await?;
+    let result = async {
+        let mut w = Server::on_cluster(&["--allow-writes"]);
+        w.ok(
+            "apply",
+            json!({ "manifest": PROBLEM_FIXTURES, "namespace": ns }),
+        );
+        drop(w);
+        let mut s = Server::on_cluster(&[]);
+        // Wait (bounded) for every state the asserts below read, in one
+        // snapshot: crash loops and OOM kills take a few runs to show.
+        let text = wait_for(&mut s, "problems", json!({ "namespace": ns }), |t| {
+            let hog = problem_line(t, "hog");
+            problem_line(t, "crasher").contains("last: Error (exit 3)")
+                && hog.contains("OOMKilled (exit 137)")
+                && hog.contains("limit memory 16Mi")
+                && problem_line(t, "doomed").contains("Failed (BackoffLimitExceeded)")
+                && problem_line(t, "never-ready").contains("0 of 1 ready")
+        })?;
+        assert!(text.starts_with("KIND"), "{text}");
+        assert!(
+            problem_line(&text, "crasher").contains("last: Error (exit 3)"),
+            "{text}"
+        );
+        let hog = problem_line(&text, "hog");
+        assert!(
+            hog.contains("OOMKilled (exit 137)") && hog.contains("limit memory 16Mi"),
+            "{text}"
+        );
+        assert!(
+            problem_line(&text, "doomed").contains("Failed (BackoffLimitExceeded)"),
+            "{text}"
+        );
+        assert!(!text.contains("healthy"), "{text}");
+        assert!(text.contains("(checked pods, deployments"), "{text}");
+
+        // Only the kinds asked for; Secrets are not one of them.
+        let jobs = s.ok("problems", json!({ "namespace": ns, "kinds": ["job"] }));
+        assert!(
+            jobs.contains("doomed") && !jobs.contains("crasher"),
+            "{jobs}"
+        );
+        let (err, msg) = s.call("problems", json!({ "namespace": ns, "kinds": ["secrets"] }));
+        assert!(err && msg.contains("not secrets"), "{msg}");
+
+        // list: LAST for pods; compact and columns.
+        // `hog` keeps restarting; a later run may again report `Error`.
+        let listed = wait_for(
+            &mut s,
+            "list",
+            json!({ "kind": "pods", "namespace": ns, "compact": true }),
+            |t| row_of(t, "hog").contains("OOMKilled"),
+        )?;
+        let header = listed.lines().next().unwrap_or_default();
+        assert!(header.contains("LAST"), "{listed}");
+        assert!(
+            !header.contains("NODE") && !header.contains("NAMESPACE"),
+            "{listed}"
+        );
+        assert!(row_of(&listed, "hog").contains("OOMKilled"), "{listed}");
+        let narrow = s.ok(
+            "list",
+            json!({ "kind": "pods", "namespace": ns, "columns": ["name", "last"] }),
+        );
+        let header: Vec<_> = narrow.lines().next().unwrap().split_whitespace().collect();
+        assert_eq!(header, ["NAME", "LAST"], "{narrow}");
+
+        // An empty events list says events expire.
+        let none = s.ok(
+            "events",
+            json!({ "namespace": ns, "kind": "pod", "name": "nope" }),
+        );
+        assert!(none.contains("about 1 hour"), "{none}");
+        Ok(())
+    }
+    .await;
+    drop_ns(&client, &ns).await;
+    result
 }

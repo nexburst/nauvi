@@ -2,6 +2,7 @@
 //! picked. Each dock tab has its own stream; every stream is an open
 //! connection to the API server, so there is a cap.
 
+use crate::commands::log_flow::LogCredit;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -13,6 +14,8 @@ pub(crate) const MAX_LOG_STREAMS: usize = 10;
 #[derive(Default)]
 pub(crate) struct LogStreams {
     tasks: Mutex<HashMap<u64, JoinHandle<()>>>,
+    /// The flow-control credit of the pod streams, by id (#397).
+    credits: Mutex<HashMap<u64, LogCredit>>,
     /// Set when the window is gone: no stream starts any more.
     closed: AtomicBool,
 }
@@ -46,14 +49,32 @@ impl LogStreams {
         Ok(())
     }
 
+    /// A fresh credit for stream `id` (replacing the one of a stream it
+    /// replaces), for its tab to acknowledge with [`Self::ack`].
+    pub(crate) fn new_credit(&self, id: u64) -> LogCredit {
+        let credit = LogCredit::default();
+        self.credits.lock().unwrap().insert(id, credit.clone());
+        credit
+    }
+
+    /// The tab of stream `id` got `bytes` of lines (nothing for a stream
+    /// without credit, or one that stopped).
+    pub(crate) fn ack(&self, id: u64, bytes: usize) {
+        if let Some(c) = self.credits.lock().unwrap().get(&id) {
+            c.ack(bytes);
+        }
+    }
+
     /// Stop stream `id`, if it is still running.
     pub(crate) fn stop(&self, id: u64) {
+        self.credits.lock().unwrap().remove(&id);
         if let Some(task) = self.tasks.lock().unwrap().remove(&id) {
             task.abort();
         }
     }
 
     pub(crate) fn stop_all(&self) {
+        self.credits.lock().unwrap().clear();
         for (_, task) in self.tasks.lock().unwrap().drain() {
             task.abort();
         }

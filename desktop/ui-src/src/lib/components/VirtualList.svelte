@@ -19,6 +19,9 @@
     overscan?: number;
     /** Allow horizontal scrolling (unwrapped log lines). */
     scrollX?: boolean;
+    /** Width the content takes at least (px), with or without rows, so a
+     *  table's header can scroll sideways even when it is empty. */
+    minWidth?: number;
     scrollEl?: HTMLDivElement | null;
     onscroll?: (e: Event) => void;
   }
@@ -31,6 +34,7 @@
     dynamic = false,
     overscan = 10,
     scrollX = false,
+    minWidth = 0,
     scrollEl = $bindable(null),
     onscroll,
   }: Props = $props();
@@ -93,7 +97,11 @@
 </script>
 
 <div class="scroller" class:scroll-x={scrollX} bind:this={scrollEl} {onscroll}>
-  <div class="sizer" style:height="{$virtualizer.getTotalSize()}px">
+  <div
+    class="sizer"
+    style:height="{Math.max($virtualizer.getTotalSize(), minWidth ? 1 : 0)}px"
+    style:min-width={minWidth ? `${minWidth}px` : undefined}
+  >
     {#each $virtualizer.getVirtualItems() as vi (vi.key)}
       <div
         class="vrow"

@@ -8,6 +8,7 @@
 
 pub(crate) mod actions;
 pub(crate) mod applications;
+pub(crate) mod ask_ai;
 pub(crate) mod autostart;
 pub(crate) mod catalog;
 pub(crate) mod cluster;
@@ -21,6 +22,7 @@ pub(crate) mod help;
 pub(crate) mod kubectl;
 pub(crate) mod links;
 pub(crate) mod local_shell;
+pub(crate) mod log_flow;
 pub(crate) mod log_frame;
 pub(crate) mod logs;
 pub(crate) mod metrics_addons;
@@ -56,6 +58,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             actions::cmd_run_action,
             applications::cmd_applications_start,
             applications::cmd_applications_stop,
+            ask_ai::cmd_ask_ai_setup,
+            ask_ai::cmd_ask_ai_start,
             autostart::cmd_autostart_enabled,
             autostart::cmd_autostart_set,
             catalog::cmd_add_kubeconfig_source,
@@ -71,6 +75,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             cluster::cmd_get_metrics,
             cluster::cmd_list_contexts,
             cluster::cmd_list_namespaces,
+            cluster::cmd_server_version,
             cluster::cmd_set_context,
             clusters::cmd_cluster_connect,
             clusters::cmd_cluster_disconnect,
@@ -113,6 +118,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             local_shell::cmd_local_shell_input,
             local_shell::cmd_local_shell_resize,
             local_shell::cmd_local_shell_start,
+            logs::cmd_log_ack,
             logs::cmd_save_logs,
             logs::cmd_stop_logs,
             logs::cmd_stream_pod_all_logs,

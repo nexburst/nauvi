@@ -195,23 +195,24 @@ pub fn object_name(r: &ResourceRef, obj: &DynamicObject) -> String {
 /// An extra `-o wide` column: its header and how to compute a cell.
 type WideColumn = (&'static str, fn(&Value) -> String);
 
-/// The table plus IP addresses (pods, nodes) and a LABELS column.
+/// The table plus IP addresses (pods, nodes), a pod's nominated node (as
+/// `kubectl get pods -o wide`) and a LABELS column.
 fn render_wide(kind: &ResourceKind, objects: &[DynamicObject]) -> String {
-    let ip: Option<WideColumn> = match (&*kind.resource.group, &*kind.resource.kind) {
-        ("", "Pod") => Some(("IP", pod_ip)),
-        ("", "Node") => Some(("INTERNAL-IP", node_internal_ip)),
-        _ => None,
+    let extra: &[WideColumn] = match (&*kind.resource.group, &*kind.resource.kind) {
+        ("", "Pod") => &[("IP", pod_ip), ("NOMINATED NODE", pod_nominated_node)],
+        ("", "Node") => &[("INTERNAL-IP", node_internal_ip)],
+        _ => &[],
     };
     let mut header = resources::table_header(kind);
-    header.extend(ip.map(|(label, _)| label.to_string()));
+    header.extend(extra.iter().map(|(label, _)| label.to_string()));
     header.push("LABELS".into());
     let mut table = vec![header];
     for obj in objects {
         let row = resources::make_row(&kind.resource, &kind.columns, obj);
         let mut cells = resources::table_cells(kind, &row);
-        if let Some((_, f)) = ip {
+        if !extra.is_empty() {
             let value = serde_json::to_value(obj).unwrap_or(Value::Null);
-            cells.push(or_none(f(&value)));
+            cells.extend(extra.iter().map(|(_, f)| or_none(f(&value))));
         }
         cells.push(labels_text(obj));
         table.push(cells);
@@ -221,6 +222,13 @@ fn render_wide(kind: &ResourceKind, objects: &[DynamicObject]) -> String {
 
 fn pod_ip(v: &Value) -> String {
     v.pointer("/status/podIP")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn pod_nominated_node(v: &Value) -> String {
+    v.pointer("/status/nominatedNodeName")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string()
@@ -396,8 +404,8 @@ mod tests {
         )
         .unwrap();
         let lines: Vec<_> = out.lines().collect();
-        assert_eq!(lines[0], "IP        LABELS");
-        assert_eq!(lines[1], "<none>    app=web,tier=fe");
-        assert_eq!(lines[2], "10.0.0.7  app=web,tier=fe");
+        assert_eq!(lines[0], "IP        NOMINATED NODE  LABELS");
+        assert_eq!(lines[1], "<none>    <none>          app=web,tier=fe");
+        assert_eq!(lines[2], "10.0.0.7  <none>          app=web,tier=fe");
     }
 }

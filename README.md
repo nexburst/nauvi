@@ -53,6 +53,17 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   columns you see (filter, sort and column choice) to a file you pick. Cells
   a spreadsheet would run as formulas are written as text, and Secrets export
   only their names, types and key counts, as the table shows them.
+  Ages are printed like `kubectl get` (`7d20h`, `3h12m`); hover an Age cell,
+  or open the detail panel, for the creation time (local time or UTC, per
+  Settings). The Columns button's **More columns** has optional columns that
+  are off by default, and **Default columns** goes back to the default set.
+  For Pods these are Controlled By (a link to the owner), QoS, IP, Nominated
+  Node and **Containers**: one square per container, init containers first.
+  Filled green: ready; half filled amber: running but not ready, or starting;
+  red with a cross: crash-looping, image pull failing, or exited with an
+  error; hollow grey: completed; dashed: no status yet. Hover a square for
+  the container's name, state and reason; sorting by the column puts pods
+  with a broken container first.
   Pods and Nodes show CPU/memory usage when the metrics API is available,
   with a small trend line of the last 30 minutes. The pod and node detail
   panels chart CPU and memory (pods per container too) against requests and
@@ -112,6 +123,14 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   The panel's header has icon buttons for the object's actions (Logs, Shell,
   Edit, Delete, and for example Scale and Restart on workloads or Cordon and
   Drain on nodes).
+  Each container card of a pod starts with a summary: image, command, args,
+  requests, limits, the number of env variables, and the mounts with what
+  each volume is. Values in command lines that look like secrets
+  (`--token=`, `--password`, `…PASSWORD=`, passwords in URLs) are shown as
+  `••••`; env values from Secrets show only "from Secret name/key". The
+  panel collapses kubectl's `last-applied-configuration` annotation: Show
+  opens it with secret-looking values masked the same way; the YAML tab
+  shows it as stored.
 - **Log search**: match case (Aa) and regex (.\*); Highlight keeps every line
   and steps through the matches with Enter / Shift+Enter, or n / N in the
   log. Going to a match turns Follow off; check Follow to go back to the
@@ -124,7 +143,9 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   keys, then Save: only the changed keys are sent (a merge patch). If
   someone else changed the object meanwhile, you choose to reload or to save
   your keys over it. Binary values show as base64. Without permission to
-  patch, or for an immutable object, the data is read-only.
+  patch, or for an immutable object, the data is read-only. Annotations
+  that copy a Secret (`last-applied-configuration`, kapp's original, any
+  that repeat its values) are hidden like the values.
 - **Port forwards** to pods, Services and workloads, on a chosen or automatic
   local port. A Service forward picks a ready pod for each connection, so it
   keeps working when pods restart. Forwards are saved per cluster: they keep
@@ -136,7 +157,14 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   open the URL whenever it starts. A saved forward runs in one window at a
   time: other windows on that context show "Running in another window" and
   can't start it until it is stopped there. Idle connections (a database
-  client between queries) stay open.
+  client between queries) stay open. After a forward starts, a banner
+  offers Open and Port Forwards.
+  Nothing connects to the pod until a client does. New connections reuse a
+  warm connection to the API server and skip TCP's delayed ACK, so on kind
+  a new connection takes about 16 ms through a pod forward and 19 ms
+  through a Service forward (median; it was about 57 and 60 ms, and
+  `kubectl port-forward` takes about 5 ms in the same run). On a remote
+  cluster that saves about two round trips per new connection.
 - **Workload logs**: follow every pod of a Deployment, StatefulSet, DaemonSet
   or Job in one stream, including pods that a rollout replaces.
 - **Dock**: logs and terminals open in tabs at the bottom of the window, so
@@ -150,7 +178,9 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   terminal prints (OSC 8) open in your browser when they are http or https;
   other links are ignored. Ctrl+Shift+F (⌘F on macOS) searches a terminal's
   output: Enter / Shift+Enter for next / previous, Aa for match case, Esc to
-  close. Plain Ctrl+F still goes to the shell.
+  close. Plain Ctrl+F still goes to the shell. Each tab has a context line
+  that says what it is attached to (pod, container, namespace, since), with
+  links.
 - **Local terminal** (Ctrl+Shift+` or Ctrl+Shift+J (⇧⌘J on macOS), the
   dock's `+` or "New local terminal" in the palette): your own shell
   (`$SHELL -l`; on Windows `pwsh`, `powershell` or `cmd`) in your home
@@ -267,7 +297,13 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   a colour gets an amber or red edge. The other clusters this window is
   connected to are chips beside the context selector: click one to show it,
   ✕ to disconnect it. ✕ on a cluster's row in the tree does the same and
-  stops what runs there.
+  stops what runs there. Click a sidebar section's title (or focus it and
+  press Enter) to collapse it; nauvi remembers it. Long cloud context names
+  (EKS ARNs, GKE, AKS) show the cluster name; hover for the full name.
+  The status bar shows the cluster, its Kubernetes version and the time. On
+  a live view this is `Live · last change <time>`: the rows are current, and
+  the time is when they last changed. `Stale since <time>` means the
+  connection is lost and the rows are as of that time.
   A cluster you are not looking at is disconnected after 10 minutes
   untouched (Settings → Background clusters; Never turns this off). A
   port-forward, terminal, local shell, log stream or drain keeps it
@@ -390,7 +426,7 @@ the command cannot be run).
 
 | Command | What it does |
 |---|---|
-| `nauvi get <kind> [<name>] [-n NS] [-o FORMAT] [-l SEL] [--field-selector SEL]` | List any resource type, built-in or custom (`deploy`, `svc`, `widgets.example.com`), with the same columns as the app. `-o` is `table` (default), `wide` (adds labels, and IPs for pods and nodes), `yaml`, `json` or `name` (`deployment.apps/web`). Also `get <kind>/<name>` |
+| `nauvi get <kind> [<name>] [-n NS] [-o FORMAT] [-l SEL] [--field-selector SEL]` | List any resource type, built-in or custom (`deploy`, `svc`, `widgets.example.com`), with the same columns as the app. `-o` is `table` (default), `wide` (adds labels, IPs for pods and nodes, and NOMINATED NODE for pods), `yaml`, `json` or `name` (`deployment.apps/web`). Also `get <kind>/<name>` |
 | `nauvi describe <kind>/<name> [-n NS]` | Metadata, owners, labels and annotations, conditions, Secret keys (never values) and events of any object, like `kubectl describe` |
 | `nauvi yaml <kind>/<name> [-n NS] [--reveal]` | Print any object as YAML. Secret values are hidden unless `--reveal` is given (same for `get -o yaml\|json`). `yaml <pod>` is short for `yaml pod/<pod>` |
 | `nauvi helm list [-n NS]` | Helm releases with chart, app version, revision and status (all namespaces by default), read from the cluster without `helm` |
@@ -436,14 +472,30 @@ about that object on the clipboard: its kind, name, cluster and what the
 table says is wrong, never its logs or manifest.
 
 `nauvi mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
-server over stdio. It offers the tools `list`, `get`, `describe`, `logs`
-(of a pod or of `deploy/`, `sts/`, `ds/`, `job/`, `rs/`), `events` and
-`top`. It uses the CLI's kubeconfig and current context (or `--context`,
+server over stdio. It offers the tools `problems`, `list`, `get`,
+`describe`, `logs` (of a pod or of `deploy/`, `sts/`, `ds/`, `job/`,
+`rs/`), `events` and `top`. It uses the CLI's kubeconfig and current context (or `--context`,
 `--kubeconfig`, never the app's added kubeconfigs) and acts as that user,
 so RBAC applies. It connects on the first tool call. A context set to
 read-only or protected in the app refuses the write tools, even with
 `--allow-writes`.
 
+- **`problems(namespace?, kinds?, limit?)`** says what is wrong and why;
+  start a health check here. It lists only the unhealthy pods, workloads,
+  Jobs, Nodes and PersistentVolumeClaims, newest problem first, one line
+  each, with the reason: the last termination (reason, exit code, age),
+  the memory limit for an OOM kill, eviction, image-pull and scheduling
+  messages, an old ReplicaSet left behind, condition messages. An `Error`
+  with exit code 137 reads `likely OOM-killed`, with the memory limit (or
+  `no memory limit`). Pods restarted in the last 24 hours are listed as
+  "Restarted N times"; older restarts are in a separate "Restarted earlier,
+  running fine since" section. It never reads Secrets.
+- **`list`** gives pods a `LAST` column (`OOMKilled 27d`, `Error 2h`).
+  `columns` picks columns and their order; `compact` drops NODE, and
+  NAMESPACE when a namespace is given.
+- **`events`** with nothing to show notes that the cluster keeps events for
+  about an hour by default (`--event-ttl`), and points to `problems` and
+  `describe`.
 - **Read-only by default.** `--allow-writes` adds `scale`, `restart`,
   `delete` (one named object) and `apply` (server-side apply, with a
   `dry_run` option). Without the flag these tools are not offered, and a
@@ -484,6 +536,38 @@ Use the full path to `nauvi` if the client does not see your shell's
 `"env": { "KUBECONFIG": "..." }` if your kubeconfig is not
 `~/.kube/config`. Exec credential plugins (EKS, GKE, AKS) must log in
 without a prompt, so sign in once in a terminal first.
+
+### Ask AI
+
+**Ask AI** opens your own AI coding CLI (Claude Code, Codex, Gemini CLI, or
+a command of your own) in a dock terminal, pointed at the cluster, the
+namespace or the object on screen, with `nauvi mcp` for the same context
+offered to it for that session. Start it from the header's Ask AI button
+(the cluster, or the one selected namespace), "Ask AI about this…" in the
+detail panel (the object), or the palette ("Ask AI…", and "Ask AI about
+this…" for the focused row). The dialog picks the CLI and prefills the
+prompt with the scope; edit it, it is the CLI's first message.
+
+- **What runs:** only a known CLI found on your `PATH`, or the command set
+  in Settings → AI → Custom command (it gets the prompt in a file named by
+  `NAUVI_PROMPT_FILE` and the MCP configuration in `NAUVI_MCP_CONFIG`).
+  nauvi never downloads or installs a CLI; without one, the dialog lists
+  what to install. Nothing goes through a shell string. The tab is a local
+  terminal (same per-terminal kubeconfig as above); when the CLI exits,
+  your shell starts in the same tab (on Windows the tab ends).
+- **MCP for that session only:** the `nauvi` CLI on your `PATH` is passed
+  to the AI CLI as an MCP server for this session, never written into the
+  CLI's own configuration. It is read-only by default. **Allow writes**
+  adds the write tools; it is offered only on a normal context, and the
+  backend and `nauvi mcp` refuse writes on a protected or read-only one.
+- **Read-only contexts** refuse Ask AI, like any terminal, and a context
+  that turns read-only closes its Ask AI tabs. A protected context asks for
+  its name before the terminal starts.
+- **The CLI's own commands:** the read-only setting covers the nauvi tools
+  only. Commands the CLI runs in its own shell (`kubectl`, `helm`…) are
+  allowed or refused by the CLI's own approval prompts, not by nauvi.
+- **What leaves your machine** is up to your CLI and its provider: nauvi
+  sends nothing itself. The prompt holds only names, no cluster data.
 
 ## Install
 
@@ -545,7 +629,27 @@ cluster, no GPU):
 PSS splits the shared libraries between the processes, so it is the fairer
 total. The numbers come from one CI run; macOS and Windows are not measured
 yet. CI keeps them in check: the `idle-memory` QA scenario fails a release
-build above 159 MB, 389 MB and 274 MB (today's numbers plus 15%). Work on
+build above 159 MB, 389 MB and 274 MB (today's numbers plus 15%).
+
+Memory also stays flat while you use the app. A table keeps only its rows,
+not a copy of every full object; memory freed when you leave a table goes
+back to the system (on Linux), and a pod's log stream is bounded, so a
+flood waits in the API server instead of piling up in the app. Growth over
+the idle baseline on Linux (release build, private dirty memory, median of
+5 reads, a Config Maps table of 5,016 rows):
+
+| Step | App process | WebKitWebProcess |
+| --- | ---: | ---: |
+| Config Maps table open | +10 MB (was +84) | +16 MB (was +22) |
+| Back on the Overview | +8 MB (was +87) | +14 MB (was +23) |
+| The table again | +14 MB (was +139) | +18 MB (was +30) |
+| Back on the Overview again | +11 MB (was +140) | +13 MB (was +30) |
+| A 50,000-line log tab open | +2.5 MB | +39 MB |
+| That tab closed | +0.5 MB | −11.5 MB |
+
+The app process was 276 MB RSS after two visits to that table, and is
+now 153 MB. The `growth-memory` QA scenario fails a release build whose
+growth goes over its budgets (app process 25–30 MB per step). Work on
 memory is tracked in [#353](https://github.com/nexburst/nauvi/issues/353).
 
 ### Proxies
@@ -591,7 +695,7 @@ page. Drag nauvi into Applications with Finder to update it in place.
 
 You need:
 
-- Rust (stable)
+- Rust 1.95 or newer
 - A kubeconfig (`~/.kube/config`, or `KUBECONFIG`) pointing at a cluster, or
   in-cluster config when running inside Kubernetes
 - For the desktop app: Node (the version in `desktop/ui-src/.nvmrc`), the
