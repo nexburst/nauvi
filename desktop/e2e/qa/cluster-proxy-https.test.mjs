@@ -18,7 +18,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { connect } from "node:net";
+import { connect, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -110,16 +110,21 @@ function startProxy(certs) {
     };
     client.on("data", onData);
   });
-  // Every TCP connection: one whose handshake never finished was refused.
-  server.on("connection", () => {
+  // Every TCP connection, counted before the TLS server takes it: one whose
+  // handshake never finished was refused.
+  const tcp = createNetServer((socket) => {
     state.connections += 1;
+    state.sockets.add(socket);
+    socket.on("close", () => state.sockets.delete(socket));
+    socket.on("error", () => {});
+    server.emit("connection", socket);
   });
   return new Promise((resolve) =>
-    server.listen(0, "127.0.0.1", () => {
-      state.port = server.address().port;
+    tcp.listen(0, "127.0.0.1", () => {
+      state.port = tcp.address().port;
       state.stop = () =>
         new Promise((done) => {
-          server.close(() => done());
+          tcp.close(() => done());
           for (const s of state.sockets) s.destroy();
         });
       resolve(state);
