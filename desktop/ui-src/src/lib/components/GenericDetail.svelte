@@ -173,6 +173,12 @@
     font-size: 13px;
     overflow-wrap: anywhere;
   }
+  /* Clear of the Widen button, which App.svelte lays over the header's
+     right end: a long title wraps before it, never under it (#384). */
+  .title {
+    min-width: 0;
+    padding-right: 34px;
+  }
   .close {
     background: transparent;
     color: var(--text-muted);

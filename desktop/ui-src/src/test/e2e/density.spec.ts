@@ -141,6 +141,32 @@ test("the detail panel opens at 520 px; a long node name is on one line with a t
   });
 });
 
+test("a long panel title wraps clear of the Widen button (#384)", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const long = "web-with-a-very-long-name-that-goes-on-and-on-past-the-header";
+  await openApp(page, (c) => {
+    const n = "web-with-a-very-long-name-that-goes-on-and-on-past-the-header";
+    const r = c.rows["v1/pods"].find((x) => x.name === "web-1")!;
+    r.name = n;
+    r.key = `demo/${n}`;
+    r.cells[0] = n;
+    c.details[`v1/pods|demo/${n}`] = { ...c.details["v1/pods|demo/web-1"], name: n };
+  });
+  await openKind(page, "Pods");
+  await row(page, long).click();
+  const title = panel(page).locator(".title");
+  await expect(title).toHaveText(`demo/${long}`);
+  const [t, w] = await Promise.all([title.boundingBox(), page.getByTestId("widen").boundingBox()]);
+  // The text wraps before the button: its line box ends left of it.
+  const textRight = await title.evaluate((el) => {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    return Math.max(...Array.from(r.getClientRects(), (x) => x.right));
+  });
+  expect(t!.height).toBeGreaterThan(20);
+  expect(textRight).toBeLessThanOrEqual(w!.x);
+});
+
 test("a message wraps between words, never inside one (#384)", async ({
   page,
 }) => {
