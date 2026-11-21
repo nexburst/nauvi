@@ -434,6 +434,11 @@ struct ProxyCert {
 }
 
 fn proxy_cert() -> Result<ProxyCert> {
+    proxy_cert_for("127.0.0.1")
+}
+
+/// A CA, and a certificate for `name` it signed.
+fn proxy_cert_for(name: &str) -> Result<ProxyCert> {
     let ca_key = rcgen::KeyPair::generate()?;
     let mut ca_params = rcgen::CertificateParams::new(Vec::<String>::new())?;
     ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
@@ -442,7 +447,7 @@ fn proxy_cert() -> Result<ProxyCert> {
         .push(rcgen::DnType::CommonName, "nauvi-362 test proxy CA");
     let ca = rcgen::CertifiedIssuer::self_signed(ca_params, ca_key)?;
     let key = rcgen::KeyPair::generate()?;
-    let params = rcgen::CertificateParams::new(vec!["127.0.0.1".to_string()])?;
+    let params = rcgen::CertificateParams::new(vec![name.to_string()])?;
     let cert = params.signed_by(&key, &ca)?;
     Ok(ProxyCert {
         ca_pem: ca.pem(),
@@ -757,5 +762,62 @@ async fn an_https_proxy_the_trust_store_does_not_accept_is_refused() -> Result<(
     };
     ensure!(err.contains("Cannot read the proxy's CA file"), "{err}");
     ensure!(!err.contains("hunter2"), "{err}");
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_https_proxy_with_a_certificate_for_another_host_is_refused() -> Result<()> {
+    // Signed by the CA set with the proxy, but for another name: the name
+    // checked is the proxy's host, so a trusted CA alone is not enough.
+    let cases = [
+        (
+            "a certificate for another host",
+            "proxy.nauvi.invalid",
+            "127.0.0.1",
+        ),
+        (
+            "a certificate for 127.0.0.1, reached as localhost",
+            "127.0.0.1",
+            "localhost",
+        ),
+    ];
+    for (name, cert_for, host) in cases {
+        let cert = proxy_cert_for(cert_for)?;
+        let (port, seen, tls) = https_proxy(&cert, None).await?;
+        let proxy = ClusterProxy {
+            url: ProxyUrl::parse(&format!("https://me:hunter2@{host}:{port}"))
+                .map_err(anyhow::Error::msg)?,
+            local: true,
+            ca_file: Some(write_ca(&cert.ca_pem)?),
+        };
+        for forwards in [false, true] {
+            let build = client_through(kube::config::Kubeconfig::read()?, &proxy);
+            let result = if forwards {
+                nauvi::for_port_forwards(build).await
+            } else {
+                build.await
+            };
+            let err = match result {
+                Ok(_) => bail!("{name}: connected through a proxy with the wrong name"),
+                Err(e) => nauvi::error_text(&e),
+            };
+            eprintln!("{name}: {err}");
+            ensure!(
+                err.contains("Certificate problem with the proxy"),
+                "{name}: {err}"
+            );
+            ensure!(!err.contains("hunter2"), "{name}: {err}");
+        }
+        ensure!(
+            tls.failed.load(Ordering::SeqCst) > 0,
+            "{name}: no handshake was tried"
+        );
+        ensure!(
+            tls.handshakes.load(Ordering::SeqCst) == 0,
+            "{name}: a handshake finished"
+        );
+        ensure!(seen.tunnels().is_empty(), "{name}: {:?}", seen.tunnels());
+    }
     Ok(())
 }
