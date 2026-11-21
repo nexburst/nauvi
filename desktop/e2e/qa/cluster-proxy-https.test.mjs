@@ -1,16 +1,16 @@
 // An https:// proxy per cluster (#362), in the real app against kind,
 // through a small HTTPS CONNECT proxy this scenario runs on 127.0.0.1 with a
-// CA of its own (made with openssl; skipped without it). The proxy asks every
-// client for a certificate and counts those that send one: kind logs in with
-// a client certificate, which must only ever reach the API server.
+// CA of its own (made with openssl; skipped without it). That the proxy is
+// never shown the cluster's client certificate is checked by
+// tests/proxy_cluster.rs, whose rustls proxy asks every client for one.
 // - set without a CA file: the route says the system's trust store checks
 //   it; reconnecting is refused with a certificate problem that names the
-//   proxy, masked; the proxy saw no CONNECT (so no password) and no client
-//   certificate (error state)
+//   proxy, masked; the proxy saw no finished handshake and no CONNECT (so
+//   no password) (error state)
 // - a CA file that is not there: the backend says so (error state)
 // - the proxy's CA file set: shown, "Reconnect now" connects through the
 //   proxy, the Pods table loads, a port-forward works through it; every
-//   tunnel goes to the API server, never a client certificate
+//   tunnel goes to the API server
 // - the CA file and the password only in proxies.json (0600)
 // - removed: the cluster connects directly again (empty state)
 // Light and dark theme at 1280x800. Creates one pod in a temp namespace.
@@ -71,11 +71,9 @@ function makeCerts() {
 /** An HTTPS CONNECT proxy on 127.0.0.1 that wants `USER:PASSWORD`. */
 function startProxy(certs) {
   const want = `Basic ${Buffer.from(`${USER}:${PASSWORD}`).toString("base64")}`;
-  const state = { tunnels: [], refused: 0, handshakes: 0, connections: 0, clientCerts: 0, sockets: new Set() };
-  const server = createServer({ key: certs.key, cert: certs.cert, requestCert: true, rejectUnauthorized: false }, (client) => {
+  const state = { tunnels: [], refused: 0, handshakes: 0, connections: 0, sockets: new Set() };
+  const server = createServer({ key: certs.key, cert: certs.cert }, (client) => {
     state.handshakes += 1;
-    const peer = client.getPeerCertificate();
-    if (peer && Object.keys(peer).length > 0) state.clientCerts += 1;
     state.sockets.add(client);
     client.on("close", () => state.sockets.delete(client));
     client.on("error", () => {});
@@ -241,7 +239,6 @@ describe("an https:// proxy per cluster", { timeout: 15 * 60_000, skip: hasOpens
     assert.ok(proxy.connections > 0, "the app never connected to the proxy");
     assert.equal(proxy.handshakes, 0, "a handshake with the untrusted proxy finished");
     assert.deepEqual(proxy.tunnels, [], "a CONNECT reached the untrusted proxy");
-    assert.equal(proxy.clientCerts, 0, "the proxy was shown a client certificate");
   });
 
   it("a CA file that is not there says so (dark)", T, async () => {
@@ -256,7 +253,7 @@ describe("an https:// proxy per cluster", { timeout: 15 * 60_000, skip: hasOpens
     assert.ok(!(await bodyText(app)).includes(PASSWORD));
   });
 
-  it("with the proxy's CA file: connects through it, client certificate never shown (light)", T, async () => {
+  it("with the proxy's CA file: connects through it (light)", T, async () => {
     const { app } = s;
     await setTheme(app, "light");
     await save(app, { ca: certs.ca });
@@ -272,7 +269,6 @@ describe("an https:// proxy per cluster", { timeout: 15 * 60_000, skip: hasOpens
     await app.waitFor(() => proxy.tunnels.length > 0, { message: "tunnels through the proxy" });
     assert.ok(proxy.tunnels.every((t) => t === server), `tunnels: ${proxy.tunnels}`);
     assert.equal(proxy.refused, 0, "the proxy refused the app's credentials");
-    assert.equal(proxy.clientCerts, 0, "the proxy was shown a client certificate");
   });
 
   it("a port-forward goes through the https proxy too (dark)", T, async () => {
@@ -289,7 +285,6 @@ describe("an https:// proxy per cluster", { timeout: 15 * 60_000, skip: hasOpens
     assert.match(await (await fetch(fwd)).text(), /hello through the https proxy/);
     assert.ok(proxy.tunnels.length > before, "the forward went around the proxy");
     assert.ok(proxy.tunnels.every((t) => t === server), `tunnels: ${proxy.tunnels}`);
-    assert.equal(proxy.clientCerts, 0, "the proxy was shown a client certificate");
     const stop = await panel.findElements(By.xpath(".//button[normalize-space()='Stop']"));
     if (stop.length) await stop[0].click();
     await (await app.find(By.css('[data-testid="detail-panel"] button[aria-label="Close details"]'))).click();
