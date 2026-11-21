@@ -12,11 +12,12 @@ use std::time::Duration;
 use anyhow::{bail, ensure, Context, Result};
 use k8s_openapi::api::apps::v1::Deployment;
 use k8s_openapi::api::core::v1::{Namespace, Pod, Service};
+use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::api::{Api, DeleteParams, ListParams, PostParams};
 use kube::Client;
 use nauvi::{
-    client_for_context, pod_is_ready, ForwardKind, ForwardTarget, LocalPort, Multiplex,
-    PortForward, RemotePort,
+    client_for_context, pod_is_ready, slice_backends, ForwardKind, ForwardTarget, LocalPort,
+    Multiplex, PortForward, RemotePort,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -135,6 +136,25 @@ async fn ready_pods(client: &Client, ns: &str) -> Result<Vec<String>> {
         .collect())
 }
 
+/// The pods listed as ready endpoints of Service `web`'s port.
+async fn ready_endpoints(client: &Client, ns: &str) -> Result<Vec<String>> {
+    let svc = Api::<Service>::namespaced(client.clone(), ns)
+        .get("web")
+        .await?;
+    let port = svc
+        .spec
+        .and_then(|s| s.ports)
+        .and_then(|p| p.into_iter().next())
+        .context("service web has no port")?;
+    let slices = Api::<EndpointSlice>::namespaced(client.clone(), ns)
+        .list(&ListParams::default().labels("kubernetes.io/service-name=web"))
+        .await?;
+    Ok(slice_backends(&slices.items, &port)
+        .into_iter()
+        .map(|b| b.pod)
+        .collect())
+}
+
 async fn wait_ready_pods(client: &Client, ns: &str, n: usize) -> Result<Vec<String>> {
     eventually(&format!("{n} ready web pods"), TIMEOUT, || async {
         let ready = ready_pods(client, ns).await?;
@@ -196,14 +216,26 @@ async fn service_forward_survives_deleting_the_serving_pod() -> Result<()> {
         Api::<Pod>::namespaced(client.clone(), &ns)
             .delete(&first, &DeleteParams::default())
             .await?;
-        let body = eventually("a request after the pod is gone", TIMEOUT, || async {
+        // The deleted pod can serve until it leaves the ready endpoints,
+        // and the forward's watch sees that a moment later. Wait for the
+        // endpoints first, then for a request served by another pod.
+        eventually(
+            "the endpoints to drop the deleted pod and list a replacement",
+            TIMEOUT,
+            || async {
+                let ready = ready_endpoints(&client, &ns).await?;
+                Ok((ready.len() >= 2 && !ready.contains(&first)).then_some(()))
+            },
+        )
+        .await?;
+        let (body, now) = eventually("a request served by another pod", TIMEOUT, || async {
             let body = http_get(fwd.local_port).await.unwrap_or_default();
-            Ok(body.contains("Welcome to nginx").then_some(body))
+            let now = fwd.status();
+            let moved = body.contains("Welcome to nginx") && now.pod != first;
+            Ok(moved.then_some((body, now)))
         })
         .await?;
         ensure!(body.contains(" 200 OK"), "{body}");
-        let now = fwd.status();
-        ensure!(now.pod != first, "still served by the deleted pod: {now:?}");
         ensure!(now.total_connections >= 2, "{now:?}");
 
         // By name, through the Deployment as well.
