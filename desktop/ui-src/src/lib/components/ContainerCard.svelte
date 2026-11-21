@@ -63,7 +63,7 @@
 
   <dl class="summary" data-testid="container-summary">
     <dt>Image</dt>
-    <dd class="mono image" title={c.image_id}>{c.image}</dd>
+    <dd class="mono image" title={c.image_id ? `${c.image}\n${c.image_id}` : c.image}>{c.image}</dd>
     {#if c.command.length > 0}
       <dt>Command</dt>
       {@render longValue("command", command)}
@@ -197,8 +197,11 @@
   .ready.ok {
     color: var(--green);
   }
+  /* One token: on one line, cut, the whole image in the title (#384). */
   .image {
-    word-break: break-all;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .state {
     font-weight: 600;
@@ -284,7 +287,7 @@
     flex-wrap: wrap;
     align-items: center;
     gap: 6px;
-    word-break: break-all;
+    overflow-wrap: anywhere;
   }
   details {
     margin-top: 6px;

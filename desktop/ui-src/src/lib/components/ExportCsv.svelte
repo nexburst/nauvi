@@ -116,6 +116,10 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+      /* Out of the row it has room to wrap: shown whole, between words
+         first (#384). */
+      white-space: normal;
+      overflow-wrap: anywhere;
     }
   }
 </style>

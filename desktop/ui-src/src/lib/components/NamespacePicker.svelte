@@ -105,7 +105,9 @@
     aria-label="Namespace"
     aria-haspopup="dialog"
     aria-expanded={open}
-    title={app.namespacesForbidden ? "You may not list namespaces: type the ones you have access to" : undefined}
+    title={app.namespacesForbidden
+      ? "You may not list namespaces: type the ones you have access to"
+      : namespacesLabel(selected)}
     bind:this={trigger}
     onclick={() => (open ? hide() : show())}>{namespacesLabel(selected)}</button
   >
@@ -172,9 +174,21 @@
     min-width: 0;
     flex-wrap: wrap;
   }
+  /* A long namespace name is cut, whole in the title, and the button gives
+     way before the toolbar wraps (#392): it never pushes "+ Create" down. */
   .trigger {
     min-width: 160px;
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     text-align: left;
+  }
+  @container toolbar (max-width: 720px) {
+    .trigger {
+      min-width: 112px;
+      max-width: 100%;
+    }
   }
   .popover {
     position: absolute;

@@ -221,6 +221,16 @@
     flex: 1 1 220px;
     min-width: 120px;
   }
+  /* Beside the inspector (#392): a shorter box before the toolbar wraps. */
+  @container toolbar (max-width: 720px) {
+    .filter:not(:has(.error)) {
+      min-width: auto;
+    }
+    .field {
+      flex-basis: 96px;
+      min-width: 96px;
+    }
+  }
   .search {
     width: 100%;
     box-sizing: border-box;
