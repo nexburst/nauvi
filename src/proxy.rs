@@ -1,5 +1,5 @@
 //! A proxy set for one cluster in the app (#329), as Lens has: an
-//! `http://` or `socks5://` URL the client (and so every
+//! `http://`, `https://` or `socks5://` URL the client (and so every
 //! request, watch, exec and port-forward, which all go through it) connects
 //! through. It is never written to a kubeconfig.
 //!
@@ -8,29 +8,26 @@
 //! hide them, [`redact_credentials`] masks any URL's user and password in a
 //! message, and every client error is passed through it.
 //!
-//! `https://` proxies are refused for now: kube's client would make the TLS
-//! handshake with the proxy using the cluster's TLS settings (its CA,
-//! skip-verify, server name and client certificate), so a host that
-//! impersonates the proxy could take its password and see the client
-//! certificate.
+//! An `https://` proxy (#362) is reached over TLS of its own
+//! ([`crate::proxy_tls`]): its certificate is checked against the system's
+//! trust store plus the CA file set with it ([`ClusterProxy::ca_file`]),
+//! never with the cluster's CA, skip-verify or client certificate.
 //!
 //! A cluster on this machine (`localhost`, `127.0.0.1`, `::1`) is reached
 //! directly unless the setting asks for the proxy there too
 //! ([`ClusterProxy::local`]): a proxy is for leaving the machine, and kind
 //! or minikube behind a company proxy would otherwise break.
 
+use crate::proxy_tls::ProxyTrust;
 use std::fmt;
 use std::net::IpAddr;
+use std::path::PathBuf;
 
 /// What replaces a URL's user and password.
 pub const CREDENTIALS_MASK: &str = "[redacted]";
 
-/// The schemes a proxy URL may have. Not `https` (see the module docs).
-pub const PROXY_SCHEMES: [&str; 2] = ["http", "socks5"];
-
-/// Why an `https://` proxy is refused.
-pub const HTTPS_PROXY_UNSUPPORTED: &str =
-    "HTTPS proxies aren't supported yet; use http:// or socks5://.";
+/// The schemes a proxy URL may have.
+pub const PROXY_SCHEMES: [&str; 3] = ["http", "https", "socks5"];
 
 /// A checked proxy URL. Always has a host and a port.
 #[derive(Clone, PartialEq, Eq)]
@@ -50,19 +47,16 @@ impl ProxyUrl {
         let Some((scheme, rest)) = text.split_once("://") else {
             // Not repeated: without a scheme a password is not recognised.
             return Err(
-                "Start the proxy URL with http:// or socks5://, for example \
+                "Start the proxy URL with http://, https:// or socks5://, for example \
                  http://proxy.example:3128."
                     .into(),
             );
         };
         let shown = redact_credentials(text);
         let scheme = scheme.to_ascii_lowercase();
-        if scheme == "https" {
-            return Err(HTTPS_PROXY_UNSUPPORTED.into());
-        }
         if !PROXY_SCHEMES.contains(&scheme.as_str()) {
             return Err(format!(
-                "A proxy URL starts with http:// or socks5://, not {}://.",
+                "A proxy URL starts with http://, https:// or socks5://, not {}://.",
                 redact_credentials(&scheme)
             ));
         }
@@ -94,6 +88,7 @@ impl ProxyUrl {
         }
         let default_port = match scheme.as_str() {
             "http" => 80,
+            "https" => 443,
             _ => 1080,
         };
         // `[v6]:port` or `host:port`, the port optional.
@@ -176,6 +171,20 @@ pub struct ClusterProxy {
     /// Use the proxy for a cluster on this machine too (else such a cluster
     /// is reached directly).
     pub local: bool,
+    /// For an `https://` proxy: a PEM file of CA certificates its
+    /// certificate may also be signed by, besides the system's trust store.
+    pub ca_file: Option<PathBuf>,
+}
+
+impl ClusterProxy {
+    /// What the proxy's certificate is checked against, for an `https://`
+    /// proxy: the system's trust store, and the CA file if one is set.
+    pub fn trust(&self) -> Result<ProxyTrust, String> {
+        match &self.ca_file {
+            Some(path) if self.url.scheme() == "https" => ProxyTrust::from_ca_file(path),
+            _ => Ok(ProxyTrust::system()),
+        }
+    }
 }
 
 /// How a client reaches its cluster.
@@ -322,13 +331,19 @@ mod tests {
     }
 
     #[test]
-    fn rejects_what_is_not_a_proxy_url() {
-        // kube would check an HTTPS proxy with the cluster's TLS settings.
-        assert_eq!(err("https://proxy.example:3128"), HTTPS_PROXY_UNSUPPORTED);
+    fn takes_https_proxies_with_a_password() {
+        let u = ok("HTTPS://me:hunter2@proxy.example");
+        assert_eq!(u.secret_text(), "https://me:hunter2@proxy.example:443");
+        assert_eq!(u.redacted(), "https://[redacted]@proxy.example:443");
+        assert_eq!(u.scheme(), "https");
         assert_eq!(
-            err("HTTPS://me:hunter2@proxy.example"),
-            HTTPS_PROXY_UNSUPPORTED
+            ok("https://10.0.0.1:3129").secret_text(),
+            "https://10.0.0.1:3129"
         );
+    }
+
+    #[test]
+    fn rejects_what_is_not_a_proxy_url() {
         assert!(err("").contains("Type a proxy URL"));
         assert!(err("proxy.example:3128").contains("Start the proxy URL with"));
         assert!(err("ftp://proxy.example").contains("not ftp://"));
@@ -370,6 +385,7 @@ mod tests {
         let p = ClusterProxy {
             url: u,
             local: false,
+            ca_file: None,
         };
         assert!(!format!("{p:?}").contains("hunter2"));
     }
@@ -427,6 +443,7 @@ mod tests {
         let setting = |local| ClusterProxy {
             url: ok("http://proxy.example:3128"),
             local,
+            ca_file: None,
         };
         let proxied = Some("http://proxy.example:3128/".parse::<http::Uri>().unwrap());
 

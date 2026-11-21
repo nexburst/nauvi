@@ -4,6 +4,7 @@ use crate::auth::{describe_client_error, prepare_exec, AuthTarget, NO_KUBECONFIG
 use crate::catalog::ContextTarget;
 use crate::errors::{chain_text, kubeconfig_error_text};
 use crate::proxy::{apply_proxy, redact_credentials, ClusterProxy, ProxyRoute};
+use crate::proxy_tls::ProxyTrust;
 use anyhow::{anyhow, Result};
 use kube::config::KubeConfigOptions;
 use kube::Client;
@@ -51,7 +52,7 @@ pub async fn client_for_context_via(
             let mut config = kube::Config::incluster()
                 .map_err(|e| anyhow!("Cannot use the in-cluster config: {}", chain_text(&e)))?;
             let route = apply_proxy(&mut config, false, proxy);
-            connect(config, "in-cluster".to_string(), interactive, route).await
+            connect(config, "in-cluster".to_string(), interactive, route, proxy).await
         }
         Err(e) => Err(anyhow!(kubeconfig_read_message(
             &e,
@@ -143,7 +144,7 @@ pub async fn client_from_kubeconfig_via(
     // Never HTTPS_PROXY from the environment: only a proxy set for this
     // cluster (see `apply_proxy`).
     let route = apply_proxy(&mut config, has_proxy, proxy);
-    connect(config, context_name, interactive, route).await
+    connect(config, context_name, interactive, route, proxy).await
 }
 
 /// The client settings kube 5 changed that we keep as kube 2 had them (#252).
@@ -163,11 +164,14 @@ fn keep_kube2_defaults(config: &mut kube::Config) {
 }
 
 /// Build the client, run its exec plugin and make the first request.
+/// `setting` is the cluster's proxy setting: its CA file is used if
+/// `route` goes through it.
 async fn connect(
     mut config: kube::Config,
     context: String,
     interactive: bool,
     route: ProxyRoute,
+    setting: Option<&ClusterProxy>,
 ) -> Result<Client> {
     keep_kube2_defaults(&mut config);
     // A failure names the proxy it went through, without its credentials
@@ -185,6 +189,13 @@ async fn connect(
         };
         let via = format!("{via}{hint}");
         anyhow!(redact_credentials(&format!("{msg}{via}")))
+    };
+    // An https:// proxy's certificate: the system's trust store, plus the
+    // setting's CA file when the setting's proxy is used (a kubeconfig's
+    // proxy-url gets the system's trust store only).
+    let proxy_trust = match (&route, setting) {
+        (ProxyRoute::Setting(_), Some(s)) => s.trust().map_err(&explain)?,
+        _ => ProxyTrust::system(),
     };
     let exec = config.auth_info.exec.as_ref();
     let target = AuthTarget {
@@ -210,8 +221,8 @@ async fn connect(
         .then(|| config.auth_info.exec.clone())
         .flatten();
     let client = match &exec {
-        Some(_) => crate::exec_credentials::client_with_exec(config).await,
-        None => crate::forward_client::builder(config).map(|b| b.build()),
+        Some(_) => crate::exec_credentials::client_with_exec(config, &proxy_trust).await,
+        None => crate::forward_client::builder(config, &proxy_trust).map(|b| b.build()),
     }
     .map_err(|e| explain(describe_client_error(&e, &target)))?;
     if let Err(e) = client.apiserver_version().await {

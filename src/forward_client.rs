@@ -11,8 +11,12 @@
 //! ([`crate::client`]: kubeconfig, the cluster's proxy setting, the exec
 //! credential cache, the first `/version` request), but with the same stack
 //! as kube's own `ClientBuilder::try_from` over a connector with
-//! `TCP_NODELAY` on. Other clients keep kube's stack as it is.
+//! `TCP_NODELAY` on. Other clients keep kube's stack as it is, except a
+//! client through an `https://` proxy (#362): it gets this stack too, with
+//! the connection to the proxy from [`crate::proxy_tls`] instead of kube's,
+//! which would use the cluster's TLS settings for it.
 
+use crate::proxy_tls::ProxyTrust;
 use http::{Request, Response};
 use hyper_util::client::legacy::connect::{proxy, HttpConnector};
 use hyper_util::rt::TokioExecutor;
@@ -35,22 +39,36 @@ pub async fn for_port_forwards<F: Future>(build: F) -> F::Output {
     FOR_FORWARDS.scope((), build).await
 }
 
-/// kube's `ClientBuilder::try_from(config)`, or inside
-/// [`for_port_forwards`] the same stack with `TCP_NODELAY` on.
-pub(crate) fn builder(config: kube::Config) -> Result<ClientBuilder<Stack>, kube::Error> {
-    if FOR_FORWARDS.try_with(|_| ()).is_ok() {
-        nodelay_builder(config)
+/// kube's `ClientBuilder::try_from(config)`, or the same stack built here:
+/// inside [`for_port_forwards`] (`TCP_NODELAY` on) and for an `https://`
+/// proxy (its certificate checked against `proxy_trust`).
+pub(crate) fn builder(
+    config: kube::Config,
+    proxy_trust: &ProxyTrust,
+) -> Result<ClientBuilder<Stack>, kube::Error> {
+    let forwards = FOR_FORWARDS.try_with(|_| ()).is_ok();
+    let https_proxy = config
+        .proxy_url
+        .as_ref()
+        .is_some_and(|u| u.scheme_str() == Some("https"));
+    if forwards || https_proxy {
+        own_builder(config, forwards, proxy_trust)
     } else {
         ClientBuilder::try_from(config)
     }
 }
 
-/// kube's `ClientBuilder::try_from`, with `TCP_NODELAY` on and without its
-/// tracing layer.
-fn nodelay_builder(config: kube::Config) -> Result<ClientBuilder<Stack>, kube::Error> {
+/// kube's `ClientBuilder::try_from`, without its tracing layer, with
+/// `TCP_NODELAY` on if `nodelay`, and with an `https://` proxy reached
+/// through [`crate::proxy_tls::connector`].
+fn own_builder(
+    config: kube::Config,
+    nodelay: bool,
+    proxy_trust: &ProxyTrust,
+) -> Result<ClientBuilder<Stack>, kube::Error> {
     let mut http = HttpConnector::new();
     http.enforce_http(false);
-    http.set_nodelay(true);
+    http.set_nodelay(nodelay);
     match config.proxy_url.clone() {
         Some(url) if url.scheme_str() == Some("socks5") => {
             stack(proxy::SocksV5::new(url, http), config)
@@ -60,7 +78,8 @@ fn nodelay_builder(config: kube::Config) -> Result<ClientBuilder<Stack>, kube::E
             stack(tunnel, config)
         }
         Some(url) if url.scheme_str() == Some("https") => {
-            let to_proxy = config.rustls_https_connector_with_connector(http)?;
+            // Never `config`'s TLS settings: they are the cluster's.
+            let to_proxy = crate::proxy_tls::connector(http, proxy_trust)?;
             let tunnel = with_basic_auth(&url, proxy::Tunnel::new(url.clone(), to_proxy));
             stack(tunnel, config)
         }
@@ -173,10 +192,10 @@ mod tests {
     async fn only_clients_built_for_forwards_turn_nagle_off() {
         let config = kube::Config::new("https://127.0.0.1:6443".parse().unwrap());
         assert!(FOR_FORWARDS.try_with(|_| ()).is_err());
-        assert!(builder(config.clone()).is_ok());
+        assert!(builder(config.clone(), &ProxyTrust::system()).is_ok());
         let inside = for_port_forwards(async { FOR_FORWARDS.try_with(|_| ()).is_ok() }).await;
         assert!(inside);
-        for_port_forwards(async { builder(config).map(|_| ()) })
+        for_port_forwards(async { builder(config, &ProxyTrust::system()).map(|_| ()) })
             .await
             .unwrap();
     }
