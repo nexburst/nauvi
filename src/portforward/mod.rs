@@ -325,11 +325,7 @@ async fn connect(
         let (mut stream, remote_error, closer) = match tunnel {
             Ok(t) => t.into_parts(),
             Err(e) => {
-                shared.set_error(format!(
-                    "pod {}: {}",
-                    b.pod,
-                    describe_error(&anyhow::Error::from(e))
-                ));
+                shared.set_error(format!("pod {}: {e}", b.pod));
                 backends.forget();
                 continue;
             }
