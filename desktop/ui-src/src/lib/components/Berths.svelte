@@ -1,6 +1,6 @@
 <script lang="ts">
   import { app, kinds, setView } from "../stores/app.svelte";
-  import { berthCode, pinnable, viewLabel, BERTHS_MAX } from "../berths";
+  import { berthCode, idCode, pinnable, viewLabel, BERTHS_MAX } from "../berths";
   import { chart, setChartPinned, toggleBerth, toggleChart } from "../stores/chart.svelte";
   import { problems } from "../stores/problems.svelte";
 
@@ -30,7 +30,7 @@
       }}
     >
       <span class="key" aria-hidden="true">{n}</span>
-      <span class="code">{berthCode(view, kinds.all)}</span>
+      <span class="code">{known(view) ? berthCode(view, kinds.all) : idCode(view)}</span>
       {#if badge}
         {#key badge.count}<span class="pip" aria-hidden="true">{badge.count}</span>{/key}
       {/if}

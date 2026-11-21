@@ -157,13 +157,17 @@ for (const [gtk, dark] of [
       env: { GTK_THEME: gtk, DBUS_SESSION_BUS_ADDRESS: "unix:path=/nonexistent/qa-area5-bus" },
     });
 
-    it(`System follows the desktop (${dark ? "dark" : "light"})`, T, async () => {
+    it(`System follows the desktop (${dark ? "dark" : "light"})`, T, async (t) => {
       const { app } = s;
       await waitLive(app);
       assert.equal(app.profile.settings()?.theme ?? "system", "system");
       const prefers = await app.js("return matchMedia('(prefers-color-scheme: dark)').matches");
       const lum = await bodyLuminance(app);
       console.log(`GTK_THEME=${gtk}: prefers dark ${prefers}, body luminance ${lum.toFixed(2)}`);
+      // WebKitGTK 2.52 (CI's Ubuntu 26.04) no longer takes the dark variant
+      // from GTK_THEME, and a gtk-3.0/settings.ini did not change that:
+      // without a desktop that says "dark" there is nothing to follow.
+      if (dark && !prefers) return t.skip("this webview does not report a dark desktop for GTK_THEME=Adwaita:dark");
       assert.equal(prefers, dark);
       assert.equal(lum < 0.5, dark);
       await openSettings(app);

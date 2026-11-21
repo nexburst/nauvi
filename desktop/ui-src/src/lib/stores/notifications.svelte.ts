@@ -23,6 +23,7 @@ export function notify(
   target: NotificationTarget | null = null,
 ) {
   if (!message) return;
+  const newest = notifications.list[0];
   notifications.list = addNotification(notifications.list, {
     id: nextId++,
     at: Date.now(),
@@ -31,7 +32,11 @@ export function notify(
     context,
     target,
   });
-  if (!notifications.open) notifications.unread++;
+  // A repeat of the newest notice only raises its count: it is not one
+  // more thing to read (a cluster that stays unreachable used to add one
+  // unread notice per retry).
+  const repeat = !!newest && notifications.list[0]?.id === newest.id && notifications.unread > 0;
+  if (!notifications.open && !repeat) notifications.unread++;
 }
 
 export function toggleNotifications() {

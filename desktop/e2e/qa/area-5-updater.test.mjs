@@ -145,8 +145,9 @@ describe("area 5: updates with a local latest.json", { timeout: 15 * 60_000 }, (
 
   it("a failed check on start stays quiet", T, async () => {
     const { app } = s;
-    await app.restart({ beforeStart: () => app.profile.writeSettings({ ...app.profile.settings(), check_updates: true }) });
+    // Counted from before the restart: the check can be over by the time the app answers.
     const before = served.requests;
+    await app.restart({ beforeStart: () => app.profile.writeSettings({ ...app.profile.settings(), check_updates: true }) });
     await waitLive(app);
     await app.waitFor(() => served.requests > before, { timeout: 30_000, message: "the start-up check" });
     await sleep(3000);

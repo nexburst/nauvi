@@ -56,11 +56,20 @@
   const label = (id: string) => contextLabel(id);
   const color = $derived(contextSettings(current).color);
   const mode = $derived(contextMode(current));
+  const band = $derived(color || (mode === "protected" ? "var(--red)" : mode === "readOnly" ? "var(--amber)" : ""));
   /** Bumped per click: the icon turns once per refresh, never idles. */
   let spins = $state(0);
 </script>
 
-<header>
+<!-- The cluster's own colour runs along the top of the window, so no screen
+     of a production cluster looks like a screen of a test one. A protected
+     or read-only context without a colour still gets a band. -->
+<header
+  class:banded={!!band}
+  style:--band={band || null}
+  data-testid="cluster-band"
+  data-band={mode === "protected" ? "protected" : mode === "readOnly" ? "read-only" : color ? "colour" : "none"}
+>
   <div class="brand">
     <!-- The mark: a sonar scope, its beam resting at the bearing of the
          last change. -->
@@ -282,6 +291,9 @@
     height: 1px;
     background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 55%, transparent), transparent 38%);
     pointer-events: none;
+  }
+  header.banded {
+    box-shadow: inset 0 3px 0 var(--band);
   }
   .brand {
     display: flex;

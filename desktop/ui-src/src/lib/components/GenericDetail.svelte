@@ -16,7 +16,7 @@
   import { isWorkloadResource } from "../dock";
   import { crdInstancesKind, isCrdDefinitions } from "../crd";
   import { kinds, setView } from "../stores/app.svelte";
-  import { closeDetail } from "../stores/detail.svelte";
+  import { closeDetail, detail } from "../stores/detail.svelte";
   import { registerTabs } from "../stores/keyboard.svelte";
   import type { Target } from "../stores/detail.svelte";
   import { LiveDetail } from "../stores/live-detail.svelte";
@@ -53,7 +53,9 @@
     { id: "overview", label: "Overview" },
     { id: "yaml", label: "YAML" },
   ]);
-  let tab = $state("overview");
+  // Opened with E from the table: straight to the YAML editor.
+  let tab = $state(detail.yaml ? "yaml" : "overview");
+  detail.yaml = false;
   // YAML wants the room: it takes the sheet (W gives the table back).
   $effect(() => {
     if (tab === "yaml" && !chart.pinned) untrack(() => (chart.wide = true));

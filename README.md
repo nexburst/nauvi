@@ -18,8 +18,19 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
 
 ## Desktop app
 
+- **Getting around without a sidebar**: the window's left edge is a narrow
+  column of **berths**, the places you keep at hand, shown by their kubectl
+  short names (`po`, `dep`, `svc`) with a count of what needs attention.
+  The first is always the Overview; you add up to eight more with `P` (or the
+  dashed cell that offers the view on screen), remove any with its ✕ or a
+  right-click, and jump with keys `1`-`9`. The app never adds one. Every
+  kind is in a drawer: `G` (or the compass at the foot of the berths) opens
+  it, typing a kubectl name (`po`, `deploy`, `secrets`) and Enter goes there,
+  and it closes again. **Keep open** in the drawer keeps it as a column
+  beside the table, the classic layout, and the handle at the left edge
+  floats it again.
 - **Every resource type**, built-in or custom, found through API discovery
-  and grouped in a Lens-style sidebar (workloads, network, config, storage,
+  and grouped in that drawer (workloads, network, config, storage,
   cluster, access control, device resources, custom resources with their
   definitions). Admission policies and their bindings sit under Config.
   Device Resources holds the DRA kinds: DeviceClasses, ResourceClaims,
@@ -33,7 +44,10 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   at once (up to 10, one watch each) or all of them.
   The filter box above every list matches any column. **Aa** matches case,
   **.\*** takes a regular expression (`^` and `$` match at the start and end
-  of each column; a regex that runs too long is stopped). Enter remembers a
+  of each column; a regex that runs too long is stopped). A leading `!`
+  inverts a text filter: `!Completed` shows the rows that do not contain it.
+  `Z`, or the warning mark in the toolbar, keeps only the rows that need
+  attention. Enter remembers a
   search and ☆ stars it; ArrowDown in the box offers your starred and recent
   searches in any list. **Export CSV** in the toolbar saves the rows and
   columns you see (filter, sort and column choice) to a file you pick. Cells
@@ -66,8 +80,8 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   Settings → Metrics) hides CPU and memory usage for that cluster (table
   columns, charts, the Overview's usage) and stops polling its metrics API;
   a note with a link to the setting shows where the metrics would be.
-- **Overview**: pod counts (crash-looping pods count as errors, not as
-  running), problem pods, CPU/memory/pod capacity against requests and usage,
+- **Overview**: a headline that says how many pods need a look, then pod
+  counts (crash-looping pods count as errors, not as running), problem pods, CPU/memory/pod capacity against requests and usage,
   and the newest warning events, each linking to its object. The CPU and
   Memory bars show limits next to requests, with a marker, and turn red when
   the limits exceed what the nodes can allocate. Below them, a 1-hour CPU and
@@ -84,6 +98,13 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   ClusterRoles and ClusterRoleBindings, and metrics-server also an
   APIService, so you need permission to create those. The Prometheus stack's
   node-exporter runs as a DaemonSet on every node.
+- **The watch**: the dial in the title bar shows how long the cluster has
+  been calm (no problem pods) or how many need a look; it opens a small
+  sonar, the calm streak, the last twelve hours and a few insignia earned by
+  keeping watch. The line along the status bar is the same twelve hours, with
+  a brass knot where each problem cleared (hover it for what and when). It
+  is kept per context in the app's local storage, counts only while the
+  Overview is open, and never interrupts.
 - **Workloads → Overview**: Pods, Deployments, DaemonSets, StatefulSets,
   ReplicaSets, Jobs and CronJobs counted by status (running, pending, failed,
   succeeded, suspended, ...) in the selected namespaces, live. A click on a
@@ -229,6 +250,13 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   without a shell; the container stays in the pod until the pod is deleted.
   "Shell" on a node opens a root shell on the host through a privileged pod
   in `kube-system`, deleted when the tab closes or the app quits.
+- **Verbs on the focused row**, as in k9s: `L` opens its logs, `S` a shell,
+  `E` or `Y` its YAML editor, `Shift+R` restarts its workload (it always
+  asks first) and `A` copies a prompt about it for your own coding agent. A
+  line under the table names the keys that apply. In the detail panel, `W`
+  gives the object the whole window and gives the table back; the YAML tab
+  takes the whole window by itself. The panel leads with what the table says
+  is wrong ("CrashLoopBackOff · 12 restarts").
 - **Keyboard first**: a command palette (Ctrl+K / Cmd+K) jumps to any kind
   (`deploy`, `svc`, `cm` work), namespace, context or object and runs
   actions (`>`); `ns ` and `ctx ` narrow it to namespaces or contexts, and
@@ -257,17 +285,21 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   or upgrade a release from its detail with edited values and a chosen
   version; both show a server-side dry run first (the rendered manifest, or a
   diff against the current revision) and run nothing until you confirm.
-- **Multi-cluster**: the sidebar is a tree of every kubeconfig context,
-  grouped by file. Nothing connects until you use it: expand a cluster to
+- **Multi-cluster**: the drawer of kinds holds a tree of every kubeconfig
+  context, grouped by file. Nothing connects until you use it: expand a cluster to
   connect it in the background and see its resource types, and click its
   name to show it. Several clusters stay connected in one window; tables and
   the overview watch only the one shown. Logs, terminals and port-forwards
   keep running when you show another cluster, and dock tabs, port-forwards,
   notifications and the status bar name the cluster each one runs on, in the
-  cluster's colour. ✕ on a cluster's row disconnects it and stops what runs
-  there. Click a sidebar section's title (or focus it and press Enter) to
-  collapse it; nauvi remembers it. Long cloud context names (EKS ARNs, GKE,
-  AKS) show the cluster name; hover for the full name.
+  cluster's colour. That colour also runs along the top edge of the window
+  and shows in every confirm dialog; a read-only or protected cluster without
+  a colour gets an amber or red edge. The other clusters this window is
+  connected to are chips beside the context selector: click one to show it,
+  ✕ to disconnect it. ✕ on a cluster's row in the tree does the same and
+  stops what runs there. Click a sidebar section's title (or focus it and
+  press Enter) to collapse it; nauvi remembers it. Long cloud context names
+  (EKS ARNs, GKE, AKS) show the cluster name; hover for the full name.
   The status bar shows the cluster, its Kubernetes version and the time. On
   a live view this is `Live · last change <time>`: the rows are current, and
   the time is when they last changed. `Stale since <time>` means the
@@ -320,7 +352,7 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   only if you choose **Allow and check** (**Don't run** marks its contexts
   "Not allowed"). The answer is remembered per source and command (in
   `exec-approvals.json` in the app's config directory) until you remove the
-  source; a changed command asks again. In the sidebar tree, such a cluster
+  source; a changed command asks again. In the cluster tree, such a cluster
   asks inside its own row before the command runs. Commands from your default
   kubeconfig (`KUBECONFIG` or `~/.kube/config`) run without asking, as in
   kubectl. Contexts of an added kubeconfig that send a token file or client
@@ -349,7 +381,19 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   `%APPDATA%\com.nauvi.app\` on Windows).
 - **Notifications**: the bell in the title bar keeps the notices and errors
   this window has shown (the last 200, until the window closes), with their
-  time, context and a link to the object. **Clear all** empties it.
+  time, context and a link to the object. It opens as a popover; Esc or a
+  click elsewhere closes it, and what arrives meanwhile counts as unread.
+  **Clear all** empties it.
+- **When a cluster does not answer**: a view that cannot start is retried
+  with a growing wait (5, 10, 20, 40 seconds, then every minute) and, after
+  about five minutes, no more: the error says "Stopped retrying. Refresh to
+  try again." Refresh, a context switch or opening the view again starts
+  over. The error is one notification, however many retries it took. A
+  view that was live and lost its connection shows Reconnecting while the
+  app tries again (every second at first, every ten at most); after five
+  minutes of that without a break it is stopped the same way, and what it
+  showed stays on screen, dimmed. Logs, terminals and port-forwards are not
+  part of this: they keep their own connections.
 - **Help and diagnostics**: the Help menu (the `?` in the header; on macOS
   also in the menu bar) has Documentation, Report a bug (opens a GitHub issue
   with the version, commit, OS and webview filled in), Open log folder and
@@ -416,6 +460,16 @@ PodDisruptionBudget). Namespaced actions default to the `default` namespace.
 | `nauvi apply -f <file\|-> [-n NS] [--dry-run]` | Create or update the objects of a (multi-document) YAML file, like `kubectl apply`. Validated with a dry run first; nothing is applied if any object fails |
 
 ### Use nauvi from an AI assistant (MCP)
+
+nauvi has no model of its own and stores no API key: it works with the
+coding agent you already have, which signs in itself. In the desktop app,
+**Settings → Agents** shows the entry below for Claude Code, Codex, VS Code
+and the clients that share the `mcpServers` form (Cursor, Claude Desktop,
+Gemini CLI, Windsurf), pinned to the cluster on screen and ready to copy,
+and a short guide to paste into your agent's rules (AGENTS.md, CLAUDE.md or
+a skill). **Copy as prompt** (`A` on a row, or the row menu) puts a prompt
+about that object on the clipboard: its kind, name, cluster and what the
+table says is wrong, never its logs or manifest.
 
 `nauvi mcp` runs a [Model Context Protocol](https://modelcontextprotocol.io)
 server over stdio. It offers the tools `problems`, `list`, `get`,
@@ -717,6 +771,10 @@ Delete the clusters with `kind delete cluster --name nauvi-test` (and
 `nauvi-staging`); re-run the script to recreate them.
 
 ## Contributing
+
+[docs/ux-standard.md](docs/ux-standard.md) is the UX standard the app is
+measured against: what Lens, k9s, Headlamp, Aptakube and others share, where
+nauvi stands on each point, and the backlog that follows from it.
 
 See [CLAUDE.md](CLAUDE.md) (also available as `AGENTS.md`) for the code
 layout, the checks CI runs, how to regenerate the IPC bindings, and how to run

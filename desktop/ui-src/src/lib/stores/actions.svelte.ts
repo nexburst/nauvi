@@ -100,7 +100,14 @@ export function kindOfResource(r: ResourceRef): ResourceKind | undefined {
  * destructive actions, actions with input and bulk actions, runs the rest
  * right away.
  */
-export function requestAction(kind: ResourceKind, targets: ActionTarget[], action: ActionDef, replicas = 1) {
+/** `confirm`: ask even for an action that otherwise runs at once (a key is easier to hit than a menu). */
+export function requestAction(
+  kind: ResourceKind,
+  targets: ActionTarget[],
+  action: ActionDef,
+  replicas = 1,
+  confirm = false,
+) {
   if (targets.length === 0) return;
   // A forward keeps running, so it has its own dialog and store.
   const fk = action.id === "portForward" ? forwardKindOf(kind.resource) : null;
@@ -123,7 +130,7 @@ export function requestAction(kind: ResourceKind, targets: ActionTarget[], actio
     return;
   }
   const req: ActionRequest = { kind, targets, action, replicas, typed: "", cluster: visibleCluster() };
-  if (needsDialog(action, targets)) {
+  if (confirm || needsDialog(action, targets)) {
     actionUi.request = req;
     actionUi.busy = false;
     actionUi.error = "";

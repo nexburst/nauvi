@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AgentSettings from "./AgentSettings.svelte";
   import { onMount } from "svelte";
   import { api, visibleCluster } from "../cluster";
   import { commands } from "../bindings";
@@ -25,6 +26,7 @@
   import { loadCharts } from "../stores/helmCharts.svelte";
   import { checkForUpdates, updates } from "../stores/updates.svelte";
   import { checkSummary } from "../updates";
+  import { help } from "../stores/help.svelte";
   import { isMacPlatform, shortcutHint } from "../keys";
   import { clampTerminalFont, DEFAULT_ZOOM, MAX_TERMINAL_FONT, MIN_TERMINAL_FONT, ZOOM_STEPS } from "../zoom";
   import { clampEditorFont, MAX_EDITOR_FONT, MIN_EDITOR_FONT, ROW_HEIGHTS, TAB_SIZES } from "../preferences";
@@ -131,6 +133,64 @@
     void loadCharts();
   });
 
+  // One section at a time (the list on the left), or every one that has the
+  // searched text. "All settings" is the whole page in one scroll.
+  const SECTIONS = [
+    { id: "appearance", label: "Appearance" },
+    { id: "editor", label: "Editor and logs" },
+    { id: "app", label: "Startup and updates" },
+    { id: "clusters", label: "Clusters" },
+    { id: "metrics", label: "Metrics" },
+    { id: "helm", label: "Helm" },
+    { id: "agents", label: "Agents (MCP)" },
+    { id: "about", label: "About nauvi" },
+    { id: "all", label: "All settings" },
+  ];
+  const SECTION_KEY = "nauvi.settings.section";
+
+  function lastSection(): string {
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(SECTION_KEY);
+    } catch {
+      // Storage blocked: the first section.
+    }
+    if (saved === "all") return saved;
+    // Help → About opens this page on About (AboutSection clears the flag).
+    if (help.showAbout) return "about";
+    return SECTIONS.some((s) => s.id === saved) ? saved! : SECTIONS[0].id;
+  }
+
+  let section = $state(lastSection());
+  let q = $state("");
+  const searching = $derived(q.trim() !== "");
+  const on = (id: string) => searching || section === "all" || section === id;
+  let pane = $state<HTMLElement | null>(null);
+  let matches = $state(1);
+
+  function pick(id: string) {
+    section = id;
+    q = "";
+    pane?.scrollTo({ top: 0 });
+    try {
+      localStorage.setItem(SECTION_KEY, id);
+    } catch {
+      // Storage blocked: remembered for this window only.
+    }
+  }
+
+  // The search keeps the sections that have the text anywhere in them.
+  $effect(() => {
+    const needle = q.trim().toLowerCase();
+    let n = 0;
+    for (const f of pane?.querySelectorAll("fieldset") ?? []) {
+      const miss = needle !== "" && !(f.textContent ?? "").toLowerCase().includes(needle);
+      f.classList.toggle("nomatch", miss);
+      if (!miss) n++;
+    }
+    matches = n;
+  });
+
   function focus(node: HTMLElement) {
     node.focus();
   }
@@ -144,7 +204,24 @@
       <button type="button" class="x" title="Close (Esc)" use:focus onclick={closeSettings}><svg viewBox="0 0 12 12" width="11" height="11" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" /></svg><span class="sr">Close</span></button>
     </div>
 
-    <fieldset>
+    <div class="body">
+      <div class="side">
+        <input class="input search" type="search" aria-label="Search settings" placeholder="Search settings" bind:value={q} />
+        <div class="tabs" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
+          {#each SECTIONS as s (s.id)}
+            <button
+              type="button"
+              role="tab"
+              class="tab"
+              class:all={s.id === "all"}
+              aria-selected={!searching && section === s.id}
+              onclick={() => pick(s.id)}>{s.label}</button
+            >
+          {/each}
+        </div>
+      </div>
+      <div class="pane" bind:this={pane} data-testid="settings-pane">
+    <fieldset hidden={!on("appearance")}>
       <legend>Theme</legend>
       <div class="choices" role="radiogroup" aria-label="Theme">
         {#each THEMES as t (t.value)}
@@ -163,7 +240,7 @@
       <p class="muted hint">System follows your desktop's light or dark preference.</p>
     </fieldset>
 
-    <fieldset data-testid="zoom-settings">
+    <fieldset data-testid="zoom-settings" hidden={!on("appearance")}>
       <legend>Zoom and text</legend>
       <div class="row">
         <span>Zoom: <span data-testid="zoom-level">{current.zoom}%</span></span>
@@ -205,7 +282,7 @@
       </p>
     </fieldset>
 
-    <fieldset data-testid="kubectl-settings">
+    <fieldset data-testid="kubectl-settings" hidden={!on("editor")}>
       <legend>Local terminal</legend>
       <label class="choice">
         <input
@@ -223,9 +300,7 @@
       </p>
     </fieldset>
 
-    <AskAiSettings />
-
-    <fieldset data-testid="editor-settings">
+    <fieldset data-testid="editor-settings" hidden={!on("editor")}>
       <legend>YAML editor</legend>
       <label class="row">
         <span>Font size</span>
@@ -262,7 +337,7 @@
       <p class="muted hint">Tab and Enter indent by the tab size. Both apply to open editors at once.</p>
     </fieldset>
 
-    <fieldset>
+    <fieldset hidden={!on("editor")}>
       <legend>Log defaults</legend>
       <label class="row">
         <span>Tail</span>
@@ -291,7 +366,7 @@
       </label>
     </fieldset>
 
-    <fieldset data-testid="time-settings">
+    <fieldset data-testid="time-settings" hidden={!on("appearance")}>
       <legend>Times</legend>
       <div class="choices" role="radiogroup" aria-label="Time zone">
         {#each ZONES as z (z.value)}
@@ -313,7 +388,7 @@
       </p>
     </fieldset>
 
-    <fieldset data-testid="idle-settings">
+    <fieldset data-testid="idle-settings" hidden={!on("clusters")}>
       <legend>Background clusters</legend>
       <label class="row">
         <span>Disconnect when idle for</span>
@@ -346,7 +421,7 @@
     </fieldset>
 
     {#if context}
-      <fieldset>
+      <fieldset hidden={!on("clusters")}>
         <legend>This cluster</legend>
         <div class="row">
           <span class="muted status">Display name, colour, namespaces and the local terminal's folder.</span>
@@ -362,7 +437,7 @@
       </fieldset>
     {/if}
 
-    <fieldset data-testid="prometheus-settings">
+    <fieldset data-testid="prometheus-settings" hidden={!on("metrics")}>
       <legend>Prometheus</legend>
       <label class="row">
         <span>Service{context ? ` for ${context}` : ""}</span>
@@ -409,13 +484,13 @@
       </p>
     </fieldset>
 
-    <fieldset data-testid="helm-repo-settings">
+    <fieldset data-testid="helm-repo-settings" hidden={!on("helm")}>
       <legend>Helm repositories</legend>
       <HelmRepos />
       <p class="muted hint">Shared with the helm command line (its repositories.yaml). Charts are under Helm → Charts.</p>
     </fieldset>
 
-    <fieldset data-testid="startup-settings">
+    <fieldset data-testid="startup-settings" hidden={!on("app")}>
       <legend>Startup</legend>
       <label class="choice">
         <input
@@ -433,7 +508,7 @@
       <p class="muted hint">Off unless you turn it on. Adds the app to your desktop's startup applications.</p>
     </fieldset>
 
-    <fieldset data-testid="update-settings">
+    <fieldset data-testid="update-settings" hidden={!on("app")}>
       <legend>Updates</legend>
       <label class="choice">
         <input
@@ -465,7 +540,7 @@
       </p>
     </fieldset>
 
-    <fieldset data-testid="layout-settings">
+    <fieldset data-testid="layout-settings" hidden={!on("appearance")}>
       <legend>Layout</legend>
       <div class="row">
         <span>Table rows</span>
@@ -496,7 +571,13 @@
       </p>
     </fieldset>
 
-    <AboutSection />
+    <div hidden={!on("agents")}><AskAiSettings /></div>
+    <div hidden={!on("agents")}><AgentSettings /></div>
+
+    <div hidden={!on("about")}><AboutSection /></div>
+        {#if matches === 0}<p class="muted none">No setting matches "{q.trim()}".</p>{/if}
+      </div>
+    </div>
   </div>
 </div>
 
@@ -542,18 +623,101 @@
     justify-content: center;
   }
   .dialog {
-    width: min(640px, calc(100vw - 32px));
-    max-height: calc(100vh - 64px);
-    overflow-y: auto;
+    width: min(860px, calc(100vw - 32px));
+    height: min(620px, calc(100vh - 64px));
+    display: flex;
+    flex-direction: column;
     background: var(--bg-raised);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 16px 20px;
   }
   .head {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding: 12px 14px 12px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 12px 10px;
+    border-right: 1px solid var(--border);
+    background: var(--bg-sunken);
+    border-bottom-left-radius: 8px;
+  }
+  .search {
+    width: 100%;
+  }
+  .tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+  }
+  .tab {
+    padding: 6px 10px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .tab:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  .tab[aria-selected="true"] {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  /* "All settings" sits apart, at the foot of the list. */
+  .tab.all {
+    margin-top: auto;
+  }
+  .pane {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 2px 20px 18px;
+  }
+  .pane :global(fieldset.nomatch),
+  fieldset[hidden] {
+    display: none;
+  }
+  .none {
+    margin: 16px 0 0;
+    font-size: 13px;
+  }
+  /* A narrow window: the sections above the page, in a row. */
+  @media (max-width: 620px) {
+    .body {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+    }
+    .side {
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+    }
+    .tabs {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+    .tab.all {
+      margin-top: 0;
+    }
   }
   h2 {
     margin: 0;

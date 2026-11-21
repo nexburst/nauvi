@@ -194,7 +194,7 @@ describe("cluster catalog", { timeout: 10 * 60_000 }, () => {
     await click(app, `${row(BROKEN)} button[aria-label=${JSON.stringify(`More actions for ${BROKEN}`)}]`);
     await app.find(By.css('[role="menu"]'));
     const items = await app.js(`return Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"]'), (b) => b.textContent.trim())`);
-    assert.deepEqual(items, ["Open in new window", "Check connection", "Settings…", "Remove source…"]);
+    assert.deepEqual(items, ["Open in new window", "Check connection", "Settings…", "Hide…", "Remove source…"]);
     await app.shot("catalog-1280-menu-light");
     await app.js(`document.querySelector('[role="menu"]').dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await app.waitFor(async () => (await app.driver.findElements(By.css('[role="menu"]'))).length === 0, { message: "the menu to close" });

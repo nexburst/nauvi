@@ -4,6 +4,7 @@
 </script>
 
 <script lang="ts">
+  import { GiveUp, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
   import { onDestroy, untrack } from "svelte";
   import { events } from "../bindings";
   import { api, visibleCluster } from "../cluster";
@@ -19,8 +20,10 @@
   /** Workloads → Overview (#79): live status counts per workload kind in the
    *  selected namespaces, the problem workloads and their warnings. */
 
-  /** Retry a failed start after this long. */
-  const RETRY_MS = 5_000;
+  /** Failed starts so far: the wait before the next one grows (lib/retry.ts). */
+  let attempts = 0;
+  /** Stops a feed that has been reconnecting for five minutes (lib/retry.ts). */
+  const giveUp = new GiveUp();
   /** Ages are recomputed in the UI; nothing is re-requested. */
   const AGE_TICK_MS = 15_000;
 
@@ -58,17 +61,27 @@
 
   function onState(s: WorkloadsStateChanged) {
     if (s.state === "live") {
+      giveUp.clear();
       setStatus(true, "Live");
       clearError();
     } else if (s.state === "reconnecting") {
       setStatus(false, "Reconnecting…");
       setError(s.error);
+      // The backend reconnects for as long as it is asked to: after five
+      // minutes of this, stop the feed and say so. Refresh starts it again.
+      const error = s.error;
+      giveUp.arm(() => {
+        stop();
+        setStatus(false, "Not connected");
+        setError(reconnectStoppedMessage(error));
+      });
     } else {
       setStatus(null, "Connecting…");
     }
   }
 
   function stop() {
+    giveUp.clear();
     if (retry) clearTimeout(retry);
     retry = null;
     const id = feed;
@@ -76,13 +89,17 @@
     if (id) api(visibleCluster()).cmdWorkloadsStop(id).catch(() => {});
   }
 
-  async function start(namespaces: string[]) {
+  /** `again`: one of the automatic retries, which keeps the error on screen. */
+  async function start(namespaces: string[], again = false) {
     stop();
     const id = ++nextFeed;
     feed = id;
     overview = null;
-    setStatus(null, "Connecting…");
-    clearError();
+    if (!again) {
+      attempts = 0;
+      clearError();
+    }
+    setStatus(null, again ? "Retrying…" : "Connecting…");
     // Listen first: the backend may send the first summary right away.
     await listening;
     if (feed !== id) return;
@@ -92,8 +109,10 @@
       if (feed !== id) return;
       const err = clusterError(e);
       setStatus(false, err.status);
-      setError(err.message);
-      retry = setTimeout(() => start(namespaces), RETRY_MS);
+      // Wait longer each time, and stop after a few minutes: Refresh starts over.
+      const wait = retryDelay(++attempts);
+      setError(wait === null ? stoppedMessage(err.message) : err.message);
+      if (wait !== null) retry = setTimeout(() => start(namespaces, true), wait);
     }
   }
 

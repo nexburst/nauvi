@@ -55,6 +55,16 @@ export function berthCode(view: string, kinds: readonly KindLike[]): string {
   return k.label.replace(/[^A-Za-z]/g, "").toLowerCase().slice(0, 3);
 }
 
+/**
+ * What a berth says while its kind is not known (no cluster yet, or one
+ * that does not serve it): from the view's id, so the column is never a row
+ * of question marks. "v1/pods" → "pod", "apps/v1/deployments" → "dep".
+ */
+export function idCode(view: string): string {
+  const last = view.split("/").pop() ?? view;
+  return last.replace(/[^A-Za-z]/g, "").toLowerCase().slice(0, 3) || "?";
+}
+
 /** Whether a view can be kept in a berth (the Overview always has one). */
 export function pinnable(view: string): boolean {
   return !!view && view !== "overview" && view !== CATALOG_VIEW;

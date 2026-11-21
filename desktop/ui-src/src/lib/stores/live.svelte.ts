@@ -1,3 +1,4 @@
+import { GiveUp, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
 import { events } from "../bindings";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import { thisWindow } from "../window";
@@ -14,7 +15,6 @@ import { ageRedrawMs } from "../format";
 import { onAgeTick } from "../ageClock";
 
 const METRICS_INTERVAL_MS = 20_000;
-const WATCH_RETRY_MS = 5_000;
 
 type WatchEvent = { kind: "batch"; payload: WatchBatch } | { kind: "state"; payload: WatchStateChanged };
 
@@ -26,6 +26,8 @@ interface Watch {
   starting: boolean;
   status: WatchStatus;
   retry: ReturnType<typeof setTimeout> | null;
+  /** Counts how long it has been reconnecting. */
+  giveUp: GiveUp;
 }
 
 /**
@@ -89,6 +91,10 @@ export class LiveTable {
         interval: "interval_secs" in s ? s.interval_secs : undefined,
       };
       this.#publishState();
+      // The backend reconnects for as long as it is asked to: after five
+      // minutes of it, stop this watch and say so (lib/retry.ts).
+      if (s.state === "reconnecting") w.giveUp.arm(() => this.#giveUp(w));
+      else w.giveUp.clear();
     }
   }
 
@@ -109,6 +115,9 @@ export class LiveTable {
     if (c.error !== null) showError(c.error);
   }
 
+  /** Failed starts of each watch key, for the growing wait between retries. */
+  #attempts = new Map<string, number>();
+
   /** The watch keys for a selection: one per namespace, or `""` for all. */
   #keysFor(namespaces: readonly string[]): string[] {
     if (!this.#kind?.resource.namespaced || namespaces.length === 0) return [""];
@@ -118,6 +127,7 @@ export class LiveTable {
   /** Watch `kind` in `namespaces` (empty: all namespaces), from scratch. */
   start(kind: ResourceKind, namespaces: readonly string[]) {
     this.stop();
+    this.#attempts.clear();
     this.#kind = kind;
     this.store.clear();
     this.synced = false;
@@ -166,6 +176,7 @@ export class LiveTable {
       starting: true,
       status: { namespace, state: "connecting", error: "" },
       retry: null,
+      giveUp: new GiveUp(),
     };
     this.#watches.set(key, w);
     let id: string;
@@ -176,13 +187,25 @@ export class LiveTable {
       w.starting = false;
       if (!this.#anyStarting()) this.#pending = [];
       const err = clusterError(e);
-      w.status = { namespace, state: "failed", error: err.message, status: err.status };
+      // Wait longer each time, and stop after a few minutes (lib/retry.ts):
+      // Refresh, or opening the table again, starts over.
+      const attempt = (this.#attempts.get(key) ?? 0) + 1;
+      this.#attempts.set(key, attempt);
+      const wait = retryDelay(attempt);
+      w.status = {
+        namespace,
+        state: "failed",
+        error: wait === null ? stoppedMessage(err.message) : err.message,
+        status: err.status,
+      };
       this.#publishState();
-      w.retry = setTimeout(() => {
-        if (this.#watches.get(key) !== w) return;
-        this.#watches.delete(key);
-        void this.#startWatch(key);
-      }, WATCH_RETRY_MS);
+      if (wait !== null) {
+        w.retry = setTimeout(() => {
+          if (this.#watches.get(key) !== w) return;
+          this.#watches.delete(key);
+          void this.#startWatch(key);
+        }, wait);
+      }
       return;
     }
     if (this.#watches.get(key) !== w) {
@@ -193,13 +216,32 @@ export class LiveTable {
     }
     w.id = id;
     w.starting = false;
+    this.#attempts.delete(key);
     this.#byId.set(id, w);
     const mine = this.#pending.filter((ev) => ev.payload.id === id);
     this.#pending = this.#anyStarting() ? this.#pending.filter((ev) => ev.payload.id !== id) : [];
     for (const ev of mine) this.#handle(w, ev);
   }
 
+  /** Stop a watch that kept reconnecting; its rows stay, marked as not current. */
+  #giveUp(w: Watch) {
+    if (this.#watches.get(w.key) !== w || !w.id) return;
+    this.#byId.delete(w.id);
+    api(visibleCluster()).cmdWatchStop(w.id).catch(() => {});
+    w.id = null;
+    w.status = {
+      namespace: w.status.namespace,
+      state: "failed",
+      error: reconnectStoppedMessage(w.status.error),
+      status: "Not connected",
+    };
+    this.#publishState();
+  }
+
   #stopWatch(w: Watch) {
+    w.giveUp.clear();
+    // A namespace selected again starts its retries over.
+    this.#attempts.delete(w.key);
     if (w.retry) clearTimeout(w.retry);
     w.retry = null;
     if (this.#watches.get(w.key) === w) this.#watches.delete(w.key);

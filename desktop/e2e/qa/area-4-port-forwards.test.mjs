@@ -67,8 +67,8 @@ describe("area 4: port forwards and context switches", { timeout: 10 * 60_000 },
     await selectContext(app, kc.alias);
     await waitLive(app);
     await app.nav("Port Forwards");
-    // The view lists the shown cluster's forwards: none on the alias.
-    await app.find(By.xpath(`//*[@data-testid='port-forwards']//*[contains(normalize-space(), ${xq("No port-forwards.")})]`));
+    // The alias has none of its own: the view lists the other cluster's, with its name (#333).
+    await app.find(By.xpath(`//*[@data-testid='port-forwards']//tr[contains(normalize-space(), ${xq(CONTEXT)})][contains(normalize-space(), ${xq(url)})]`));
     const res = await fetch(url);
     assert.equal(res.status, 200, "the old cluster's forward still answers");
     await waitNodeState(app, CONTEXT, "connected");

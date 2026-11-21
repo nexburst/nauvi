@@ -22,7 +22,7 @@
     }
     const r = button?.getBoundingClientRect();
     // Right-aligned under the button; the menu keeps itself in the window.
-    at = { x: r ? r.right - 200 : 0, y: r ? r.bottom + 4 : 0 };
+    at = { x: r ? r.right - 200 : 0, y: r ? r.bottom + 8 : 0 };
     help.menuOpen = true;
   }
 </script>

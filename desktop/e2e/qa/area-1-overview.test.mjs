@@ -50,7 +50,7 @@ function overviewSummary(app) {
     const cards = Object.fromEntries(Array.from(document.querySelectorAll(".overview .card"), (c) =>
       [c.querySelector(".label")?.textContent.trim(), c.querySelector(".num")?.textContent.trim()]));
     const byNs = {};
-    const table = Array.from(document.querySelectorAll('.overview section[aria-label="Problem pods"] table tbody tr'));
+    const table = Array.from(document.querySelectorAll('.overview section[aria-label="Pods by namespace"] table tbody tr'));
     for (const tr of table) byNs[tr.cells[0].textContent.trim()] = Number(tr.cells[1].textContent.trim());
     return { cards, byNs };
   `);
@@ -97,7 +97,8 @@ describe("area 1: status, Overview, Refresh, sidebar", { timeout: 10 * 60_000 },
     const warnings = await app.js(
       `return document.querySelector('.overview section[aria-label="Warnings"]')?.innerText ?? ""`,
     );
-    assert.match(warnings, /Warnings/);
+    // The heading is drawn in capitals.
+    assert.match(warnings, /Warnings/i);
   });
 
   // Running (one container still sleeps), not ready, STATUS "Error".
@@ -280,22 +281,23 @@ users:
 describe("area 1: an unreachable cluster", { timeout: 5 * 60_000 }, () => {
   const s = appSession("area-1-unreachable", { kubeconfig: unreachableKubeconfig() });
 
-  it("shows the red status and the banner, and retries", T, async () => {
+  it("shows the red status and the banner, and retries", { timeout: 240_000 }, async () => {
     const { app } = s;
     const banner = await app.find(By.css('[role="alert"]'), { timeout: 60_000 });
     const text = await app.js("return arguments[0].innerText", banner);
     console.log(`banner: ${text}; status: ${await app.statusText()}`);
     assert.match(text, /reach|connect/i);
     assert.equal(await app.statusState(), "error");
-    // Each retry shows "Connecting…" again, then fails.
+    // Each retry shows "Retrying…" (the first attempt said "Connecting…"), then fails.
     await app.js(`
       const el = document.querySelector('[data-testid="connection-status"]');
       window.__qaStatus = [];
       new MutationObserver(() => window.__qaStatus.push(el.textContent)).observe(el, { childList: true, characterData: true, subtree: true });
     `);
     await app.waitFor(
-      async () => (await app.js("return window.__qaStatus")).filter((t) => t === "Connecting…").length >= 2,
-      { timeout: 30_000, message: "two more attempts (Connecting… twice)" },
+      async () => (await app.js("return window.__qaStatus")).filter((t) => t === "Connecting…" || t === "Retrying…").length >= 2,
+      // The waits between attempts grow (lib/retry.ts): two of them take up to 100 s.
+      { timeout: 150_000, message: "two more attempts (Retrying… twice)" },
     );
     console.log(`status: ${(await app.js("return window.__qaStatus")).join(" -> ")}`);
     // Still red, still the banner.

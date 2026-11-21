@@ -16,6 +16,12 @@ export type Command =
   | "toggleRow"
   | "rowMenu"
   | "deleteRows"
+  | "rowLogs"
+  | "rowShell"
+  | "rowEdit"
+  | "rowRestart"
+  | "rowPrompt"
+  | "problemsOnly"
   | "detailTab"
   | "toggleDock"
   | "chart"
@@ -135,6 +141,12 @@ export const KEYMAP: Binding[] = [
     label: "Delete the selected rows, or the focused one",
     group: "Table",
   },
+  { command: "rowPrompt", keys: [{ key: "a" }], label: "Copy a prompt about the row, for your own agent", group: "Table" },
+  { command: "problemsOnly", keys: [{ key: "z" }], label: "Only the rows that need attention, or all again", group: "Table" },
+  { command: "rowLogs", keys: [{ key: "l" }], label: "Logs of the row (a pod or a workload)", group: "Table" },
+  { command: "rowShell", keys: [{ key: "s" }], label: "Shell in the row's pod", group: "Table" },
+  { command: "rowEdit", keys: [{ key: "e" }, { key: "y" }], label: "Edit the row's YAML", group: "Table" },
+  { command: "rowRestart", keys: [{ key: "R", shift: true }], label: "Restart the row's workload (asks first)", group: "Table" },
   {
     command: "detailTab",
     keys: digits,

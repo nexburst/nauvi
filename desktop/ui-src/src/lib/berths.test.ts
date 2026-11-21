@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { berthCode, parseBerths, pinBerth, pinnable, unpinBerth, viewLabel, DEFAULT_BERTHS } from "./berths";
+import { berthCode, idCode, parseBerths, pinBerth, pinnable, unpinBerth, viewLabel, DEFAULT_BERTHS } from "./berths";
 
 const kinds = [
   { id: "v1/pods", label: "Pods", short_names: ["po"] },
@@ -17,6 +17,13 @@ describe("berths", () => {
     expect(berthCode("gone/v1/things", kinds)).toBe("?");
     expect(viewLabel("v1/pods", kinds)).toBe("Pods");
     expect(viewLabel("port-forwards", kinds)).toBe("Port Forwards");
+  });
+
+  it("still say something while the cluster is not known", () => {
+    expect(idCode("v1/pods")).toBe("pod");
+    expect(idCode("apps/v1/deployments")).toBe("dep");
+    expect(idCode("v1/services")).toBe("ser");
+    expect(idCode("")).toBe("?");
   });
 
   it("are added only up to the limit, and never twice", () => {

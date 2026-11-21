@@ -159,10 +159,11 @@ describe("the cluster tree", { timeout: 15 * 60_000 }, () => {
     await waitNodeState(app, SECOND, "visible");
     await waitNodeState(app, CONTEXT, "connected");
     await waitLive(app);
-    const before = (await logLines(app, logId)).length;
+    // The newest line, not the count: the pane only renders the lines in view.
+    const before = (await logLines(app, logId)).at(-1);
     assert.equal((await dockTabs(app)).length, 1, "the log tab stayed");
     assert.deepEqual(await dockTabClusters(app), [CONTEXT]);
-    await app.waitFor(async () => (await logLines(app, logId)).length > before, {
+    await app.waitFor(async () => (await logLines(app, logId)).at(-1) !== before, {
       timeout: 30_000,
       message: "new log lines from the first cluster after the switch",
     });

@@ -18,6 +18,7 @@ import { closeDetail, detail } from "./detail.svelte";
 import { toggleDock } from "./dock.svelte";
 import { chart, closeChart, toggleBerth, toggleChart } from "./chart.svelte";
 import { app, setView } from "./app.svelte";
+import { PROBLEMS_STATUS } from "../workloads";
 import { closeNotifications, notifications } from "./notifications.svelte";
 import { watch } from "./watch.svelte";
 import { openLocalShell } from "./localShell";
@@ -47,6 +48,8 @@ export interface TableHandle {
   toggleFocused(): void;
   menuForFocused(): void;
   deleteRows(): void;
+  /** Logs, a shell or the YAML editor of the focused row. */
+  rowVerb(verb: "logs" | "shell" | "edit" | "restart" | "prompt"): void;
   /** Every row of the table (not only the filtered ones), for the palette. */
   rows(): Row[];
   /** The checked rows, else the focused row, else the one in the detail panel. */
@@ -147,6 +150,29 @@ const mac = isMacPlatform();
 const ZOOM: Partial<Record<Command, () => void>> = { zoomIn, zoomOut, zoomReset };
 
 /**
+ * Letters are row keys until the pointer goes into the detail panel: a
+ * click on a read-only editor there leaves the focus on the table (WebKitGTK),
+ * and what is typed next is not meant for the row. A click anywhere else,
+ * or the keyboard back in the table, makes them row keys again.
+ */
+let pointerInPanel = false;
+if (typeof window !== "undefined") {
+  window.addEventListener(
+    "mousedown",
+    (e) => (pointerInPanel = e.target instanceof Element && !!e.target.closest('[data-testid="detail-panel"]')),
+    true,
+  );
+  window.addEventListener("focusin", (e) => {
+    if (e.target instanceof Element && e.target.closest('[role="grid"]')) pointerInPanel = false;
+  });
+}
+function rowKeysApply(): boolean {
+  if (pointerInPanel) return false;
+  const a = document.activeElement;
+  return !a || a === document.body || !!a.closest('[role="grid"]');
+}
+
+/**
  * The window's keydown handler (capture phase, so it sees the state before
  * a menu or dialog reacts to the same key).
  */
@@ -239,6 +265,22 @@ export function handleKey(e: KeyboardEvent) {
     case "deleteRows":
       if (table) done(e, () => table?.deleteRows());
       return;
+    case "problemsOnly":
+      if (!rowKeysApply()) return;
+      if (table) done(e, () => (app.statusFilter = app.statusFilter === PROBLEMS_STATUS ? "" : PROBLEMS_STATUS));
+      return;
+    case "rowLogs":
+    case "rowShell":
+    case "rowRestart":
+    case "rowPrompt":
+    case "rowEdit": {
+      const verb = (
+        { rowLogs: "logs", rowShell: "shell", rowEdit: "edit", rowRestart: "restart", rowPrompt: "prompt" } as const
+      )[command];
+      if (!rowKeysApply()) return;
+      if (table) done(e, () => table?.rowVerb(verb));
+      return;
+    }
     case "toggleDock":
       return done(e, toggleDock);
     case "newLocalShell":

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import ClusterLabel from "./ClusterLabel.svelte";
+  import ModeBadge from "./ModeBadge.svelte";
+  import { contextMode } from "../stores/contextMode.svelte";
   import { currentContextName } from "../stores/app.svelte";
   import { contextLabel } from "../stores/catalog.svelte";
   import { confirmCopy, isDestructive, listTargets } from "../actions";
@@ -71,7 +74,10 @@
         </div>
       {:else}
         <p class="lead">{copy.lead}</p>
-        <p class="where eyebrow" data-testid="action-cluster">on {contextLabel(currentContextName())}</p>
+        <p class="where eyebrow" data-testid="action-cluster">
+          on <ClusterLabel id={currentContextName()} />
+          <ModeBadge mode={contextMode(currentContextName())} name={contextLabel(currentContextName())} />
+        </p>
         <ul class="targets">
           {#each listTargets(req.targets) as name, i (i)}
             <li class="mono">{name}</li>
@@ -130,6 +136,9 @@
 
 <style>
   .where {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     margin: -2px 0 8px;
   }
   .backdrop {

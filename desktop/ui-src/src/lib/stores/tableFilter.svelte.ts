@@ -179,7 +179,8 @@ export class ListFilter<T> {
     if (f.kind === "none" || f.kind === "error") return null;
     if (f.kind === "text") {
       const needle = f.needle;
-      return f.matchCase ? (t) => text(t).includes(needle) : (t) => lower(t).includes(needle);
+      const want = !f.negate;
+      return f.matchCase ? (t) => text(t).includes(needle) === want : (t) => lower(t).includes(needle) === want;
     }
     const m = this.#matched;
     return m ? (t) => m.has(key(t)) : () => false;

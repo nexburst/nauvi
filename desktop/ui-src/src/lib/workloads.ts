@@ -58,6 +58,10 @@ export function workloadKind(kinds: readonly ResourceKind[], group: string, kind
 }
 
 /** Whether a row passes the status filter (`""`: no filter). */
-export function matchesStatus(row: { status: string }, status: string): boolean {
+/** The status filter that keeps only the rows that need attention. */
+export const PROBLEMS_STATUS = "needs attention";
+
+export function matchesStatus(row: { status: string; problem?: string }, status: string): boolean {
+  if (status === PROBLEMS_STATUS) return !!row.problem;
   return !status || row.status === status;
 }
