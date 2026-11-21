@@ -296,7 +296,9 @@ mod tests {
         let e = with_ca(url("http://p:1"), false, Some("/ca.pem"), None).unwrap_err();
         assert!(e.contains("only used for an https:// proxy"), "{e}");
         // A file that is not there, or no certificate: refused when saved.
-        let e = with_ca(url("https://p:1"), false, Some("/nauvi-362/none.pem"), None).unwrap_err();
+        let none = std::env::temp_dir().join("nauvi-362-none.pem");
+        let none = none.to_str().unwrap();
+        let e = with_ca(url("https://p:1"), false, Some(none), None).unwrap_err();
         assert!(e.starts_with("Cannot read the proxy's CA file"), "{e}");
         let e = with_ca(url("https://p:1"), false, Some("ca.pem"), None).unwrap_err();
         assert!(e.contains("full path"), "{e}");
