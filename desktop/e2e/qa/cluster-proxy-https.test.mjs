@@ -189,7 +189,8 @@ async function podsLoaded(app, message) {
 }
 
 describe("an https:// proxy per cluster", { timeout: 15 * 60_000, skip: hasOpenssl() ? false : "needs openssl" }, () => {
-  const proxy = {};
+  /** The running proxy (`startProxy`): its counters are read live. */
+  let proxy = {};
   let certs;
   let url = "";
   let masked = "";
@@ -197,7 +198,7 @@ describe("an https:// proxy per cluster", { timeout: 15 * 60_000, skip: hasOpens
   let ns;
   before(async () => {
     certs = makeCerts();
-    Object.assign(proxy, await startProxy(certs));
+    proxy = await startProxy(certs);
     url = `https://${USER}:${PASSWORD}@127.0.0.1:${proxy.port}`;
     masked = `https://[redacted]@127.0.0.1:${proxy.port}`;
     ns = tempNamespace("qa-362-proxy", httpPodYaml("web", 8080, "hello through the https proxy"));
