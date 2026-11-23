@@ -95,6 +95,11 @@ function Install-Nauvi {
             Write-Host "removed $exe"
             $removed = $true
         }
+        if (Test-Path -LiteralPath $binDir) {
+            Get-ChildItem -LiteralPath $binDir -Filter 'nauvi.exe.old*' -Force | ForEach-Object {
+                Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+            }
+        }
         if ((Test-Path -LiteralPath $binDir) -and -not (Get-ChildItem -LiteralPath $binDir -Force)) {
             Remove-Item -LiteralPath $binDir -Force
         }
@@ -125,7 +130,8 @@ function Install-Nauvi {
         $v = $env:NAUVI_VERSION
         if (-not $v.StartsWith('v')) { $v = "v$v" }
         # Only a release tag: it goes into the URL.
-        if ($v -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$') {
+        # \A...\z: $ would also match before a trailing newline.
+        if ($v -notmatch '\Av[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?\z') {
             Fail "NAUVI_VERSION must look like v0.1.0 (got '$($env:NAUVI_VERSION)')"
         }
         $base = "$releases/download/$v"
@@ -201,14 +207,16 @@ function Install-Nauvi {
             if (-not (Test-Path -LiteralPath $exe)) { Fail "$name has no nauvi.exe inside" }
             New-Item -ItemType Directory -Force -Path $binDir | Out-Null
             $dest = Join-Path $binDir 'nauvi.exe'
-            # A running nauvi.exe can be renamed but not overwritten.
+            # A running nauvi.exe can be renamed but not overwritten or
+            # deleted: move it aside under a unique name, then delete the
+            # ones no longer running (earlier upgrades' leftovers too).
             if (Test-Path -LiteralPath $dest) {
-                $old = "$dest.old"
-                Remove-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
-                Move-Item -LiteralPath $dest -Destination $old -Force
+                Move-Item -LiteralPath $dest -Destination "$dest.old.$([guid]::NewGuid().ToString('N'))"
             }
             Copy-Item -LiteralPath $exe -Destination $dest
-            Remove-Item -LiteralPath "$dest.old" -Force -ErrorAction SilentlyContinue
+            Get-ChildItem -LiteralPath $binDir -Filter 'nauvi.exe.old*' -Force | ForEach-Object {
+                Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
+            }
             Write-Host "Installed the nauvi CLI ($($name -replace '-x86_64-pc-windows-msvc\.zip$', '')) to $dest"
 
             $userPath = Get-UserPath

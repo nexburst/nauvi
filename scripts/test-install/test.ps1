@@ -104,6 +104,25 @@ try {
     $entries = @(([Environment]::GetEnvironmentVariable('Path', 'User')) -split ';' | Where-Object { $_ -eq $bin })
     Check 'PATH entry added once' ($entries.Count -eq 1)
 
+    # An old nauvi.exe.old that can't be deleted (a CLI from an earlier
+    # upgrade still running) must not block the next upgrade.
+    $stuck = [System.IO.File]::Open("$exe.old", 'Create', 'ReadWrite', 'Read')
+    try {
+        Check 'upgrade with a locked nauvi.exe.old' ((Invoke-Installer (Get-Url 'v2') @('-Cli')) -eq 0)
+        Check 'cli is still v2' ((Get-Exe) -eq 'fake nauvi.exe 0.0.2')
+    } finally {
+        $stuck.Dispose()
+    }
+    Check 'no other nauvi.exe.old* left behind' (@(Get-ChildItem -LiteralPath $bin | Where-Object { $_.Name -match '^nauvi\.exe\.old\.' }).Count -eq 0)
+
+    # $ in a .NET regex also matches before a trailing newline.
+    foreach ($v in @("v1.0.0`n", "v1.0.0`n/../../x")) {
+        $env:NAUVI_VERSION = $v
+        Check 'NAUVI_VERSION with a newline refused' ((Invoke-Installer '' @('-Cli')) -ne 0)
+        Check 'NAUVI_VERSION with a newline: says why' ((Get-Out) -match 'NAUVI_VERSION must look like')
+    }
+    Remove-Item Env:NAUVI_VERSION
+
     Check 'tampered cli release fails' ((Invoke-Installer (Get-Url 'bad') @('-Cli')) -ne 0)
     Check 'tampered: says checksum mismatch' ((Get-Out) -match 'checksum mismatch')
     Check 'tampered: cli still v2' ((Get-Exe) -eq 'fake nauvi.exe 0.0.2')
@@ -115,6 +134,7 @@ try {
 
     Check 'uninstall' ((Invoke-Installer '' @('-Uninstall', '-Cli')) -eq 0)
     Check 'uninstall: cli gone' (-not (Test-Path -LiteralPath $exe))
+    Check 'uninstall: no nauvi.exe.old* left' (@(Get-ChildItem -LiteralPath $bin -Filter 'nauvi.exe.old*' -ErrorAction SilentlyContinue).Count -eq 0)
     Check 'uninstall: PATH entry gone' (-not ((([Environment]::GetEnvironmentVariable('Path', 'User')) -split ';') -contains $bin))
     Check 'uninstall: user PATH as before (unexpanded)' ((Get-RawUserPath) -ceq $pathBefore)
 } finally {

@@ -107,6 +107,26 @@ if NAUVI_VERSION='v1.0.0/../../x' sh "$installer" --cli >"$work/out" 2>&1; then
 else
   check "bad NAUVI_VERSION refused" has "$work/out" "NAUVI_VERSION must look like"
 fi
+# A newline: grep alone would accept the first line.
+for v in 'v1.0.0
+' 'v1.0.0
+/../../x'; do
+  if NAUVI_VERSION="$v" sh "$installer" --cli >"$work/out" 2>&1; then
+    fail "NAUVI_VERSION with a newline must be refused"
+  else
+    check "NAUVI_VERSION with a newline refused" has "$work/out" "NAUVI_VERSION must look like"
+  fi
+done
+if [ "$(uname -s)" = Linux ]; then
+  for d in "$work/a
+b" "$work/a$(printf '\r')b"; do
+    if NAUVI_INSTALL_DIR="$d" NAUVI_DOWNLOAD_BASE="file://$work/v2" sh "$installer" >"$work/out" 2>&1; then
+      fail "an install dir with a line break must be refused"
+    else
+      check "install dir with a line break refused" has "$work/out" "must not contain a line break"
+    fi
+  done
+fi
 if sh "$installer" --bogus >"$work/out" 2>&1; then fail "unknown option must fail"; else pass "unknown option fails"; fi
 
 # --- uninstall -------------------------------------------------------------

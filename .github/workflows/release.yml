@@ -8,6 +8,8 @@ name: Release
 #      and the frontend's npm dependencies (npm sbom); `scan` runs Grype on
 #      them and on the unpacked Linux bundles and CLI, and fails on a High
 #      or Critical finding that has a fix (#341). Neither sees a secret.
+#      `install-check` runs install.sh and install.ps1 -Cli against the
+#      built files (#430), with a read-only token.
 #   4. `publish` checks every expected asset is there, verifies the update
 #      signatures, writes latest.json (the in-app updater's endpoint, #30)
 #      and SHA256SUMS, uploads them with the SBOMs and only then publishes
@@ -301,7 +303,10 @@ jobs:
           # check it is there, then accept it non-interactively to attach.
           hdiutil imageinfo "$dmg" | grep -q 'Software License Agreement: true' || { echo "::error::the DMG has no licence agreement"; exit 1; }
           { yes || true; } | PAGER=cat hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg" >/dev/null
-          app=$(ls -d "$mnt"/*.app | head -n1)
+          # install.sh copies exactly nauvi.app (#430): a renamed bundle
+          # must fail here, not on users' Macs.
+          app="$mnt/nauvi.app"
+          [ -d "$app" ] || { echo "::error::the DMG has no nauvi.app: $(ls "$mnt")"; hdiutil detach "$mnt"; exit 1; }
           bin="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           lipo -archs "$bin"
           archs=$(lipo -archs "$bin")
@@ -551,8 +556,59 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
+  # The one-line installers (#430) pick their files out of SHA256SUMS by
+  # name: run install.sh (app and CLI) and install.ps1 -Cli against the
+  # built bundles and CLI archives, in a throwaway HOME, before anything is
+  # published (and in dry runs). This runs the release's AppImage and CLI,
+  # so it is a job of its own with a read-only token; `publish` waits for
+  # it. The .dmg and .msi installs need macOS / Windows: check that the
+  # name each script looks for matches one file.
+  install-check:
+    needs: [prepare, desktop, cli]
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    steps:
+      # For install.sh and install.ps1.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "{desktop-*,cli-*}"
+          path: ${{ runner.temp }}/assets
+          merge-multiple: true
+
+      - name: Try the install scripts against these assets
+        run: |
+          assets="$RUNNER_TEMP/assets"
+          (cd "$assets" && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          base="file://$assets"
+          home=$(mktemp -d)
+          HOME="$home" NAUVI_DOWNLOAD_BASE="$base" sh install.sh
+          HOME="$home" NAUVI_DOWNLOAD_BASE="$base" sh install.sh --cli
+          "$home/.local/bin/nauvi" --version
+          test -x "$home/.local/bin/nauvi-desktop"
+          grep -qx 'MimeType=x-scheme-handler/nauvi;' "$home/.local/share/applications/nauvi.desktop"
+          ls "$home"/.local/share/icons/hicolor/*/apps/nauvi.png
+          HOME="$home" sh install.sh --uninstall
+          test ! -e "$home/.local/bin/nauvi-desktop"
+          rm -rf "$home"
+
+          # pwsh is on the Ubuntu runners; the user PATH part is a no-op here.
+          dir=$(mktemp -d)
+          NAUVI_DOWNLOAD_BASE="$base" NAUVI_INSTALL_DIR="$dir" PROCESSOR_ARCHITECTURE=AMD64 \
+            pwsh -NoProfile -NonInteractive -File install.ps1 -Cli
+          test -s "$dir/nauvi.exe"
+          rm -rf "$dir"
+
+          for p in '_universal\.dmg$' '_x64_en-US\.msi$'; do
+            n=$(awk '{ print $2 }' "$assets/SHA256SUMS" | grep -cE "$p" || true)
+            [ "$n" -eq 1 ] || { echo "::error::$n files match $p; the install scripts expect one"; exit 1; }
+          done
+
   publish:
-    needs: [prepare, desktop, cli, sbom, scan]
+    needs: [prepare, desktop, cli, sbom, scan, install-check]
     permissions:
       contents: write
     runs-on: ubuntu-22.04
@@ -656,37 +712,6 @@ jobs:
           cd assets
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
-
-      # The one-line installers (#430) pick their files out of SHA256SUMS by
-      # name: run install.sh (app and CLI) and install.ps1 -Cli against
-      # exactly these assets, in a throwaway HOME, before anything is
-      # published. The .dmg and .msi installs need macOS / Windows; check
-      # that the name each script looks for matches one file.
-      - name: Try the install scripts against these assets
-        run: |
-          base="file://$PWD/assets"
-          home=$(mktemp -d)
-          HOME="$home" NAUVI_DOWNLOAD_BASE="$base" sh install.sh
-          HOME="$home" NAUVI_DOWNLOAD_BASE="$base" sh install.sh --cli
-          "$home/.local/bin/nauvi" --version
-          test -x "$home/.local/bin/nauvi-desktop"
-          grep -qx 'MimeType=x-scheme-handler/nauvi;' "$home/.local/share/applications/nauvi.desktop"
-          ls "$home"/.local/share/icons/hicolor/*/apps/nauvi.png
-          HOME="$home" sh install.sh --uninstall
-          test ! -e "$home/.local/bin/nauvi-desktop"
-          rm -rf "$home"
-
-          # pwsh is on the Ubuntu runners; the user PATH part is a no-op here.
-          dir=$(mktemp -d)
-          NAUVI_DOWNLOAD_BASE="$base" NAUVI_INSTALL_DIR="$dir" PROCESSOR_ARCHITECTURE=AMD64 \
-            pwsh -NoProfile -NonInteractive -File install.ps1 -Cli
-          test -s "$dir/nauvi.exe"
-          rm -rf "$dir"
-
-          for p in '_universal\.dmg$' '_x64_en-US\.msi$'; do
-            n=$(awk '{ print $2 }' assets/SHA256SUMS | grep -cE "$p" || true)
-            [ "$n" -eq 1 ] || { echo "::error::$n files in SHA256SUMS match $p; the install scripts expect one"; exit 1; }
-          done
 
       - name: Upload latest.json and SHA256SUMS as workflow artifacts (dry run)
         if: needs.prepare.outputs.dry_run == 'true'

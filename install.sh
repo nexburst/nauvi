@@ -131,7 +131,9 @@ nauvi_install() {
   elif [ -n "${NAUVI_VERSION:-}" ]; then
     v="$NAUVI_VERSION"
     case "$v" in v*) ;; *) v="v$v" ;; esac
-    # Only a release tag: it goes into the URL.
+    # Only a release tag: it goes into the URL. The case rules out a newline
+    # (and anything else odd), so the line-based grep sees the whole value.
+    case "$v" in *[!v0-9.-]*) die "NAUVI_VERSION must look like v0.1.0 (got '$NAUVI_VERSION')" ;; esac
     printf '%s\n' "$v" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$' ||
       die "NAUVI_VERSION must look like v0.1.0 (got '$NAUVI_VERSION')"
     base="$releases/download/$v"
@@ -262,7 +264,11 @@ nauvi_install() {
   x86_64 | amd64) ;;
   *) die "there is no nauvi desktop build for Linux $arch yet; see $releases" ;;
   esac
+  nl='
+'
+  cr=$(printf '\r')
   case "$bin_dir" in
+  *"$nl"* | *"$cr"*) die "NAUVI_INSTALL_DIR must not contain a line break (it goes into the desktop entry)" ;;
   *[\"\`\$\\%]*) die "NAUVI_INSTALL_DIR must not contain \" \` \$ \\ or % (it goes into the desktop entry)" ;;
   esac
 
