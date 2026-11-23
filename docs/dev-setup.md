@@ -76,15 +76,16 @@ read); `gh secret set` reads the value from the file or asks for it, so it is
 never printed:
 
 ```sh
-gh secret set TAURI_SIGNING_PRIVATE_KEY --env release --repo nexburst/nauvi < nauvi-updater.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY --env release --repo nexburst/nauvi < ~/nauvi-updater.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --env release --repo nexburst/nauvi
 ```
 
 Until `release.yml` reads them from the `release` environment, set the same
 two as repository secrets too (drop `--env release`).
 
-To rotate the key: `cargo tauri signer generate -w nauvi-updater.key`, back up
-the key and password, upload both, put the new `.pub` contents in
+To rotate the key: `cargo tauri signer generate -w ~/nauvi-updater.key`
+(outside the repository, so it can never be committed), back up the key and
+password, upload both, put the new `.pub` contents in
 `tauri.conf.json`, run a release dry run (`verify_sigs.py` checks every update
 artifact against that key), then delete the key file. After v0.1.0 a new key
 means installed copies can no longer verify updates: they need a manual
