@@ -221,3 +221,88 @@ jobs:
             desktop/ui-src/playwright-report/
           retention-days: 7
           if-no-files-found: ignore
+
+  # The one-line installers (#430), against fake releases written by
+  # scripts/test-install/fixtures.sh (the release's file names, tiny
+  # stand-in binaries): install, upgrade, a tampered release that must fail
+  # and change nothing, refused URLs, uninstall. The release dry run runs
+  # install.sh against the real assets.
+  install-sh-lint:
+    name: install scripts (shellcheck)
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck -s sh install.sh scripts/test-install/*.sh
+
+  install-sh:
+    name: install.sh (${{ matrix.image || matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            image: ubuntu:22.04
+          - os: ubuntu-latest
+            image: ubuntu:24.04
+          - os: macos-latest
+            image: ""
+    permissions:
+      contents: read
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.image }}
+    steps:
+      - name: Install curl (container)
+        if: matrix.image != ''
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends curl ca-certificates python3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # As an ordinary user, the way people run it.
+      - name: Test install.sh (container, as a non-root user)
+        if: matrix.image != ''
+        run: |
+          useradd -m tester
+          su tester -c "sh '$GITHUB_WORKSPACE/scripts/test-install/test.sh'"
+      - name: Test install.sh
+        if: matrix.image == ''
+        run: sh scripts/test-install/test.sh
+
+  install-ps1:
+    name: install.ps1 (windows-latest, ${{ matrix.shell }})
+    strategy:
+      fail-fast: false
+      matrix:
+        # PowerShell 7 and the Windows PowerShell 5.1 that every Windows has.
+        shell: [pwsh, powershell]
+    permissions:
+      contents: read
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: PSScriptAnalyzer
+        if: matrix.shell == 'pwsh'
+        shell: pwsh
+        run: |
+          $issues = 'install.ps1', 'scripts/test-install/test.ps1' | ForEach-Object {
+            Invoke-ScriptAnalyzer -Path $_ -Severity Warning, Error -ExcludeRule PSAvoidUsingWriteHost
+          }
+          $issues | Format-Table -AutoSize | Out-String -Width 200
+          if ($issues) { exit 1 }
+      - name: Test install.ps1 -Cli
+        shell: pwsh
+        env:
+          TEST_SHELL: ${{ matrix.shell }}
+        run: |
+          & $env:TEST_SHELL -NoProfile -NonInteractive -File scripts/test-install/test.ps1
+          exit $LASTEXITCODE

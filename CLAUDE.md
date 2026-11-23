@@ -32,6 +32,10 @@ recovering) a development machine: `docs/dev-setup.md`.
   loads them into the kind nodes; CI sets `NAUVI_IMAGES` for `setup.sh`;
   a new test image goes in its list) and `prometheus.yaml` (CI only, see
   below).
+- `install.sh`, `install.ps1`: the one-line installers (from the latest
+  release, checked against its `SHA256SUMS`). `scripts/test-install/` runs
+  them against fake releases (`fixtures.sh`; `test.sh`, `test.ps1`), in CI
+  too.
 - `scripts/dev/`: `capped.sh` (run a command under a memory ceiling),
   `clean-worktrees.sh` (remove merged agent worktrees) and `check-old-name.sh`
   (the project's old name appears nowhere but `docs/decisions/0008`).
@@ -272,6 +276,8 @@ with `claude --agent coordinator`), `dev` (one issue per worktree), `qa`
     `desktop/src/local_shell.rs`, `desktop/src/commands/local_shell.rs`
   - `src/helm/`, `desktop/src/commands/helm*.rs`
   - `desktop/src/updater.rs`, `desktop/src/commands/updater.rs`
+  - `install.sh`, `install.ps1` (served from `main`: every new user runs
+    the version on `main`)
 
   A full `security` pass on `main` runs before each release; its findings
   are filed as issues labelled `security`.
