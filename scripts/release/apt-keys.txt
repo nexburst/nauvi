@@ -1,0 +1,7 @@
+# Fingerprints of the keys that sign the nauvi apt repository (#427), read by
+# scripts/release/apt-repo.sh. The first one signs; the others are only
+# accepted on the repository that is already published, for a rotation:
+# put the new key first, keep the old one below it for one release, and say
+# in the release notes that users have to fetch nauvi.gpg again.
+# A change to this file changes what every apt user trusts: it needs review.
+B2B644E79A85C438FC3EB8C5408A65C769395FBF

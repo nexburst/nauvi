@@ -20,6 +20,13 @@ here=$(cd "$(dirname "$0")" && pwd)
 version=$(dpkg-deb -f "$deb" Version)
 depends=$(dpkg-deb -f "$deb" Depends)
 
+# Pre-releases never go to the apt repository (see apt-repo.sh), so there is
+# nothing to check, and the release must not be held up by it.
+if [[ "$version" == *-* ]]; then
+  echo "::notice title=apt repository check skipped::nauvi $version is a pre-release; the apt repository only takes releases."
+  exit 0
+fi
+
 work=$(mktemp -d)
 server=""
 cleanup() {
@@ -36,6 +43,8 @@ gpg --batch --quiet --pinentry-mode loopback --passphrase "$APT_GPG_PASSPHRASE" 
   --quick-gen-key "nauvi apt dry run <apt-dry-run@nauvi.invalid>" ed25519 sign 1d
 APT_GPG_KEY=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
 export APT_GPG_KEY
+# Trust the throwaway key instead of the real one in apt-keys.txt.
+export APT_TRUSTED_KEYS="$APT_GPG_KEY"
 
 # A small fake nauvi of another version, with the real package's dependencies.
 fake() {
@@ -86,9 +95,41 @@ mkdir -m 700 "$other_home"
 GNUPGHOME="$other_home" gpg --batch --quiet --passphrase "" --quick-gen-key "other <other@nauvi.invalid>" ed25519 sign 1d
 other_key=$(GNUPGHOME="$other_home" gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
 if GNUPGHOME="$other_home" APT_GPG_KEY="$other_key" APT_GPG_PASSPHRASE="" "$here/apt-repo.sh" "$rules/apt" "$deb" 2>/dev/null; then
-  echo "error: another key replaced the repository's key without APT_NEW_KEY=1" >&2; exit 1
+  echo "error: a key that is not the first trusted one signed the repository" >&2; exit 1
 fi
-echo "ok: same version is a no-op, replaced contents and pre-releases are refused, the last 5 are kept, the key stays"
+
+# What someone with push access to gh-pages could plant: the next release
+# must refuse to sign any of it.
+refused() { # <what> <setup command...>: run setup on a copy of r2, expect a refusal
+  local what="$1"; shift
+  local t="$work/tamper"
+  rm -rf "$t"; cp -r "$site/r2" "$t"
+  ( cd "$t/apt" && "$@" )
+  if "$here/apt-repo.sh" "$t/apt" "$deb" 2>"$work/tamper.err"; then
+    echo "error: the repository was signed again after: $what" >&2; exit 1
+  fi
+  echo "  refused ($what): $(head -1 "$work/tamper.err")"
+}
+cp "$old" "$work/planted.deb"
+plant_package() { mkdir -p pool/main/s/sudo && cp "$work/planted.deb" pool/main/s/sudo/sudo_99.0_amd64.deb; }
+plant_version() { cp "$work/planted.deb" pool/main/n/nauvi/nauvi_99.0.0_amd64.deb; }
+change_pool_file() { printf x >> pool/main/n/nauvi/nauvi_0.0.1_amd64.deb; }
+plant_symlink() { ln -s /etc/passwd pool/main/n/nauvi/passwd; }
+change_packages() { echo >> dists/stable/main/binary-amd64/Packages; }
+drop_inrelease() { rm dists/stable/InRelease; }
+resign_with_other_key() {
+  rm -rf dists nauvi.gpg pool
+  GNUPGHOME="$other_home" APT_GPG_KEY="$other_key" APT_TRUSTED_KEYS="$other_key" APT_GPG_PASSPHRASE="" \
+    "$here/apt-repo.sh" . "$work/planted.deb" >/dev/null
+}
+refused "another package in the pool" plant_package
+refused "an unlisted nauvi version" plant_version
+refused "a changed pool file" change_pool_file
+refused "a symlink" plant_symlink
+refused "a changed Packages" change_packages
+refused "no InRelease" drop_inrelease
+refused "a repository re-signed with another key" resign_with_other_key
+echo "ok: same version is a no-op, replaced contents and pre-releases are refused, the last 5 are kept, only the trusted key signs, a tampered repository is refused"
 
 port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
 python3 -m http.server --bind 127.0.0.1 --directory "$site" "$port" >"$work/http.log" 2>&1 &

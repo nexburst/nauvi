@@ -852,13 +852,14 @@ jobs:
   # The apt repository on GitHub Pages (#427), real non-pre-release releases
   # only (dpkg would sort 0.2.0-1 after 0.2.0). Two jobs, so the signing key
   # and a write token never share one: `apt` (the `release` environment, a
-  # read-only token) adds the published .deb to the repository that the
-  # gh-pages branch serves under apt/, signs it with APT_GPG_PRIVATE_KEY
+  # read-only token) adds this run's .deb to the repository that the
+  # gh-pages branch serves under apt/ (after checking what is there against
+  # the keys in scripts/release/apt-keys.txt), signs it with APT_GPG_PRIVATE_KEY
   # (and APT_GPG_PASSPHRASE, if the key has one) and uploads it as an
   # artifact; `apt-pages` (no secret) pushes that to gh-pages. Without the
   # key, `apt` only leaves a notice.
   apt:
-    needs: [prepare, publish]
+    needs: [prepare, desktop, publish]
     if: needs.prepare.outputs.dry_run == 'false'
     environment: release
     permissions:
@@ -890,20 +891,29 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Fetch the published .deb and check it against SHA256SUMS
+      # The .deb this run built, not the release asset: anything with a
+      # write token can add assets to the release (and change SHA256SUMS
+      # next to them) while this job waits for approval. Artifact names are
+      # unique within a run, so only `desktop` can have made this one.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: steps.check.outputs.push == 'true'
+        with:
+          name: desktop-linux
+          path: ${{ runner.temp }}/desktop
+
+      - name: Pick the .deb of this release
         if: steps.check.outputs.push == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          dir="$RUNNER_TEMP/deb"
-          mkdir "$dir"
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$dir" --pattern '*.deb' --pattern SHA256SUMS
-          cd "$dir"
-          for deb in *.deb; do
-            grep -q "  $deb$" SHA256SUMS || { echo "::error::SHA256SUMS has no entry for $deb"; exit 1; }
-          done
-          sha256sum -c --ignore-missing SHA256SUMS
+          shopt -s nullglob
+          debs=("$RUNNER_TEMP"/desktop/*.deb)
+          [ ${#debs[@]} -eq 1 ] || { echo "::error::expected exactly one .deb in desktop-linux, found ${#debs[@]}"; exit 1; }
+          version=$(dpkg-deb -f "${debs[0]}" Version)
+          [ "$version" = "${TAG#v}" ] || { echo "::error::the .deb has version $version, not ${TAG#v}"; exit 1; }
+          mkdir "$RUNNER_TEMP/deb"
+          cp "${debs[0]}" "$RUNNER_TEMP/deb/"
+          echo "apt: nauvi $version, sha256 \`$(sha256sum < "${debs[0]}" | cut -d' ' -f1)\`" >> "$GITHUB_STEP_SUMMARY"
 
       # Anonymous: the repository is public and this job has no write token.
       - name: Fetch the current repository from gh-pages
@@ -977,7 +987,7 @@ jobs:
           if [ -n "$BASE" ]; then
             git clone --quiet --depth 1 --branch gh-pages "$url" "$pages"
             head=$(git -C "$pages" rev-parse HEAD)
-            [ "$head" = "$BASE" ] || { echo "::error::gh-pages moved from $BASE to $head while the repository was signed; run the failed jobs again"; exit 1; }
+            [ "$head" = "$BASE" ] || { echo "::error::gh-pages moved from $BASE to $head while the repository was signed; re-run the apt job (apt-pages runs again after it)"; exit 1; }
           else
             git init --quiet "$pages"
             git -C "$pages" remote add origin "$url"
