@@ -1,0 +1,105 @@
+name: Tests
+
+# brew style, brew audit --online and a real install of the cask and the
+# formula, on every push (the nauvi release workflow pushes the new version
+# to main) and pull request. Copied from nexburst/nauvi's
+# packaging/homebrew/tap/; change it there.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    name: macOS (style, audit, install)
+    permissions:
+      contents: read
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+      HOMEBREW_NO_ENV_HINTS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Use this checkout as the nexburst/tap tap
+        run: |
+          brew --version
+          taps="$(brew --repository)/Library/Taps/nexburst"
+          mkdir -p "$taps"
+          ln -s "$GITHUB_WORKSPACE" "$taps/homebrew-tap"
+          # Homebrew 7 refuses packages from taps it was not told to trust.
+          brew trust nexburst/tap
+
+      - name: brew style
+        run: brew style nexburst/tap
+
+      - name: brew audit
+        run: |
+          if [ -f Casks/nauvi.rb ]; then
+            brew audit --strict --online --cask nexburst/tap/nauvi
+          fi
+          if [ -f Formula/nauvi-cli.rb ]; then
+            brew audit --strict --online --formula nexburst/tap/nauvi-cli
+          fi
+
+      - name: Install and test the CLI
+        if: hashFiles('Formula/nauvi-cli.rb') != ''
+        run: |
+          brew install nexburst/tap/nauvi-cli
+          brew test nexburst/tap/nauvi-cli
+          nauvi --version
+          test -f "$(brew --prefix)/share/zsh/site-functions/_nauvi"
+          brew uninstall nexburst/tap/nauvi-cli
+
+      # Installs the app without opening it (it is not signed yet).
+      - name: Install the app
+        if: hashFiles('Casks/nauvi.rb') != ''
+        run: |
+          brew install --cask nexburst/tap/nauvi
+          test -d /Applications/nauvi.app
+          brew uninstall --zap --cask nexburst/tap/nauvi
+          test ! -e /Applications/nauvi.app
+
+  linux:
+    name: Linux (install the CLI)
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+      HOMEBREW_NO_ENV_HINTS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The runner image has Homebrew in /home/linuxbrew, off the PATH.
+      - name: Use this checkout as the nexburst/tap tap
+        run: |
+          echo "/home/linuxbrew/.linuxbrew/bin" >> "$GITHUB_PATH"
+          brew="/home/linuxbrew/.linuxbrew/bin/brew"
+          "$brew" --version
+          taps="$("$brew" --repository)/Library/Taps/nexburst"
+          mkdir -p "$taps"
+          ln -s "$GITHUB_WORKSPACE" "$taps/homebrew-tap"
+          # Homebrew 7 refuses packages from taps it was not told to trust.
+          "$brew" trust nexburst/tap
+
+      - name: Install and test the CLI
+        if: hashFiles('Formula/nauvi-cli.rb') != ''
+        run: |
+          brew install nexburst/tap/nauvi-cli
+          brew test nexburst/tap/nauvi-cli
+          nauvi --version

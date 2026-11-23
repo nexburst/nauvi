@@ -1,0 +1,83 @@
+name: Homebrew
+
+# Checks the Homebrew cask and formula templates (#168): renders them with
+# scripts/release/homebrew.sh from fixture sums, puts them in a throwaway
+# local tap and runs `brew style` and `brew audit --strict` on them. Offline:
+# the fixture sums match no real download, so nothing is fetched or
+# installed. The tap's own CI (packaging/homebrew/tap/) installs them for
+# real after each release.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - packaging/homebrew/**
+      - scripts/release/homebrew.sh
+      - .github/workflows/homebrew.yml
+  pull_request:
+    paths:
+      - packaging/homebrew/**
+      - scripts/release/homebrew.sh
+      - .github/workflows/homebrew.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: homebrew-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: brew style, brew audit
+    permissions:
+      contents: read
+    runs-on: macos-latest
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+      HOMEBREW_NO_ENV_HINTS: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Render the templates from the fixture sums
+        run: scripts/release/homebrew.sh packaging/homebrew/fixtures/SHA256SUMS v0.1.0 "$RUNNER_TEMP/rendered"
+
+      - name: The generator refuses missing sums and bad tags
+        run: |
+          out="$RUNNER_TEMP/refused"
+          if scripts/release/homebrew.sh packaging/homebrew/fixtures/SHA256SUMS v9.9.9 "$out"; then
+            echo "::error::rendered a release that SHA256SUMS does not list"; exit 1
+          fi
+          if scripts/release/homebrew.sh packaging/homebrew/fixtures/SHA256SUMS 0.1.0 "$out"; then
+            echo "::error::accepted a tag without the v"; exit 1
+          fi
+          [ ! -e "$out" ] || { echo "::error::wrote files after refusing"; exit 1; }
+
+      - name: Put them in a throwaway tap
+        run: |
+          brew --version
+          brew tap-new --no-git nauvi-ci/test
+          tap="$(brew --repository nauvi-ci/test)"
+          # Only the two files: not the workflows tap-new writes.
+          rm -rf "$tap/.github"
+          mkdir -p "$tap/Casks" "$tap/Formula"
+          cp "$RUNNER_TEMP/rendered/Casks/nauvi.rb" "$tap/Casks/"
+          cp "$RUNNER_TEMP/rendered/Formula/nauvi-cli.rb" "$tap/Formula/"
+          # Homebrew 7 refuses casks from taps it was not told to trust.
+          brew trust nauvi-ci/test
+
+      - name: brew style
+        run: brew style nauvi-ci/test
+
+      - name: brew audit (cask)
+        run: brew audit --strict --cask nauvi-ci/test/nauvi
+
+      - name: brew audit (formula)
+        run: brew audit --strict --formula nauvi-ci/test/nauvi-cli
+
+      - name: Remove the throwaway tap
+        if: always()
+        run: brew untap nauvi-ci/test || true
