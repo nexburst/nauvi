@@ -46,10 +46,32 @@ function Install-Nauvi {
         Fail "NAUVI_INSTALL_DIR must be an absolute path (got '$binDir')"
     }
 
+    # The user PATH as stored, with %VARS% unexpanded: [Environment]'s User
+    # target would write it back expanded, as REG_SZ.
+    $envKey = 'HKCU:\Environment'
+    $useRegistry = Test-Path -LiteralPath $envKey
     function Get-UserPath {
-        $p = [Environment]::GetEnvironmentVariable('Path', 'User')
-        if ($null -eq $p) { return @() }
+        if ($useRegistry) {
+            $p = (Get-Item -LiteralPath $envKey).GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+        } else {
+            $p = [Environment]::GetEnvironmentVariable('Path', 'User')
+        }
+        if (-not $p) { return @() }
         return @($p -split ';' | Where-Object { $_ -ne '' })
+    }
+
+    function Write-UserPath([string[]]$entries) {
+        $value = (@($entries) -join ';')
+        if (-not $useRegistry) {
+            [Environment]::SetEnvironmentVariable('Path', $value, 'User')
+            return
+        }
+        Set-ItemProperty -LiteralPath $envKey -Name 'Path' -Value $value -Type ExpandString
+        # Tell running programs (Explorer, new terminals) the environment
+        # changed: [Environment] broadcasts WM_SETTINGCHANGE when it sets a
+        # User variable, so set and remove a throwaway one.
+        [Environment]::SetEnvironmentVariable('NAUVI_INSTALL_REFRESH', '1', 'User')
+        [Environment]::SetEnvironmentVariable('NAUVI_INSTALL_REFRESH', $null, 'User')
     }
 
     function Find-InstalledApp {
@@ -79,7 +101,7 @@ function Install-Nauvi {
         $userPath = Get-UserPath
         if ($userPath -contains $binDir) {
             $rest = $userPath | Where-Object { $_ -ne $binDir }
-            [Environment]::SetEnvironmentVariable('Path', ($rest -join ';'), 'User')
+            Write-UserPath @($rest)
             Write-Host "removed $binDir from your user PATH"
             $removed = $true
         }
@@ -191,7 +213,7 @@ function Install-Nauvi {
 
             $userPath = Get-UserPath
             if ($userPath -notcontains $binDir) {
-                [Environment]::SetEnvironmentVariable('Path', ((@($userPath) + $binDir) -join ';'), 'User')
+                Write-UserPath (@($userPath) + $binDir)
                 Write-Host "Added $binDir to your user PATH; open a new terminal to use nauvi."
             }
             if (($env:Path -split ';') -notcontains $binDir) { $env:Path = "$env:Path;$binDir" }

@@ -84,9 +84,16 @@ check "cli is v2" test "$("$bin/nauvi" --version)" = "nauvi 0.0.2"
 if run bad --cli; then fail "tampered cli release must fail"; else pass "tampered cli release fails"; fi
 check "tampered: cli still v2" test "$("$bin/nauvi" --version)" = "nauvi 0.0.2"
 
-# A fresh HOME: a tampered release installs nothing at all.
-if HOME="$work/fresh" NAUVI_APP_DIR="$work/fresh/Applications" run bad; then fail "tampered (fresh) must fail"; else pass "tampered (fresh) fails"; fi
-if HOME="$work/fresh" run bad --cli; then fail "tampered cli (fresh) must fail"; else pass "tampered cli (fresh) fails"; fi
+# A fresh HOME: a tampered release installs nothing at all. (Through env,
+# not `VAR=x run`: bash's sh mode keeps such assignments after a function.)
+fresh() {
+  rel=$1
+  shift
+  env HOME="$work/fresh" NAUVI_APP_DIR="$work/fresh/Applications" \
+    NAUVI_DOWNLOAD_BASE="file://$work/$rel" sh "$installer" "$@" >"$work/out" 2>&1
+}
+if fresh bad; then fail "tampered (fresh) must fail"; else pass "tampered (fresh) fails"; fi
+if fresh bad --cli; then fail "tampered cli (fresh) must fail"; else pass "tampered cli (fresh) fails"; fi
 check "tampered (fresh): nothing installed" test ! -e "$work/fresh/.local" -a ! -e "$work/fresh/Applications"
 
 # --- refusals --------------------------------------------------------------

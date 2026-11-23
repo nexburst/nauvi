@@ -1,7 +1,7 @@
 # Runs install.ps1 -Cli against fake releases (#430): install, upgrade, a
 # tampered release (must fail and change nothing), a refused URL and
 # -Uninstall. The CLI goes into a temporary directory; the user PATH entry
-# it adds is removed again by -Uninstall.
+# it adds is removed again by -Uninstall, and the user PATH is restored.
 #
 #   pwsh scripts/test-install/test.ps1
 $ErrorActionPreference = 'Stop'
@@ -11,6 +11,7 @@ $installer = Join-Path $root 'install.ps1'
 $work = Join-Path ([System.IO.Path]::GetTempPath()) ("nauvi-test-" + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $work | Out-Null
 $failures = 0
+$originalPath = $null
 
 function Write-Fixture([string]$dir, [string]$tag, [bool]$tamper) {
     $ver = $tag.TrimStart('v')
@@ -39,6 +40,9 @@ function Check([string]$what, [bool]$ok) {
 function Invoke-Installer([string]$base, [string[]]$installArgs) {
     $env:NAUVI_DOWNLOAD_BASE = $base
     $shell = (Get-Process -Id $PID).Path
+    # Windows PowerShell turns a child's stderr into error records, which
+    # would stop this script under 'Stop'.
+    $ErrorActionPreference = 'Continue'
     & $shell -NoProfile -NonInteractive -File $installer @installArgs *> (Join-Path $work 'out.txt')
     $code = $LASTEXITCODE
     Get-Content (Join-Path $work 'out.txt') | Write-Host
@@ -65,7 +69,22 @@ try {
     $bin = Join-Path $work 'bin'
     $env:NAUVI_INSTALL_DIR = $bin
     $exe = Join-Path $bin 'nauvi.exe'
-    $pathBefore = [Environment]::GetEnvironmentVariable('Path', 'User')
+    # The user PATH as stored. On Windows, first give it a %VAR% entry: the
+    # installer must keep it unexpanded.
+    function Get-RawUserPath {
+        if (Test-Path -LiteralPath 'HKCU:\Environment') {
+            return (Get-Item -LiteralPath 'HKCU:\Environment').GetValue('Path', '', 'DoNotExpandEnvironmentNames')
+        }
+        return [Environment]::GetEnvironmentVariable('Path', 'User')
+    }
+    if (Test-Path -LiteralPath 'HKCU:\Environment') {
+        $raw = Get-RawUserPath
+        $script:originalPath = $raw
+        $marker = '%USERPROFILE%\nauvi-test-marker'
+        $value = if ($raw) { "$($raw.TrimEnd(';'));$marker" } else { $marker }
+        Set-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'Path' -Value $value -Type ExpandString
+    }
+    $pathBefore = Get-RawUserPath
 
     # The way the one-liner runs it: irm ... | iex, with NAUVI_CLI=1.
     $env:NAUVI_DOWNLOAD_BASE = Get-Url 'v1'
@@ -97,8 +116,11 @@ try {
     Check 'uninstall' ((Invoke-Installer '' @('-Uninstall', '-Cli')) -eq 0)
     Check 'uninstall: cli gone' (-not (Test-Path -LiteralPath $exe))
     Check 'uninstall: PATH entry gone' (-not ((([Environment]::GetEnvironmentVariable('Path', 'User')) -split ';') -contains $bin))
-    Check 'uninstall: user PATH as before' ([Environment]::GetEnvironmentVariable('Path', 'User') -eq $pathBefore)
+    Check 'uninstall: user PATH as before (unexpanded)' ((Get-RawUserPath) -ceq $pathBefore)
 } finally {
+    if ($null -ne $script:originalPath) {
+        Set-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'Path' -Value $script:originalPath -Type ExpandString
+    }
     Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue
 }
 
