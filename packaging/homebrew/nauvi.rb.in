@@ -16,6 +16,7 @@ cask "nauvi" do
 
   # The in-app updater installs new versions itself.
   auto_updates true
+  depends_on :macos
 
   app "nauvi.app"
 
