@@ -64,6 +64,15 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   error; hollow grey: completed; dashed: no status yet. Hover a square for
   the container's name, state and reason; sorting by the column puts pods
   with a broken container first.
+  Deployments, StatefulSets and DaemonSets have a **Status** column that
+  says what the controller is doing: Running (green), Scaling or Updating
+  (amber), Failed (red: the rollout is past its deadline or a pod could not
+  be created), Paused or Scaled down (grey), each with its own shape. Hover
+  it for why; sort by it to see broken rollouts first.
+  Every row ends in a **⋮** button with the row's actions (the same menu as
+  a right-click, or Shift+F10 on the focused row). Click a **Namespace**
+  cell to show that namespace only, a **Node** cell to open the node, a
+  **Controlled By** cell to open the owner.
   Pods and Nodes show CPU/memory usage when the metrics API is available,
   with a small trend line of the last 30 minutes. The pod and node detail
   panels chart CPU and memory (pods per container too) against requests and
@@ -159,7 +168,10 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
   can't start it until it is stopped there. Idle connections (a database
   client between queries) stay open. After a forward starts, a banner
   offers Open and Port Forwards.
-  Nothing connects to the pod until a client does. New connections reuse a
+  A forward keeps one connection to each pod it forwards to and opens a
+  stream on it per local connection, as kubectl does; nothing connects to
+  the pod until a client does. `NAUVI_PORT_FORWARD_MULTIPLEX=0` falls back
+  to one API-server upgrade per connection. New connections reuse a
   warm connection to the API server and skip TCP's delayed ACK, so on kind
   a new connection takes about 16 ms through a pod forward and 19 ms
   through a Service forward (median; it was about 57 and 60 ms, and
@@ -571,38 +583,148 @@ prompt with the scope; edit it, it is the CLI's first message.
 
 ## Install
 
-Releases will be published on the
-[Releases page](https://github.com/nexburst/nauvi/releases) with these
-files:
+There is no tagged release yet. The one-line installers and Homebrew below
+work once v0.1.0 is published on the
+[Releases page](https://github.com/nexburst/nauvi/releases); until then,
+build from source (below).
 
-- Linux: `.AppImage` (`chmod +x` it and run) or `.deb` (`sudo apt install ./nauvi_*.deb`)
-- macOS: `.dmg` (universal, Apple silicon and Intel)
-- Windows: `.msi` or the NSIS `-setup.exe`
-- CLI only: `nauvi-cli-<version>-<target>.tar.gz` (`.zip` on Windows)
+The desktop app and the CLI are separate installs. The app is called
+`nauvi-desktop` on Linux and the CLI `nauvi`, so both fit in the same
+folder.
 
-The builds are not signed yet, so the OS will warn you the first time:
+### Linux (Ubuntu, x86_64)
 
-- macOS: open the `.dmg` and drag the app to Applications in Finder. Don't
-  run it from the disk image: macOS then runs it from a temporary read-only
-  copy, which can't update itself. The first launch says "Apple could not verify…";
-  click Done, then open System Settings → Privacy & Security and click
-  **Open Anyway** next to the nauvi message (on macOS 15 and later,
-  right-click → Open no longer offers this). If macOS says the app is
-  damaged, run `xattr -dr com.apple.quarantine /Applications/nauvi.app`.
-- macOS CLI: a downloaded `nauvi` binary is killed at launch (exit
-  status 137) until you remove the quarantine flag:
-  `xattr -d com.apple.quarantine ./nauvi`.
-- Windows: SmartScreen shows "Windows protected your PC"; click
-  More info, then Run anyway.
-- Linux needs no workaround; the AppImage needs FUSE 2 (`libfuse2`) on
-  recent Ubuntu. If the window stays blank (some GPU drivers), start it with
-  `WEBKIT_DISABLE_DMABUF_RENDERER=1`. On a machine without a GPU (VMs,
-  remote desktops) nauvi turns WebKitGTK's DMA-BUF renderer off by itself,
-  which saves about 170 MB; set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to keep
-  it.
+The desktop app:
 
-Each release also ships CycloneDX SBOMs (`nauvi-<tag>-*.cdx.json`) and is
-scanned for known vulnerabilities with Grype.
+```sh
+curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install.sh | sh
+```
+
+Only the CLI (`nauvi`):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install.sh | sh -s -- --cli
+```
+
+The script downloads the latest release, checks each file against the
+release's `SHA256SUMS` before installing it, and needs no sudo:
+
+- The app: the AppImage as `~/.local/bin/nauvi-desktop`, a menu entry
+  (`~/.local/share/applications/nauvi.desktop`) that also opens `nauvi://`
+  links, and its icon. The app updates itself.
+- The CLI: `~/.local/bin/nauvi`.
+- The AppImage needs FUSE 2. If it is missing, the script prints the
+  package to install and does not install it itself:
+  `sudo apt install libfuse2t64` on Ubuntu 24.04 and later (Debian 13),
+  `sudo apt install libfuse2` before.
+- It warns when `~/.local/bin` is not on your `PATH`.
+
+Run the same command again to upgrade. `--uninstall` removes the app, the
+CLI, the menu entry and the icons, and keeps your settings:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install.sh | sh -s -- --uninstall
+```
+
+`NAUVI_VERSION=v0.1.0` installs a given release instead of the latest, and
+`NAUVI_INSTALL_DIR` (an absolute path) changes `~/.local/bin`. Put them
+before `sh` (`curl … | NAUVI_VERSION=v0.1.0 sh`). Other architectures (arm64)
+have no build yet.
+
+To download by hand from the Releases page instead:
+
+- `.deb`: `sudo apt install ./nauvi_*_amd64.deb`. It installs
+  `/usr/bin/nauvi-desktop` and a menu entry.
+- `.AppImage`: `chmod +x nauvi_*_amd64.AppImage` and run it.
+- The CLI: `nauvi-cli-v<version>-x86_64-unknown-linux-gnu.tar.gz` holds the
+  `nauvi` binary.
+
+If the window stays blank (some GPU drivers), start the app with
+`WEBKIT_DISABLE_DMABUF_RENDERER=1`. On a machine without a GPU (VMs, remote
+desktops) nauvi turns WebKitGTK's DMA-BUF renderer off by itself, which saves
+about 170 MB; set `WEBKIT_DISABLE_DMABUF_RENDERER=0` to keep it.
+
+### macOS
+
+The same script works on macOS (Apple silicon and Intel):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install.sh | sh -s -- --cli
+```
+
+The first installs `nauvi.app` from the universal `.dmg` into
+`/Applications` (or `~/Applications` when `/Applications` is not writable;
+`NAUVI_APP_DIR` changes it). The second installs the CLI as
+`~/.local/bin/nauvi`. `--uninstall` removes both; your settings are kept.
+
+Or with Homebrew:
+
+```sh
+brew install --cask nexburst/tap/nauvi   # the desktop app
+brew install nexburst/tap/nauvi-cli      # the CLI, with bash, zsh and fish completions
+```
+
+Homebrew 6 and later refuse to load packages from a tap you have not
+trusted; run `brew trust nexburst/tap` first if it asks. The app updates
+itself, so `brew upgrade` leaves it alone (`brew upgrade --cask --greedy
+nauvi` updates it anyway). `brew uninstall --zap --cask nauvi` also removes
+its settings and logs. The CLI formula works with Homebrew on Linux
+(x86_64) too.
+
+To download by hand: the universal `.dmg`, or the CLI as
+`nauvi-cli-v<version>-aarch64-apple-darwin.tar.gz` (Apple silicon) or
+`-x86_64-apple-darwin.tar.gz` (Intel). Open the `.dmg` and drag the app to
+Applications in Finder. Don't run it from the disk image: macOS then runs it
+from a temporary read-only copy, which can't update itself.
+
+The app is not signed yet, so macOS blocks it the first time when it came
+from a browser download or Homebrew. The first launch says "Apple could not verify…"; click Done,
+then open System Settings → Privacy & Security and click **Open Anyway**
+next to the nauvi message (on macOS 15 and later, right-click → Open no
+longer offers this). If macOS says the app is damaged, run
+`xattr -dr com.apple.quarantine /Applications/nauvi.app`. A `nauvi` CLI
+binary downloaded with a browser is killed at launch (exit status 137)
+until you remove the quarantine flag: `xattr -d com.apple.quarantine ./nauvi`.
+The install script downloads with curl, which sets no quarantine flag, so
+neither step should be needed after it.
+
+### Windows (x64)
+
+In PowerShell, the desktop app:
+
+```powershell
+irm https://raw.githubusercontent.com/nexburst/nauvi/main/install.ps1 | iex
+```
+
+Only the CLI:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nexburst/nauvi/main/install.ps1))) -Cli
+```
+
+The script checks the download against `SHA256SUMS` like the Linux one. The
+app comes from the `.msi` (`msiexec /passive`; Windows asks for permission)
+and updates itself. The CLI goes to `%LOCALAPPDATA%\nauvi\bin\nauvi.exe`,
+which is added to your user `PATH`; open a new terminal to use it. Run it
+again to upgrade. `-Uninstall` (in the same scriptblock form as `-Cli`)
+removes the CLI and its `PATH` entry, and the app too unless `-Cli` is
+given; your settings are kept. `$env:NAUVI_CLI = '1'` before the `| iex`
+form does the same as `-Cli`; `NAUVI_VERSION` and `NAUVI_INSTALL_DIR` work
+as on Linux.
+
+To download by hand: the `.msi`, the NSIS `-setup.exe`, or the CLI as
+`nauvi-cli-v<version>-x86_64-pc-windows-msvc.zip`. The builds are not signed
+yet, so SmartScreen may show "Windows protected your PC"; click More info,
+then Run anyway.
+
+### Checking a download
+
+Every release has a `SHA256SUMS` file; check what you downloaded with
+`sha256sum -c SHA256SUMS --ignore-missing`. It protects against a broken or
+swapped download, not against a compromised release, since it comes from the
+same place. Each release also ships CycloneDX SBOMs (`nauvi-<tag>-*.cdx.json`)
+and is scanned for known vulnerabilities with Grype.
 
 ### Size and memory
 
@@ -657,14 +779,19 @@ memory is tracked in [#353](https://github.com/nexburst/nauvi/issues/353).
 The app and the CLI ignore `HTTPS_PROXY` (and `NO_PROXY`) from the
 environment when they talk to a cluster, so a machine-wide proxy doesn't
 break access to local or internal clusters. To reach a cluster through a
-proxy, set `proxy-url` (an `http://` proxy) on that cluster in the
-kubeconfig, or set one in the app.
+proxy, set `proxy-url` on that cluster in the kubeconfig, or set one in the
+app.
 
-**Proxy per cluster** (cluster Settings → Network): an `http://` or
-`socks5://` proxy for that cluster's requests, watches, terminals and
-port-forwards. Use `http://user:password@host:port` for a proxy that wants a
-login; SOCKS5 works without one. `https://` proxies are not supported yet
-([#362](https://github.com/nexburst/nauvi/issues/362)). nauvi keeps the proxy
+**Proxy per cluster** (cluster Settings → Network): an `http://`,
+`https://` or `socks5://` proxy for that cluster's requests, watches,
+terminals and port-forwards. Use `http://user:password@host:port` for a proxy
+that wants a login; SOCKS5 works without one. An `https://` proxy's
+certificate is checked against the system's trust store, plus an optional CA
+file (a PEM file, full path) set under the proxy URL; a kubeconfig's
+`https://` `proxy-url` gets the system's trust store only. The cluster's
+certificate-authority, insecure-skip-tls-verify and client certificate are
+never used for the proxy. The matching-kubectl download (Local terminal) does not use the proxy's CA
+file; add that CA to the system trust store instead. nauvi keeps the proxy
 in `proxies.json` in its config folder (readable only by you), never in your
 kubeconfig, and shows the password masked. It replaces the kubeconfig's
 `proxy-url` for that cluster. A cluster on your machine (kind, minikube) is
