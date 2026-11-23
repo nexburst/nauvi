@@ -657,6 +657,37 @@ jobs:
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
 
+      # The one-line installers (#430) pick their files out of SHA256SUMS by
+      # name: run install.sh (app and CLI) and install.ps1 -Cli against
+      # exactly these assets, in a throwaway HOME, before anything is
+      # published. The .dmg and .msi installs need macOS / Windows; check
+      # that the name each script looks for matches one file.
+      - name: Try the install scripts against these assets
+        run: |
+          base="file://$PWD/assets"
+          home=$(mktemp -d)
+          HOME="$home" NAUVI_DOWNLOAD_BASE="$base" sh install.sh
+          HOME="$home" NAUVI_DOWNLOAD_BASE="$base" sh install.sh --cli
+          "$home/.local/bin/nauvi" --version
+          test -x "$home/.local/bin/nauvi-desktop"
+          grep -qx 'MimeType=x-scheme-handler/nauvi;' "$home/.local/share/applications/nauvi.desktop"
+          ls "$home"/.local/share/icons/hicolor/*/apps/nauvi.png
+          HOME="$home" sh install.sh --uninstall
+          test ! -e "$home/.local/bin/nauvi-desktop"
+          rm -rf "$home"
+
+          # pwsh is on the Ubuntu runners; the user PATH part is a no-op here.
+          dir=$(mktemp -d)
+          NAUVI_DOWNLOAD_BASE="$base" NAUVI_INSTALL_DIR="$dir" PROCESSOR_ARCHITECTURE=AMD64 \
+            pwsh -NoProfile -NonInteractive -File install.ps1 -Cli
+          test -s "$dir/nauvi.exe"
+          rm -rf "$dir"
+
+          for p in '_universal\.dmg$' '_x64_en-US\.msi$'; do
+            n=$(awk '{ print $2 }' assets/SHA256SUMS | grep -cE "$p" || true)
+            [ "$n" -eq 1 ] || { echo "::error::$n files in SHA256SUMS match $p; the install scripts expect one"; exit 1; }
+          done
+
       - name: Upload latest.json and SHA256SUMS as workflow artifacts (dry run)
         if: needs.prepare.outputs.dry_run == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
