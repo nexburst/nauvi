@@ -31,11 +31,18 @@ name: Release
 # default: it builds everything and uploads it as workflow artifacts, without
 # creating a tag or a release. Use it to test release changes before tagging.
 #
+# Every Monday it also runs as a dry run on main (#439). That saves the Rust
+# caches the release jobs restore (only main saves caches), so a tag or a
+# dry run from a branch starts warm instead of compiling everything, and it
+# shows a broken release pipeline before a tag does.
+#
 # Bump versions with scripts/bump-version.sh. Pre-releases must be numeric
 # (v0.2.0-1, not v0.2.0-rc.1) because the MSI bundler (WiX) rejects others.
 on:
   push:
     tags: ["v*"]
+  schedule:
+    - cron: "23 4 * * 1"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -215,15 +222,19 @@ jobs:
         run: npm ci
         working-directory: desktop/ui-src
 
-      # An exact version (#245): this job holds the signing key and a
-      # `contents: write` token, so it must not pick up a new release of the
-      # CLI on its own. Bump it on purpose, next to the `tauri` crate.
-      - name: Install the Tauri CLI
-        run: cargo install tauri-cli --version "=2.12.4" --locked
+      # The Tauri CLI is the prebuilt @tauri-apps/cli from ui-src's
+      # package-lock.json (#439; compiling tauri-cli took 6-9 minutes per
+      # job). An exact version, checked by the lockfile's integrity hashes
+      # (#245): this job holds the signing key and a `contents: write` token,
+      # so it must not pick up a new release of the CLI on its own. Bump it
+      # on purpose, next to @tauri-apps/api and the `tauri` crate.
+      - name: Check the Tauri CLI
+        shell: bash
+        run: node desktop/ui-src/node_modules/@tauri-apps/cli/tauri.js --version
 
       # build.rs writes desktop/icons/icon.png at build time, but the bundler
       # also needs .ico/.icns/sized PNGs, so extract the embedded icon and
-      # expand it with `cargo tauri icon` before bundling.
+      # expand it with `tauri icon` before bundling.
       - name: Generate app icons
         shell: bash
         run: |
@@ -233,7 +244,7 @@ jobs:
           b64 = re.search(r'ICON_PNG_BASE64: &str = "([^"]+)"', src).group(1)
           open("desktop/icons/icon.png", "wb").write(base64.b64decode(b64))
           PY
-          cargo tauri icon desktop/icons/icon.png --output desktop/icons
+          node desktop/ui-src/node_modules/@tauri-apps/cli/tauri.js icon desktop/icons/icon.png --output desktop/icons
 
       # With a releaseId it uploads into the draft; without one (dry run) it
       # only builds. Both sign the update bundles (createUpdaterArtifacts in
@@ -248,7 +259,8 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: desktop
-          tauriScript: cargo tauri
+          # Run from projectPath (desktop/).
+          tauriScript: node ui-src/node_modules/@tauri-apps/cli/tauri.js
           releaseId: ${{ needs.prepare.outputs.release_id }}
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
