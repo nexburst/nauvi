@@ -68,6 +68,32 @@ test("where the update cannot be installed in place, the banner links to the rel
   await expect.poll(() => page.evaluate(() => window.__fake.opened())).toEqual([RELEASE]);
 });
 
+test("a .deb from the apt repository says to update with apt, with no Install button (#427)", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await openApp(page, (_c, f) =>
+    f.offerUpdate(
+      "0.2.0",
+      false,
+      "nauvi was installed from the nauvi apt repository, so apt updates it.",
+      "sudo apt update && sudo apt install nauvi",
+    ),
+  );
+  await expect(banner(page)).toContainText(
+    "nauvi 0.2.0 is available — Release notes · Update with apt: sudo apt update && sudo apt install nauvi",
+  );
+  await expect(banner(page)).toContainText("installed from the nauvi apt repository");
+  await expect(banner(page).getByRole("button", { name: "Install and restart" })).toHaveCount(0);
+  await expect(banner(page).getByRole("button", { name: "Download from the release page" })).toHaveCount(0);
+  const text = banner(page).locator(".text");
+  const lineHeight = await text.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 18);
+  expect((await text.boundingBox())!.height).toBeLessThan(lineHeight * 1.5);
+
+  await banner(page).getByRole("button", { name: "Copy" }).click();
+  await expect(banner(page).getByRole("button", { name: "Copied" })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("sudo apt update && sudo apt install nauvi");
+});
+
 test("a long note does not squeeze the banner's text into a column (#124)", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openApp(page, (_c, f) =>

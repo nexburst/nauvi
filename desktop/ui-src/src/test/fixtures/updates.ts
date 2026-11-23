@@ -24,13 +24,14 @@ export function upToDate(): FakeUpdate {
       release_url: "https://github.com/nexburst/nauvi/releases",
       can_install: false,
       note: "",
+      update_command: "",
     },
     size: 0,
   };
 }
 
-/** A newer release; `note` says why it cannot be installed in place. */
-export function available(version: string, canInstall = true, note = ""): FakeUpdate {
+/** A newer release; `note` says why it cannot be installed in place, `command` what updates it instead (apt, #427). */
+export function available(version: string, canInstall = true, note = "", command = ""): FakeUpdate {
   return {
     check: {
       status: "available",
@@ -40,6 +41,7 @@ export function available(version: string, canInstall = true, note = ""): FakeUp
       release_url: `https://github.com/nexburst/nauvi/releases/tag/v${version}`,
       can_install: canInstall,
       note,
+      update_command: command,
     },
     size: 13_500_000,
   };

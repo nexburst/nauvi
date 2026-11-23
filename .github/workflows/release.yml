@@ -9,7 +9,9 @@ name: Release
 #      them and on the unpacked Linux bundles and CLI, and fails on a High
 #      or Critical finding that has a fix (#341). Neither sees a secret.
 #      `install-check` runs install.sh and install.ps1 -Cli against the
-#      built files (#430), with a read-only token.
+#      built files (#430), with a read-only token. `apt-check` builds a
+#      test apt repository from the .deb with a throwaway key and installs
+#      and upgrades nauvi from it in Ubuntu containers (#427).
 #   4. `publish` checks every expected asset is there, verifies the update
 #      signatures, writes latest.json (the in-app updater's endpoint, #30)
 #      and SHA256SUMS, uploads them with the SBOMs and only then publishes
@@ -17,6 +19,9 @@ name: Release
 #      writes the installer sizes to the job summary.
 #   5. `homebrew` pushes the cask and formula that `publish` rendered to
 #      nexburst/homebrew-tap (#168), if the HOMEBREW_TAP_TOKEN secret is set.
+#   6. `apt` adds the .deb to the apt repository and signs it, if the
+#      APT_GPG_PRIVATE_KEY secret is set; `apt-pages` pushes it to the
+#      gh-pages branch, which GitHub Pages serves (#427).
 #
 # The update bundles are signed with the TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)
 # secrets; the public key is in desktop/tauri.conf.json. The dry run signs
@@ -609,8 +614,35 @@ jobs:
             [ "$n" -eq 1 ] || { echo "::error::$n files match $p; the install scripts expect one"; exit 1; }
           done
 
+  # The apt repository (#427), before anything is published (and in dry
+  # runs): scripts/release/apt-repo-check.sh builds it from this .deb with a
+  # throwaway key, serves it on 127.0.0.1 and, in clean ubuntu:22.04 and
+  # ubuntu:24.04 containers, follows the README's steps, installs nauvi,
+  # upgrades it from an older version and runs it. It runs the release's
+  # package, so it is a job of its own with a read-only token and no
+  # secrets; `publish` waits for it.
+  apt-check:
+    needs: [prepare, desktop]
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    steps:
+      # For scripts/release/apt-repo*.sh.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-linux
+          path: ${{ runner.temp }}/desktop
+
+      - name: Install and upgrade nauvi from a test apt repository
+        run: |
+          command -v apt-ftparchive >/dev/null || { sudo apt-get update && sudo apt-get install -y apt-utils; }
+          scripts/release/apt-repo-check.sh "$(ls "$RUNNER_TEMP"/desktop/*.deb)" ubuntu:22.04 ubuntu:24.04
+
   publish:
-    needs: [prepare, desktop, cli, sbom, scan, install-check]
+    needs: [prepare, desktop, cli, sbom, scan, install-check, apt-check]
     permissions:
       contents: write
     runs-on: ubuntu-22.04
@@ -816,3 +848,150 @@ jobs:
               commit -m "nauvi ${TAG#v}" -m "From https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
           git push origin HEAD:main
           echo "Pushed nauvi ${TAG#v} to nexburst/homebrew-tap" >> "$GITHUB_STEP_SUMMARY"
+
+  # The apt repository on GitHub Pages (#427), real non-pre-release releases
+  # only (dpkg would sort 0.2.0-1 after 0.2.0). Two jobs, so the signing key
+  # and a write token never share one: `apt` (the `release` environment, a
+  # read-only token) adds the published .deb to the repository that the
+  # gh-pages branch serves under apt/, signs it with APT_GPG_PRIVATE_KEY
+  # (and APT_GPG_PASSPHRASE, if the key has one) and uploads it as an
+  # artifact; `apt-pages` (no secret) pushes that to gh-pages. Without the
+  # key, `apt` only leaves a notice.
+  apt:
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.dry_run == 'false'
+    environment: release
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    outputs:
+      push: ${{ steps.check.outputs.push }}
+      base: ${{ steps.site.outputs.base }}
+    steps:
+      - name: Check the key and the release
+        id: check
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          if [ -z "$APT_GPG_PRIVATE_KEY" ]; then
+            echo "::notice title=apt repository not updated::APT_GPG_PRIVATE_KEY is not set in the release environment."
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          elif [[ "$TAG" == *-* ]]; then
+            echo "::notice title=apt repository not updated::$TAG is a pre-release; the apt repository only follows releases."
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # For scripts/release/apt-repo.sh, at the released commit.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.check.outputs.push == 'true'
+        with:
+          persist-credentials: false
+
+      - name: Fetch the published .deb and check it against SHA256SUMS
+        if: steps.check.outputs.push == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          dir="$RUNNER_TEMP/deb"
+          mkdir "$dir"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$dir" --pattern '*.deb' --pattern SHA256SUMS
+          cd "$dir"
+          for deb in *.deb; do
+            grep -q "  $deb$" SHA256SUMS || { echo "::error::SHA256SUMS has no entry for $deb"; exit 1; }
+          done
+          sha256sum -c --ignore-missing SHA256SUMS
+
+      # Anonymous: the repository is public and this job has no write token.
+      - name: Fetch the current repository from gh-pages
+        id: site
+        if: steps.check.outputs.push == 'true'
+        run: |
+          site="$RUNNER_TEMP/site"
+          url="https://github.com/$GITHUB_REPOSITORY.git"
+          if git ls-remote --exit-code --heads "$url" gh-pages >/dev/null; then
+            git clone --quiet --depth 1 --branch gh-pages "$url" "$site"
+            echo "base=$(git -C "$site" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          else
+            echo "No gh-pages branch yet: starting an empty repository"
+            mkdir "$site"
+            echo "base=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Add the .deb and sign the repository
+        if: steps.check.outputs.push == 'true'
+        env:
+          APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          command -v apt-ftparchive >/dev/null || { sudo apt-get update && sudo apt-get install -y apt-utils; }
+          GNUPGHOME=$(mktemp -d)
+          export GNUPGHOME
+          trap 'gpgconf --kill gpg-agent; rm -rf "$GNUPGHOME"' EXIT
+          gpg --batch --import <<<"$APT_GPG_PRIVATE_KEY"
+          APT_GPG_KEY=$(gpg --batch --with-colons --list-secret-keys | awk -F: '$1 == "fpr" { print $10; exit }')
+          export APT_GPG_KEY
+          scripts/release/apt-repo.sh "$RUNNER_TEMP/site/apt" "$RUNNER_TEMP"/deb/*.deb
+          echo "apt repository signed with \`$APT_GPG_KEY\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the signed repository
+        if: steps.check.outputs.push == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: apt-repository
+          path: ${{ runner.temp }}/site/apt/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Replaces apt/ on the gh-pages branch with what `apt` signed, keeping
+  # everything else there, as one new commit with no history (old .deb files
+  # would otherwise stay in the branch forever). Fails if gh-pages moved
+  # since `apt` read it. No checkout: no code of this repository runs next
+  # to the token.
+  apt-pages:
+    needs: [prepare, apt]
+    if: needs.prepare.outputs.dry_run == 'false' && needs.apt.outputs.push == 'true'
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: apt-repository
+          path: ${{ runner.temp }}/apt
+
+      - name: Push to gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ needs.apt.outputs.base }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+        run: |
+          # git asks gh for the credentials, so the token never lands in a
+          # URL or in .git/config.
+          gh auth setup-git
+          pages="$RUNNER_TEMP/pages"
+          url="https://github.com/$GITHUB_REPOSITORY.git"
+          if [ -n "$BASE" ]; then
+            git clone --quiet --depth 1 --branch gh-pages "$url" "$pages"
+            head=$(git -C "$pages" rev-parse HEAD)
+            [ "$head" = "$BASE" ] || { echo "::error::gh-pages moved from $BASE to $head while the repository was signed; run the failed jobs again"; exit 1; }
+          else
+            git init --quiet "$pages"
+            git -C "$pages" remote add origin "$url"
+            # Pages would otherwise run Jekyll over the branch.
+            touch "$pages/.nojekyll"
+          fi
+          cd "$pages"
+          rm -rf apt
+          cp -r "$RUNNER_TEMP/apt" apt
+          git checkout --quiet --orphan apt-update
+          git add -A
+          git -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --quiet -m "apt repository: nauvi ${TAG#v}" -m "From https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+          # With no gh-pages yet, BASE is empty: the lease then expects none.
+          git push --force-with-lease="gh-pages:$BASE" origin apt-update:gh-pages
+          echo "apt repository updated to nauvi ${TAG#v}" >> "$GITHUB_STEP_SUMMARY"

@@ -13,6 +13,18 @@
   const check = $derived(updates.check);
   const offered = $derived(showsBanner(check, updates.dismissed));
   const percent = $derived(updates.progress ? progressPercent(updates.progress) : null);
+
+  /** A .deb from the apt repository (#427): apt updates it, not Install. */
+  let copied = $state("");
+  async function copyCommand() {
+    if (!check) return;
+    try {
+      await navigator.clipboard.writeText(check.update_command);
+      copied = "Copied";
+    } catch {
+      copied = "Could not copy; select the command instead";
+    }
+  }
 </script>
 
 {#if offered && check}
@@ -24,6 +36,11 @@
       {#if check.can_install}
         <button type="button" class="link" disabled={updates.installing} onclick={installUpdate}
           >Install and restart</button
+        >
+      {:else if check.update_command}
+        <span data-testid="update-command"
+          >Update with apt: <code>{check.update_command}</code>
+          <button type="button" class="link" onclick={copyCommand}>{copied || "Copy"}</button></span
         >
       {:else}
         <button type="button" class="link" onclick={openReleasePage}>Download from the release page</button>
@@ -100,6 +117,11 @@
   .link:disabled {
     color: var(--text-muted);
     cursor: default;
+  }
+  code {
+    font-family: var(--font-mono, monospace);
+    font-size: 12px;
+    user-select: all;
   }
   .progress {
     display: flex;
