@@ -77,6 +77,10 @@ packages_rel="main/binary-amd64/Packages"
 
 # Check the published repository before anything in it is signed again.
 declare -A known=()
+# find does not descend into a symlinked starting point, which would skip
+# every check below.
+[ ! -L "$repo" ] || die "$repo is a symlink, not the repository's directory"
+[ ! -e "$repo" ] || [ -d "$repo" ] || die "$repo is not a directory"
 if [ -d "$repo" ] && [ -n "$(find "$repo" -mindepth 1 -print -quit)" ]; then
   odd=$(find "$repo" -mindepth 1 ! -type f ! -type d -print -quit)
   [ -z "$odd" ] || die "$odd in the published repository is not a regular file"
@@ -92,8 +96,12 @@ if [ -d "$repo" ] && [ -n "$(find "$repo" -mindepth 1 -print -quit)" ]; then
   fi
   status=$(gpgv --keyring "$ring" --status-fd 1 --output "$work/Release" "$dist/InRelease" 2>/dev/null) \
     || die "the published dists/stable/InRelease does not verify with a trusted key"
-  signer=$(awk '$2 == "VALIDSIG" { print $12; exit }' <<<"$status")
-  is_trusted "$signer" || die "the published InRelease is signed by $signer, which is not a trusted key"
+  # Exactly one signature, by a trusted key: the signed text gpgv writes
+  # out is then that key's alone.
+  mapfile -t signers < <(awk '$2 == "VALIDSIG" { print $12 }' <<<"$status")
+  [ ${#signers[@]} -eq 1 ] || die "the published InRelease has ${#signers[@]} valid signatures, not one"
+  [ "$(grep -c '^\[GNUPG:\] GOODSIG ' <<<"$status")" -eq 1 ] || die "the published InRelease does not have exactly one good signature"
+  is_trusted "${signers[0]}" || die "the published InRelease is signed by ${signers[0]}, which is not a trusted key"
 
   want=$(awk -v f="$packages_rel" '/^SHA256:/ { s = 1; next } /^[^ ]/ { s = 0 } s && $3 == f { print $1; exit }' "$work/Release")
   got=$(sha256sum < "$dist/$packages_rel" | cut -d' ' -f1)

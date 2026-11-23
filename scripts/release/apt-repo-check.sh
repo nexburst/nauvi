@@ -117,6 +117,7 @@ change_pool_file() { printf x >> pool/main/n/nauvi/nauvi_0.0.1_amd64.deb; }
 plant_symlink() { ln -s /etc/passwd pool/main/n/nauvi/passwd; }
 change_packages() { echo >> dists/stable/main/binary-amd64/Packages; }
 drop_inrelease() { rm dists/stable/InRelease; }
+symlink_root() { mkdir ../evil && mv ./* ../evil/ && cd .. && rmdir apt && ln -s evil apt; }
 resign_with_other_key() {
   rm -rf dists nauvi.gpg pool
   GNUPGHOME="$other_home" APT_GPG_KEY="$other_key" APT_TRUSTED_KEYS="$other_key" APT_GPG_PASSPHRASE="" \
@@ -129,6 +130,7 @@ refused "a symlink" plant_symlink
 refused "a changed Packages" change_packages
 refused "no InRelease" drop_inrelease
 refused "a repository re-signed with another key" resign_with_other_key
+refused "apt/ itself a symlink" symlink_root
 echo "ok: same version is a no-op, replaced contents and pre-releases are refused, the last 5 are kept, only the trusted key signs, a tampered repository is refused"
 
 port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
