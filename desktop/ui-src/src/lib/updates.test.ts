@@ -10,6 +10,7 @@ const check = (change: Partial<UpdateCheck> = {}): UpdateCheck => ({
   release_url: "https://github.com/nexburst/nauvi/releases/tag/v0.2.0",
   can_install: true,
   note: "",
+  update_command: "",
   ...change,
 });
 

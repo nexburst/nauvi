@@ -52,6 +52,9 @@ pub(crate) struct UpdateCheck {
     pub(crate) can_install: bool,
     /// Why the check was skipped, or why Install is not offered.
     pub(crate) note: String,
+    /// The command that updates this copy instead of Install, for a .deb
+    /// from the apt repository (empty: none).
+    pub(crate) update_command: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
@@ -89,6 +92,8 @@ pub(crate) async fn cmd_update_check(
 ) -> Result<UpdateCheck, String> {
     let debug = cfg!(debug_assertions);
     let endpoint = updater::endpoint_override(debug, std::env::var(updater::ENDPOINT_ENV).ok())?;
+    let bundle = updater::bundle_override(debug, std::env::var(updater::BUNDLE_ENV).ok())?
+        .or_else(tauri::utils::platform::bundle_type);
     let current = current_version(&app);
     let mut result = UpdateCheck {
         status: UpdateStatus::Skipped,
@@ -98,6 +103,7 @@ pub(crate) async fn cmd_update_check(
         release_url: updater::RELEASES_URL.to_string(),
         can_install: false,
         note: String::new(),
+        update_command: String::new(),
     };
     if let Some(skip) = updater::skip_reason(
         startup,
@@ -140,11 +146,24 @@ pub(crate) async fn cmd_update_check(
             .ok()
             .map(|p| p.to_string_lossy().into_owned()),
     );
-    let InstallSupport { can_install, note } = updater::install_support(
+    // Only a .deb install asks apt (#427).
+    let apt_repo = bundle == Some(tauri::utils::config::BundleType::Deb) && {
+        let dir = std::env::var(updater::APT_DIR_ENV)
+            .ok()
+            .filter(|d| debug && !d.trim().is_empty())
+            .unwrap_or_else(|| "/etc/apt".into());
+        updater::apt_repo_configured(std::path::Path::new(&dir))
+    };
+    let InstallSupport {
+        can_install,
+        note,
+        command,
+    } = updater::install_support(
         &exe,
-        tauri::utils::platform::bundle_type(),
+        bundle,
         tauri_plugin_updater::target().as_deref().unwrap_or(""),
         &updater::platform_keys(&update.raw_json),
+        apt_repo,
     );
     result.status = UpdateStatus::Available;
     result.version = update.version.clone();
@@ -152,6 +171,7 @@ pub(crate) async fn cmd_update_check(
     result.release_url = updater::release_page(&update.version);
     result.can_install = can_install;
     result.note = note;
+    result.update_command = command;
     *updates.pending.lock().unwrap() = Some((update, can_install));
     Ok(result)
 }

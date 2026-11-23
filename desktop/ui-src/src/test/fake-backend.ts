@@ -126,7 +126,7 @@ export interface FakeApi {
   /** Give the cluster a Prometheus with series for demo/web-1 and node-1 (`fixtures/usage.ts`). */
   installPrometheus(): void;
   /** Make the update check find `version` (`fixtures/updates.ts`). */
-  offerUpdate(version: string, canInstall?: boolean, note?: string): void;
+  offerUpdate(version: string, canInstall?: boolean, note?: string, command?: string): void;
   /** `cmd_update_install` stops half way through the download until this is called. */
   finishUpdateDownload(): void;
   /** Whether `cmd_update_install` finished (the real app restarts then). */
@@ -253,8 +253,8 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     installPrometheus: () => {
       cluster.prometheus = prometheusFixture();
     },
-    offerUpdate: (version, canInstall = true, note = "") => {
-      cluster.update = available(version, canInstall, note);
+    offerUpdate: (version, canInstall = true, note = "", command = "") => {
+      cluster.update = available(version, canInstall, note, command);
     },
     finishUpdateDownload: () => {
       st.finishDownload?.();

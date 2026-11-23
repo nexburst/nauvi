@@ -240,6 +240,8 @@ jobs:
         run: |
           shellcheck --version
           shellcheck -s sh install.sh scripts/test-install/*.sh
+          # The apt repository scripts (#427); the release dry run runs them.
+          shellcheck scripts/release/apt-repo.sh scripts/release/apt-repo-check.sh
 
   install-sh:
     name: install.sh (${{ matrix.image || matrix.os }})

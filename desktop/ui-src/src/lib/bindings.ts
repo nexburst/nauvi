@@ -2929,6 +2929,11 @@ export type UpdateCheck = {
 	can_install: boolean,
 	/**  Why the check was skipped, or why Install is not offered. */
 	note: string,
+	/**
+	 *  The command that updates this copy instead of Install, for a .deb
+	 *  from the apt repository (empty: none).
+	 */
+	update_command: string,
 };
 
 export type UpdatePhase = "downloading" | 
