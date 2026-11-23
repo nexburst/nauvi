@@ -10,6 +10,9 @@ brew install nexburst/tap/nauvi-cli      # the CLI, with bash, zsh and fish comp
 
 The CLI formula also works with Homebrew on Linux (x86_64).
 
+If Homebrew refuses to load a package from an untrusted tap (Homebrew 7
+and later), trust this one first: `brew trust nexburst/tap`.
+
 ## The desktop app is not signed yet
 
 macOS blocks the app the first time you open it, the same as when you

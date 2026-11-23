@@ -66,6 +66,8 @@ jobs:
           mkdir -p "$tap/Casks" "$tap/Formula"
           cp "$RUNNER_TEMP/rendered/Casks/nauvi.rb" "$tap/Casks/"
           cp "$RUNNER_TEMP/rendered/Formula/nauvi-cli.rb" "$tap/Formula/"
+          # Homebrew 7 refuses casks from taps it was not told to trust.
+          brew trust nauvi-ci/test
 
       - name: brew style
         run: brew style nauvi-ci/test
