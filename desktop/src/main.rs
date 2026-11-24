@@ -40,6 +40,12 @@ fn export_bindings(builder: &Builder<tauri::Wry>) {
 }
 
 fn main() {
+    // `nauvi-desktop --version` prints the version and exits without a
+    // window: the release checks the installed .deb with it (#427).
+    if std::env::args().nth(1).as_deref() == Some("--version") {
+        println!("nauvi-desktop {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     // First, before any thread starts: it changes the process environment.
     #[cfg(unix)]
     shell_env::import_login_shell_env();

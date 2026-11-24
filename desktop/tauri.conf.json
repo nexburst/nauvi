@@ -73,7 +73,7 @@
       "desktop": { "schemes": ["nauvi"] }
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDA1N0Q5ODgzOUJFNjQwNDQKUldSRVFPYWJnNWg5QldYTGRpRTNiS0dvTjJnZGtTbXBXQmNrMC9VY2loSWNpSDZ1eUpHNllPVEoK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEU4QjhBMUJDN0ZCOUFBNEQKUldSTnFybC92S0c0NkdPWTIyc29yQ0REeEZJTlB2Qi9iK09uYmQ4OU1JODdwY1QrV3NOcGliNksK",
       "endpoints": ["https://github.com/nexburst/nauvi/releases/latest/download/latest.json"]
     }
   }

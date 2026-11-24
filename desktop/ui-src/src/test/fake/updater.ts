@@ -16,6 +16,7 @@ export function updaterHandlers(s: FakeState) {
           version: "",
           can_install: false,
           note: "The update check on start is turned off in Settings.",
+          update_command: "",
         };
       }
       return copy(u);
