@@ -24,8 +24,12 @@ name: Release
 #      gh-pages branch, which GitHub Pages serves (#427).
 #
 # The update bundles are signed with the TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)
-# secrets; the public key is in desktop/tauri.conf.json. The dry run signs
-# them too, so a missing or wrong key fails it.
+# secrets of the `release` environment (reviewers, v* tags only); the public
+# key is in desktop/tauri.conf.json, and `publish` checks every signature
+# against it. They are not repository secrets: those reach a workflow on any
+# branch, and every install trusts this key (#442). A dry run never sees
+# them: `prepare` makes a throwaway key, `desktop` signs with it and
+# `publish` checks the signatures against it instead.
 #
 # Running it by hand (Actions > Release > Run workflow) is a dry run by
 # default: it builds everything and uploads it as workflow artifacts, without
@@ -70,6 +74,10 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
       release_id: ${{ steps.release.outputs.id }}
+      # Dry runs only: a throwaway updater key, made in this run (#442).
+      # Not a secret; nothing trusts it.
+      dry_run_key: ${{ steps.dry_key.outputs.key }}
+      dry_run_pubkey: ${{ steps.dry_key.outputs.pubkey }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -162,8 +170,29 @@ jobs:
           [ -n "$id" ] || { echo "::error::could not find the draft release id"; exit 1; }
           echo "id=$id" >> "$GITHUB_OUTPUT"
 
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.meta.outputs.dry_run == 'true'
+        with:
+          node-version-file: desktop/ui-src/.nvmrc
+
+      # The Tauri CLI from the lockfile, no install scripts: only to make the
+      # dry run's throwaway key.
+      - name: Make a throwaway updater key (dry run)
+        id: dry_key
+        if: steps.meta.outputs.dry_run == 'true'
+        working-directory: desktop/ui-src
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund >/dev/null
+          node node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w "$RUNNER_TEMP/dry-run.key" >/dev/null
+          echo "key=$(cat "$RUNNER_TEMP/dry-run.key")" >> "$GITHUB_OUTPUT"
+          echo "pubkey=$(cat "$RUNNER_TEMP/dry-run.key.pub")" >> "$GITHUB_OUTPUT"
+          rm -f "$RUNNER_TEMP/dry-run.key" "$RUNNER_TEMP/dry-run.key.pub"
+
   desktop:
     needs: prepare
+    # The signing key is only in the `release` environment, so only a real
+    # release (from a v* tag, after a reviewer approves) can read it (#442).
+    environment: ${{ needs.prepare.outputs.dry_run == 'false' && 'release' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -248,15 +277,15 @@ jobs:
 
       # With a releaseId it uploads into the draft; without one (dry run) it
       # only builds. Both sign the update bundles (createUpdaterArtifacts in
-      # tauri.conf.json): the build fails if the signing key is missing or
-      # wrong. With a release it also uploads the .sig files and latest.json;
+      # tauri.conf.json), a release with the real key and a dry run with the
+      # throwaway one; the build fails without a key. With a release it also uploads the .sig files and latest.json;
       # `publish` rewrites latest.json from all of them (see
       # scripts/release/updater_json.py).
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.TAURI_SIGNING_PRIVATE_KEY || needs.prepare.outputs.dry_run_key }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           projectPath: desktop
           # Run from projectPath (desktop/).
@@ -740,12 +769,21 @@ jobs:
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
       # Every .sig must verify against the public key the app ships with, or
-      # the app would refuse the update.
+      # the app would refuse the update. A dry run is signed with the
+      # throwaway key instead (#442), so it is checked against that one.
       - name: Verify the update signatures
+        env:
+          DRY_RUN: ${{ needs.prepare.outputs.dry_run }}
+          DRY_RUN_PUBKEY: ${{ needs.prepare.outputs.dry_run_pubkey }}
         run: |
           # Ubuntu 22.04 has no minisign package; the script checks the same.
           python3 -m pip install --quiet "cryptography==44.0.2"
-          python3 scripts/release/verify_sigs.py --pubkey-config desktop/tauri.conf.json --assets assets
+          config=desktop/tauri.conf.json
+          if [ "$DRY_RUN" = "true" ]; then
+            config="$RUNNER_TEMP/dry-run-updater.json"
+            python3 -c 'import json, os, sys; json.dump({"plugins": {"updater": {"pubkey": os.environ["DRY_RUN_PUBKEY"]}}}, open(sys.argv[1], "w"))' "$config"
+          fi
+          python3 scripts/release/verify_sigs.py --pubkey-config "$config" --assets assets
 
       - name: Write latest.json and SHA256SUMS
         env:
