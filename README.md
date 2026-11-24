@@ -631,6 +631,29 @@ curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install.sh | sh
 before `sh` (`curl … | NAUVI_VERSION=v0.1.0 sh`). Other architectures (arm64)
 have no build yet.
 
+#### With apt (Ubuntu, Debian)
+
+The desktop app is also in a signed apt repository, so `apt upgrade` keeps
+it up to date:
+
+```sh
+sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL https://nexburst.github.io/nauvi/apt/nauvi.gpg \
+  | sudo gpg --dearmor -o /etc/apt/keyrings/nauvi.gpg
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/nauvi.gpg] https://nexburst.github.io/nauvi/apt stable main" \
+  | sudo tee /etc/apt/sources.list.d/nauvi.list
+sudo apt update
+sudo apt install nauvi
+```
+
+`gpg --show-keys /etc/apt/keyrings/nauvi.gpg` should print the key
+`B2B644E79A85C438FC3EB8C5408A65C769395FBF`; if it doesn't, delete both files
+and don't install. The package is the desktop app
+(`/usr/bin/nauvi-desktop` and a menu entry), the same `.deb` as on the
+Releases page; the repository has only that package, for x86_64. The CLI
+is not in it yet: use the script above with `--cli`. To remove it:
+`sudo apt remove nauvi`, then delete the two files above.
+
 To download by hand from the Releases page instead:
 
 - `.deb`: `sudo apt install ./nauvi_*_amd64.deb`. It installs
@@ -812,7 +835,8 @@ version shows a banner with its release notes and "Install and restart";
 nothing is downloaded until you click it. The update is verified against the
 signing key built into the app. The AppImage, the macOS app and the Windows
 installers update in place; a `.deb` install does so only when the release has
-a signed `.deb` update, otherwise the banner links to the release page.
+a signed `.deb` update, otherwise the banner links to the release page. An
+install from the apt repository updates with `sudo apt upgrade`.
 On macOS, a copy run straight from the disk image, or from a temporary
 location (App Translocation, when a downloaded app was not moved with
 Finder), can't update itself: the banner says so and links to the release
