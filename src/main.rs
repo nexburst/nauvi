@@ -146,6 +146,19 @@ async fn run(cli: Cli) -> Result<()> {
             (kind, Some(name)) => print_describe(&client, kind, name, namespace.as_deref()).await?,
             (_, None) => anyhow::bail!("describe needs <kind>/<name> or <kind> <name>"),
         },
+        Commands::Problems {
+            namespace,
+            kinds,
+            limit,
+            all_namespaces: _,
+        } => {
+            let args = nauvi::problems::ProblemsArgs {
+                namespace,
+                kinds: Some(kinds),
+                limit: Some(limit),
+            };
+            print!("{}", nauvi::problems::problems(&client, &args).await?);
+        }
         Commands::Watch {
             resource,
             namespace,

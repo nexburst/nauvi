@@ -61,6 +61,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             applications::cmd_applications_start,
             applications::cmd_applications_stop,
             ask_ai::cmd_ask_ai_setup,
+            ask_ai::cmd_ask_ai_skill_remove,
             ask_ai::cmd_ask_ai_start,
             autostart::cmd_autostart_enabled,
             autostart::cmd_autostart_set,

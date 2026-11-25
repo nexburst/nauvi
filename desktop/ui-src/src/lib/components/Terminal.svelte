@@ -23,7 +23,7 @@
     /** A privileged pod on `node` in `namespace`, deleted when the session ends. */
     | { kind: "nodeShell"; node: string; namespace: string }
     /** Ask AI (#376): the AI CLI `cli` in a local terminal, then the shell. */
-    | { kind: "askAi"; namespace: string; cli: string; prompt: string; allowWrites: boolean };
+    | { kind: "askAi"; namespace: string; cli: string; prompt: string };
 
   /** The session commands of a target. Every kind streams to the channel
    *  `start` gets (#115): output as raw bytes, then `closed`. */
@@ -80,7 +80,7 @@
     if (t.kind === "askAi") {
       return {
         start: async (cols, rows, out) => {
-          const s = await c.cmdAskAiStart(t.namespace, t.cli, t.prompt, t.allowWrites, cols, rows, out);
+          const s = await c.cmdAskAiStart(t.namespace, t.cli, t.prompt, cols, rows, out);
           return { id: s.session, intro: askAiIntro(s), kubectl: s.kubectl };
         },
         input: c.cmdLocalShellInput,

@@ -677,6 +677,65 @@ fn problem_line(text: &str, name: &str) -> String {
         .to_string()
 }
 
+/// `(kind, name, problem)` of each row of a `problems` table, sorted.
+fn problem_rows(text: &str) -> Vec<(String, String, String)> {
+    let mut rows: Vec<_> = text
+        .lines()
+        .skip(1)
+        .take_while(|l| !l.trim().is_empty())
+        .filter_map(|l| {
+            let w: Vec<_> = l.split_whitespace().collect();
+            (w.len() >= 4).then(|| (w[0].to_string(), w[2].to_string(), w[3].to_string()))
+        })
+        .collect();
+    rows.sort();
+    rows
+}
+
+/// `nauvi <args>` on the test cluster: (success, stdout, stderr).
+fn run_cli(args: &[&str]) -> Result<(bool, String, String)> {
+    let out = Command::new(env!("CARGO_BIN_EXE_nauvi"))
+        .args(["--context", &context()])
+        .args(args)
+        .output()?;
+    Ok((
+        out.status.success(),
+        String::from_utf8_lossy(&out.stdout).into_owned(),
+        String::from_utf8_lossy(&out.stderr).into_owned(),
+    ))
+}
+
+/// `nauvi problems -n <ns>` and the `problems` tool list the same rows.
+fn cli_problems_match(s: &mut Server, ns: &str) -> Result<()> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(60);
+    loop {
+        let (ok, cli, err) = run_cli(&["problems", "-n", ns])?;
+        assert!(ok, "nauvi problems: {err}");
+        let tool = s.ok("problems", json!({ "namespace": ns }));
+        if problem_rows(&cli) == problem_rows(&tool) {
+            assert!(cli.starts_with("KIND"), "{cli}");
+            assert!(problem_rows(&cli).len() >= 4, "{cli}");
+            assert!(
+                cli.ends_with(&format!("in {ns})\n")) && cli.contains("(checked pods, deployments"),
+                "{cli}"
+            );
+            // Kinds narrow it as in the tool; an unknown kind is an error.
+            let (_, jobs, _) = run_cli(&["problems", "-n", ns, "-k", "job"])?;
+            assert!(
+                jobs.contains("doomed") && !jobs.contains("crasher"),
+                "{jobs}"
+            );
+            let (ok, _, err) = run_cli(&["problems", "-n", ns, "--kind", "secrets"])?;
+            assert!(!ok && err.contains("not secrets"), "{err}");
+            return Ok(());
+        }
+        if std::time::Instant::now() > deadline {
+            bail!("nauvi problems and the tool differ:\n{cli}\n---\n{tool}");
+        }
+        std::thread::sleep(Duration::from_secs(2));
+    }
+}
+
 /// The line of a `list` table whose first column is `name`.
 fn row_of(text: &str, name: &str) -> String {
     text.lines()
@@ -724,6 +783,11 @@ async fn mcp_problems_on_the_cluster() -> Result<()> {
         );
         assert!(!text.contains("healthy"), "{text}");
         assert!(text.contains("(checked pods, deployments"), "{text}");
+
+        // `nauvi problems` (#466) prints the same findings as the tool: the
+        // same objects with the same problems, read moments apart (a crash
+        // loop's state can change between the two reads, so a few tries).
+        cli_problems_match(&mut s, &ns)?;
 
         // Only the kinds asked for; Secrets are not one of them.
         let jobs = s.ok("problems", json!({ "namespace": ns, "kinds": ["job"] }));

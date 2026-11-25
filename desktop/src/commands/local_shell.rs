@@ -88,12 +88,11 @@ pub(crate) async fn cmd_local_shell_start(
 
 /// What a local terminal at a cluster starts with: the user's shell in the
 /// cluster's working directory, with its temp kubeconfig in `KUBECONFIG`
-/// (`kubeconfig`: that value) and a matching kubectl first on `PATH`.
+/// and a matching kubectl first on `PATH`.
 pub(crate) struct ShellSetup {
     pub(crate) spec: ShellSpec,
     pub(crate) generated: ShellKubeconfig,
     pub(crate) temp: TempKubeconfig,
-    pub(crate) kubeconfig: OsString,
     /// The downloaded kubectl's release first on `PATH` (`""`: none).
     pub(crate) kubectl: String,
 }
@@ -127,7 +126,7 @@ pub(crate) async fn shell_setup(
         spec.cwd = Some(dir);
     }
     let (generated, temp, env) = shell_kubeconfig_for(&approved, namespace)?;
-    spec.env.push(("KUBECONFIG".into(), env.clone()));
+    spec.env.push(("KUBECONFIG".into(), env));
     // A kubectl matching the cluster, downloaded before (#331): first on
     // PATH in this shell's environment only.
     let matched = crate::commands::kubectl::terminal_kubectl(cluster, current.kubectl_match).await;
@@ -139,7 +138,6 @@ pub(crate) async fn shell_setup(
         spec,
         generated,
         temp,
-        kubeconfig: env,
         kubectl: matched.map(|(v, _)| v.tag()).unwrap_or_default(),
     })
 }

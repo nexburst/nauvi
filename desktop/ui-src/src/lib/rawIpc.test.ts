@@ -10,6 +10,12 @@ describe("raw IPC text", () => {
     expect(rawText(new ArrayBuffer(0))).toBe("");
   });
 
+  it("decodes the byte array a postMessage fallback delivers", () => {
+    const bytes = Array.from(new TextEncoder().encode("kind: Pod\nname: ü-€\n"));
+    expect(rawText(bytes)).toBe("kind: Pod\nname: ü-€\n");
+    expect(rawText([])).toBe("");
+  });
+
   it("sends the head on the first line and the body after it", () => {
     const up = rawUpload("web_app.log", "line 1\nline ü\n");
     expect(new TextDecoder().decode(up)).toBe("web_app.log\nline 1\nline ü\n");

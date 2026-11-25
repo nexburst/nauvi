@@ -1,6 +1,6 @@
 // Ask AI (#376): which AI CLIs this machine has, the dialog that starts one,
-// and the dock tab it opens. The backend finds the CLIs on PATH; nothing is
-// installed or downloaded.
+// and the dock tab it opens. The backend finds the CLIs on PATH (no CLI is
+// installed or downloaded) and writes the nauvi skill (#466) when one starts.
 
 import { commands } from "../bindings";
 import type { AskAiSetup } from "../bindings";
@@ -55,7 +55,7 @@ export function closeAskAi() {
 let seq = 0;
 
 /** Start `cli` with `prompt` in a dock tab, and remember the pick. */
-export function startAskAi(cli: string, prompt: string, allowWrites: boolean) {
+export function startAskAi(cli: string, prompt: string) {
   const scope = askAi.scope;
   if (!scope) return;
   if (settings.current.ask_ai_cli !== cli) updateSettings({ ask_ai_cli: cli });
@@ -66,8 +66,13 @@ export function startAskAi(cli: string, prompt: string, allowWrites: boolean) {
     namespace: askAi.namespace,
     cli,
     prompt,
-    allowWrites,
     title: askAiTitle(scope),
   });
   askAi.scope = null;
+}
+
+/** Remove the nauvi skill of place `id` (Settings, AI); throws the
+ *  backend's reason. */
+export async function removeAskAiSkill(id: string): Promise<void> {
+  askAi.setup = await commands.cmdAskAiSkillRemove(id);
 }

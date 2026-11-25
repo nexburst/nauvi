@@ -38,7 +38,7 @@ pub(crate) async fn cmd_get_related(
 }
 
 /// An object as YAML. Secret values stay hidden unless `reveal` is set.
-/// The YAML comes as raw UTF-8 (#115): decode it with `yamlText` in
+/// The YAML comes as raw UTF-8 (#115): decode it with `rawText` in
 /// `lib/rawIpc.ts`.
 #[tauri::command]
 #[specta::specta]

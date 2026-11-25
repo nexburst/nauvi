@@ -289,21 +289,7 @@ pub(crate) async fn cmd_save_logs(upload: RawUpload) -> Result<String, String> {
         head: filename,
         body: content,
     } = upload;
-    let safe: String = filename
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    let safe = if safe.is_empty() || safe.starts_with('.') {
-        format!("log{safe}")
-    } else {
-        safe
-    };
+    let safe = log_file_name(&filename);
     // Windows keeps the profile in USERPROFILE; HOME there (Git Bash, MSYS)
     // may point somewhere else.
     let (first, second) = if cfg!(windows) {
@@ -320,6 +306,33 @@ pub(crate) async fn cmd_save_logs(upload: RawUpload) -> Result<String, String> {
     let path = write_new_file(&dir, &safe, &content)
         .map_err(|e| format!("could not save the logs in {}: {e}", dir.display()))?;
     Ok(path.display().to_string())
+}
+
+/// The name a saved log gets in Downloads: `filename` with only ASCII
+/// letters, digits, `-`, `_` and `.` (the rest become `_`), never hidden,
+/// and always ending in `.log`, so the page cannot leave a runnable file
+/// (`.desktop`, `.sh`, `.exe`) there.
+fn log_file_name(filename: &str) -> String {
+    let safe: String = filename
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let safe = if safe.is_empty() || safe.starts_with('.') {
+        format!("log{safe}")
+    } else {
+        safe
+    };
+    if safe.ends_with(".log") {
+        safe
+    } else {
+        format!("{safe}.log")
+    }
 }
 
 /// Write `content` to a new file `name` in `dir`, or to `stem (1).ext`,
@@ -374,7 +387,18 @@ pub(crate) async fn cmd_stop_logs(cluster: Cluster, stream_id: u64) -> Result<()
 
 #[cfg(test)]
 mod save_tests {
-    use super::write_new_file;
+    use super::{log_file_name, write_new_file};
+
+    #[test]
+    fn a_saved_log_always_ends_in_dot_log() {
+        assert_eq!(log_file_name("web-1_app_2026.log"), "web-1_app_2026.log");
+        assert_eq!(log_file_name("evil.desktop"), "evil.desktop.log");
+        assert_eq!(log_file_name("run.sh"), "run.sh.log");
+        assert_eq!(log_file_name("x.LOG"), "x.LOG.log");
+        assert_eq!(log_file_name("../../.bashrc"), "log.._.._.bashrc.log");
+        assert_eq!(log_file_name(""), "log.log");
+        assert_eq!(log_file_name("é ü/a"), "____a.log");
+    }
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(

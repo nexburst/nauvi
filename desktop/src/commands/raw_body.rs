@@ -51,8 +51,22 @@ pub(crate) struct RawUpload {
 
 impl RawUpload {
     pub(crate) fn parse(payload: &InvokeBody) -> Result<Self, String> {
-        let InvokeBody::Raw(bytes) = payload else {
-            return Err("expected the text as raw bytes, got JSON".into());
+        // Where the custom-protocol IPC fails, Tauri falls back to
+        // postMessage, which sends a `Uint8Array` as a JSON array of bytes.
+        let from_json;
+        let bytes: &[u8] = match payload {
+            InvokeBody::Raw(bytes) => bytes,
+            InvokeBody::Json(serde_json::Value::Array(items)) => {
+                from_json = items
+                    .iter()
+                    .map(|v| v.as_u64().and_then(|n| u8::try_from(n).ok()))
+                    .collect::<Option<Vec<u8>>>()
+                    .ok_or("expected the text as bytes, got another JSON array")?;
+                &from_json
+            }
+            InvokeBody::Json(_) => {
+                return Err("expected the text as raw bytes, got JSON".into());
+            }
         };
         let Some(at) = bytes.iter().position(|&b| b == b'\n') else {
             return Err("expected a first line with the file name".into());
@@ -90,6 +104,18 @@ mod tests {
         assert_eq!(up.body, b"line 1\nline \xc3\xbc\n");
         let empty = RawUpload::parse(&InvokeBody::Raw(b"a.log\n".to_vec())).unwrap();
         assert!(empty.body.is_empty());
+    }
+
+    #[test]
+    fn an_upload_also_reads_the_postmessage_byte_array() {
+        let bytes: Vec<u8> = b"a.log\nline \xc3\xbc".to_vec();
+        let up = RawUpload::parse(&InvokeBody::Json(serde_json::json!(bytes))).unwrap();
+        assert_eq!(up.head, "a.log");
+        assert_eq!(up.body, b"line \xc3\xbc");
+        let bad = RawUpload::parse(&InvokeBody::Json(serde_json::json!([97, 300, 10])));
+        assert!(bad.unwrap_err().contains("another JSON array"));
+        let strings = RawUpload::parse(&InvokeBody::Json(serde_json::json!(["a"])));
+        assert!(strings.is_err());
     }
 
     #[test]

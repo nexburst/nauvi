@@ -6,10 +6,13 @@ import { invoke } from "@tauri-apps/api/core";
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 
-/** The text of a raw reply (an `ArrayBuffer` of UTF-8). Tolerates a string,
- *  in case a reply ever comes as JSON. */
-export function rawText(reply: ArrayBuffer | ArrayBufferView | string): string {
-  return typeof reply === "string" ? reply : decoder.decode(reply);
+/** The text of a raw reply (an `ArrayBuffer` of UTF-8). Where Tauri falls
+ *  back to postMessage IPC (the custom protocol failed, or macOS), a raw
+ *  reply arrives as an array of bytes instead; a string is taken as is. */
+export function rawText(reply: ArrayBuffer | ArrayBufferView | number[] | string): string {
+  if (typeof reply === "string") return reply;
+  if (Array.isArray(reply)) return decoder.decode(Uint8Array.from(reply));
+  return decoder.decode(reply);
 }
 
 /** The raw payload `<head>\n<body>` that `RawUpload` reads. `head` is one

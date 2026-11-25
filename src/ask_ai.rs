@@ -1,19 +1,20 @@
 //! "Ask AI" (#376): the user's own AI coding CLI (Claude Code, Codex,
-//! Gemini CLI, or a command of their own) started in a terminal, with
-//! `nauvi mcp` for one context offered to it for that session only.
+//! Gemini CLI, or a command of their own) started in a terminal whose
+//! kubeconfig points at one context. What it knows about nauvi comes from
+//! the `nauvi` agent skill (`crate::ask_ai_skill`, #466), or for a custom
+//! command from its first prompt; no MCP server is passed (`nauvi mcp`
+//! stays in the CLI, opt-in for clients without skills).
 //!
 //! nauvi never downloads or installs a CLI: it only runs a program found on
 //! `PATH`, or the command the user set. Nothing here builds a shell command
 //! line. The program and each argument are separate values, and the prompt
 //! (which holds names from the cluster) is one argument of its own or a
-//! file, so no name can become a flag of a shell. The MCP server is passed
-//! the way each CLI takes a config for one session (a file, `-c` overrides,
-//! an environment variable), never by editing the CLI's own config files.
+//! file, so no name can become a flag of a shell.
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 
-/// A CLI nauvi knows how to start with a prompt and an MCP server.
+/// A CLI nauvi knows how to start with a prompt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KnownCli {
     /// What the settings store (`claude`).
@@ -49,9 +50,6 @@ pub const KNOWN_CLIS: &[KnownCli] = &[
 
 /// The id of the user's own command.
 pub const CUSTOM: &str = "custom";
-
-/// The name the MCP server gets in the CLI (its tools are `nauvi`'s).
-pub const MCP_SERVER: &str = "nauvi";
 
 /// At most this many characters of prompt are passed on.
 pub const MAX_PROMPT: usize = 4000;
@@ -222,61 +220,6 @@ pub fn clean_prompt(text: &str) -> String {
         .to_string()
 }
 
-/// The arguments of `nauvi mcp` for `context` (`""`: the kubeconfig's
-/// current context). `--context=<name>` in one argument, so a context name
-/// that starts with `-` stays the value.
-pub fn mcp_args(context: &str, allow_writes: bool) -> Vec<String> {
-    mcp_args_for(context, None, allow_writes)
-}
-
-/// [`mcp_args`], with `--mode-file=<file>`: the kubeconfig file the app
-/// knows the context from, so `nauvi mcp` finds its read-only or protected
-/// mode although its `KUBECONFIG` starts with a per-terminal file.
-pub fn mcp_args_for(context: &str, mode_file: Option<&Path>, allow_writes: bool) -> Vec<String> {
-    let mut args = Vec::new();
-    if !context.is_empty() {
-        args.push(format!("--context={context}"));
-    }
-    args.push("mcp".into());
-    if let Some(file) = mode_file {
-        args.push(format!("--mode-file={}", file.display()));
-    }
-    if allow_writes {
-        args.push("--allow-writes".into());
-    }
-    args
-}
-
-/// The `mcpServers` JSON that Claude Code (`--mcp-config`), Gemini CLI and
-/// most other clients read: one server, [`MCP_SERVER`], running `command`
-/// with `args` and `env` set on top of the CLI's environment.
-pub fn mcp_servers_json(command: &Path, args: &[String], env: &[(String, String)]) -> String {
-    let env: serde_json::Map<String, serde_json::Value> = env
-        .iter()
-        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
-        .collect();
-    let mut server = serde_json::json!({
-        "command": command.to_string_lossy(),
-        "args": args,
-    });
-    if !env.is_empty() {
-        server["env"] = serde_json::Value::Object(env);
-    }
-    let file = serde_json::json!({ "mcpServers": { MCP_SERVER: server } });
-    serde_json::to_string_pretty(&file).unwrap_or_default()
-}
-
-/// The MCP server a session offers.
-#[derive(Debug, Clone)]
-pub struct Mcp<'a> {
-    /// The [`mcp_servers_json`] file written for this session.
-    pub config: &'a Path,
-    /// The `nauvi` CLI.
-    pub command: &'a Path,
-    /// Its [`mcp_args`].
-    pub args: &'a [String],
-}
-
 /// What to start: the program, its arguments and the environment set on
 /// top of the terminal's.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -286,80 +229,64 @@ pub struct Launch {
     pub env: Vec<(OsString, OsString)>,
 }
 
-/// The environment variable Gemini CLI reads its system defaults from:
-/// the lowest of its settings layers, so the user's settings (and an
-/// administrator's system settings) still win.
-const GEMINI_DEFAULTS: &str = "GEMINI_CLI_SYSTEM_DEFAULTS_PATH";
-/// For a custom command: the [`mcp_servers_json`] file.
-pub const CUSTOM_MCP_ENV: &str = "NAUVI_MCP_CONFIG";
 /// For a custom command: a file with the prompt.
 pub const CUSTOM_PROMPT_ENV: &str = "NAUVI_PROMPT_FILE";
 
-/// How to start `cli` (found at `program`) with `prompt` (already
-/// [`clean_prompt`]ed; `""`: none) and `mcp`. `prompt_file` holds the
-/// prompt for a custom command, which gets it only that way.
+/// `prompt` (already [`clean_prompt`]ed) after the skill's guidance, for a
+/// CLI that gets no skill: a custom command, or one whose skill could not
+/// be written. The guidance is nauvi's own text, so it is not capped.
+pub fn with_guidance(prompt: &str) -> String {
+    format!(
+        "{}\n---\n\n{prompt}",
+        crate::ask_ai_skill::GUIDANCE.trim_end()
+    )
+}
+
+/// What the model is told when the `nauvi` on PATH cannot be used: there is
+/// none, or it is the desktop app itself (running it would open a window).
+pub const NO_NAUVI_NOTE: &str = "In this terminal `nauvi` is not the nauvi CLI (it is missing, or it is the \
+                                 nauvi desktop app, which would open a window): don't run `nauvi`. Use kubectl \
+                                 only, and don't print Secret values unless I ask.";
+
+/// `prompt` for a session: with [`NO_NAUVI_NOTE`] at its end unless
+/// `nauvi_usable`.
+pub fn session_prompt(prompt: String, nauvi_usable: bool) -> String {
+    if nauvi_usable {
+        prompt
+    } else if prompt.is_empty() {
+        NO_NAUVI_NOTE.to_string()
+    } else {
+        format!("{prompt}\n{NO_NAUVI_NOTE}")
+    }
+}
+
+/// How to start `cli` (found at `program`) with `prompt` (`""`: none).
+/// `prompt_file` holds the prompt for a custom command, which gets it only
+/// that way. Every CLI gets `NAUVI_ASK_AI=1`, so the skill knows this
+/// terminal's KUBECONFIG was set by nauvi for one cluster.
 ///
-/// - Claude Code: `--mcp-config=<file>`, then `--` and the prompt.
-/// - Codex: `-c mcp_servers.nauvi.*=…` overrides (TOML values), with
-///   `KUBECONFIG` passed through by name, then `--` and the prompt.
-/// - Gemini CLI: the file as its system defaults
-///   (`GEMINI_CLI_SYSTEM_DEFAULTS_PATH`), `--prompt-interactive=<prompt>`.
-/// - Custom: its own arguments; `NAUVI_MCP_CONFIG` and `NAUVI_PROMPT_FILE`.
-pub fn launch(
-    cli: &Cli,
-    program: PathBuf,
-    prompt: &str,
-    mcp: Option<&Mcp<'_>>,
-    prompt_file: Option<&Path>,
-) -> Launch {
+/// - Claude Code and Codex: `--` and the prompt.
+/// - Gemini CLI: `--prompt-interactive=<prompt>`.
+/// - Custom: its own arguments; `NAUVI_PROMPT_FILE`.
+pub fn launch(cli: &Cli, program: PathBuf, prompt: &str, prompt_file: Option<&Path>) -> Launch {
     let mut args: Vec<OsString> = Vec::new();
-    let mut env: Vec<(OsString, OsString)> = Vec::new();
-    // After `--`, a prompt that starts with `-` is not read as a flag.
-    let positional = |args: &mut Vec<OsString>| {
-        if !prompt.is_empty() {
-            args.push("--".into());
-            args.push(prompt.into());
-        }
-    };
+    let mut env: Vec<(OsString, OsString)> =
+        vec![(crate::ask_ai_skill::ASK_AI_ENV.into(), "1".into())];
     match cli {
-        Cli::Claude => {
-            if let Some(m) = mcp {
-                let mut flag = OsString::from("--mcp-config=");
-                flag.push(m.config);
-                args.push(flag);
+        // After `--`, a prompt that starts with `-` is not read as a flag.
+        Cli::Claude | Cli::Codex => {
+            if !prompt.is_empty() {
+                args.push("--".into());
+                args.push(prompt.into());
             }
-            positional(&mut args);
-        }
-        Cli::Codex => {
-            if let Some(m) = mcp {
-                let key = |k: &str| format!("mcp_servers.{MCP_SERVER}.{k}");
-                let toml_str = |s: &str| serde_json::Value::String(s.into()).to_string();
-                let command = toml_str(&m.command.to_string_lossy());
-                let list = serde_json::to_string(m.args).unwrap_or_default();
-                for value in [
-                    format!("{}={command}", key("command")),
-                    format!("{}={list}", key("args")),
-                    format!("{}=[\"KUBECONFIG\"]", key("env_vars")),
-                ] {
-                    args.push("-c".into());
-                    args.push(value.into());
-                }
-            }
-            positional(&mut args);
         }
         Cli::Gemini => {
-            if let Some(m) = mcp {
-                env.push((GEMINI_DEFAULTS.into(), m.config.into()));
-            }
             if !prompt.is_empty() {
                 args.push(format!("--prompt-interactive={prompt}").into());
             }
         }
         Cli::Custom(own) => {
             args.extend(own.iter().map(OsString::from));
-            if let Some(m) = mcp {
-                env.push((CUSTOM_MCP_ENV.into(), m.config.into()));
-            }
             if let Some(f) = prompt_file {
                 env.push((CUSTOM_PROMPT_ENV.into(), f.into()));
             }
@@ -489,146 +416,64 @@ mod tests {
         }
     }
 
-    #[test]
-    fn mcp_args_keep_the_context_in_one_argument() {
-        assert_eq!(mcp_args("kind-x", false), ["--context=kind-x", "mcp"]);
-        assert_eq!(
-            mcp_args("-evil --allow-writes", false),
-            ["--context=-evil --allow-writes", "mcp"]
-        );
-        assert_eq!(mcp_args("", true), ["mcp", "--allow-writes"]);
-        assert_eq!(
-            mcp_args_for("prod", Some(Path::new("/home/me/.kube/work")), true),
-            [
-                "--context=prod",
-                "mcp",
-                "--mode-file=/home/me/.kube/work",
-                "--allow-writes"
-            ]
-        );
-    }
-
-    #[test]
-    fn mcp_json_has_one_server() {
-        let json = mcp_servers_json(
-            Path::new("/usr/bin/nauvi"),
-            &mcp_args("a\"b", false),
-            &[("KUBECONFIG".into(), "/tmp/k.yaml".into())],
-        );
-        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-        let s = &v["mcpServers"]["nauvi"];
-        assert_eq!(s["command"], "/usr/bin/nauvi");
-        assert_eq!(s["args"], serde_json::json!(["--context=a\"b", "mcp"]));
-        assert_eq!(s["env"]["KUBECONFIG"], "/tmp/k.yaml");
-        let bare = mcp_servers_json(Path::new("/n"), &[], &[]);
-        assert!(!bare.contains("env"), "{bare}");
-    }
-
     const PROMPT: &str = "--dangerously-skip-permissions; rm -rf ~ $(id)";
 
-    fn mcp_for<'a>(args: &'a [String]) -> Mcp<'a> {
-        Mcp {
-            config: Path::new("/tmp/nauvi-shell-1-2.json"),
-            command: Path::new("/opt/nauvi bin/nauvi"),
-            args,
+    #[test]
+    fn claude_and_codex_get_the_prompt_after_dashes_and_no_mcp() {
+        for cli in [Cli::Claude, Cli::Codex] {
+            let l = launch(&cli, "/bin/ai".into(), PROMPT, None);
+            assert_eq!(strs(&l.args), ["--", PROMPT]);
+            assert_eq!(l.env, ask_ai_env());
+            let l = launch(&cli, "/bin/ai".into(), "", None);
+            assert!(l.args.is_empty());
         }
     }
 
     #[test]
-    fn claude_gets_the_config_file_and_the_prompt_after_dashes() {
-        let args = mcp_args("kind-x", false);
-        let l = launch(
-            &Cli::Claude,
-            "/bin/claude".into(),
-            PROMPT,
-            Some(&mcp_for(&args)),
-            None,
-        );
-        assert_eq!(
-            strs(&l.args),
-            ["--mcp-config=/tmp/nauvi-shell-1-2.json", "--", PROMPT]
-        );
-        assert!(l.env.is_empty());
-        let l = launch(&Cli::Claude, "/bin/claude".into(), "", None, None);
-        assert!(l.args.is_empty());
-    }
-
-    #[test]
-    fn codex_gets_toml_overrides() {
-        let args = mcp_args("ctx \"q\"", true);
-        let l = launch(
-            &Cli::Codex,
-            "/bin/codex".into(),
-            PROMPT,
-            Some(&mcp_for(&args)),
-            None,
-        );
-        assert_eq!(
-            strs(&l.args),
-            [
-                "-c",
-                r#"mcp_servers.nauvi.command="/opt/nauvi bin/nauvi""#,
-                "-c",
-                r#"mcp_servers.nauvi.args=["--context=ctx \"q\"","mcp","--allow-writes"]"#,
-                "-c",
-                r#"mcp_servers.nauvi.env_vars=["KUBECONFIG"]"#,
-                "--",
-                PROMPT,
-            ]
-        );
-    }
-
-    #[test]
-    fn gemini_gets_the_file_as_system_defaults() {
-        let args = mcp_args("c", false);
-        let l = launch(
-            &Cli::Gemini,
-            "/bin/gemini".into(),
-            PROMPT,
-            Some(&mcp_for(&args)),
-            None,
-        );
+    fn gemini_gets_the_prompt_in_one_flag() {
+        let l = launch(&Cli::Gemini, "/bin/gemini".into(), PROMPT, None);
         assert_eq!(strs(&l.args), [format!("--prompt-interactive={PROMPT}")]);
-        assert_eq!(
-            l.env,
-            [(
-                OsString::from(GEMINI_DEFAULTS),
-                OsString::from("/tmp/nauvi-shell-1-2.json")
-            )]
-        );
+        assert_eq!(l.env, ask_ai_env());
     }
 
     #[test]
-    fn custom_gets_files_by_environment_only() {
-        let args = mcp_args("c", false);
+    fn custom_gets_the_prompt_file_by_environment_only() {
         let l = launch(
             &Cli::Custom(vec!["--flag".into()]),
             "/bin/ai".into(),
             PROMPT,
-            Some(&mcp_for(&args)),
             Some(Path::new("/tmp/p.md")),
         );
         assert_eq!(strs(&l.args), ["--flag"]);
-        let env: Vec<_> = l
-            .env
-            .iter()
-            .map(|(k, v)| {
-                (
-                    k.to_string_lossy().into_owned(),
-                    v.to_string_lossy().into_owned(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            env,
-            [
-                (
-                    CUSTOM_MCP_ENV.to_string(),
-                    "/tmp/nauvi-shell-1-2.json".to_string()
-                ),
-                (CUSTOM_PROMPT_ENV.to_string(), "/tmp/p.md".to_string()),
-            ]
-        );
+        let mut want = ask_ai_env();
+        want.push((
+            OsString::from(CUSTOM_PROMPT_ENV),
+            OsString::from("/tmp/p.md"),
+        ));
+        assert_eq!(l.env, want);
+    }
+
+    fn ask_ai_env() -> Vec<(OsString, OsString)> {
+        vec![(OsString::from("NAUVI_ASK_AI"), OsString::from("1"))]
+    }
+
+    /// Without a usable `nauvi` (none, or the app itself) the model is told
+    /// not to run it (review of #474).
+    #[test]
+    fn without_a_usable_nauvi_the_prompt_says_so() {
+        assert_eq!(session_prompt("Look".into(), true), "Look");
+        let p = session_prompt("Look".into(), false);
+        assert!(p.starts_with("Look\n") && p.ends_with(NO_NAUVI_NOTE), "{p}");
+        assert!(NO_NAUVI_NOTE.contains("don't run `nauvi`"));
+        assert_eq!(session_prompt(String::new(), false), NO_NAUVI_NOTE);
+    }
+
+    #[test]
+    fn guidance_comes_before_the_prompt() {
+        let p = with_guidance("Look at pod x");
+        assert!(p.starts_with("# Kubernetes with kubectl and nauvi"), "{p}");
+        assert!(p.ends_with("---\n\nLook at pod x"), "{p}");
+        assert!(p.contains("nauvi problems"));
     }
 
     #[cfg(unix)]
