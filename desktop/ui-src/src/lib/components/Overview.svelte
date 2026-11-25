@@ -1,15 +1,14 @@
 <script module lang="ts">
-  /** Feed ids, unique across mounts so a stale feed's events are ignored. */
+  /** Feed ids, unique across mounts so a stale feed's messages are ignored. */
   let nextFeed = 0;
 </script>
 
 <script lang="ts">
   import { GiveUp, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
   import { onDestroy, untrack } from "svelte";
-  import { events } from "../bindings";
+  import { Channel } from "@tauri-apps/api/core";
   import { api, visibleCluster } from "../cluster";
-  import { thisWindow } from "../window";
-  import type { EventInfo, Overview_Serialize, OverviewStateChanged } from "../bindings";
+  import type { EventInfo, Overview_Serialize, OverviewMessage_Serialize, WatchState } from "../bindings";
   import {
     app,
     currentContextName,
@@ -43,7 +42,7 @@
 
   let overview = $state.raw<Overview_Serialize | null>(null);
   let now = $state(Date.now());
-  /** The running feed, or 0. Events of other ids are from stopped feeds. */
+  /** The running feed, or 0. Messages of other ids are from stopped feeds. */
   let feed = 0;
   /** The next update is the feed's first: a new baseline for the watch log. */
   let fresh = true;
@@ -75,24 +74,21 @@
   let retry: ReturnType<typeof setTimeout> | null = null;
 
   // The backend pushes a new summary when something changes (watches, not
-  // polling), and a state when the connection changes.
-  const listening = Promise.all([
-    events.overviewUpdate(thisWindow()).listen((e) => {
-      if (e.payload.id !== feed) return;
-      noteCleared(overview, e.payload.overview);
-      noteSweep(e.payload.overview);
-      overview = e.payload.overview;
-      app.count = overviewCount(overview.pods, overview.nodes);
-      // The sidebar's Pods and Nodes badges, from the same watches.
-      for (const b of overviewBadges(overview.pods, overview.nodes)) {
-        reportProblems(b.kindId, b.count, b.scope, "overview");
-      }
-      stamp();
-    }),
-    events.overviewState(thisWindow()).listen((e) => {
-      if (e.payload.id === feed) onState(e.payload);
-    }),
-  ]);
+  // polling), and a state when the connection changes, on the channel of
+  // the feed (#115).
+  function onMessage(id: number, m: OverviewMessage_Serialize) {
+    if (id !== feed) return;
+    if (m.type === "state") return onState(m);
+    noteCleared(overview, m.overview);
+    noteSweep(m.overview);
+    overview = m.overview;
+    app.count = overviewCount(overview.pods, overview.nodes);
+    // The sidebar's Pods and Nodes badges, from the same watches.
+    for (const b of overviewBadges(overview.pods, overview.nodes)) {
+      reportProblems(b.kindId, b.count, b.scope, "overview");
+    }
+    stamp();
+  }
 
   /** The banner message this view set, so it clears only its own. */
   let shown = "";
@@ -107,7 +103,7 @@
     shown = "";
   }
 
-  function onState(s: OverviewStateChanged) {
+  function onState(s: WatchState) {
     if (s.state === "live") {
       giveUp.clear();
       setStatus(true, "Live");
@@ -149,15 +145,14 @@
       clearError();
     }
     setStatus(null, again ? "Retrying…" : "Connecting…");
-    // Listen first: the backend may send the first summary right away.
-    await listening;
     // The backend reads Hide metrics (#327) from the settings: a change
     // just made must have reached it first.
     await settingsSaved();
     if (feed !== id) return;
     try {
       // Parts the user may not see cluster-wide fall back to this namespace.
-      await api(visibleCluster()).cmdOverviewStart(id, namespace || null);
+      const channel = new Channel<OverviewMessage_Serialize>((m) => onMessage(id, m));
+      await api(visibleCluster()).cmdOverviewStart(id, namespace || null, channel);
     } catch (e) {
       if (feed !== id) return;
       const err = clusterError(e);
@@ -193,7 +188,6 @@
     stop();
     staleProblems(POD_KIND_ID, "overview");
     staleProblems(NODE_KIND_ID, "overview");
-    listening.then((uns) => uns.forEach((un) => un()));
   });
 
   const podKind = $derived(kinds.all.find((k) => k.id === "v1/pods"));

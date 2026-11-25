@@ -1,14 +1,13 @@
-import { events } from "../bindings";
+import { Channel } from "@tauri-apps/api/core";
 import { api, visibleCluster } from "../cluster";
-import { thisWindow } from "../window";
-import type { DetailWatchEvent, ResourceDetail } from "../bindings";
+import type { DetailState, ResourceDetail } from "../bindings";
 import type { Target } from "./detail.svelte";
 import { isNotFound } from "../clusterError";
 
 /**
  * The detail of one object, kept up to date: a first `cmd_get_resource_detail`
  * (fast, and the place where "not found" or "forbidden" shows up), then a
- * `cmd_detail_watch` whose `detail-watch` events replace it. Both panels
+ * `cmd_detail_watch` whose messages, on its own channel (#115), replace it. Both panels
  * create one on mount and `stop()` it on destroy.
  */
 export class LiveDetail {
@@ -25,8 +24,8 @@ export class LiveDetail {
   #stopped = false;
   /** A watch event arrived: it is newer than the first get. */
   #fromWatch = false;
-  #buffer: DetailWatchEvent[] = [];
-  #unlisten: (() => void) | null = null;
+  /** Watch messages that came before the first get finished. */
+  #buffer: DetailState[] = [];
 
   #target: Target;
 
@@ -36,13 +35,11 @@ export class LiveDetail {
 
   async start() {
     const t = this.#target;
-    const un = await events.detailWatch(thisWindow()).listen((e) => this.#onEvent(e.payload));
-    if (this.#stopped) return un();
-    this.#unlisten = un;
-
+    if (this.#stopped) return;
+    const channel = new Channel<DetailState>((m) => this.#onEvent(m));
     const [detail, watch] = await Promise.allSettled([
       api(visibleCluster()).cmdGetResourceDetail(t.resource, t.namespace, t.name),
-      api(visibleCluster()).cmdDetailWatch(t.resource, t.namespace, t.name),
+      api(visibleCluster()).cmdDetailWatch(t.resource, t.namespace, t.name, channel),
     ]);
     if (watch.status === "fulfilled") {
       if (this.#stopped) {
@@ -66,14 +63,13 @@ export class LiveDetail {
     if (this.#watchId !== null) buffered.forEach((ev) => this.#onEvent(ev));
   }
 
-  #onEvent(ev: DetailWatchEvent) {
+  #onEvent(ev: DetailState) {
     if (this.#stopped) return;
-    if (this.#watchId === null) {
-      // The id is only known once cmd_detail_watch resolves; replay then.
+    if (!this.loaded || this.#watchId === null) {
+      // Newer than the first get: replayed once it (and the watch) resolved.
       if (!this.loaded) this.#buffer.push(ev);
       return;
     }
-    if (ev.id !== this.#watchId) return;
     this.#fromWatch = true;
     if (ev.state === "detail") {
       this.info = ev.detail;
@@ -91,8 +87,6 @@ export class LiveDetail {
   stop() {
     this.#stopped = true;
     this.#buffer = [];
-    this.#unlisten?.();
-    this.#unlisten = null;
     if (this.#watchId) api(visibleCluster()).cmdWatchStop(this.#watchId).catch(() => {});
     this.#watchId = null;
   }

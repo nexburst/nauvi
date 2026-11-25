@@ -164,7 +164,6 @@ export const DIALOGS: Slot[] = [
 
 /** Event subscriptions, made before the first watch starts; each returns its unlisten. */
 export const LISTENERS: (() => Promise<() => void>)[] = [
-  () => live.listen(),
   listenDrain,
   listenUpdates,
   listenKubeconfigs,

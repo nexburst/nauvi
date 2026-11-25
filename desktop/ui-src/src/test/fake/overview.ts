@@ -1,9 +1,8 @@
 // The Overview feed and its usage chart (`commands/overview.rs`).
 
-import { events } from "../../lib/bindings";
 import type { OverviewUsageView } from "../../lib/bindings";
 import { prometheusStatus } from "./prometheus";
-import { copy } from "./state";
+import { copy, sendOverview } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
 
 /** Like `cmd_overview_usage`: the last hour from Prometheus, else nothing and why. */
@@ -26,14 +25,15 @@ function overviewUsage(s: FakeState): OverviewUsageView {
 
 export function overviewHandlers(s: FakeState) {
   return {
-    cmdOverviewStart: (id) => {
+    cmdOverviewStart: (id, _namespace, onEvent) => {
       s.overviewFeeds.add(id);
+      s.overviewChannels.set(id, onEvent);
       s.lastOverview = id;
       // Like the backend: the first summary, then "live".
       setTimeout(() => {
         if (!s.overviewFeeds.has(id)) return;
-        void events.overviewUpdate.emit({ id, overview: copy(s.cluster.overview) });
-        void events.overviewState.emit({ id, state: "live" });
+        sendOverview(s, id, { type: "update", overview: s.cluster.overview });
+        sendOverview(s, id, { type: "state", state: "live" });
       }, 0);
       return null;
     },

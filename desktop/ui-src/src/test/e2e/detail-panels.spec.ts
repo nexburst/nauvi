@@ -202,6 +202,8 @@ test("the generic panel updates live and shows deletion too", async ({ page }) =
     resource: expect.objectContaining({ kind: "Deployment", group: "apps" }),
     namespace: "demo",
     name: "web",
+    // Its own channel (#115).
+    onEvent: expect.stringMatching(/^__CHANNEL__:\d+$/),
   });
 
   const detail: ResourceDetail = await page.evaluate(() => {

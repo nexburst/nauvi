@@ -1,53 +1,42 @@
-//! Live watches of a kind, forwarded to the webview as batched events.
+//! Live watches of a kind, forwarded to the webview on the channel the
+//! start command was given (#115): messages arrive in order and only at
+//! the table or panel that started the watch.
 
-use crate::state::{next_session, Cluster, ClusterSession, WindowEmitter};
+use crate::state::{next_session, Cluster, ClusterSession};
 use kube::Client;
 use nauvi::resources::{self, ResourceKind, ResourceRef, ResourceRow};
 use nauvi::watch;
 use serde::Serialize;
 use specta::Type;
-use tauri_specta::Event;
+use tauri::ipc::Channel;
 
-/// One coalesced set of table rows for the watch `id`: the first batch is a
-/// full snapshot, later ones are incremental.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-pub(crate) struct WatchBatch {
-    id: String,
-    snapshot: bool,
-    applied: Vec<ResourceRow>,
-    /// Keys of removed rows.
-    deleted: Vec<String>,
+/// A message on a table watch's channel.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub(crate) enum WatchMessage {
+    /// One coalesced set of table rows: the first batch is a full
+    /// snapshot, later ones are incremental.
+    Batch {
+        snapshot: bool,
+        applied: Vec<ResourceRow>,
+        /// Keys of removed rows.
+        deleted: Vec<String>,
+    },
+    /// The watch's connection state changed.
+    State(watch::WatchState),
 }
 
-/// A new detail (or `deleted`, or a watch error) for the detail watch `id`.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[tauri_specta(event_name = "detail-watch")]
-pub(crate) struct DetailWatchEvent {
-    id: String,
-    #[serde(flatten)]
-    state: resources::DetailState,
-}
-
-/// Payload of the `watch-state` event.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[tauri_specta(event_name = "watch-state")]
-pub(crate) struct WatchStateChanged {
-    id: String,
-    #[serde(flatten)]
-    state: watch::WatchState,
-}
-
-/// Forward a watch to the webview: state changes as `watch-state`, rows as
-/// coalesced `watch-batch` events.
-async fn pump_watch<S>(win: WindowEmitter, id: String, updates: S)
+/// Forward a watch to its channel: rows as coalesced batches, and state
+/// changes. A closed table has nobody left to read them (its watch is
+/// stopped by the table, or with its window or cluster session).
+async fn pump_watch<S>(out: Channel<WatchMessage>, updates: S)
 where
     S: futures::Stream<Item = watch::Update<ResourceRow>> + Unpin,
 {
-    watch::run_batched(updates, watch::DEFAULT_FLUSH, |out| match out {
+    watch::run_batched(updates, watch::DEFAULT_FLUSH, |msg| match msg {
         watch::Output::Batch(batch) => {
             let snapshot = batch.snapshot;
-            win.emit(WatchBatch {
-                id: id.clone(),
+            let _ = out.send(WatchMessage::Batch {
                 snapshot,
                 applied: batch.applied,
                 deleted: batch.deleted,
@@ -58,10 +47,7 @@ where
             }
         }
         watch::Output::State(state) => {
-            win.emit(WatchStateChanged {
-                id: id.clone(),
-                state,
-            });
+            let _ = out.send(WatchMessage::State(state));
         }
     })
     .await;
@@ -85,26 +71,28 @@ async fn kind_of(
     found.ok_or_else(|| format!("{} is not served by this cluster", resource.kind))
 }
 
-/// Start watching a kind (in `namespace`, if it is namespaced). Returns the
-/// watch id carried by the `watch-batch` / `watch-state` events.
+/// Start watching a kind (in `namespace`, if it is namespaced); its rows
+/// and states go to `on_event`. Returns the watch id for `cmd_watch_stop`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_watch_start(
     cluster: Cluster,
     resource: ResourceRef,
     namespace: Option<String>,
+    on_event: Channel<WatchMessage>,
 ) -> Result<String, String> {
     let (client, prober) = cluster.watch_client().await?;
     let kind = kind_of(&cluster, &client, &resource).await?;
     let id = next_session("watch");
     let updates = watch::watch_resource(&client, &prober, &kind, namespace.as_deref());
-    let task = tauri::async_runtime::spawn(pump_watch(cluster.emitter(), id.clone(), updates));
+    let task = tauri::async_runtime::spawn(pump_watch(on_event, updates));
     cluster.add_watch(id.clone(), task);
     Ok(id)
 }
 
-/// Watch one object for the detail panel. Returns the watch id carried by
-/// the `detail-watch` events; stop it with `cmd_watch_stop`.
+/// Watch one object for the detail panel: each new detail (or `deleted`,
+/// or a watch error) goes to `on_event`. Returns the watch id; stop it
+/// with `cmd_watch_stop`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_detail_watch(
@@ -112,11 +100,10 @@ pub(crate) async fn cmd_detail_watch(
     resource: ResourceRef,
     namespace: String,
     name: String,
+    on_event: Channel<resources::DetailState>,
 ) -> Result<String, String> {
     let (client, prober) = cluster.watch_client().await?;
     let id = next_session("detail");
-    let watch_id = id.clone();
-    let out = cluster.emitter();
     let task = tauri::async_runtime::spawn(resources::run_detail_watch(
         client,
         prober,
@@ -125,10 +112,8 @@ pub(crate) async fn cmd_detail_watch(
         name,
         resources::DETAIL_FLUSH,
         move |state| {
-            out.emit(DetailWatchEvent {
-                id: watch_id.clone(),
-                state,
-            });
+            // A closed panel has nobody left to read it.
+            let _ = on_event.send(state);
         },
     ));
     cluster.add_watch(id.clone(), task);
