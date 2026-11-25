@@ -199,6 +199,8 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
        const all = [];
        for (const el of document.querySelectorAll("[data-testid=sidebar-kinds] h4, [data-testid=sidebar-kinds] button")) {
          if (el.tagName === "H4") { section = el.textContent.trim(); continue; }
+         // A section heading's collapse toggle (#383), not a kind.
+         if (el.closest("h4")) continue;
          const label = el.childNodes[0]?.textContent.trim() ?? "";
          if (label && section !== "Helm" && !views.includes(label)) all.push(label);
        }

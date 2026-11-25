@@ -8,8 +8,8 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { describe, it } from "node:test";
-import { By } from "selenium-webdriver";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { namespaceLabel } from "../lib/table.mjs";
 
 const T = { timeout: 120_000 };
 const kubeconfig = process.env.NAUVI_LIMITED_KUBECONFIG;
@@ -32,8 +32,7 @@ describe("namespace-scoped user", { timeout: 10 * 60_000, skip }, () => {
     const { app } = s;
     await app.nav("Pods");
     await waitLive(app);
-    const ns = await app.find(By.css('button[aria-label="Namespace"]'));
-    assert.equal((await ns.getText()).trim(), "team-a");
+    assert.equal(await namespaceLabel(app), "team-a");
     await app.waitFor(async () => (await app.rows()).some(([, n]) => n === "team-a"), { message: "a pod in team-a" });
   });
 });

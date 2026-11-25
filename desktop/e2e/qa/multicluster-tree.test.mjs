@@ -195,10 +195,11 @@ describe("the cluster tree", { timeout: 15 * 60_000 }, () => {
     // The log tab is on the cluster shown again: no label needed.
     assert.deepEqual(await dockTabClusters(app), []);
     // Selecting the cluster shown again restarts nothing: the tab streams on.
-    const lines = (await logLines(app, logId)).length;
+    // The newest line, not the count: the pane only renders the lines in view.
+    const last = (await logLines(app, logId)).at(-1);
     await selectCluster(app, CONTEXT);
     assert.equal((await dockTabs(app)).length, 1);
-    await app.waitFor(async () => (await logLines(app, logId)).length > lines, {
+    await app.waitFor(async () => (await logLines(app, logId)).at(-1) !== last, {
       timeout: 30_000,
       message: "the log tab still streams after selecting the shown cluster",
     });
