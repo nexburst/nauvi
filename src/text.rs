@@ -23,6 +23,21 @@ pub fn multi_line(s: &str) -> String {
         .join("\n")
 }
 
+/// At most `max` characters of `s`, with `…` when cut.
+pub fn shorten(s: &str, max: usize) -> String {
+    match s.char_indices().nth(max) {
+        Some((i, _)) => format!("{}…", &s[..i]),
+        None => s.to_string(),
+    }
+}
+
+/// Cluster text (an event or status message, a reason) on one line
+/// ([`single_line`]: no control, bidi or zero-width
+/// characters), shortened to `max` characters.
+pub fn one_line(s: &str, max: usize) -> String {
+    shorten(&single_line(s), max)
+}
+
 /// `s` without control characters (whitespace kept), bidi controls and
 /// zero-width characters.
 fn visible(s: &str) -> String {
@@ -48,6 +63,12 @@ fn is_invisible_format(c: char) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shorten_adds_an_ellipsis() {
+        assert_eq!(shorten("abcdef", 3), "abc…");
+        assert_eq!(shorten("abc", 3), "abc");
+    }
 
     #[test]
     fn single_line_drops_controls_and_joins_lines() {

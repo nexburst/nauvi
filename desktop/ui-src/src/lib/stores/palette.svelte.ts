@@ -132,8 +132,8 @@ export function paletteItems(): PaletteItem[] {
       id: "cmd:ask-ai",
       group: "Command",
       label: "Ask AI…",
-      detail: "your AI CLI in a terminal, with the nauvi tools",
-      terms: ["ai", "assistant", "claude", "codex", "gemini", "agent", "mcp", "llm"],
+      detail: "your AI CLI in a terminal, with the nauvi skill",
+      terms: ["ai", "assistant", "claude", "codex", "gemini", "agent", "skill", "llm"],
       run: () => openAskAi(),
     },
   ];

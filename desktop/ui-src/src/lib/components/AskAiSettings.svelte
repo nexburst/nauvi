@@ -1,13 +1,27 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { askAi, loadAskAiSetup } from "../stores/askAi.svelte";
+  import { skillStateText } from "../askAi";
+  import { askAi, loadAskAiSetup, removeAskAiSkill } from "../stores/askAi.svelte";
   import { settings, updateSettings } from "../stores/settings.svelte";
 
-  /** Settings, AI (#376): which CLI Ask AI starts, and a command of the
-   *  user's own. nauvi only finds CLIs on PATH; it installs nothing. */
+  /** Settings, AI (#376, #466): which CLI Ask AI starts, a command of the
+   *  user's own, and the nauvi skill Ask AI writes for each CLI. nauvi only
+   *  finds CLIs on PATH; it installs none. */
   const current = $derived(settings.current);
   const setup = $derived(askAi.setup);
   onMount(() => void loadAskAiSetup());
+
+  /** Why the last removal failed, by place. */
+  let removeError = $state<Record<string, string>>({});
+
+  async function remove(id: string) {
+    removeError = { ...removeError, [id]: "" };
+    try {
+      await removeAskAiSkill(id);
+    } catch (e) {
+      removeError = { ...removeError, [id]: String(e) };
+    }
+  }
 
   async function setCommand(value: string) {
     await updateSettings({ ask_ai_command: value });
@@ -50,9 +64,34 @@
         Not found: {setup.missing.map((c) => c.label).join(", ")}.
       {/if}
       {setup.nauvi
-        ? "The nauvi CLI is on PATH, so the assistant gets the nauvi tools."
-        : "The nauvi CLI is not on PATH, so the assistant gets kubectl but no nauvi tools."}
+        ? "The nauvi CLI is on PATH, so the skill can use it."
+        : "The nauvi CLI is not on PATH, so the skill can use kubectl only."}
     </p>
+    {#if setup.skills.length > 0}
+      <div class="skills" data-testid="ask-ai-skills">
+        <span class="sub">nauvi skill</span>
+        {#each setup.skills as s (s.id)}
+          <div class="skill" data-testid="ask-ai-skill-{s.id}" data-state={s.state}>
+            <div class="what">
+              <span class="name">{s.label}</span>
+              <code class="path" title={s.path}>{s.path}</code>
+              <span class="state" class:installed={s.state === "current" || s.state === "outdated"}
+                >{skillStateText(s)}</span
+              >
+              {#if removeError[s.id]}<span class="hint error">{removeError[s.id]}</span>{/if}
+            </div>
+            {#if s.state === "current" || s.state === "outdated"}
+              <button
+                type="button"
+                class="btn small"
+                aria-label="Remove the nauvi skill for {s.label}"
+                onclick={() => void remove(s.id)}>Remove</button
+              >
+            {/if}
+          </div>
+        {/each}
+      </div>
+    {/if}
   {/if}
   <label class="row">
     <span>Custom command</span>
@@ -71,12 +110,12 @@
     <p class="hint error" data-testid="ask-ai-command-error">{setup.custom_error}</p>
   {/if}
   <p class="muted hint">
-    A program on PATH or a full path, then its arguments. It runs as it is, never through a shell. It gets the prompt
-    in the file named by <code>NAUVI_PROMPT_FILE</code> and the nauvi MCP server (<code>mcpServers</code> JSON) in
-    <code>NAUVI_MCP_CONFIG</code>. nauvi never changes your CLIs' own settings: the MCP server is given to each session
-    only, read-only unless you allow writes when you start it. That covers the nauvi tools only: commands the CLI runs
-    in its own shell (<code>kubectl</code>…) are approved by the CLI's prompts, not by nauvi. Like a local terminal,
-    Ask AI opens nothing on a read-only context, and its terminals close when a context turns read-only.
+    A program on PATH or a full path, then its arguments. It runs as it is, never through a shell. It gets the prompt,
+    after the nauvi guidance, in the file named by <code>NAUVI_PROMPT_FILE</code>. Ask AI writes the nauvi skill
+    (<code>SKILL.md</code>, kubectl and the nauvi CLI) for the CLI it starts and updates it when nauvi changes; it sets
+    up no MCP server and changes no other setting of your CLIs. The skill is not read-only: what the CLI runs in its
+    shell is approved by the CLI's own prompts, not by nauvi. Like a local terminal, Ask AI opens nothing on a
+    read-only context, and its terminals close when a context turns read-only.
   </p>
 </fieldset>
 
@@ -120,5 +159,49 @@
   }
   code {
     font-size: 11.5px;
+  }
+  .skills {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .sub {
+    font-size: 13px;
+  }
+  .skill {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    min-width: 0;
+  }
+  .what {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    font-size: 12px;
+  }
+  .name {
+    font-weight: 600;
+  }
+  .path {
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .state {
+    color: var(--text-muted);
+  }
+  .state.installed {
+    color: var(--green);
+  }
+  .btn.small {
+    padding: 2px 8px;
+    flex-shrink: 0;
   }
 </style>

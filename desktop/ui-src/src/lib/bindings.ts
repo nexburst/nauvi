@@ -45,18 +45,25 @@ export const commands = {
 	cmdApplicationsStop: (cluster: string, id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_stop", { cluster, id }, options),
 	/**
 	 *  The CLIs Ask AI can start, from this process's `PATH` (the login
-	 *  shell's, imported at start-up) and the settings. Reads only.
+	 *  shell's, imported at start-up) and the settings, and where the skill is.
+	 *  Reads only.
 	 */
 	cmdAskAiSetup: (options?: InvokeOptions) => __TAURI_INVOKE<AskAiSetup>("cmd_ask_ai_setup", undefined, options),
 	/**
+	 *  Remove the nauvi skill of place `id` (`claude` or `agents`): only the
+	 *  file nauvi wrote, then its folder if it is empty. Ask AI writes it again
+	 *  the next time it starts a CLI that reads it.
+	 */
+	cmdAskAiSkillRemove: (id: string, options?: InvokeOptions) => __TAURI_INVOKE<AskAiSetup>("cmd_ask_ai_skill_remove", { id }, options),
+	/**
 	 *  Start the AI CLI `cli` (an id of [`AskAiSetup::found`]) in a new local
 	 *  terminal at the app's context and `namespace` (`null`: the context's
-	 *  own), with `prompt` as its first message, and the nauvi MCP tools for
-	 *  that context: read-only, unless `allow_writes` and the context is
-	 *  normal. On a protected or read-only context writes are refused here,
-	 *  and `nauvi mcp` itself refuses them too.
+	 *  own), with `prompt` as its first message, after writing (or updating)
+	 *  the nauvi skill it reads. Refused on a read-only context and confirmed
+	 *  on a protected one, like a local terminal. What the CLI runs in it is
+	 *  up to the CLI's own approval prompts.
 	 */
-	cmdAskAiStart: (cluster: MutationTarget, namespace: string | null, cli: string, prompt: string, allowWrites: boolean, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<AskAiStarted>("cmd_ask_ai_start", { cluster, namespace, cli, prompt, allowWrites, cols, rows, onOutput }, options),
+	cmdAskAiStart: (cluster: MutationTarget, namespace: string | null, cli: string, prompt: string, cols: number, rows: number, onOutput: Channel<TermMessage>, options?: InvokeOptions) => __TAURI_INVOKE<AskAiStarted>("cmd_ask_ai_start", { cluster, namespace, cli, prompt, cols, rows, onOutput }, options),
 	/**  Whether the app starts when the user logs in. */
 	cmdAutostartEnabled: (options?: InvokeOptions) => __TAURI_INVOKE<boolean>("cmd_autostart_enabled", undefined, options),
 	/**  Turn start at login on or off; returns the state afterwards. */
@@ -836,6 +843,11 @@ export type AskAiCli = {
 	path: string,
 	/**  How to install it (`""` for the custom command). */
 	install: string,
+	/**
+	 *  The [`AskAiSkill::id`] of the skill it reads (`""`: none, the
+	 *  guidance goes in its first prompt).
+	 */
+	skill: string,
 };
 
 /**  What Ask AI can start on this machine. */
@@ -852,13 +864,32 @@ export type AskAiSetup = {
 	 *  the first found (`""`: none).
 	 */
 	chosen: string,
-	/**  The `nauvi` CLI that serves the MCP tools (`""`: not on `PATH`). */
+	/**  The `nauvi` CLI the skill runs (`""`: not on `PATH`). */
 	nauvi: string,
 	/**
 	 *  Why the custom command set in Settings cannot run (`""`: it can, or
 	 *  none is set).
 	 */
 	custom_error: string,
+	/**  The skill in each place (`[]`: no home folder). */
+	skills: AskAiSkill[],
+};
+
+/**  The nauvi skill in one place AI CLIs read skills from. */
+export type AskAiSkill = {
+	/**  `claude` or `agents`. */
+	id: string,
+	/**  The CLIs that read it. */
+	label: string,
+	/**  Its folder (`…/skills/nauvi`). */
+	path: string,
+	/**
+	 *  `missing`, `current`, `outdated` (written by another version; Ask AI
+	 *  updates it) or `foreign` (not nauvi's: left alone).
+	 */
+	state: string,
+	/**  For `foreign`: why. */
+	detail: string,
 };
 
 /**  A started Ask AI terminal. */
@@ -869,10 +900,16 @@ export type AskAiStarted = {
 	/**  The CLI's name. */
 	cli: string,
 	/**
-	 *  The nauvi MCP tools offered: `read-only`, `writes`, or `""` (the
-	 *  `nauvi` CLI is not on `PATH`).
+	 *  What the CLI got: `new` (the skill was installed now), `updated`,
+	 *  `current`, or `prompt` (the guidance is in its first prompt).
 	 */
-	mcp: string,
+	skill: string,
+	/**  The skill's folder (`""` for `prompt`). */
+	skill_path: string,
+	/**  Why the skill could not be written (`""`: it was, or none is used). */
+	skill_error: string,
+	/**  The `nauvi` CLI is on `PATH`. */
+	nauvi: boolean,
 	/**  As in a local shell: the downloaded kubectl first on `PATH`. */
 	kubectl: string,
 };
