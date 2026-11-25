@@ -145,14 +145,15 @@ function restorePendingView() {
   const view = pendingView;
   pendingView = null;
   if (!view || view === "overview" || app.view !== "overview") return;
-  if (
-    view === PORT_FORWARDS_VIEW ||
-    view === HELM_VIEW ||
-    view === HELM_CHARTS_VIEW ||
-    view === WORKLOADS_VIEW ||
-    view === APPLICATIONS_VIEW ||
-    view === CATALOG_VIEW
-  ) {
+  if (view === PORT_FORWARDS_VIEW || view === HELM_VIEW || view === HELM_CHARTS_VIEW || view === CATALOG_VIEW) {
+    app.view = view;
+    // These views watch nothing, so nothing sets the header status: it
+    // would keep what the overview had said before it was replaced, maybe
+    // "Connecting…" for good (#459). Discovery just got an answer.
+    setStatus(true, "Live");
+    return;
+  }
+  if (view === WORKLOADS_VIEW || view === APPLICATIONS_VIEW) {
     app.view = view;
     return;
   }
