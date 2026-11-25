@@ -155,7 +155,7 @@ nauvi_install() {
     if [ -n "$mounted" ]; then
       hdiutil detach -quiet "$mounted" 2>/dev/null || hdiutil detach -quiet -force "$mounted" 2>/dev/null || true
     fi
-    [ -z "$partial" ] || rm -rf "$partial"
+    [ -z "$partial" ] || rm -rf "$partial" || true
     rm -rf "$tmp"
   }
   trap cleanup EXIT
@@ -268,8 +268,9 @@ nauvi_install() {
     dmg=$(download "$name")
     mnt="$tmp/mnt"
     mkdir "$mnt"
-    attach_dmg "$dmg" "$mnt" || die "could not open $name"
+    # Before the attach: a Ctrl-C during it must still detach.
     mounted="$mnt"
+    attach_dmg "$dmg" "$mnt" || die "could not open $name"
     if [ ! -d "$mnt/nauvi.app" ]; then
       hdiutil detach -quiet "$mnt" || true
       die "$name has no nauvi.app"
