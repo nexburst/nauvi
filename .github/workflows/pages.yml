@@ -25,8 +25,11 @@ name: Pages
 #   the release: docs/<tag>/ is added (never rebuilt once there) and
 #   docs/latest/ moves to the newest release.
 # - Run by hand with a tag to publish a release's docs afterwards. A tag
-#   from before docs/user/ existed (v0.1.0) has no docs; `docs_ref` builds
-#   them from another ref, such as main.
+#   from before docs/user/ existed (v0.1.0) has no docs: run it from main
+#   with `docs_from_main` to build that version's docs from main once.
+#
+# Only release tags and main are ever built here (no free-form ref), and
+# the build job uses no cache and has a read-only token.
 #
 # The publish job has no checkout: no code of this repository runs next to
 # the write token, only the shell below.
@@ -55,18 +58,14 @@ on:
         description: "Publish the docs of this release tag (vX.Y.Z). Empty: the landing page and docs/dev from main."
         type: string
         default: ""
-      docs_ref:
-        description: "With a tag: build its docs from this ref instead of the tag (for a tag older than docs/user/)."
-        type: string
-        default: ""
+      docs_from_main:
+        description: "With a tag: build its docs from main (run from main) instead of the tag, for a tag older than docs/user/."
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       tag:
         description: "The release tag whose docs to publish"
-        type: string
-        required: true
-      ref:
-        description: "The commit to build them from (the tag's)"
         type: string
         required: true
 
@@ -93,14 +92,17 @@ jobs:
         id: meta
         env:
           TAG: ${{ inputs.tag }}
-          REF_INPUT: ${{ inputs.ref }}
-          DOCS_REF: ${{ inputs.docs_ref }}
+          FROM_MAIN: ${{ inputs.docs_from_main }}
         run: |
           if [ -n "$TAG" ]; then
             [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
             git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$TAG" >/dev/null \
               || { echo "::error::no tag $TAG"; exit 1; }
-            mode=release version="$TAG" ref="${REF_INPUT:-${DOCS_REF:-$TAG}}" publish=true
+            mode=release version="$TAG" ref="refs/tags/$TAG" publish=true
+            if [ "$FROM_MAIN" = "true" ]; then
+              [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "::error::docs_from_main must run from main"; exit 1; }
+              ref="$GITHUB_SHA"
+            fi
           else
             mode=site version=dev ref="$GITHUB_SHA"
             # Only main is published; a pull request or another branch only builds.

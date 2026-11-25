@@ -1135,4 +1135,3 @@ jobs:
     uses: $/.github/workflows/pages.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
-      ref: ${{ github.sha }}

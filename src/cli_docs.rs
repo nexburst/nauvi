@@ -321,7 +321,13 @@ mod tests {
             if write {
                 std::fs::create_dir_all(&dir).unwrap();
                 std::fs::write(&path, &text).unwrap();
-            } else if std::fs::read_to_string(&path).ok().as_deref() != Some(text.as_str()) {
+            } else if std::fs::read_to_string(&path)
+                .ok()
+                // A Windows checkout may have CRLF line ends.
+                .map(|s| s.replace("\r\n", "\n"))
+                .as_deref()
+                != Some(text.as_str())
+            {
                 stale.push(file);
             }
         }

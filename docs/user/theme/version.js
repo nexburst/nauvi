@@ -15,23 +15,34 @@
   var at = parts.lastIndexOf("docs", parts.length - 2);
   if (at < 0) return;
   var current = parts[at + 1];
-  if (!/^(latest|dev|v\d+\.\d+\.\d+(-\d+)?)$/.test(current)) return;
+  var VERSION = /^(latest|dev|v\d+\.\d+\.\d+(-\d+)?)$/;
+  if (!VERSION.test(current)) return;
   var base = parts.slice(0, at + 1).join("/") + "/";
   var rest = parts.slice(at + 2).join("/");
 
+  // A URL of this site only: a path on this origin, never anything a page
+  // or versions.json could turn into another scheme or host.
+  function sameSite(path) {
+    var url = new URL(path, location.origin);
+    return url.origin === location.origin ? url : null;
+  }
+
   function samePage(version) {
-    return base + version + "/" + rest + location.hash;
+    return base + version + "/" + rest;
   }
 
   // Go to the same page in `version`, or its start page if it has none.
   function go(version) {
-    var target = samePage(version);
-    fetch(base + version + "/" + rest, { method: "HEAD" })
+    if (!VERSION.test(version)) return;
+    var page = sameSite(samePage(version));
+    var start = sameSite(base + version + "/");
+    if (!page || !start) return;
+    fetch(page.href, { method: "HEAD" })
       .then(function (r) {
-        location.href = r.ok ? target : base + version + "/";
+        location.assign(r.ok ? page.href : start.href);
       })
       .catch(function () {
-        location.href = base + version + "/";
+        location.assign(start.href);
       });
   }
 
@@ -43,10 +54,10 @@
 
   function switcher(info) {
     var options = [];
-    if (info.latest) options.push("latest");
+    if (VERSION.test(info.latest || "")) options.push("latest");
     if (info.dev) options.push("dev");
     (info.versions || []).forEach(function (v) {
-      options.push(v);
+      if (VERSION.test(v)) options.push(v);
     });
     if (options.indexOf(current) < 0) options.push(current);
     var wrap = document.createElement("label");
@@ -62,7 +73,8 @@
       select.appendChild(o);
     });
     select.addEventListener("change", function () {
-      go(select.value);
+      // The version from our own list, not the option's text.
+      go(options[select.selectedIndex]);
     });
     wrap.appendChild(select);
     var right = document.querySelector("#mdbook-menu-bar .right-buttons");
@@ -71,7 +83,7 @@
 
   function banner(info) {
     var main = document.querySelector("main");
-    if (!main || !info.latest || current === "latest" || current === info.latest) return;
+    if (!main || !VERSION.test(info.latest || "") || current === "latest" || current === info.latest) return;
     var box = document.createElement("div");
     box.className = "nauvi-banner";
     box.setAttribute("role", "note");
