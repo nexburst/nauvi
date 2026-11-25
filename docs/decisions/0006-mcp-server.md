@@ -1,6 +1,6 @@
 # 0006: The MCP server is read-only by default, redacts Secrets, caps output
 
-**Status:** accepted (2026-11-16). Issue #298.
+**Status:** accepted (2026-11-16). Issue #298. Ask AI no longer passes it to a CLI: see [0010](0010-ask-ai-skill.md).
 
 ## Decision
 `nauvi mcp` serves the Model Context Protocol on stdio, in the CLI only

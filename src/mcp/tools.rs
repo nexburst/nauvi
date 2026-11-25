@@ -4,7 +4,8 @@
 //! [`call`].
 
 use super::limits::{self, cap_text};
-use super::{problems, read_tools as read, write_tools as write};
+use super::{read_tools as read, write_tools as write};
+use crate::problems;
 use anyhow::{anyhow, bail, Result};
 use kube::Client;
 use serde::de::DeserializeOwned;

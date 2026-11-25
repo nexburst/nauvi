@@ -1,5 +1,5 @@
-//! "Ask AI" (#376): the user's own AI CLI in a dock terminal, pointed at a
-//! cluster, namespace or object, with `nauvi mcp` for the same context.
+//! "Ask AI" (#376): the user's AI CLI in a dock terminal, pointed at a
+//! cluster, namespace or object, with the `nauvi` agent skill (#466).
 //!
 //! It is a local terminal (`local_shell`): the same gate (refused on a
 //! read-only context, confirmed on a protected one), the same per-terminal
@@ -7,6 +7,12 @@
 //! commands. The CLI runs in place of the shell; when it exits, the user's
 //! shell starts in the same terminal. What it runs and how: see
 //! `nauvi::ask_ai`. Nothing goes through a shell command line.
+//!
+//! Before it starts, the skill for that CLI is written, or updated when the
+//! app version changed (`nauvi::ask_ai_skill`); a custom command, or a CLI
+//! whose skill cannot be written, gets the same guidance in its first
+//! prompt. No MCP server is passed: `nauvi mcp` is opt-in, set up by the
+//! user in clients without skills.
 
 use crate::commands::local_shell::{shell_setup, ShellSetup};
 use crate::commands::term_frame::TermChannel;
@@ -14,16 +20,19 @@ use crate::commands::term_out::{send_closed, send_data, TermOut};
 use crate::local_shell::{LocalShell, ShellSpec};
 use crate::settings::{Settings, SettingsStore};
 use crate::state::mutation::Mutation;
-use crate::state::{next_session, AppState, LocalShellSession};
+use crate::state::{next_session, LocalShellSession};
 use nauvi::ask_ai::{self, Cli, KNOWN_CLIS};
-use nauvi::context_mode::ContextMode;
+use nauvi::ask_ai_skill::{self as skill, Installed, SkillHome, SkillState, SKILL_HOMES};
 use nauvi::{TempExt, TempKubeconfig};
 use serde::Serialize;
 use specta::Type;
 use std::ffi::OsStr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::State;
+
+/// The version the skill is written for: the app's.
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// A CLI Ask AI can start.
 #[derive(Debug, Clone, Serialize, Type)]
@@ -35,6 +44,25 @@ pub(crate) struct AskAiCli {
     path: String,
     /// How to install it (`""` for the custom command).
     install: String,
+    /// The [`AskAiSkill::id`] of the skill it reads (`""`: none, the
+    /// guidance goes in its first prompt).
+    skill: String,
+}
+
+/// The nauvi skill in one place AI CLIs read skills from.
+#[derive(Debug, Clone, Serialize, Type)]
+pub(crate) struct AskAiSkill {
+    /// `claude` or `agents`.
+    id: String,
+    /// The CLIs that read it.
+    label: String,
+    /// Its folder (`…/skills/nauvi`).
+    path: String,
+    /// `missing`, `current`, `outdated` (written by another version; Ask AI
+    /// updates it) or `foreign` (not nauvi's: left alone).
+    state: String,
+    /// For `foreign`: why.
+    detail: String,
 }
 
 /// What Ask AI can start on this machine.
@@ -48,11 +76,13 @@ pub(crate) struct AskAiSetup {
     /// The one Ask AI starts: the one set in Settings if it is found, else
     /// the first found (`""`: none).
     chosen: String,
-    /// The `nauvi` CLI that serves the MCP tools (`""`: not on `PATH`).
+    /// The `nauvi` CLI the skill runs (`""`: not on `PATH`).
     nauvi: String,
     /// Why the custom command set in Settings cannot run (`""`: it can, or
     /// none is set).
     custom_error: String,
+    /// The skill in each place (`[]`: no home folder).
+    skills: Vec<AskAiSkill>,
 }
 
 /// A started Ask AI terminal.
@@ -63,22 +93,103 @@ pub(crate) struct AskAiStarted {
     namespace: String,
     /// The CLI's name.
     cli: String,
-    /// The nauvi MCP tools offered: `read-only`, `writes`, or `""` (the
-    /// `nauvi` CLI is not on `PATH`).
-    mcp: String,
+    /// What the CLI got: `new` (the skill was installed now), `updated`,
+    /// `current`, or `prompt` (the guidance is in its first prompt).
+    skill: String,
+    /// The skill's folder (`""` for `prompt`).
+    skill_path: String,
+    /// Why the skill could not be written (`""`: it was, or none is used).
+    skill_error: String,
+    /// The `nauvi` CLI is on `PATH`.
+    nauvi: bool,
     /// As in a local shell: the downloaded kubectl first on `PATH`.
     kubectl: String,
 }
 
+/// Where the user's skill folders are.
+struct Homes {
+    user: Option<PathBuf>,
+    claude_config: Option<PathBuf>,
+}
+
+impl Homes {
+    fn of_this_process() -> Self {
+        let home = nauvi::catalog::expand_home("~");
+        Self {
+            user: home.is_absolute().then_some(home),
+            claude_config: std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from),
+        }
+    }
+
+    /// The skills folder of `h` (`None`: no home folder).
+    fn root(&self, h: &SkillHome) -> Option<PathBuf> {
+        let user = self.user.as_deref()?;
+        Some(skill::skills_root(h, user, self.claude_config.as_deref()))
+    }
+}
+
 /// The CLIs Ask AI can start, from this process's `PATH` (the login
-/// shell's, imported at start-up) and the settings. Reads only.
+/// shell's, imported at start-up) and the settings, and where the skill is.
+/// Reads only.
 #[tauri::command]
 #[specta::specta]
 pub(crate) fn cmd_ask_ai_setup(settings: State<'_, Arc<SettingsStore>>) -> AskAiSetup {
-    setup(&settings.get(), std::env::var_os("PATH").as_deref())
+    setup(
+        &settings.get(),
+        std::env::var_os("PATH").as_deref(),
+        &Homes::of_this_process(),
+    )
 }
 
-fn setup(settings: &Settings, path: Option<&OsStr>) -> AskAiSetup {
+/// Remove the nauvi skill of place `id` (`claude` or `agents`): only the
+/// file nauvi wrote, then its folder if it is empty. Ask AI writes it again
+/// the next time it starts a CLI that reads it.
+#[tauri::command]
+#[specta::specta]
+pub(crate) fn cmd_ask_ai_skill_remove(
+    settings: State<'_, Arc<SettingsStore>>,
+    id: String,
+) -> Result<AskAiSetup, String> {
+    let homes = Homes::of_this_process();
+    let home = SKILL_HOMES
+        .iter()
+        .find(|h| h.id == id)
+        .ok_or_else(|| format!("Ask AI has no skill place {id:?}"))?;
+    let root = homes
+        .root(home)
+        .ok_or("Cannot find your home folder, so there is no skill to remove")?;
+    skill::remove(&root)?;
+    tracing::info!("Ask AI: removed the nauvi skill from {}", root.display());
+    Ok(setup(
+        &settings.get(),
+        std::env::var_os("PATH").as_deref(),
+        &homes,
+    ))
+}
+
+fn skill_rows(homes: &Homes) -> Vec<AskAiSkill> {
+    SKILL_HOMES
+        .iter()
+        .filter_map(|h| {
+            let dir = homes.root(h)?.join(skill::SKILL_NAME);
+            let (state, detail) = match skill::state(&dir, APP_VERSION) {
+                SkillState::Missing => ("missing", String::new()),
+                SkillState::Current => ("current", String::new()),
+                SkillState::Outdated => ("outdated", String::new()),
+                SkillState::Foreign(why) => ("foreign", why),
+            };
+            Some(AskAiSkill {
+                id: h.id.into(),
+                label: h.label.into(),
+                path: dir.display().to_string(),
+                state: state.into(),
+                detail,
+            })
+        })
+        .collect()
+}
+
+fn setup(settings: &Settings, path: Option<&OsStr>, homes: &Homes) -> AskAiSetup {
     let mut found = Vec::new();
     let mut missing = Vec::new();
     for k in KNOWN_CLIS {
@@ -91,6 +202,9 @@ fn setup(settings: &Settings, path: Option<&OsStr>) -> AskAiSetup {
                 .map(|p| p.display().to_string())
                 .unwrap_or_default(),
             install: k.install.into(),
+            skill: skill::home_for_cli(k.id)
+                .map(|h| h.id.to_string())
+                .unwrap_or_default(),
         };
         if at.is_some() {
             found.push(cli);
@@ -106,6 +220,7 @@ fn setup(settings: &Settings, path: Option<&OsStr>) -> AskAiSetup {
                 label: "Custom command".into(),
                 path: program.display().to_string(),
                 install: String::new(),
+                skill: String::new(),
             }),
             Err(e) => custom_error = e,
         }
@@ -124,6 +239,7 @@ fn setup(settings: &Settings, path: Option<&OsStr>) -> AskAiSetup {
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
         custom_error,
+        skills: skill_rows(homes),
     }
 }
 
@@ -134,34 +250,79 @@ fn custom_cli(settings: &Settings, path: Option<&OsStr>) -> Result<(PathBuf, Vec
     Ok((program, words))
 }
 
-/// The `nauvi` CLI on `path`, unless it is this app itself (a `nauvi mcp`
-/// that opens a window would never answer).
+/// The `nauvi` CLI on `path`, unless it is this app itself (the skill's
+/// `nauvi problems` would open a window).
 fn nauvi_cli(path: Option<&OsStr>) -> Option<PathBuf> {
     let found = ask_ai::find_program("nauvi", path)?;
-    let canonical = |p: &std::path::Path| std::fs::canonicalize(p).ok();
+    let canonical = |p: &Path| std::fs::canonicalize(p).ok();
     match std::env::current_exe().ok() {
         Some(me) if canonical(&me).is_some() && canonical(&me) == canonical(&found) => None,
         _ => Some(found),
     }
 }
 
+/// What the CLI `kind` gets: the skill written into its place, or (custom,
+/// or the skill cannot be written) the guidance in the prompt. Returns
+/// (skill, skill_path, skill_error, prompt).
+fn give_skill(
+    kind: &Cli,
+    cli_id: &str,
+    prompt: String,
+    homes: &Homes,
+) -> (String, String, String, String) {
+    let in_prompt = |error: String, prompt: &str| {
+        (
+            "prompt".to_string(),
+            String::new(),
+            error,
+            ask_ai::with_guidance(prompt),
+        )
+    };
+    if matches!(kind, Cli::Custom(_)) {
+        return in_prompt(String::new(), &prompt);
+    }
+    let Some((home, root)) = skill::home_for_cli(cli_id).and_then(|h| Some((h, homes.root(h)?)))
+    else {
+        return in_prompt(
+            "Cannot find your home folder for the nauvi skill".into(),
+            &prompt,
+        );
+    };
+    let dir = root.join(skill::SKILL_NAME).display().to_string();
+    match skill::install(&root, APP_VERSION) {
+        Ok(done) => {
+            let what = match done {
+                Installed::New => "new",
+                Installed::Updated => "updated",
+                Installed::Unchanged => "current",
+            };
+            if done != Installed::Unchanged {
+                tracing::info!("Ask AI: wrote the nauvi skill for {} at {dir}", home.label);
+            }
+            (what.into(), dir, String::new(), prompt)
+        }
+        Err(e) => {
+            tracing::warn!("Ask AI: {e}");
+            in_prompt(e, &prompt)
+        }
+    }
+}
+
 /// Start the AI CLI `cli` (an id of [`AskAiSetup::found`]) in a new local
 /// terminal at the app's context and `namespace` (`null`: the context's
-/// own), with `prompt` as its first message, and the nauvi MCP tools for
-/// that context: read-only, unless `allow_writes` and the context is
-/// normal. On a protected or read-only context writes are refused here,
-/// and `nauvi mcp` itself refuses them too.
+/// own), with `prompt` as its first message, after writing (or updating)
+/// the nauvi skill it reads. Refused on a read-only context and confirmed
+/// on a protected one, like a local terminal. What the CLI runs in it is
+/// up to the CLI's own approval prompts.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_ask_ai_start(
     cluster: Mutation,
     settings: State<'_, Arc<SettingsStore>>,
-    state: State<'_, AppState>,
     namespace: Option<String>,
     cli: String,
     prompt: String,
-    allow_writes: bool,
     cols: u16,
     rows: u16,
     on_output: TermChannel,
@@ -171,51 +332,17 @@ pub(crate) async fn cmd_ask_ai_start(
     let path = path.as_deref();
     let (kind, program, label) = resolve(&cli, &current, path)?;
     let id = cluster.id().to_string();
-    let mode = settings.context_mode(&id);
-    if allow_writes && mode != ContextMode::Normal {
-        return Err(format!(
-            "{id} is {}: the assistant gets only the read-only tools",
-            mode.label()
-        ));
-    }
     let ShellSetup {
         spec: shell,
         generated,
         temp,
-        kubeconfig,
         kubectl,
     } = shell_setup(&cluster, &settings, namespace.as_deref()).await?;
     let prompt = ask_ai::clean_prompt(&prompt);
+    let (skill, skill_path, skill_error, prompt) =
+        give_skill(&kind, &cli, prompt, &Homes::of_this_process());
 
     let mut files = vec![temp];
-    let nauvi = nauvi_cli(path);
-    // The file the app knows the context from, so `nauvi mcp` finds the
-    // context's read-only or protected mode (its KUBECONFIG starts with the
-    // per-terminal file, which the catalog does not know).
-    let mode_file = state
-        .sources
-        .catalog()
-        .find(&id)
-        .filter(|c| c.context == generated.context && !c.file.is_empty())
-        .map(|c| PathBuf::from(&c.file));
-    let mcp_args = ask_ai::mcp_args_for(&generated.context, mode_file.as_deref(), allow_writes);
-    let config = match &nauvi {
-        Some(nauvi) => {
-            // The same KUBECONFIG as the terminal, in a file only the user
-            // can read, deleted with the tab.
-            let env = [(
-                "KUBECONFIG".to_string(),
-                kubeconfig.to_string_lossy().into_owned(),
-            )];
-            let json = ask_ai::mcp_servers_json(nauvi, &mcp_args, &env);
-            let file =
-                TempKubeconfig::create_file(TempExt::Json, &json).map_err(|e| format!("{e:#}"))?;
-            let p = file.path().to_path_buf();
-            files.push(file);
-            Some(p)
-        }
-        None => None,
-    };
     let prompt_file = match kind {
         Cli::Custom(_) => {
             let file = TempKubeconfig::create_file(TempExt::Text, &prompt)
@@ -226,21 +353,7 @@ pub(crate) async fn cmd_ask_ai_start(
         }
         _ => None,
     };
-    let mcp = match (&nauvi, &config) {
-        (Some(command), Some(config)) => Some(ask_ai::Mcp {
-            config,
-            command,
-            args: &mcp_args,
-        }),
-        _ => None,
-    };
-    let launch = ask_ai::launch(
-        &kind,
-        program,
-        &prompt,
-        mcp.as_ref(),
-        prompt_file.as_deref(),
-    );
+    let launch = ask_ai::launch(&kind, program, &prompt, prompt_file.as_deref());
     // When the CLI exits, the user's shell in its place (Unix; on Windows
     // the tab ends with the CLI).
     #[cfg(unix)]
@@ -261,16 +374,8 @@ pub(crate) async fn cmd_ask_ai_start(
         cwd: shell.cwd,
         env: shell.env.into_iter().chain(launch.env).collect(),
     };
-    tracing::info!(
-        "Ask AI: starting {label} at {id} (MCP: {})",
-        if nauvi.is_none() {
-            "none"
-        } else if allow_writes {
-            "writes"
-        } else {
-            "read-only"
-        }
-    );
+    let nauvi = nauvi_cli(path).is_some();
+    tracing::info!("Ask AI: starting {label} at {id} (skill: {skill})");
     let session = next_session("local");
     let on_output = TermOut::new(on_output);
     let (out, exit_out) = (on_output.clone(), on_output.clone());
@@ -299,11 +404,10 @@ pub(crate) async fn cmd_ask_ai_start(
         context: generated.context,
         namespace: generated.namespace,
         cli: label,
-        mcp: match (&nauvi, allow_writes) {
-            (None, _) => String::new(),
-            (Some(_), false) => "read-only".into(),
-            (Some(_), true) => "writes".into(),
-        },
+        skill,
+        skill_path,
+        skill_error,
+        nauvi,
         kubectl,
     })
 }
@@ -368,7 +472,7 @@ mod tests {
         let dir = bin_dir(&["codex", "gemini", "nauvi", "my-ai"]);
         let path = dir.clone().into_os_string();
         let mut s = Settings::default();
-        let got = setup(&s, Some(&path));
+        let got = setup(&s, Some(&path), &NO_HOME);
         let ids: Vec<_> = got.found.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, ["codex", "gemini"]);
         assert_eq!(got.missing[0].id, "claude");
@@ -377,14 +481,14 @@ mod tests {
         assert_eq!(got.nauvi, dir.join("nauvi").display().to_string());
 
         s.ask_ai_cli = "gemini".into();
-        assert_eq!(setup(&s, Some(&path)).chosen, "gemini");
+        assert_eq!(setup(&s, Some(&path), &NO_HOME).chosen, "gemini");
         // A CLI that is not found is not chosen.
         s.ask_ai_cli = "claude".into();
-        assert_eq!(setup(&s, Some(&path)).chosen, "codex");
+        assert_eq!(setup(&s, Some(&path), &NO_HOME).chosen, "codex");
 
         s.ask_ai_cli = "custom".into();
         s.ask_ai_command = "my-ai --flag 'two words'".into();
-        let got = setup(&s, Some(&path));
+        let got = setup(&s, Some(&path), &NO_HOME);
         assert_eq!(got.chosen, "custom");
         assert_eq!(
             got.found.last().unwrap().path,
@@ -395,7 +499,7 @@ mod tests {
         assert_eq!(kind, Cli::Custom(vec!["--flag".into(), "two words".into()]));
 
         s.ask_ai_command = "not-there".into();
-        let got = setup(&s, Some(&path));
+        let got = setup(&s, Some(&path), &NO_HOME);
         assert!(
             got.custom_error.contains("not on PATH"),
             "{}",
@@ -429,10 +533,93 @@ mod tests {
 
     #[test]
     fn nothing_found_on_an_empty_path() {
-        let got = setup(&Settings::default(), None);
+        let got = setup(&Settings::default(), None, &NO_HOME);
         assert!(got.found.is_empty());
         assert_eq!(got.missing.len(), KNOWN_CLIS.len());
         assert_eq!(got.chosen, "");
         assert_eq!(got.nauvi, "");
+        assert!(got.skills.is_empty());
+    }
+
+    const NO_HOME: Homes = Homes {
+        user: None,
+        claude_config: None,
+    };
+
+    /// The skill goes where each CLI reads it, once; a custom command and
+    /// a place nauvi cannot write get the guidance in the prompt.
+    #[test]
+    fn each_cli_gets_the_skill_or_the_guidance() {
+        let home = std::env::temp_dir().join(format!("nauvi-ask-ai-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&home);
+        std::fs::create_dir_all(&home).unwrap();
+        let homes = Homes {
+            user: Some(home.clone()),
+            claude_config: None,
+        };
+        let states = |h: &Homes| -> Vec<(String, String)> {
+            skill_rows(h).into_iter().map(|s| (s.id, s.state)).collect()
+        };
+        assert_eq!(
+            states(&homes),
+            [
+                ("claude".into(), "missing".into()),
+                ("agents".into(), "missing".into())
+            ]
+        );
+
+        let (what, path, err, prompt) = give_skill(&Cli::Claude, "claude", "Look".into(), &homes);
+        assert_eq!(
+            (what.as_str(), err.as_str(), prompt.as_str()),
+            ("new", "", "Look")
+        );
+        assert_eq!(
+            path,
+            home.join(".claude/skills/nauvi").display().to_string()
+        );
+        let (what, ..) = give_skill(&Cli::Claude, "claude", "Look".into(), &homes);
+        assert_eq!(what, "current");
+        // Codex and Gemini CLI share one copy.
+        assert_eq!(
+            give_skill(&Cli::Codex, "codex", "x".into(), &homes).0,
+            "new"
+        );
+        assert_eq!(
+            give_skill(&Cli::Gemini, "gemini", "x".into(), &homes).0,
+            "current"
+        );
+        assert_eq!(
+            states(&homes),
+            [
+                ("claude".into(), "current".into()),
+                ("agents".into(), "current".into())
+            ]
+        );
+
+        // A custom command: the guidance in its prompt, no file.
+        let (what, path, _, prompt) =
+            give_skill(&Cli::Custom(vec![]), "custom", "Look".into(), &homes);
+        assert_eq!((what.as_str(), path.as_str()), ("prompt", ""));
+        assert!(
+            prompt.contains("nauvi problems") && prompt.ends_with("Look"),
+            "{prompt}"
+        );
+
+        // A skill of the user's own is kept; the CLI gets the guidance.
+        let file = home.join(".claude/skills/nauvi/SKILL.md");
+        std::fs::write(&file, "my own").unwrap();
+        let (what, _, err, prompt) = give_skill(&Cli::Claude, "claude", "Look".into(), &homes);
+        assert_eq!(what, "prompt");
+        assert!(err.contains("did not write"), "{err}");
+        assert!(prompt.contains("nauvi problems"));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "my own");
+        assert_eq!(skill_rows(&homes)[0].state, "foreign");
+
+        // Without a home folder: the guidance in the prompt.
+        assert_eq!(
+            give_skill(&Cli::Claude, "claude", "x".into(), &NO_HOME).0,
+            "prompt"
+        );
+        std::fs::remove_dir_all(&home).unwrap();
     }
 }

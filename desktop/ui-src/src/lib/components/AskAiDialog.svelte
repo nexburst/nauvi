@@ -1,27 +1,25 @@
 <script lang="ts">
-  import { askAiPrompt, dialogSubject, startBlocked, writesBlocked } from "../askAi";
+  import { askAiPrompt, dialogSubject, skillNote, skillOf, startBlocked } from "../askAi";
   import { askAi, closeAskAi, startAskAi } from "../stores/askAi.svelte";
   import { contextMode } from "../stores/contextMode.svelte";
   import { openHelpItem } from "../stores/help.svelte";
   import { openSettings } from "../stores/keyboard.svelte";
   import ClusterLabel from "./ClusterLabel.svelte";
 
-  /** Ask AI (#376): pick the CLI, edit the prompt, choose read-only (the
-   *  default) or writes, then start it in a dock tab. nauvi installs
-   *  nothing: without a CLI on PATH it says what to install. */
+  /** Ask AI (#376, #466): pick the CLI, edit the prompt, then start it in a
+   *  dock tab with the nauvi skill (installed or updated on start; a custom
+   *  command gets the guidance in its prompt). nauvi installs no CLI:
+   *  without one on PATH it says what to install. */
   const scope = $derived(askAi.scope);
   const setup = $derived(askAi.setup);
   const mode = $derived(scope ? contextMode(scope.context) : undefined);
   const blocked = $derived(scope ? startBlocked(mode, scope.context) : "");
-  const mcp = $derived(!!setup?.nauvi);
-  const noWrites = $derived(writesBlocked(mode, mcp));
 
   let cli = $state("");
   /** The user picked the CLI here: a newer setup does not change it. */
   let picked = $state(false);
   let prompt = $state("");
   let edited = $state(false);
-  let allowWrites = $state(false);
 
   // The CLI and the prompt once the setup is known; the user's edits stay.
   $effect(() => {
@@ -29,16 +27,14 @@
     if (!picked || !setup.found.some((c) => c.id === cli)) cli = setup.chosen;
     if (!edited) prompt = askAiPrompt(scope, !!setup.nauvi);
   });
-  $effect(() => {
-    if (noWrites) allowWrites = false;
-  });
 
   const chosen = $derived(setup?.found.find((c) => c.id === cli));
+  const note = $derived(skillNote(chosen, skillOf(setup, chosen)));
   const canStart = $derived(!!scope && !blocked && !!chosen && prompt.trim() !== "");
 
   function start() {
     if (!canStart) return;
-    startAskAi(cli, prompt, allowWrites && !noWrites);
+    startAskAi(cli, prompt);
   }
 
   function onkeydown(e: KeyboardEvent) {
@@ -92,7 +88,7 @@
         </div>
         <div class="buttons">
           <button type="button" class="btn link" onclick={() => void openHelpItem("ai_assistants")}
-            >AI assistants and nauvi mcp</button
+            >AI assistants and nauvi</button
           >
           <span class="grow"></span>
           <button
@@ -133,36 +129,23 @@
             use:focus
           ></textarea>
         </label>
-        {#if mcp}
-          <p class="note" data-testid="ask-ai-mcp">
-            It gets the nauvi MCP tools for <b>{scope.context}</b>, for this session only:
-            <b>{allowWrites ? "they can change the cluster" : "read-only"}</b>. Your CLI's own settings are not changed.
-          </p>
-        {:else}
+        {#if note.text}
+          <p class:note={!note.warn} class:warn={note.warn} data-testid="ask-ai-skill">{note.text}</p>
+        {/if}
+        {#if !setup.nauvi}
           <p class="warn" data-testid="ask-ai-no-nauvi">
-            The nauvi CLI is not on PATH, so the assistant gets kubectl in its terminal but no nauvi tools.
+            The nauvi CLI is not on PATH, so the assistant can use kubectl but not <code>nauvi problems</code>,
+            <code>nauvi logs</code> or <code>nauvi yaml</code>.
             <button type="button" class="inline" onclick={() => void openHelpItem("ai_assistants")}
-              >How to set up nauvi mcp</button
+              >How to install the nauvi CLI</button
             >
           </p>
         {/if}
-        <label class="check" class:off={!!noWrites} title={noWrites}>
-          <input type="checkbox" bind:checked={allowWrites} disabled={!!noWrites} data-testid="ask-ai-writes" />
-          Allow writes (scale, restart, delete, apply)
-        </label>
-        {#if noWrites}
-          <p class="muted small" data-testid="ask-ai-writes-off">{noWrites}</p>
-        {:else if allowWrites}
-          <p class="danger" role="alert" data-testid="ask-ai-writes-warning">
-            The assistant can change <b>{scope.context}</b> as you (RBAC still applies), without nauvi asking you
-            first: <code>apply</code> can create workloads that read Secrets, and <code>delete</code> of a namespace deletes
-            everything in it. Leave this off unless you will check each change it proposes.
-          </p>
-        {/if}
         <p class="note small" data-testid="ask-ai-shell-note">
-          The read-only setting covers the nauvi tools only. The CLI also has a shell with this cluster's kubeconfig:
-          commands it runs there (<code>kubectl</code>, <code>helm</code>…) are allowed or refused by your CLI's own
-          approval prompts, not by nauvi, as in a local terminal.
+          The CLI gets a shell with this cluster's kubeconfig, and no MCP server. What it runs there (<code
+            >kubectl</code
+          >, <code>nauvi</code>, <code>helm</code>…) is allowed or refused by your CLI's own approval prompts, not by nauvi,
+          as in a local terminal: the skill is not read-only.
         </p>
         <p class="muted small">
           Your CLI and its provider decide what leaves this machine, as in any terminal. When the CLI exits, the tab is
@@ -265,26 +248,10 @@
   .note {
     color: var(--text-muted);
   }
-  .check {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    margin-bottom: 6px;
-  }
-  .check.off {
-    color: var(--text-muted);
-  }
   .warn {
     padding: 6px 8px;
     border: 1px solid var(--amber);
     border-radius: 6px;
-  }
-  .danger {
-    padding: 6px 8px;
-    border: 1px solid var(--red);
-    border-radius: 6px;
-    color: var(--text);
   }
   .muted {
     color: var(--text-muted);

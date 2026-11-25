@@ -67,20 +67,7 @@ pub fn cap_text(text: &str, max_lines: usize, max_bytes: usize) -> String {
     out
 }
 
-/// At most `max` characters of `s`, with `…` when cut.
-pub fn shorten(s: &str, max: usize) -> String {
-    match s.char_indices().nth(max) {
-        Some((i, _)) => format!("{}…", &s[..i]),
-        None => s.to_string(),
-    }
-}
-
-/// Cluster text (an event or status message, a reason) on one line
-/// ([`crate::text::single_line`]: no control, bidi or zero-width
-/// characters), shortened to `max` characters.
-pub fn one_line(s: &str, max: usize) -> String {
-    shorten(&crate::text::single_line(s), max)
-}
+pub use crate::text::one_line;
 
 #[cfg(test)]
 mod tests {
@@ -125,12 +112,6 @@ mod tests {
         assert_eq!(clamp(Some(5000i64), 100, 1000), 1000);
         assert_eq!(clamp(Some(-3i64), 100, 1000), 1);
         assert_eq!(clamp(Some(0u32), 100, 500), 1);
-    }
-
-    #[test]
-    fn shorten_adds_an_ellipsis() {
-        assert_eq!(shorten("abcdef", 3), "abc…");
-        assert_eq!(shorten("abc", 3), "abc");
     }
 
     #[test]
