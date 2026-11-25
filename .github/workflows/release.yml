@@ -164,8 +164,16 @@ jobs:
             case "$TAG" in *-*) pre="--prerelease";; esac
             gh release create "$TAG" --draft --verify-tag $pre \
               --title "nauvi $TAG" --notes-file notes.md --generate-notes
-            id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-              --jq ".[] | select(.tag_name == \"$TAG\" and .draft) | .id" | head -n1)
+            # The list can lag behind the create by a few seconds (v0.1.0's
+            # first run found nothing, #450): look again before giving up.
+            id=""
+            for wait in 0 2 4 8 16; do
+              sleep "$wait"
+              id=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                --jq ".[] | select(.tag_name == \"$TAG\" and .draft) | .id" | head -n1)
+              [ -z "$id" ] || break
+              echo "the new draft is not listed yet"
+            done
           fi
           [ -n "$id" ] || { echo "::error::could not find the draft release id"; exit 1; }
           echo "id=$id" >> "$GITHUB_OUTPUT"
