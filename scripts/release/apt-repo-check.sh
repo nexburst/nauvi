@@ -178,9 +178,40 @@ apt-get install -y -qq nauvi >/dev/null
 echo "fresh install: $(nauvi-desktop --version)"
 EOF
 
+# The one-step installer (install-apt.sh, #448) on a bare image: it has to
+# install curl and gpg itself, refuse a key that is not trusted, install
+# this release and remove it again.
+cat > "$work/script-in-container.sh" <<'EOF'
+set -euo pipefail
+url="$1" key="$2" version="$3"
+run() { NAUVI_APT_URL="$url" sh /install-apt.sh "$@" >/tmp/out 2>&1; }
+if NAUVI_APT_KEYS="0000000000000000000000000000000000000000" run; then
+  echo "error: install-apt.sh accepted an untrusted key"; exit 1
+fi
+grep -q "not the nauvi key" /tmp/out || { cat /tmp/out; exit 1; }
+[ ! -e /etc/apt/sources.list.d/nauvi.list ] || { echo "error: an untrusted key left a source behind"; exit 1; }
+echo "install-apt.sh: refused an untrusted key"
+NAUVI_APT_KEYS="$key" run || { cat /tmp/out; exit 1; }
+[ "$(dpkg-query -W -f '${Version}' nauvi)" = "$version" ] || { echo "error: install-apt.sh did not install $version"; exit 1; }
+echo "install-apt.sh: $(nauvi-desktop --version)"
+NAUVI_APT_KEYS="$key" run || { cat /tmp/out; exit 1; }
+echo "install-apt.sh: a second run is fine"
+run --uninstall || { cat /tmp/out; exit 1; }
+if dpkg-query -W -f '${Status}' nauvi 2>/dev/null | grep -q 'install ok installed'; then
+  echo "error: --uninstall left nauvi installed"; exit 1
+fi
+if [ -e /etc/apt/keyrings/nauvi.gpg ] || [ -e /etc/apt/sources.list.d/nauvi.list ]; then
+  echo "error: --uninstall left the key or the source"; exit 1
+fi
+echo "install-apt.sh --uninstall: removed"
+EOF
+
 for image in "${images[@]}"; do
   echo "--- $image"
   docker run --rm --network host -v "$work/in-container.sh:/check.sh:ro" "$image" \
     bash /check.sh "http://127.0.0.1:$port" "$version"
+  docker run --rm --network host -v "$work/script-in-container.sh:/check.sh:ro" \
+    -v "$here/../../install-apt.sh:/install-apt.sh:ro" "$image" \
+    bash /check.sh "http://127.0.0.1:$port/r2/apt" "$APT_GPG_KEY" "$version"
 done
 echo "ok: nauvi $version installs and upgrades from the apt repository on ${images[*]}"

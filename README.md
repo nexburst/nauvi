@@ -13,7 +13,8 @@ Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)
 > serves (CRDs included) with live watches, shows logs for pods and whole
 > workloads, opens terminals and port-forwards, edits YAML with server-side
 > apply, and runs the common actions (scale, restart, cordon, drain, trigger,
-> suspend, delete). There is no tagged release yet. What comes next is tracked
+> suspend, delete). The first release is
+> [v0.1.0](https://github.com/nexburst/nauvi/releases/tag/v0.1.0). What comes next is tracked
 > in the [roadmap (#24)](https://github.com/nexburst/nauvi/issues/24).
 
 ## Desktop app
@@ -583,11 +584,6 @@ prompt with the scope; edit it, it is the CLI's first message.
 
 ## Install
 
-There is no tagged release yet. The one-line installers and Homebrew below
-work once v0.1.0 is published on the
-[Releases page](https://github.com/nexburst/nauvi/releases); until then,
-build from source (below).
-
 The desktop app and the CLI are separate installs. The app is called
 `nauvi-desktop` on Linux and the CLI `nauvi`, so both fit in the same
 folder.
@@ -633,26 +629,42 @@ have no build yet.
 
 #### With apt (Ubuntu, Debian)
 
-The desktop app is also in a signed apt repository, so `apt upgrade` keeps
-it up to date:
+The desktop app is also in a signed apt repository, so `sudo apt upgrade`
+keeps it up to date. One command adds the repository and installs nauvi:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install-apt.sh | sudo sh
+```
+
+The script fetches the repository's key and refuses it unless its
+fingerprint is `B2B644E79A85C438FC3EB8C5408A65C769395FBF`, then writes
+`/etc/apt/keyrings/nauvi.gpg` and `/etc/apt/sources.list.d/nauvi.list` and
+runs `apt install nauvi` (it installs `gpg` and `curl` first if they are
+missing). `… | sudo sh -s -- --uninstall` removes the package, the key and
+the source, and keeps your settings.
+
+The package is the desktop app (`/usr/bin/nauvi-desktop` and a menu entry),
+the same `.deb` as on the Releases page; the repository has only that
+package, for x86_64. The CLI is not in it yet: use `install.sh --cli` above.
+
+<details>
+<summary>The same steps by hand</summary>
 
 ```sh
 sudo install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://nexburst.github.io/nauvi/apt/nauvi.gpg \
   | sudo gpg --dearmor -o /etc/apt/keyrings/nauvi.gpg
+gpg --show-keys /etc/apt/keyrings/nauvi.gpg   # must show B2B644E79A85C438FC3EB8C5408A65C769395FBF
 echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/nauvi.gpg] https://nexburst.github.io/nauvi/apt stable main" \
   | sudo tee /etc/apt/sources.list.d/nauvi.list
 sudo apt update
 sudo apt install nauvi
 ```
 
-`gpg --show-keys /etc/apt/keyrings/nauvi.gpg` should print the key
-`B2B644E79A85C438FC3EB8C5408A65C769395FBF`; if it doesn't, delete both files
-and don't install. The package is the desktop app
-(`/usr/bin/nauvi-desktop` and a menu entry), the same `.deb` as on the
-Releases page; the repository has only that package, for x86_64. The CLI
-is not in it yet: use the script above with `--cli`. To remove it:
-`sudo apt remove nauvi`, then delete the two files above.
+If the fingerprint is different, delete both files and don't install. To
+remove it: `sudo apt remove nauvi`, then delete the two files.
+
+</details>
 
 To download by hand from the Releases page instead:
 
