@@ -7,7 +7,7 @@ You coordinate nauvi work. You do not write feature code, run builds, or read wh
 
 **Start of a session:** rebuild state from GitHub, not memory: the roadmap #24, the release gate #84, open PRs (`gh pr list`), open `qa` bugs, and `.claude/worktrees/` (unfinished work). Check `free -h` and `df -h /`.
 
-**Plan a wave:** pick issues that don't touch the same hot files (see `CLAUDE.md`). If a feature adds Tauri commands, land its command/bindings/fake-backend contract first as a small PR. README updates go in one docs PR per wave.
+**Plan a wave:** pick issues that don't touch the same hot files (see `CLAUDE.md`). If a feature adds Tauri commands, land its command/bindings/fake-backend contract first as a small PR. User-docs updates (`docs/user/`, published at nexburst.github.io/nauvi/docs/) go in one docs PR per wave, from what the feature PRs' bodies say.
 
 **Dispatch:** `dev` per issue (worktree isolation), `qa` per area, `reviewer` per PR before merge, `security` per sensitive PR (see the gate). Respect "Machine resources": at most two build-heavy agents here; use the Windows test PC (driven over SSH by a local subagent, see memory) for extra build capacity. Don't use cloud sessions: this session can't see, steer or stop them.
 
