@@ -2,6 +2,7 @@
 
 use super::log_flow::{batch_with_credit, queue};
 use super::log_frame::{send, LogChannel, LogEvent, LogFrame};
+use super::raw_body::RawUpload;
 use crate::state::Cluster;
 use nauvi::{
     stream_pod_containers_logs, stream_pod_logs_into, stream_workload_logs, LogOptions, StopReason,
@@ -279,9 +280,15 @@ fn end_stream(out: &LogChannel, result: anyhow::Result<()>) {
 /// Save log text to the user's Downloads folder and return the path. A
 /// webview Blob download is not reliable across the platforms Tauri targets
 /// and there is no file dialog without an extra plugin, so we write directly.
+/// The text comes as raw bytes (#115), `<file name>\n<log text>`: call it
+/// through `saveLogs` in `lib/rawIpc.ts`.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_save_logs(filename: String, content: String) -> Result<String, String> {
+pub(crate) async fn cmd_save_logs(upload: RawUpload) -> Result<String, String> {
+    let RawUpload {
+        head: filename,
+        body: content,
+    } = upload;
     let safe: String = filename
         .chars()
         .map(|c| {
@@ -310,7 +317,7 @@ pub(crate) async fn cmd_save_logs(filename: String, content: String) -> Result<S
         .ok_or("cannot locate home directory")?;
     let dir = std::path::PathBuf::from(home).join("Downloads");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = write_new_file(&dir, &safe, content.as_bytes())
+    let path = write_new_file(&dir, &safe, &content)
         .map_err(|e| format!("could not save the logs in {}: {e}", dir.display()))?;
     Ok(path.display().to_string())
 }

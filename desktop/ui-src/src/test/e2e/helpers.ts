@@ -102,8 +102,20 @@ export class Fake {
     return this.page.evaluate(() => window.__fake.workloadsFeeds());
   }
 
-  emitWorkloads(): Promise<void> {
-    return this.page.evaluate(() => window.__fake.emitWorkloads());
+  emitWorkloads(id?: number): Promise<void> {
+    return this.page.evaluate((i) => window.__fake.emitWorkloads(i), id);
+  }
+
+  applicationsFeeds(): Promise<{ id: number; namespaces: string[] }[]> {
+    return this.page.evaluate(() => window.__fake.applicationsFeeds());
+  }
+
+  emitApplications(id?: number): Promise<void> {
+    return this.page.evaluate((i) => window.__fake.emitApplications(i), id);
+  }
+
+  emitFeedState(feed: "workloads" | "applications", state: WatchState & { id?: number }): Promise<void> {
+    return this.page.evaluate(([f, s]) => window.__fake.emitFeedState(f, s), [feed, state] as const);
   }
 
   emitLogLines(lines: string[], streamId?: number): Promise<void> {

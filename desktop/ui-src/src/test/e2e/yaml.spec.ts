@@ -48,6 +48,20 @@ test("the YAML tab loads the object into the editor", async ({ page }) => {
   await expect(button(page, "Review")).toBeDisabled();
 });
 
+test("the YAML arrives as raw bytes, multi-byte text intact (#115)", async ({ page }) => {
+  const fake = await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await expect(editor).toContainText("kind: Deployment");
+  await fake.setCluster((cluster) => {
+    cluster.yaml["apps/v1/deployments|demo/web"] =
+      "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: web\n  annotations:\n    note: \"größe 日本 🚀\"\n";
+  }, null);
+  await button(page, "Reload").click();
+  await expect(editor).toContainText('note: "größe 日本 🚀"');
+  // Unchanged after load: the decoded text is what the editor compares with.
+  await expect(button(page, "Review")).toBeDisabled();
+});
+
 test("edit, review the diff, then save", async ({ page }) => {
   const fake = await openYaml(page, "Deployments", "web");
   const editor = await editorOf(page, "Deployment");

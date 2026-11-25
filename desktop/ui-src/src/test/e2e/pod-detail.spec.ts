@@ -134,16 +134,17 @@ test("stream end and errors are shown as system lines", async ({ page }) => {
 test("download saves the buffered lines through cmd_save_logs", async ({ page }) => {
   const fake = await openPod(page);
   await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(1);
-  await fake.emitLogLines(["alpha", "beta"]);
+  await fake.emitLogLines(["alpha", "beta ü 日本 🚀"]);
   await expect(logLines(page)).toHaveCount(2);
 
+  // Sent as raw bytes (#115): the fake decodes them like the backend.
   await logs(page).getByRole("button", { name: "Download" }).click();
   await expect.poll(() => fake.calls("cmdSaveLogs")).toHaveLength(1);
   const call = await fake.lastCall("cmdSaveLogs");
   expect(call.filename).toMatch(/^web-1_app_\d{4}-\d\d-\d\dT[\d-]+Z\.log$/);
   // A header (#339), then the lines.
   expect(call.content).toMatch(/^# nauvi logs\n# Context: +kind-dev\n# Namespace: +demo\n# Pod: +web-1\n/);
-  expect(call.content).toMatch(/\n#\nalpha\nbeta\n$/);
+  expect(call.content).toMatch(/\n#\nalpha\nbeta ü 日本 🚀\n$/);
   await expect(logs(page).getByTestId("log-saved")).toHaveText(`Saved to Downloads/${call.filename}`);
 });
 

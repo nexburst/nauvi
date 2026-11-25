@@ -1,5 +1,6 @@
-//! The live Workloads overview (#79), pushed to the window as events while
-//! it is open, like the cluster overview (`overview.rs`).
+//! The live Workloads overview (#79), pushed to the view while it is open,
+//! on the channel the start command was given (#115), like the cluster
+//! overview (`overview.rs`).
 
 use crate::state::Cluster;
 use futures::StreamExt;
@@ -7,24 +8,16 @@ use nauvi::watch::WatchState;
 use nauvi::{watch_workloads, WorkloadsOverview, WorkloadsUpdate};
 use serde::Serialize;
 use specta::Type;
-use tauri_specta::Event;
+use tauri::ipc::Channel;
 
-/// A new Workloads overview for the feed `id` (sent when it changed, at
-/// most about once a second).
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[tauri_specta(event_name = "workloads-update")]
-pub(crate) struct WorkloadsChanged {
-    id: u32,
-    overview: WorkloadsOverview,
-}
-
-/// Connection state of the Workloads overview feed `id`.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[tauri_specta(event_name = "workloads-state")]
-pub(crate) struct WorkloadsStateChanged {
-    id: u32,
-    #[serde(flatten)]
-    state: WatchState,
+/// A message on a Workloads overview feed's channel.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub(crate) enum WorkloadsMessage {
+    /// A new overview (sent when it changed, at most about once a second).
+    Update { overview: Box<WorkloadsOverview> },
+    /// The feed's connection state changed.
+    State(WatchState),
 }
 
 /// The feed's key in `ClusterSession::watches`, so a context switch stops it
@@ -34,27 +27,28 @@ fn key(id: u32) -> String {
 }
 
 /// Start the Workloads overview feed `id` (chosen by the UI) for
-/// `namespaces` (empty: all namespaces). Replaces a feed with the same id;
-/// the UI starts a new one when the namespace selection changes.
+/// `namespaces` (empty: all namespaces), sending to `on_event`. Replaces a
+/// feed with the same id; the UI starts a new one when the namespace
+/// selection changes.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_workloads_start(
     cluster: Cluster,
     id: u32,
     namespaces: Vec<String>,
+    on_event: Channel<WorkloadsMessage>,
 ) -> Result<(), String> {
     let (client, prober) = cluster.watch_client().await?;
-    let out = cluster.emitter();
     let mut updates = watch_workloads(&client, &prober, &namespaces);
     let task = tauri::async_runtime::spawn(async move {
         while let Some(update) = updates.next().await {
-            match update {
-                WorkloadsUpdate::Summary(overview) => out.emit(WorkloadsChanged {
-                    id,
-                    overview: *overview,
-                }),
-                WorkloadsUpdate::State(state) => out.emit(WorkloadsStateChanged { id, state }),
-            }
+            let msg = match update {
+                WorkloadsUpdate::Summary(overview) => WorkloadsMessage::Update { overview },
+                WorkloadsUpdate::State(state) => WorkloadsMessage::State(state),
+            };
+            // A closed view has nobody left to read it; its feed is stopped
+            // by the view, or with its window or cluster session.
+            let _ = on_event.send(msg);
         }
     });
     cluster.add_watch(key(id), task);

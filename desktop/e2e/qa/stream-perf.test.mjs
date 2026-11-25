@@ -11,8 +11,9 @@
 // WebKitWebProcess, and their peak memory.
 //
 // The numbers go to the console, artifacts/stream-perf.json and, on GitHub
-// Actions, the job summary. The log burst and the two terminals have budgets
-// (LOG_BUDGET, TERM_BUDGET, per build); the watch is report-only.
+// Actions, the job summary. The log burst, the two terminals and the watch
+// snapshot have budgets (LOG_BUDGET, TERM_BUDGET, WATCH_BUDGET, per build);
+// the watch updates, the log download and the YAML are report-only.
 // QA_PERF_BUDGET=off turns them off.
 //
 // qa.yml builds a release binary when idle-memory runs; with
@@ -91,6 +92,16 @@ const YES_MS = 5000;
 const YES_BUDGET = RELEASE
   ? { promptMs: 1500, coreAndWebRssMb: 900 }
   : { promptMs: 5000, coreAndWebRssMb: 1200 };
+
+/**
+ * The first snapshot of a watch of PODS pods. Release, qa.yml runners
+ * (#115): 0.4-0.7 s, frame p95 16 ms, core and web 0.25 s CPU each, peak
+ * RSS core 180-340 MB and web 360-375 MB. The limits leave about 4x over
+ * that. Debug, a loaded dev box: about 3 s.
+ */
+const WATCH_BUDGET = RELEASE
+  ? { ms: 3000, p95Frame: 150, coreCpuS: 2, webCpuS: 2, coreAndWebRssMb: 1200 }
+  : { ms: 15_000, p95Frame: 400, coreCpuS: 15, webCpuS: 10, coreAndWebRssMb: 1800 };
 
 /** The keys `over` its budget, as "key value > limit" (none: budgets off). */
 function overBudget(r, budget) {
@@ -445,7 +456,7 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     console.log("watch snapshot", JSON.stringify(results.watchSnapshot));
     await app.shot("watch-5k-pods");
     // Incremental batches: CHURN deletions, at the API server's pace (the
-    // table gets them coalesced, #115). Report-only, like the snapshot.
+    // table gets them coalesced, #115). Report-only: paced by the API server.
     results.watchChurn = await measured(app, pid, rows(PODS - CHURN), () => deletePods(watchNs, "churn=yes"), {
       timeout: 300_000,
       message: `${PODS - CHURN} pod rows after deleting ${CHURN}`,
@@ -454,5 +465,6 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     await app.shot("watch-after-churn");
     // Not timed: deleting 5k pods goes at the API server's pace (minutes on
     // kind), not the app's. The namespace goes in `after`.
+    assert.deepEqual(overBudget(results.watchSnapshot, WATCH_BUDGET), [], `the ${PODS}-pod watch snapshot (${BUILD}) is over its budget`);
   });
 });

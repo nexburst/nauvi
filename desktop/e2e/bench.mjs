@@ -1,12 +1,13 @@
-// 10k-row table benchmark in the real WebKitGTK webview (report only).
+// 10k-row table benchmark in the real WebKitGTK webview, with budgets (#115).
 //
 // Serves desktop/ui-src with Vite, points the app's webview at bench.html,
 // clicks Fill, Start churn and Auto scroll, samples the page's stats (2 s
 // windows) for BENCH_SECONDS, and writes them to the console, to
 // artifacts/bench.json and, on GitHub Actions, to the job summary.
 //
-// It never fails on slow numbers; it exits non-zero only if it could not
-// measure at all (CI runs it with continue-on-error).
+// It exits non-zero when it could not measure, or when a number is over
+// its limit in BUDGET (BENCH_BUDGET=off: report only). integration.yml runs
+// it on every PR, so a regression fails the PR.
 
 import { spawn } from "node:child_process";
 import { appendFileSync, writeFileSync } from "node:fs";
@@ -63,6 +64,32 @@ function parseStats(spans) {
     batchP95: num(all, /p95 ([\d.]+) ms, max/),
     batchMax: num(all, /, max ([\d.]+) ms$/),
   };
+}
+
+/**
+ * The limits, about 2.5-3x over the slowest of 25 CI runs on main and PRs
+ * (debug build, Xvfb, no GPU, 2026-11-25): snapshot 46-95 ms, batch
+ * apply+render mean 9-19 ms and worst-window p95 17-46 ms, frame p95 23-42
+ * ms (median window), fps 54-62 (median window). `max` keys are upper
+ * limits, `min` keys lower ones. Report-only, too noisy for a limit on one
+ * runner: frame max (40-80 ms), the worst window's fps and frame p95, and
+ * the count of frames over 33 ms (21-129).
+ */
+const BUDGET = {
+  max: { fillMs: 250, batchMeanMedian: 50, batchP95Worst: 120, frameP95Median: 100 },
+  min: { fpsMedian: 30 },
+};
+
+/** "key value > limit" for every number past its limit (none when off). */
+function overBudget(s) {
+  if (process.env.BENCH_BUDGET === "off") return [];
+  const over = Object.entries(BUDGET.max)
+    .filter(([k, limit]) => !(s[k] <= limit))
+    .map(([k, limit]) => `${k} ${s[k]} > ${limit}`);
+  const under = Object.entries(BUDGET.min)
+    .filter(([k, limit]) => !(s[k] >= limit))
+    .map(([k, limit]) => `${k} ${s[k]} < ${limit}`);
+  return [...over, ...under];
 }
 
 const median = (xs) => {
@@ -129,8 +156,10 @@ async function main() {
       },
       samples,
     };
+    summary.overBudget = overBudget(summary);
     writeFileSync(join(ARTIFACTS, "bench.json"), JSON.stringify(summary, null, 2));
     report(summary);
+    if (summary.overBudget.length) throw new OverBudget(summary.overBudget);
   } finally {
     await app.close();
     vite.kill();
@@ -155,11 +184,26 @@ function report(s) {
     "",
     `<sub>${s.userAgent}</sub>`,
     "",
-    "Report only: CI runners have no GPU, so these numbers are pessimistic. Use them for trends.",
+    s.overBudget.length
+      ? `**Over budget:** ${s.overBudget.join(", ")}.`
+      : process.env.BENCH_BUDGET === "off"
+        ? "Budgets off (BENCH_BUDGET=off)."
+        : "Within budget.",
+    "",
+    `Limits (BUDGET in desktop/e2e/bench.mjs): snapshot <= ${BUDGET.max.fillMs} ms, batch mean <= ${BUDGET.max.batchMeanMedian} ms, ` +
+      `batch p95 <= ${BUDGET.max.batchP95Worst} ms, frame p95 <= ${BUDGET.max.frameP95Median} ms, fps >= ${BUDGET.min.fpsMedian}. ` +
+      "CI runners have no GPU, so the numbers are pessimistic; frame max and the worst window are report-only.",
     "",
   ].join("\n");
   console.log(md);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, md);
+}
+
+/** The run measured, and some number is past its limit. */
+class OverBudget extends Error {
+  constructor(over) {
+    super(`over budget: ${over.join(", ")}`);
+  }
 }
 
 // Exit explicitly: a leftover child (driver, webview, Vite) must not keep the
@@ -168,6 +212,8 @@ main().then(
   () => process.exit(0),
   (e) => {
     console.error(e);
+    // Over budget: the report above already says so.
+    if (e instanceof OverBudget) process.exit(1);
     const msg = `### Table benchmark\n\nCould not measure: \`${String(e.message ?? e).split("\n")[0]}\`\n`;
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, msg);
     process.exit(1);

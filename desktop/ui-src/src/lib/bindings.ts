@@ -38,10 +38,10 @@ export const commands = {
 	cmdRunAction: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, action: ActionId, replicas: number | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_run_action", { cluster, resource, namespace, name, action, replicas }, options),
 	/**
 	 *  Start the applications feed `id` (chosen by the UI) for `namespaces`
-	 *  (empty: all namespaces). Replaces a feed with the same id; the UI starts
-	 *  a new one when the namespace selection changes.
+	 *  (empty: all namespaces), sending to `on_event`. Replaces a feed with the
+	 *  same id; the UI starts a new one when the namespace selection changes.
 	 */
-	cmdApplicationsStart: (cluster: string, id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_start", { cluster, id, namespaces }, options),
+	cmdApplicationsStart: (cluster: string, id: number, namespaces: string[], onEvent: Channel<ApplicationsMessage>, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_start", { cluster, id, namespaces, onEvent }, options),
 	cmdApplicationsStop: (cluster: string, id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_applications_stop", { cluster, id }, options),
 	/**
 	 *  The CLIs Ask AI can start, from this process's `PATH` (the login
@@ -346,8 +346,10 @@ export const commands = {
 	 *  Save log text to the user's Downloads folder and return the path. A
 	 *  webview Blob download is not reliable across the platforms Tauri targets
 	 *  and there is no file dialog without an extra plugin, so we write directly.
+	 *  The text comes as raw bytes (#115), `<file name>\n<log text>`: call it
+	 *  through `saveLogs` in `lib/rawIpc.ts`.
 	 */
-	cmdSaveLogs: (filename: string, content: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_save_logs", { filename, content }, options),
+	cmdSaveLogs: (options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_save_logs", undefined, options),
 	/**
 	 *  Stop one log stream (pod or workload, with every per-pod task under it).
 	 *  Other streams keep running.
@@ -512,8 +514,12 @@ export const commands = {
 	cmdGetRelated: (cluster: string, resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<Related>("cmd_get_related", { cluster, resource, namespace, name }, options),
 	/**  Detail of any object; pods include their `pod` section. */
 	cmdGetResourceDetail: (cluster: string, resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ResourceDetail>("cmd_get_resource_detail", { cluster, resource, namespace, name }, options),
-	/**  An object as YAML. Secret values stay hidden unless `reveal` is set. */
-	cmdGetResourceYaml: (cluster: string, resource: ResourceRef, namespace: string, name: string, reveal: boolean, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_get_resource_yaml", { cluster, resource, namespace, name, reveal }, options),
+	/**
+	 *  An object as YAML. Secret values stay hidden unless `reveal` is set.
+	 *  The YAML comes as raw UTF-8 (#115): decode it with `yamlText` in
+	 *  `lib/rawIpc.ts`.
+	 */
+	cmdGetResourceYaml: (cluster: string, resource: ResourceRef, namespace: string, name: string, reveal: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ArrayBuffer>("cmd_get_resource_yaml", { cluster, resource, namespace, name, reveal }, options),
 	/**
 	 *  Save edited keys of a Secret or ConfigMap with a JSON merge patch of
 	 *  only those keys. `resource_version` is the version they were loaded at
@@ -610,17 +616,16 @@ export const commands = {
 	cmdWorkloadUsageHistory: (cluster: string, kind: string, namespace: string, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_workload_usage_history", { cluster, kind, namespace, name, range }, options),
 	/**
 	 *  Start the Workloads overview feed `id` (chosen by the UI) for
-	 *  `namespaces` (empty: all namespaces). Replaces a feed with the same id;
-	 *  the UI starts a new one when the namespace selection changes.
+	 *  `namespaces` (empty: all namespaces), sending to `on_event`. Replaces a
+	 *  feed with the same id; the UI starts a new one when the namespace
+	 *  selection changes.
 	 */
-	cmdWorkloadsStart: (cluster: string, id: number, namespaces: string[], options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_start", { cluster, id, namespaces }, options),
+	cmdWorkloadsStart: (cluster: string, id: number, namespaces: string[], onEvent: Channel<WorkloadsMessage>, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_start", { cluster, id, namespaces, onEvent }, options),
 	cmdWorkloadsStop: (cluster: string, id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_workloads_stop", { cluster, id }, options),
 };
 
 /** Events */
 export const events = {
-	applicationsState: makeEvent<ApplicationsStateChanged, ApplicationsStateChanged>("applications-state"),
-	applicationsUpdate: makeEvent<ApplicationsChanged, ApplicationsChanged>("applications-update"),
 	clusterStateChanged: makeEvent<ClusterStateChanged, ClusterStateChanged>("cluster-state-changed"),
 	drainFinished: makeEvent<DrainFinished, DrainFinished>("drain-finished"),
 	drainProgress: makeEvent<DrainProgress, DrainProgress>("drain-progress"),
@@ -628,8 +633,6 @@ export const events = {
 	linkPending: makeEvent<LinkPending, LinkPending>("link-pending"),
 	unsavedCloseRequested: makeEvent<UnsavedCloseRequested, UnsavedCloseRequested>("unsaved-close-requested"),
 	updateProgress: makeEvent<UpdateProgress, UpdateProgress>("update-progress"),
-	workloadsState: makeEvent<WorkloadsStateChanged, WorkloadsStateChanged>("workloads-state"),
-	workloadsUpdate: makeEvent<WorkloadsChanged, WorkloadsChanged>("workloads-update"),
 };
 
 /* Types */
@@ -755,15 +758,6 @@ export type Application = {
 	created: number,
 };
 
-/**
- *  A new applications list for the feed `id` (sent when it changed, at
- *  most about once a second).
- */
-export type ApplicationsChanged = {
-	id: number,
-	list: ApplicationsList,
-};
-
 /**  The applications of the selected namespaces. */
 export type ApplicationsList = {
 	/**  Sorted by namespace and name. */
@@ -772,9 +766,16 @@ export type ApplicationsList = {
 	notes: string[],
 };
 
-/**  Connection state of the applications feed `id`. */
-export type ApplicationsStateChanged = {
-	id: number,
+/**  A message on an applications feed's channel. */
+export type ApplicationsMessage = 
+/**
+ *  A new applications list (sent when it changed, at most about once a
+ *  second).
+ */
+{ type: "update"; list: ApplicationsList } | 
+/**  The feed's connection state changed. */
+{
+	type: "state",
 } & WatchState;
 
 /**  What an apply did. */
@@ -3170,14 +3171,14 @@ export type WorkloadStatus =
 /**  A pod phase this version does not know. */
 "Unknown";
 
-/**
- *  A new Workloads overview for the feed `id` (sent when it changed, at
- *  most about once a second).
- */
-export type WorkloadsChanged = {
-	id: number,
-	overview: WorkloadsOverview,
-};
+/**  A message on a Workloads overview feed's channel. */
+export type WorkloadsMessage = 
+/**  A new overview (sent when it changed, at most about once a second). */
+{ type: "update"; overview: WorkloadsOverview } | 
+/**  The feed's connection state changed. */
+{
+	type: "state",
+} & WatchState;
 
 /**  The Workloads overview of the selected namespaces. */
 export type WorkloadsOverview = {
@@ -3194,11 +3195,6 @@ export type WorkloadsOverview = {
 	/**  What is missing or narrowed, and why. */
 	notes: string[],
 };
-
-/**  Connection state of the Workloads overview feed `id`. */
-export type WorkloadsStateChanged = {
-	id: number,
-} & WatchState;
 
 /* Tauri Specta runtime */
 type EventEmit<T> = [T] extends [null] ? () => Promise<void> : (payload: T) => Promise<void>;

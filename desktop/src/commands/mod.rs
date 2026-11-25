@@ -31,6 +31,7 @@ pub(crate) mod pod_env;
 pub(crate) mod portforward;
 pub(crate) mod prometheus;
 pub(crate) mod proxy;
+pub(crate) mod raw_body;
 pub(crate) mod resources;
 pub(crate) mod settings;
 pub(crate) mod term_frame;
@@ -177,15 +178,11 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
         .events(collect_events![
             actions::DrainFinished,
             actions::DrainProgress,
-            applications::ApplicationsChanged,
-            applications::ApplicationsStateChanged,
             crate::catalog::KubeconfigsChanged,
             crate::state::idle::ClusterStateChanged,
             links::LinkPending,
             updater::UpdateProgress,
             window::UnsavedCloseRequested,
-            workloads::WorkloadsChanged,
-            workloads::WorkloadsStateChanged,
         ])
         // Counters and epoch seconds stay far below 2^53.
         .dangerously_cast_bigints_to_number()

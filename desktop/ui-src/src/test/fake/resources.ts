@@ -135,7 +135,8 @@ export function resourcesHandlers(s: FakeState) {
       const { kind, row } = findRow(s, resource, namespace, name);
       const key = `${kind.id}|${row.key}`;
       const yaml = (reveal && cluster.revealedYaml[key]) || cluster.yaml[key] || defaultYaml(kind, row);
-      return withResourceVersion(yaml, cluster.resourceVersions[key] ?? 1);
+      // Raw UTF-8, like the backend (#115).
+      return new TextEncoder().encode(withResourceVersion(yaml, cluster.resourceVersions[key] ?? 1)).buffer;
     },
     cmdApplyResourceYaml: (resource, namespace, name, yaml, resourceVersion, dryRun) => {
       const { kind, row } = findRow(s, resource, namespace, name);

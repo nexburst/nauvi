@@ -1,5 +1,5 @@
 <script module lang="ts">
-  /** Feed ids, unique across mounts so a stale feed's events are ignored. */
+  /** Feed ids, unique across mounts so a stale feed's messages are ignored. */
   let nextFeed = 0;
 </script>
 
@@ -9,10 +9,9 @@
   import { settings } from "../stores/settings.svelte";
   import { onDestroy, untrack } from "svelte";
   import VirtualList from "./VirtualList.svelte";
-  import { events } from "../bindings";
+  import { Channel } from "@tauri-apps/api/core";
   import { api, visibleCluster } from "../cluster";
-  import type { ApplicationsStateChanged } from "../bindings";
-  import { thisWindow } from "../window";
+  import type { ApplicationsMessage, WatchState } from "../bindings";
   import { app, setStatus, showError, stamp } from "../stores/app.svelte";
   import { apps, applyApplications, resetApplications, selectApplication } from "../stores/applications.svelte";
   import { clusterError } from "../clusterError";
@@ -56,16 +55,14 @@
     if (scrollEl) return watchGutter(scrollEl, (px) => (gutter = px));
   });
 
-  const listening = Promise.all([
-    events.applicationsUpdate(thisWindow()).listen((e) => {
-      if (e.payload.id !== feed) return;
-      applyApplications(e.payload.list);
-      stamp();
-    }),
-    events.applicationsState(thisWindow()).listen((e) => {
-      if (e.payload.id === feed) onState(e.payload);
-    }),
-  ]);
+  // A new list when something changes, and a state when the connection
+  // changes, on the channel of the feed (#115).
+  function onMessage(id: number, m: ApplicationsMessage) {
+    if (id !== feed) return;
+    if (m.type === "state") return onState(m);
+    applyApplications(m.list);
+    stamp();
+  }
 
   /** The banner message this view set, so it clears only its own. */
   let shown = "";
@@ -78,7 +75,7 @@
     shown = "";
   }
 
-  function onState(s: ApplicationsStateChanged) {
+  function onState(s: WatchState) {
     if (s.state === "live") {
       giveUp.clear();
       setStatus(true, "Live");
@@ -120,10 +117,9 @@
       clearError();
     }
     setStatus(null, again ? "Retrying…" : "Connecting…");
-    await listening;
-    if (feed !== id) return;
     try {
-      await api(visibleCluster()).cmdApplicationsStart(id, namespaces);
+      const channel = new Channel<ApplicationsMessage>((m) => onMessage(id, m));
+      await api(visibleCluster()).cmdApplicationsStart(id, namespaces, channel);
     } catch (e) {
       if (feed !== id) return;
       const err = clusterError(e);
@@ -149,7 +145,6 @@
     clearInterval(ageTimer);
     stop();
     resetApplications();
-    listening.then((uns) => uns.forEach((un) => un()));
   });
 
   const visible = $derived(visibleApps(apps.rows.entries, app.search, sort));
