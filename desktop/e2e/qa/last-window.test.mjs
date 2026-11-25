@@ -84,5 +84,13 @@ describe("#174: closing the last window (Linux: quits)", { timeout: 10 * 60_000,
     await assert.rejects(fetch(url), "the forwarded port is closed");
     await app.restart({ wait: 0 });
     await waitLive(app);
+    // The reopened app comes back on Port Forwards once discovery has run,
+    // and says Live there: that view watches nothing, so the overview it
+    // replaced must not leave "Connecting…" behind (#459).
+    await app.waitFor(
+      async () => (await app.js('return document.querySelector("nav button.active")?.textContent.trim()')) === "Port Forwards",
+      { timeout: 60_000, message: "the remembered Port Forwards view" },
+    );
+    await waitLive(app);
   });
 });
