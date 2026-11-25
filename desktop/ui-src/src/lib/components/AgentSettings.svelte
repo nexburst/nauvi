@@ -29,8 +29,10 @@
   <legend>Agents</legend>
   <p class="hint">
     Use the coding agent you already have (Claude Code, Codex, Cursor, Gemini CLI…) with this cluster. nauvi has no
-    model and stores no key: your agent signs in itself. Give it the <code>nauvi mcp</code> tools with one of these
-    entries{context ? `, for ${contextLabel(context)}` : ""}.
+    model and stores no key: your agent signs in itself. Ask AI gives the CLIs it starts the nauvi skill and no MCP
+    server; for an agent without skills (Cursor, Claude Desktop, VS Code), you can add the <code>nauvi mcp</code>
+    tools yourself with one of these entries{context ? `, for ${contextLabel(context)}` : ""}. nauvi never adds them
+    for you.
   </p>
   {#each entries as e (e.client)}
     <div class="entry">

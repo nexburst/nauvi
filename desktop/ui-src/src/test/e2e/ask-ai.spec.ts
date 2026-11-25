@@ -47,7 +47,7 @@ test("without an AI CLI there is no Ask AI button, and the palette says what to 
   expect(fake.errors).toEqual([]);
 });
 
-test("Ask AI about a pod starts the CLI in a dock tab, read-only, with the pod in the prompt", async ({ page }) => {
+test("Ask AI about a pod starts the CLI in a dock tab, with the skill and the pod in the prompt", async ({ page }) => {
   const fake = await openApp(page, withClis);
   await openKind(page, "Pods");
   await row(page, "web-1").click();
