@@ -6,8 +6,9 @@
 #   scripts/test-install/fixtures.sh <dir> <tag> [--tamper]
 #
 # --tamper changes the assets after SHA256SUMS is written, so every checksum
-# check must fail. The macOS .dmg is only written where hdiutil exists, the
-# Windows CLI .zip where python3 exists.
+# check must fail. The macOS .dmg (with a licence agreement, like the
+# release's) is only written where hdiutil exists, the Windows CLI .zip
+# where python3 exists.
 set -eu
 
 [ $# -ge 2 ] || {

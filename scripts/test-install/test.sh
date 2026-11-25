@@ -1,8 +1,9 @@
 #!/bin/sh
 # Runs install.sh against fake releases (fixtures.sh) on Linux or macOS
-# (#430): install, upgrade, --cli, a tampered release (must fail and change
-# nothing), refused URLs and --uninstall. Everything goes into a temporary
-# HOME; nothing outside it is touched.
+# (#430): install, upgrade, both ways of opening the DMG on macOS (#467),
+# --cli, a tampered release (must fail and change nothing), refused URLs and
+# --uninstall. Everything goes into a temporary HOME; nothing outside it is
+# touched.
 #
 #   scripts/test-install/test.sh            # from anywhere in the repo
 set -eu
@@ -12,7 +13,6 @@ installer="$root/install.sh"
 fixtures="$root/scripts/test-install/fixtures.sh"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-sh "$root/scripts/test-install/probe-467.sh" || true # TEMP #467
 
 sh "$fixtures" "$work/v1" v0.0.1 >/dev/null
 sh "$fixtures" "$work/v2" v0.0.2 >/dev/null
@@ -66,6 +66,32 @@ fi
 
 check "app upgrade to v2" run v2
 check "app is v2" test "$(app_version)" = "nauvi-desktop 0.0.2"
+
+# macOS: both ways of opening the DMG (#467), each without the other as a
+# fallback. The fixture DMG has a licence agreement, like the release's.
+if [ "$(uname -s)" = Darwin ]; then
+  with_tool() {
+    # $1: diskutil or hdiutil, $2: release dir.
+    NAUVI_TEST_DMG_TOOL=$1 NAUVI_DOWNLOAD_BASE="file://$work/$2" sh "$installer" >"$work/out" 2>&1
+  }
+  not_mounted() { ! mount | grep -q 'nauvi-install\.'; }
+  no_quarantine() { ! xattr -p com.apple.quarantine "$NAUVI_APP_DIR/nauvi.app" >/dev/null 2>&1; }
+  if diskutil image >/dev/null 2>&1; then
+    check "diskutil image: install v1" with_tool diskutil v1
+    cat "$work/out"
+    check "diskutil image: app is v1" test "$(app_version)" = "nauvi-desktop 0.0.1"
+    check "diskutil image: no deprecation warning" sh -c "! grep -qi deprecated '$work/out'"
+    check "diskutil image: DMG detached" not_mounted
+    check "diskutil image: no quarantine flag" no_quarantine
+  else
+    echo "skip  diskutil image: not on macOS $(sw_vers -productVersion)"
+  fi
+  check "hdiutil: install v2" with_tool hdiutil v2
+  cat "$work/out"
+  check "hdiutil: app is v2" test "$(app_version)" = "nauvi-desktop 0.0.2"
+  check "hdiutil: DMG detached" not_mounted
+  check "hdiutil: no quarantine flag" no_quarantine
+fi
 
 if run bad; then fail "tampered app release must fail"; else pass "tampered app release fails"; fi
 check "tampered: says checksum mismatch" has "$work/out" "checksum mismatch"
