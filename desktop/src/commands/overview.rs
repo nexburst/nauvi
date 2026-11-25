@@ -1,4 +1,5 @@
-//! The live overview, pushed to the webview as events while it is open.
+//! The live overview, pushed to the webview while it is open, on the
+//! channel the start command was given (#115).
 
 use crate::commands::cluster::metrics_hidden;
 use crate::commands::prometheus::prometheus_for;
@@ -9,27 +10,37 @@ use futures::StreamExt;
 use nauvi::watch::WatchState;
 use nauvi::{prometheus_cluster_usage, watch_overview_with, Overview, OverviewUpdate, UsageSample};
 use serde::Serialize;
-use specta::Type;
+use specta::datatype::DataType;
+use specta::{Type, Types};
 use std::sync::Arc;
+use tauri::ipc::Channel;
 use tauri::State;
-use tauri_specta::Event;
 
-/// A new overview for the overview feed `id` (sent when it changed, at
-/// most about once a second).
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[tauri_specta(event_name = "overview-update")]
-pub(crate) struct OverviewChanged {
-    id: u32,
-    overview: Overview,
+/// A message on an overview feed's channel.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub(crate) enum OverviewMessage {
+    /// A new overview (sent when it changed, at most about once a second).
+    Update { overview: Box<Overview> },
+    /// The feed's connection state changed.
+    State(WatchState),
 }
 
-/// Connection state of the overview feed `id`.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[tauri_specta(event_name = "overview-state")]
-pub(crate) struct OverviewStateChanged {
-    id: u32,
-    #[serde(flatten)]
-    state: WatchState,
+/// What the overview channel carries: an [`OverviewMessage`], typed in
+/// `bindings.ts` as the shape the backend sends. A channel's item is a
+/// command argument, so specta would otherwise type it with the
+/// `_Deserialize` variant of `Overview` (its `Option` fields optional).
+#[derive(Debug, Clone, Serialize)]
+#[serde(transparent)]
+pub(crate) struct OverviewFrame(OverviewMessage);
+
+impl Type for OverviewFrame {
+    fn definition(types: &mut Types) -> DataType {
+        // Exports `OverviewMessage` (split into `_Serialize` and
+        // `_Deserialize`); `npm run check` fails if the name changes.
+        types.define::<OverviewMessage>();
+        specta_typescript::define("OverviewMessage_Serialize").into()
+    }
 }
 
 /// The feed's key in `ClusterSession::watches`, so a context switch stops it
@@ -38,8 +49,8 @@ fn key(id: u32) -> String {
     format!("overview-{id}")
 }
 
-/// Start the overview feed `id` (chosen by the UI, so no event can arrive
-/// before it knows the id). Parts the user may not see cluster-wide fall
+/// Start the overview feed `id` (chosen by the UI), sending to `on_event`.
+/// Parts the user may not see cluster-wide fall
 /// back to `namespace` (`null` = the context's namespace). Replaces a feed
 /// with the same id.
 #[tauri::command]
@@ -49,21 +60,21 @@ pub(crate) async fn cmd_overview_start(
     settings: State<'_, Arc<SettingsStore>>,
     id: u32,
     namespace: Option<String>,
+    on_event: Channel<OverviewFrame>,
 ) -> Result<(), String> {
     let (client, prober) = cluster.watch_client().await?;
-    let out = cluster.emitter();
     // Metrics hidden for the cluster (#327): no node usage polling.
     let usage = !metrics_hidden(&cluster, &settings);
     let mut updates = watch_overview_with(&client, &prober, namespace.as_deref(), usage);
     let task = tauri::async_runtime::spawn(async move {
         while let Some(update) = updates.next().await {
-            match update {
-                OverviewUpdate::Summary(overview) => out.emit(OverviewChanged {
-                    id,
-                    overview: *overview,
-                }),
-                OverviewUpdate::State(state) => out.emit(OverviewStateChanged { id, state }),
-            }
+            let msg = match update {
+                OverviewUpdate::Summary(overview) => OverviewMessage::Update { overview },
+                OverviewUpdate::State(state) => OverviewMessage::State(state),
+            };
+            // A closed overview has nobody left to read it; its feed is
+            // stopped by the view, or with its window or cluster session.
+            let _ = on_event.send(OverviewFrame(msg));
         }
     });
     cluster.add_watch(key(id), task);

@@ -3,7 +3,8 @@
 //   - 10 MB printed in a pod terminal, and in a local shell (no cluster in
 //     the way: only the app's part), with how long key presses take to be
 //     handled while it floods,
-//   - the first snapshot of a watch of 5k pods,
+//   - the first snapshot of a watch of 5k pods, and the incremental
+//     batches while 1k of them are deleted,
 // with the frame times of the page, the CPU time of the core and of the
 // WebKitWebProcess, and their peak memory.
 //
@@ -39,6 +40,8 @@ const BUILD = RELEASE ? "release" : "debug";
 const LOG_LINES = 50_000;
 const TERM_BYTES = 10 * 1024 * 1024;
 const PODS = Number(process.env.QA_PERF_PODS || 5000);
+/** Pods deleted while the table watches, for its incremental batches. */
+const CHURN = Math.floor(PODS / 5);
 
 /** Log bursts measured; the median one is reported and checked. */
 const BURSTS = 3;
@@ -122,7 +125,10 @@ async function createPods(namespace, count, chunks = 8) {
   const pod = (i) => ({
     apiVersion: "v1",
     kind: "Pod",
-    metadata: { name: `w-${String(i).padStart(5, "0")}`, labels: { app: "qa-watch" } },
+    metadata: {
+      name: `w-${String(i).padStart(5, "0")}`,
+      labels: { app: "qa-watch", churn: i < CHURN ? "yes" : "no" },
+    },
     // Gated: never scheduled, so no node runs them (#115 only watches them).
     spec: { schedulingGates: [{ name: "nauvi.qa/hold" }], containers: [{ name: "c", image: "busybox:1.36" }] },
   });
@@ -144,6 +150,18 @@ async function createPods(namespace, count, chunks = 8) {
   );
 }
 
+/** Delete the pods of `selector` without waiting for them to go (async, so
+ *  the memory sampler keeps running). */
+function deletePods(namespace, selector) {
+  return new Promise((done, fail) => {
+    const args = ["--context", CONTEXT, "-n", namespace, "delete", "pods", "-l", selector, "--wait=false"];
+    const p = spawn("kubectl", args, { stdio: ["ignore", "ignore", "pipe"] });
+    let err = "";
+    p.stderr.on("data", (d) => (err += d));
+    p.on("exit", (code) => (code === 0 ? done() : fail(new Error(`kubectl delete: ${err}`))));
+  });
+}
+
 function report() {
   const row = (label, r) =>
     r
@@ -158,6 +176,7 @@ function report() {
     row("Pod terminal, 10 MB", results.terminal),
     row("Local shell, 10 MB", results.localShell),
     row(`Watch snapshot, ${PODS.toLocaleString("en")} pods`, results.watchSnapshot),
+    row(`Watch updates, ${CHURN.toLocaleString("en")} of them deleted`, results.watchChurn),
     "",
     ...[
       ["pod terminal", results.terminal],
@@ -348,6 +367,14 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     });
     console.log("watch snapshot", JSON.stringify(results.watchSnapshot));
     await app.shot("watch-5k-pods");
+    // Incremental batches: CHURN deletions, at the API server's pace (the
+    // table gets them coalesced, #115). Report-only, like the snapshot.
+    results.watchChurn = await measured(app, pid, rows(PODS - CHURN), () => deletePods(watchNs, "churn=yes"), {
+      timeout: 300_000,
+      message: `${PODS - CHURN} pod rows after deleting ${CHURN}`,
+    });
+    console.log("watch churn", JSON.stringify(results.watchChurn));
+    await app.shot("watch-after-churn");
     // Not timed: deleting 5k pods goes at the API server's pace (minutes on
     // kind), not the app's. The namespace goes in `after`.
   });

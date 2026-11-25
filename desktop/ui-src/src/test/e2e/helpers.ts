@@ -1,7 +1,7 @@
 import { expect } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import type { DetailState, LinkRequest, Overview_Serialize, ResourceRow, WatchBatch, WatchState } from "../../lib/bindings";
-import type { CallArgs, CommandName, FakeApi } from "../fake-backend";
+import type { DetailState, LinkRequest, Overview_Serialize, ResourceRow, WatchState } from "../../lib/bindings";
+import type { CallArgs, CommandName, FakeApi, WatchBatch } from "../fake-backend";
 import type { FakeCluster } from "../fixtures/cluster";
 
 /**

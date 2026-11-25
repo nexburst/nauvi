@@ -1,34 +1,33 @@
 // Table and detail watches (`commands/watch.rs`).
 
-import { events } from "../../lib/bindings";
-import { findRow, kindOf, rowsOf } from "./state";
+import { findRow, kindOf, rowsOf, sendWatch } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
 
 export function watchHandlers(s: FakeState) {
   const { cluster } = s;
   return {
-    cmdWatchStart: (resource, namespace) => {
+    cmdWatchStart: (resource, namespace, onEvent) => {
       const kind = kindOf(s, resource);
       const id = `watch-${++s.watchSeq}`;
       s.watches.push({ id, kind, namespace });
+      s.watchChannels.set(id, onEvent);
       // Of the cluster the call names (`byCluster`), looked up now.
       const rows = rowsOf(s, kind);
-      // Like the backend: the full list first, then "live". Sent after the
-      // reply so the store knows the id (it also buffers early events).
+      // Like the backend: the full list first, then "live", on the channel.
       setTimeout(() => {
         const denied = namespace
           ? cluster.deniedNamespaces.includes(namespace)
           : cluster.deniedClusterWide.includes(kind.id);
         if (denied) {
           // Like the backend: a 403 ends the watch with one "forbidden".
-          void events.watchState.emit({ id, state: "forbidden", error: `${kind.resource.plural} is forbidden` });
+          sendWatch(s, id, { type: "state", state: "forbidden", error: `${kind.resource.plural} is forbidden` });
           return;
         }
         const applied = rows.filter((r) => !namespace || r.namespace === namespace);
-        void events.watchBatch.emit({ id, snapshot: true, applied, deleted: [] });
+        sendWatch(s, id, { type: "batch", snapshot: true, applied, deleted: [] });
         // Like the backend: a kind without the watch verb is polled.
-        if (kind.verbs.includes("watch")) void events.watchState.emit({ id, state: "live" });
-        else void events.watchState.emit({ id, state: "polling", interval_secs: 30 });
+        if (kind.verbs.includes("watch")) sendWatch(s, id, { type: "state", state: "live" });
+        else sendWatch(s, id, { type: "state", state: "polling", interval_secs: 30 });
       }, 0);
       return id;
     },
@@ -38,10 +37,11 @@ export function watchHandlers(s: FakeState) {
       s.detailWatches.delete(id);
       return null;
     },
-    cmdDetailWatch: (resource, namespace, name) => {
+    cmdDetailWatch: (resource, namespace, name, onEvent) => {
       const { kind, row } = findRow(s, resource, namespace, name);
       const id = `detail-${++s.detailSeq}`;
       s.detailWatches.set(id, `${kind.id}|${row.key}`);
+      s.detailChannels.set(id, onEvent);
       return id;
     },
   } satisfies AreaHandlers;

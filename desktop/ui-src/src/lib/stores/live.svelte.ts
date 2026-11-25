@@ -1,8 +1,7 @@
 import { GiveUp, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
-import { events } from "../bindings";
+import { Channel } from "@tauri-apps/api/core";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
-import { thisWindow } from "../window";
-import type { WatchBatch, WatchStateChanged } from "../bindings";
+import type { WatchMessage } from "../bindings";
 import type { MetricsKind, MetricsSnapshot, ResourceKind } from "../bindings";
 import { EMPTY_METRICS, HIDDEN_METRICS, isNode, isPod } from "../columns";
 import type { Metrics, Row } from "../columns";
@@ -16,14 +15,14 @@ import { onAgeTick } from "../ageClock";
 
 const METRICS_INTERVAL_MS = 20_000;
 
-type WatchEvent = { kind: "batch"; payload: WatchBatch } | { kind: "state"; payload: WatchStateChanged };
-
 /** One backend watch: a namespace, or `""` for all namespaces / cluster scope. */
 interface Watch {
   key: string;
   /** Known once `cmd_watch_start` resolves. */
   id: string | null;
   starting: boolean;
+  /** Stopped or given up: what its channel still delivers is dropped. */
+  done: boolean;
   status: WatchStatus;
   retry: ReturnType<typeof setTimeout> | null;
   /** Counts how long it has been reconnecting. */
@@ -33,8 +32,9 @@ interface Watch {
 /**
  * The live table behind every resource view.
  *
- * The backend watches the cluster and pushes coalesced `watch-batch` events
- * ({snapshot, applied, deleted}); they land in a keyed store. With several
+ * The backend watches the cluster and pushes coalesced batches
+ * ({snapshot, applied, deleted}) and state changes on the channel each
+ * watch was started with (#115); the batches land in a keyed store. With several
  * namespaces selected there is one watch per namespace, all feeding the same
  * store: each watch is a source there, so its snapshot only replaces its own
  * rows. Metrics cannot be watched, so they are polled and merged at render
@@ -50,9 +50,6 @@ export class LiveTable {
   #kind: ResourceKind | null = null;
   /** The running watches by key, in selection order. */
   #watches = new Map<string, Watch>();
-  #byId = new Map<string, Watch>();
-  /** Events that arrived before their `cmd_watch_start` resolved. */
-  #pending: WatchEvent[] = [];
   /** Bumped when the watched set changes, to drop stale metrics. */
   #token = 0;
   #metricsTimer: ReturnType<typeof setInterval> | null = null;
@@ -60,30 +57,15 @@ export class LiveTable {
   /** Metrics hidden for the cluster (#327): nothing is polled. */
   #metricsHidden = false;
 
-  /** Subscribe to the backend events; returns a cleanup function. */
-  async listen(): Promise<() => void> {
-    const unlisteners = await Promise.all([
-      events.watchBatch(thisWindow()).listen((e) => this.#onEvent({ kind: "batch", payload: e.payload })),
-      events.watchState(thisWindow()).listen((e) => this.#onEvent({ kind: "state", payload: e.payload })),
-    ]);
-    return () => unlisteners.forEach((un) => un());
-  }
-
-  #onEvent(ev: WatchEvent) {
-    const w = this.#byId.get(ev.payload.id);
-    if (w) this.#handle(w, ev);
-    // The id is only known once cmd_watch_start resolves; replay then.
-    // Anything else is from a stopped watch.
-    else if (this.#anyStarting()) this.#pending.push(ev);
-  }
-
-  #handle(w: Watch, ev: WatchEvent) {
-    if (ev.kind === "batch") {
-      this.store.applyBatch(ev.payload, w.key);
+  /** One message on the channel of `w`; it may come before its id is known. */
+  #handle(w: Watch, m: WatchMessage) {
+    if (w.done) return;
+    if (m.type === "batch") {
+      this.store.applyBatch(m, w.key);
       if (!this.synced) this.synced = true;
       stamp();
     } else {
-      const s = ev.payload;
+      const s = m;
       w.status = {
         namespace: w.status.namespace,
         state: s.state,
@@ -96,11 +78,6 @@ export class LiveTable {
       if (s.state === "reconnecting") w.giveUp.arm(() => this.#giveUp(w));
       else w.giveUp.clear();
     }
-  }
-
-  #anyStarting(): boolean {
-    for (const w of this.#watches.values()) if (w.starting) return true;
-    return false;
   }
 
   #publishState() {
@@ -174,6 +151,7 @@ export class LiveTable {
       key,
       id: null,
       starting: true,
+      done: false,
       status: { namespace, state: "connecting", error: "" },
       retry: null,
       giveUp: new GiveUp(),
@@ -181,11 +159,12 @@ export class LiveTable {
     this.#watches.set(key, w);
     let id: string;
     try {
-      id = await api(visibleCluster()).cmdWatchStart(kind.resource, namespace);
+      // Its own channel: messages arrive in order, only here (#115).
+      const channel = new Channel<WatchMessage>((m) => this.#handle(w, m));
+      id = await api(visibleCluster()).cmdWatchStart(kind.resource, namespace, channel);
     } catch (e) {
       if (this.#watches.get(key) !== w) return;
       w.starting = false;
-      if (!this.#anyStarting()) this.#pending = [];
       const err = clusterError(e);
       // Wait longer each time, and stop after a few minutes (lib/retry.ts):
       // Refresh, or opening the table again, starts over.
@@ -211,22 +190,17 @@ export class LiveTable {
     if (this.#watches.get(key) !== w) {
       // Stopped (or the table restarted) while starting.
       api(visibleCluster()).cmdWatchStop(id).catch(() => {});
-      if (!this.#anyStarting()) this.#pending = [];
       return;
     }
     w.id = id;
     w.starting = false;
     this.#attempts.delete(key);
-    this.#byId.set(id, w);
-    const mine = this.#pending.filter((ev) => ev.payload.id === id);
-    this.#pending = this.#anyStarting() ? this.#pending.filter((ev) => ev.payload.id !== id) : [];
-    for (const ev of mine) this.#handle(w, ev);
   }
 
   /** Stop a watch that kept reconnecting; its rows stay, marked as not current. */
   #giveUp(w: Watch) {
     if (this.#watches.get(w.key) !== w || !w.id) return;
-    this.#byId.delete(w.id);
+    w.done = true;
     api(visibleCluster()).cmdWatchStop(w.id).catch(() => {});
     w.id = null;
     w.status = {
@@ -239,24 +213,20 @@ export class LiveTable {
   }
 
   #stopWatch(w: Watch) {
+    w.done = true;
     w.giveUp.clear();
     // A namespace selected again starts its retries over.
     this.#attempts.delete(w.key);
     if (w.retry) clearTimeout(w.retry);
     w.retry = null;
     if (this.#watches.get(w.key) === w) this.#watches.delete(w.key);
-    if (w.id) {
-      this.#byId.delete(w.id);
-      api(visibleCluster()).cmdWatchStop(w.id).catch(() => {});
-    }
+    if (w.id) api(visibleCluster()).cmdWatchStop(w.id).catch(() => {});
   }
 
   stop() {
     this.#token++;
     for (const w of [...this.#watches.values()]) this.#stopWatch(w);
     this.#watches.clear();
-    this.#byId.clear();
-    this.#pending = [];
     if (this.#metricsTimer) clearInterval(this.#metricsTimer);
     this.#stopAges?.();
     this.#metricsTimer = this.#stopAges = null;

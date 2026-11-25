@@ -385,12 +385,12 @@ export const commands = {
 	/**  Every add-on, with its pinned chart, repository and starting values. */
 	cmdMetricsAddons: (options?: InvokeOptions) => __TAURI_INVOKE<MetricsAddon[]>("cmd_metrics_addons", undefined, options),
 	/**
-	 *  Start the overview feed `id` (chosen by the UI, so no event can arrive
-	 *  before it knows the id). Parts the user may not see cluster-wide fall
+	 *  Start the overview feed `id` (chosen by the UI), sending to `on_event`.
+	 *  Parts the user may not see cluster-wide fall
 	 *  back to `namespace` (`null` = the context's namespace). Replaces a feed
 	 *  with the same id.
 	 */
-	cmdOverviewStart: (cluster: string, id: number, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_start", { cluster, id, namespace }, options),
+	cmdOverviewStart: (cluster: string, id: number, namespace: string | null, onEvent: Channel<OverviewMessage_Serialize>, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_start", { cluster, id, namespace, onEvent }, options),
 	cmdOverviewStop: (cluster: string, id: number, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_overview_stop", { cluster, id }, options),
 	/**
 	 *  The last hour of the cluster's CPU and memory use from the context's
@@ -560,15 +560,16 @@ export const commands = {
 	 */
 	cmdUsageHistory: (cluster: string, what: MetricsKind, namespace: string | null, name: string, range: UsageRange, options?: InvokeOptions) => __TAURI_INVOKE<UsageHistoryView>("cmd_usage_history", { cluster, what, namespace, name, range }, options),
 	/**
-	 *  Watch one object for the detail panel. Returns the watch id carried by
-	 *  the `detail-watch` events; stop it with `cmd_watch_stop`.
+	 *  Watch one object for the detail panel: each new detail (or `deleted`,
+	 *  or a watch error) goes to `on_event`. Returns the watch id; stop it
+	 *  with `cmd_watch_stop`.
 	 */
-	cmdDetailWatch: (cluster: string, resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_detail_watch", { cluster, resource, namespace, name }, options),
+	cmdDetailWatch: (cluster: string, resource: ResourceRef, namespace: string, name: string, onEvent: Channel<DetailState>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_detail_watch", { cluster, resource, namespace, name, onEvent }, options),
 	/**
-	 *  Start watching a kind (in `namespace`, if it is namespaced). Returns the
-	 *  watch id carried by the `watch-batch` / `watch-state` events.
+	 *  Start watching a kind (in `namespace`, if it is namespaced); its rows
+	 *  and states go to `on_event`. Returns the watch id for `cmd_watch_stop`.
 	 */
-	cmdWatchStart: (cluster: string, resource: ResourceRef, namespace: string | null, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { cluster, resource, namespace }, options),
+	cmdWatchStart: (cluster: string, resource: ResourceRef, namespace: string | null, onEvent: Channel<WatchMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { cluster, resource, namespace, onEvent }, options),
 	/**
 	 *  Stop a table watch or a detail watch, and give the memory its rows took
 	 *  back to the system once the task is gone (#397).
@@ -621,17 +622,12 @@ export const events = {
 	applicationsState: makeEvent<ApplicationsStateChanged, ApplicationsStateChanged>("applications-state"),
 	applicationsUpdate: makeEvent<ApplicationsChanged, ApplicationsChanged>("applications-update"),
 	clusterStateChanged: makeEvent<ClusterStateChanged, ClusterStateChanged>("cluster-state-changed"),
-	detailWatch: makeEvent<DetailWatchEvent, DetailWatchEvent>("detail-watch"),
 	drainFinished: makeEvent<DrainFinished, DrainFinished>("drain-finished"),
 	drainProgress: makeEvent<DrainProgress, DrainProgress>("drain-progress"),
 	kubeconfigsChanged: makeEvent<KubeconfigsChanged, KubeconfigsChanged>("kubeconfigs-changed"),
 	linkPending: makeEvent<LinkPending, LinkPending>("link-pending"),
-	overviewState: makeEvent<OverviewStateChanged, OverviewStateChanged>("overview-state"),
-	overviewUpdate: makeEvent<OverviewChanged_Serialize, OverviewChanged_Deserialize>("overview-update"),
 	unsavedCloseRequested: makeEvent<UnsavedCloseRequested, UnsavedCloseRequested>("unsaved-close-requested"),
 	updateProgress: makeEvent<UpdateProgress, UpdateProgress>("update-progress"),
-	watchBatch: makeEvent<WatchBatch, WatchBatch>("watch-batch"),
-	watchState: makeEvent<WatchStateChanged, WatchStateChanged>("watch-state"),
 	workloadsState: makeEvent<WorkloadsStateChanged, WorkloadsStateChanged>("workloads-state"),
 	workloadsUpdate: makeEvent<WorkloadsChanged, WorkloadsChanged>("workloads-update"),
 };
@@ -1383,11 +1379,6 @@ export type DetailState =
 { state: "deleted" } | 
 /**  The watch failed and is retrying; the last detail is still shown. */
 { state: "error"; error: string };
-
-/**  A new detail (or `deleted`, or a watch error) for the detail watch `id`. */
-export type DetailWatchEvent = {
-	id: string,
-} & DetailState;
 
 /**  The facts in About and in the copied diagnostics. */
 export type Diagnostics = {
@@ -2141,33 +2132,25 @@ export type ObjectLink = {
  */
 export type Overview = Overview_Serialize | Overview_Deserialize;
 
-/**
- *  A new overview for the overview feed `id` (sent when it changed, at
- *  most about once a second).
- */
-export type OverviewChanged = OverviewChanged_Serialize | OverviewChanged_Deserialize;
+/**  A message on an overview feed's channel. */
+export type OverviewMessage = OverviewMessage_Serialize | OverviewMessage_Deserialize;
 
-/**
- *  A new overview for the overview feed `id` (sent when it changed, at
- *  most about once a second).
- */
-export type OverviewChanged_Deserialize = {
-	id: number,
-	overview: Overview_Deserialize,
-};
+/**  A message on an overview feed's channel. */
+export type OverviewMessage_Deserialize = 
+/**  A new overview (sent when it changed, at most about once a second). */
+{ type: "update"; overview: Overview_Deserialize } | 
+/**  The feed's connection state changed. */
+{
+	type: "state",
+} & WatchState;
 
-/**
- *  A new overview for the overview feed `id` (sent when it changed, at
- *  most about once a second).
- */
-export type OverviewChanged_Serialize = {
-	id: number,
-	overview: Overview_Serialize,
-};
-
-/**  Connection state of the overview feed `id`. */
-export type OverviewStateChanged = {
-	id: number,
+/**  A message on an overview feed's channel. */
+export type OverviewMessage_Serialize = 
+/**  A new overview (sent when it changed, at most about once a second). */
+{ type: "update"; overview: Overview_Serialize } | 
+/**  The feed's connection state changed. */
+{
+	type: "state",
 } & WatchState;
 
 /**  The cluster's CPU and memory use for the overview's chart (#328). */
@@ -3065,17 +3048,19 @@ export type UsageSource =
 /**  The history the app collects from metrics-server. */
 "metrics_server" | "prometheus";
 
+/**  A message on a table watch's channel. */
+export type WatchMessage = 
 /**
- *  One coalesced set of table rows for the watch `id`: the first batch is a
- *  full snapshot, later ones are incremental.
+ *  One coalesced set of table rows: the first batch is a full
+ *  snapshot, later ones are incremental.
  */
-export type WatchBatch = {
-	id: string,
-	snapshot: boolean,
-	applied: ResourceRow[],
-	/**  Keys of removed rows. */
-	deleted: string[],
-};
+{ type: "batch"; snapshot: boolean; applied: ResourceRow[]; 
+/**  Keys of removed rows. */
+deleted: string[] } | 
+/**  The watch's connection state changed. */
+{
+	type: "state",
+} & WatchState;
 
 /**  Connection state of a watch. */
 export type WatchState = 
@@ -3099,11 +3084,6 @@ export type WatchState =
  *  up late: the table is not live.
  */
 { state: "polling"; interval_secs: number };
-
-/**  Payload of the `watch-state` event. */
-export type WatchStateChanged = {
-	id: string,
-} & WatchState;
 
 /**  Options of a workload log stream. */
 export type WorkloadLogOptions = WorkloadLogOptions_Serialize | WorkloadLogOptions_Deserialize;

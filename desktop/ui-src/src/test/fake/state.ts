@@ -6,8 +6,8 @@
 
 import type { Channel } from "@tauri-apps/api/core";
 import type { commands } from "../../lib/bindings";
-import { events } from "../../lib/bindings";
 import type { LinkRequest, LogMessage, ResourceKind, ResourceRef, ResourceRow, TermMessage } from "../../lib/bindings";
+import type { DetailState, OverviewMessage_Serialize, WatchMessage } from "../../lib/bindings";
 import type { ClusterCommand } from "../../lib/cluster";
 import type { FakeCluster } from "../fixtures/cluster";
 
@@ -51,6 +51,11 @@ export interface FakeState {
   logChannels: Map<number, Channel<LogMessage>>;
   /** The channel of every terminal session started, by session id (#115). */
   termChannels: Map<string, Channel<TermMessage>>;
+  /** The channel of every table watch, detail watch and overview feed
+   *  started, by id, stopped or not (#115). */
+  watchChannels: Map<string, Channel<WatchMessage>>;
+  detailChannels: Map<string, Channel<DetailState>>;
+  overviewChannels: Map<number, Channel<OverviewMessage_Serialize>>;
   /** Running overview feeds, and the id of the latest one. */
   overviewFeeds: Set<number>;
   lastOverview: number | null;
@@ -87,6 +92,9 @@ export function newState(cluster: FakeCluster): FakeState {
     logStreams: new Set(),
     logChannels: new Map(),
     termChannels: new Map(),
+    watchChannels: new Map(),
+    detailChannels: new Map(),
+    overviewChannels: new Map(),
     overviewFeeds: new Set(),
     lastOverview: null,
     workloadsFeeds: new Map(),
@@ -103,6 +111,21 @@ const sameResource = (a: ResourceRef, b: ResourceRef) =>
   a.group === b.group && a.version === b.version && a.kind === b.kind && a.plural === b.plural;
 /** A JSON copy, like an event payload over real IPC. */
 export const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+
+/** One message on the channel of table watch `id`, a JSON copy like real IPC. */
+export function sendWatch(s: FakeState, id: string, message: WatchMessage) {
+  s.watchChannels.get(id)?.onmessage(copy(message));
+}
+
+/** One message on the channel of detail watch `id`. */
+export function sendDetail(s: FakeState, id: string, message: DetailState) {
+  s.detailChannels.get(id)?.onmessage(copy(message));
+}
+
+/** One message on the channel of overview feed `id`. */
+export function sendOverview(s: FakeState, id: number, message: OverviewMessage_Serialize) {
+  s.overviewChannels.get(id)?.onmessage(copy(message));
+}
 export const rowKey = (namespace: string, name: string) => (namespace ? `${namespace}/${name}` : name);
 
 export function kindOf(s: FakeState, resource: ResourceRef): ResourceKind {
@@ -140,10 +163,10 @@ export function findRow(
 export function removeRow(s: FakeState, kind: ResourceKind, key: string) {
   s.cluster.rows[kind.id] = rowsOf(s, kind).filter((r) => r.key !== key);
   for (const w of s.watches) {
-    if (w.kind.id === kind.id) void events.watchBatch.emit({ id: w.id, snapshot: false, applied: [], deleted: [key] });
+    if (w.kind.id === kind.id) sendWatch(s, w.id, { type: "batch", snapshot: false, applied: [], deleted: [key] });
   }
   for (const [id, of] of s.detailWatches) {
-    if (of === `${kind.id}|${key}`) void events.detailWatch.emit({ id, state: "deleted" });
+    if (of === `${kind.id}|${key}`) sendDetail(s, id, { state: "deleted" });
   }
 }
 
@@ -152,7 +175,7 @@ export function addRow(s: FakeState, kind: ResourceKind, row: ResourceRow) {
   s.cluster.rows[kind.id] = [...rowsOf(s, kind).filter((r) => r.key !== row.key), row];
   for (const w of s.watches) {
     if (w.kind.id === kind.id && (!w.namespace || w.namespace === row.namespace)) {
-      void events.watchBatch.emit({ id: w.id, snapshot: false, applied: [row], deleted: [] });
+      sendWatch(s, w.id, { type: "batch", snapshot: false, applied: [row], deleted: [] });
     }
   }
 }

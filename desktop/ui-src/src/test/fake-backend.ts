@@ -43,7 +43,9 @@
  * and `sendLog` calls its `onmessage` directly, the way the real one is
  * called for each message (lines as a raw `ArrayBuffer`, the rest as JSON).
  * Terminal sessions do the same (`termChannels`, `sendTerm`): output as a
- * raw `ArrayBuffer`, `{ type: "closed" }` at the end.
+ * raw `ArrayBuffer`, `{ type: "closed" }` at the end. So do table watches,
+ * detail watches and overview feeds (`sendWatch`, `sendDetail`,
+ * `sendOverview` in `fake/state.ts`), with JSON messages.
  *
  * ## Adding an event
  *
@@ -55,7 +57,7 @@ import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { events } from "../lib/bindings";
 import { isClusterCommand, isMutatingCommand } from "../lib/cluster";
 import { gateRefusal } from "./fake/gate";
-import type { DetailState, LinkRequest, LogMessage, Overview_Serialize, TaggedLine, WatchBatch, WatchState } from "../lib/bindings";
+import type { DetailState, LinkRequest, LogMessage, Overview_Serialize, ResourceRow, TaggedLine, WatchState } from "../lib/bindings";
 import type { ClusterStateChanged } from "../lib/bindings";
 import { defaultCluster } from "./fixtures/cluster";
 import type { FakeCluster } from "./fixtures/cluster";
@@ -63,11 +65,19 @@ import { available } from "./fixtures/updates";
 import { prometheusFixture } from "./fixtures/usage";
 import { workloadsOverview } from "./fixtures/workloads";
 import { allHandlers } from "./fake";
-import { copy, newState, sendTerm } from "./fake/state";
+import { newState, sendDetail, sendOverview, sendTerm, sendWatch } from "./fake/state";
 import type { CommandName } from "./fake/state";
 
 export type { CommandName } from "./fake/state";
 export { SETTINGS_KEY } from "./fake/state";
+
+/** A batch of a table watch, for `emitWatchBatch` (`id` names the watch). */
+export interface WatchBatch {
+  id: string;
+  snapshot: boolean;
+  applied: ResourceRow[];
+  deleted: string[];
+}
 
 /** Raw IPC arguments of one call, keyed like the Rust parameters. */
 export type CallArgs = Record<string, unknown>;
@@ -93,15 +103,15 @@ export interface FakeApi {
   lastStreamId(): number | null;
   /** Ids of the log streams started and not stopped, oldest first. */
   activeLogStreams(): number[];
-  /** Send a `watch-batch`; `id` defaults to the latest watch. */
+  /** Send a batch on a watch's channel; `id` defaults to the latest watch. */
   emitWatchBatch(batch: Partial<WatchBatch>): Promise<void>;
-  /** Send a `watch-state`; `id` defaults to the latest watch. */
+  /** Send a state on a watch's channel; `id` defaults to the latest watch. */
   emitWatchState(state: WatchState & { id?: string }): Promise<void>;
   /** Id of the most recent detail watch (`cmd_detail_watch`), or null. */
   lastDetailWatchId(): string | null;
   /** Ids of the detail watches that were started and not stopped. */
   activeDetailWatches(): string[];
-  /** Send a `detail-watch`; `id` defaults to the latest detail watch. */
+  /** Send on a detail watch's channel; `id` defaults to the latest detail watch. */
   emitDetail(state: DetailState & { id?: string }): Promise<void>;
   /** Id of the most recent overview feed (`cmd_overview_start`), or null. */
   lastOverviewId(): number | null;
@@ -109,7 +119,7 @@ export interface FakeApi {
   overviewFeeds(): number[];
   /** Merge `change` into `cluster.overview` and send it; `id` defaults to the latest feed. */
   emitOverview(change: Partial<Overview_Serialize>, id?: number): Promise<void>;
-  /** Send an `overview-state`; `id` defaults to the latest feed. */
+  /** Send a state on an overview feed's channel; `id` defaults to the latest feed. */
   emitOverviewState(state: WatchState & { id?: number }): Promise<void>;
   /** The Workloads overview feeds started and not stopped, with their namespaces. */
   workloadsFeeds(): { id: number; namespaces: string[] }[];
@@ -224,24 +234,25 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     activeWatches: () => st.watches.map((w) => ({ id: w.id, namespace: w.namespace })),
     lastStreamId: () => st.streamId,
     activeLogStreams: () => [...st.logStreams],
-    emitWatchBatch: (b) =>
-      events.watchBatch.emit({
-        id: b.id ?? api.lastWatchId() ?? "",
+    emitWatchBatch: async (b) =>
+      sendWatch(st, b.id ?? api.lastWatchId() ?? "", {
+        type: "batch",
         snapshot: b.snapshot ?? false,
         applied: b.applied ?? [],
         deleted: b.deleted ?? [],
       }),
-    emitWatchState: (s) => events.watchState.emit({ ...s, id: s.id ?? api.lastWatchId() ?? "" }),
+    emitWatchState: async ({ id, ...s }) => sendWatch(st, id ?? api.lastWatchId() ?? "", { type: "state", ...s }),
     lastDetailWatchId: () => (st.detailSeq ? `detail-${st.detailSeq}` : null),
     activeDetailWatches: () => [...st.detailWatches.keys()],
-    emitDetail: (s) => events.detailWatch.emit({ ...s, id: s.id ?? api.lastDetailWatchId() ?? "" }),
+    emitDetail: async ({ id, ...s }) => sendDetail(st, id ?? api.lastDetailWatchId() ?? "", s),
     lastOverviewId: () => st.lastOverview,
     overviewFeeds: () => [...st.overviewFeeds],
     emitOverview: (change, id) => {
       Object.assign(cluster.overview, change);
-      return events.overviewUpdate.emit({ id: id ?? st.lastOverview ?? -1, overview: copy(cluster.overview) });
+      sendOverview(st, id ?? st.lastOverview ?? -1, { type: "update", overview: cluster.overview });
+      return Promise.resolve();
     },
-    emitOverviewState: (s) => events.overviewState.emit({ ...s, id: s.id ?? st.lastOverview ?? -1 }),
+    emitOverviewState: async ({ id, ...s }) => sendOverview(st, id ?? st.lastOverview ?? -1, { type: "state", ...s }),
     workloadsFeeds: () => [...st.workloadsFeeds].map(([id, namespaces]) => ({ id, namespaces })),
     emitWorkloads: () => {
       const id = st.lastWorkloads ?? -1;
