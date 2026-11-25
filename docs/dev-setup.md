@@ -59,38 +59,40 @@ Keep these somewhere safe outside git; the repo is public.
 
 | What | Where it lives | If lost |
 |---|---|---|
-| Tauri updater signing key + password (`cargo tauri signer generate`) | 1Password, vault `dev` (see below); a copy is in the repo's Actions secrets (usable by CI, not readable) | installed apps can't verify updates signed with a new key: they would need a manual reinstall |
+| Tauri updater signing key + password (`cargo tauri signer generate`) | the maintainer's password manager (see below); a copy is in the `release` environment's secrets (usable by CI, not readable) | installed apps can't verify updates signed with a new key: they would need a manual reinstall |
 | SSH keys, `gh` login | password manager / regenerate | re-create and re-authorize |
 | Claude Code memory notes and machine-specific details (other test machines, addresses) | the maintainer's private backup | agents relearn lessons; `CLAUDE.md` and `docs/decisions/` hold the important ones |
 | Conversation transcripts | local only | not needed: issues and PRs are the record |
 
-## 6. Secrets with 1Password
+## 6. Signing secrets
 
-The maintainer keeps secrets in 1Password, vault `dev`:
+The maintainer keeps the Tauri updater signing key (the encrypted minisign
+private key file) and its password in a password manager, outside git. The
+public key is `plugins.updater.pubkey` in `desktop/tauri.conf.json`. The key
+was last rotated on 2026-11-23, before the first release.
 
-- `nauvi updater key` (document): the minisign private key, encrypted
-- `nauvi updater key password` (password, field `password`)
-
-Install the 1Password desktop app and CLI (`op`), sign in in the app, and turn
-on **Settings → Developer → Integrate with 1Password CLI**. Then every `op`
-command asks the maintainer to approve it in the app: agents can run commands
-that *use* a secret, but never see it and never run them unapproved.
-
-Examples:
+Upload them to CI from the maintainer's own terminal (not one an agent can
+read); `gh secret set` reads the value from the file or asks for it, so it is
+never printed:
 
 ```sh
-# Re-upload the CI signing secrets (e.g. after rotating the key)
-op document get "nauvi updater key" --vault dev | gh secret set TAURI_SIGNING_PRIVATE_KEY
-op read "op://dev/nauvi updater key password/password" | gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-
-# Sign a local build with the updater key, without writing it to disk
-TAURI_SIGNING_PRIVATE_KEY="$(op document get 'nauvi updater key' --vault dev)" \
-TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(op read 'op://dev/nauvi updater key password/password')" \
-  cargo tauri build
+gh secret set TAURI_SIGNING_PRIVATE_KEY --env release --repo nexburst/nauvi < ~/nauvi-updater.key
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --env release --repo nexburst/nauvi
 ```
 
-Never paste the 1Password Secret Key or account password into a terminal or
-chat that an agent can read; only the 1Password app should see them.
+Until `release.yml` reads them from the `release` environment, set the same
+two as repository secrets too (drop `--env release`).
+
+To rotate the key: `cargo tauri signer generate -w ~/nauvi-updater.key`
+(outside the repository, so it can never be committed), back up the key and
+password, upload both, put the new `.pub` contents in
+`tauri.conf.json`, run a release dry run (`verify_sigs.py` checks every update
+artifact against that key), then delete the key file. After v0.1.0 a new key
+means installed copies can no longer verify updates: they need a manual
+reinstall, so don't rotate it lightly.
+
+Never paste the private key or its password into a terminal or chat that an
+agent can read.
 
 ## 7. Other test machines
 

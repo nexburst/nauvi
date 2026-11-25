@@ -19,6 +19,21 @@ pub(crate) const ENDPOINT_ENV: &str = "NAUVI_UPDATE_ENDPOINT";
 /// the note on Linux. Release builds ignore it.
 pub(crate) const EXE_PATH_ENV: &str = "NAUVI_UPDATE_EXE_PATH";
 
+/// Makes debug builds act as if installed from this bundle (`deb`,
+/// `appimage`, ...), so the QA scenario can show the .deb case. Release
+/// builds ignore it.
+pub(crate) const BUNDLE_ENV: &str = "NAUVI_UPDATE_BUNDLE";
+
+/// Points debug builds at another directory in place of `/etc/apt` for the
+/// apt source check. Release builds ignore it.
+pub(crate) const APT_DIR_ENV: &str = "NAUVI_UPDATE_APT_DIR";
+
+/// The address of the nauvi apt repository (#427), as a sources entry has it.
+pub(crate) const APT_REPO: &str = "nexburst.github.io/nauvi/apt";
+
+/// What a .deb install from the apt repository runs to update.
+pub(crate) const APT_COMMAND: &str = "sudo apt update && sudo apt install nauvi";
+
 /// The release page of `version` (`0.2.0` or `v0.2.0`).
 pub(crate) fn release_page(version: &str) -> String {
     format!("{RELEASES_URL}/tag/v{}", version.trim_start_matches('v'))
@@ -96,6 +111,9 @@ pub(crate) struct InstallSupport {
     pub(crate) can_install: bool,
     /// Why not, and what to do instead (empty when it can).
     pub(crate) note: String,
+    /// The command that updates this copy instead (empty: none, use the
+    /// release page).
+    pub(crate) command: String,
 }
 
 impl InstallSupport {
@@ -103,12 +121,21 @@ impl InstallSupport {
         Self {
             can_install: true,
             note: String::new(),
+            command: String::new(),
         }
     }
     fn no(note: impl Into<String>) -> Self {
         Self {
             can_install: false,
             note: note.into(),
+            command: String::new(),
+        }
+    }
+    fn apt() -> Self {
+        Self {
+            can_install: false,
+            note: "nauvi was installed from the nauvi apt repository, so apt updates it.".into(),
+            command: APT_COMMAND.into(),
         }
     }
 }
@@ -164,17 +191,76 @@ pub(crate) fn exe_path(
         .unwrap_or_default()
 }
 
+/// Whether an apt sources file (`sources.list`, or a `.list` / deb822
+/// `.sources` file) has an entry for the nauvi apt repository. Comment
+/// lines do not count.
+pub(crate) fn lists_apt_repo(contents: &str) -> bool {
+    contents.lines().any(|line| {
+        let line = line.trim_start();
+        !line.starts_with('#') && line.contains(APT_REPO)
+    })
+}
+
+/// Whether apt in `dir` (`/etc/apt`) has the nauvi repository as a source.
+/// Unreadable files count as no entry.
+pub(crate) fn apt_repo_configured(dir: &std::path::Path) -> bool {
+    let mut files = vec![dir.join("sources.list")];
+    if let Ok(entries) = std::fs::read_dir(dir.join("sources.list.d")) {
+        files.extend(entries.flatten().map(|e| e.path()).filter(|p| {
+            matches!(
+                p.extension().and_then(|e| e.to_str()),
+                Some("list" | "sources")
+            )
+        }));
+    }
+    files.iter().any(|f| {
+        std::fs::read_to_string(f)
+            .map(|c| lists_apt_repo(&c))
+            .unwrap_or(false)
+    })
+}
+
+/// The bundle override (`BUNDLE_ENV`), read only by debug builds: `Ok(None)`
+/// when unset, an error for a name that is not a bundle.
+pub(crate) fn bundle_override(
+    debug: bool,
+    value: Option<String>,
+) -> Result<Option<BundleType>, String> {
+    let Some(value) = value
+        .filter(|_| debug)
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| !v.is_empty())
+    else {
+        return Ok(None);
+    };
+    match value.as_str() {
+        "deb" => Ok(Some(BundleType::Deb)),
+        "rpm" => Ok(Some(BundleType::Rpm)),
+        "appimage" => Ok(Some(BundleType::AppImage)),
+        "app" => Ok(Some(BundleType::App)),
+        "msi" => Ok(Some(BundleType::Msi)),
+        "nsis" => Ok(Some(BundleType::Nsis)),
+        _ => Err(format!(
+            "{BUNDLE_ENV} is not a bundle ({value}): use deb, rpm, appimage, app, msi or nsis"
+        )),
+    }
+}
+
 /// Whether the update can be installed in place, given where this copy
 /// runs from (`exe`, see `read_only_location`), how it was
 /// installed (`bundle`, from `tauri::utils::platform::bundle_type`), the
-/// updater target (`linux-x86_64`) and the target keys of the release's
-/// `latest.json`.
+/// updater target (`linux-x86_64`), the target keys of the release's
+/// `latest.json` and whether apt has the nauvi repository as a source
+/// (`apt_repo`, see `apt_repo_configured`).
 ///
 /// tauri-plugin-updater 2.14 installs an AppImage, a macOS .app, an MSI and
 /// an NSIS setup. It also installs a .deb (with `pkexec dpkg -i`) or an .rpm,
 /// but only from a signed `<target>-deb` / `<target>-rpm` entry: without
 /// one it would fall back to the AppImage entry and fail, so then the user
-/// is sent to the release page instead. A binary that was not installed
+/// is sent to the release page instead. A .deb install whose apt has the
+/// nauvi repository is updated by apt instead of in place: apt then knows
+/// the version it has and resolves new dependencies (`dpkg -i` does not). A
+/// binary that was not installed
 /// from a bundle (`cargo build`) cannot update itself. A copy on a disk
 /// image or a translocated one cannot be replaced, whatever its bundle.
 pub(crate) fn install_support<S: AsRef<str>>(
@@ -182,6 +268,7 @@ pub(crate) fn install_support<S: AsRef<str>>(
     bundle: Option<BundleType>,
     target: &str,
     platforms: &[S],
+    apt_repo: bool,
 ) -> InstallSupport {
     if let Some(place) = read_only_location(exe) {
         return InstallSupport::no(place.note());
@@ -191,8 +278,9 @@ pub(crate) fn install_support<S: AsRef<str>>(
         None => InstallSupport::no(
             "This copy was not installed from a release download, so it cannot update itself. Download the new version from the release page.",
         ),
+        Some(BundleType::Deb) if apt_repo => InstallSupport::apt(),
         Some(BundleType::Deb) if !has(&format!("{target}-deb")) => InstallSupport::no(
-            "nauvi was installed from a .deb package, and this release has no signed .deb update. Download the new .deb from the release page and install it with your package manager.",
+            "nauvi was installed from a .deb package, and this release has no signed .deb update. Download the new .deb from the release page and install it with your package manager, or add the nauvi apt repository to get updates with apt.",
         ),
         Some(BundleType::Rpm) if !has(&format!("{target}-rpm")) => InstallSupport::no(
             "nauvi was installed from an .rpm package, and this release has no signed .rpm update. Download the new version from the release page.",
@@ -304,7 +392,9 @@ mod tests {
             BundleType::Msi,
             BundleType::Nsis,
         ] {
-            assert!(install_support(INSTALLED, Some(b), "linux-x86_64", ACTION_KEYS).can_install);
+            assert!(
+                install_support(INSTALLED, Some(b), "linux-x86_64", ACTION_KEYS, false).can_install
+            );
         }
     }
 
@@ -315,6 +405,7 @@ mod tests {
             Some(BundleType::Deb),
             "linux-x86_64",
             ACTION_KEYS,
+            false,
         );
         assert!(!s.can_install);
         assert!(s.note.contains(".deb"), "{}", s.note);
@@ -322,16 +413,120 @@ mod tests {
         let mut keys = ACTION_KEYS.to_vec();
         keys.push("linux-x86_64-deb");
         assert!(
-            install_support(INSTALLED, Some(BundleType::Deb), "linux-x86_64", &keys).can_install
+            install_support(
+                INSTALLED,
+                Some(BundleType::Deb),
+                "linux-x86_64",
+                &keys,
+                false
+            )
+            .can_install
         );
         assert!(
-            !install_support(INSTALLED, Some(BundleType::Rpm), "linux-x86_64", &keys).can_install
+            !install_support(
+                INSTALLED,
+                Some(BundleType::Rpm),
+                "linux-x86_64",
+                &keys,
+                false
+            )
+            .can_install
         );
     }
 
     #[test]
+    fn a_deb_with_the_apt_repo_is_updated_by_apt() {
+        let mut keys = ACTION_KEYS.to_vec();
+        keys.push("linux-x86_64-deb");
+        for keys in [ACTION_KEYS, &keys[..]] {
+            let s = install_support(INSTALLED, Some(BundleType::Deb), "linux-x86_64", keys, true);
+            assert!(!s.can_install);
+            assert_eq!(s.command, APT_COMMAND);
+            assert!(s.note.contains("apt"), "{}", s.note);
+        }
+        // Only a .deb: an AppImage still updates itself.
+        let s = install_support(
+            INSTALLED,
+            Some(BundleType::AppImage),
+            "linux-x86_64",
+            ACTION_KEYS,
+            true,
+        );
+        assert!(s.can_install);
+        assert!(s.command.is_empty());
+    }
+
+    #[test]
+    fn apt_sources_entries() {
+        let list = "deb [signed-by=/etc/apt/keyrings/nauvi.gpg] https://nexburst.github.io/nauvi/apt stable main\n";
+        assert!(lists_apt_repo(list));
+        let deb822 = "Types: deb\nURIs: https://nexburst.github.io/nauvi/apt\nSuites: stable\nComponents: main\n";
+        assert!(lists_apt_repo(deb822));
+        assert!(!lists_apt_repo(
+            "# deb https://nexburst.github.io/nauvi/apt stable main\n"
+        ));
+        assert!(!lists_apt_repo(
+            "deb http://archive.ubuntu.com/ubuntu jammy main\n"
+        ));
+        assert!(!lists_apt_repo(""));
+    }
+
+    #[test]
+    fn the_apt_repo_is_found_in_sources_list_d() {
+        let dir = std::env::temp_dir().join(format!("nauvi-427-apt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir(&dir).unwrap();
+        assert!(!apt_repo_configured(&dir));
+        let d = dir.join("sources.list.d");
+        std::fs::create_dir(&d).unwrap();
+        std::fs::write(
+            dir.join("sources.list"),
+            "deb http://archive.ubuntu.com/ubuntu jammy main\n",
+        )
+        .unwrap();
+        // Saved copies are not read by apt, so they do not count.
+        std::fs::write(
+            d.join("nauvi.list.save"),
+            "deb https://nexburst.github.io/nauvi/apt stable main\n",
+        )
+        .unwrap();
+        assert!(!apt_repo_configured(&dir));
+        std::fs::write(
+            d.join("nauvi.list"),
+            "deb https://nexburst.github.io/nauvi/apt stable main\n",
+        )
+        .unwrap();
+        assert!(apt_repo_configured(&dir));
+        std::fs::remove_file(d.join("nauvi.list")).unwrap();
+        std::fs::write(
+            d.join("nauvi.sources"),
+            "URIs: https://nexburst.github.io/nauvi/apt\n",
+        )
+        .unwrap();
+        assert!(apt_repo_configured(&dir));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn the_bundle_override_is_read_by_debug_builds_only() {
+        assert_eq!(bundle_override(false, Some("deb".into())), Ok(None));
+        assert_eq!(
+            bundle_override(true, Some(" Deb ".into())),
+            Ok(Some(BundleType::Deb))
+        );
+        assert_eq!(
+            bundle_override(true, Some("appimage".into())),
+            Ok(Some(BundleType::AppImage))
+        );
+        assert_eq!(bundle_override(true, None), Ok(None));
+        assert_eq!(bundle_override(true, Some("".into())), Ok(None));
+        let err = bundle_override(true, Some("snap".into())).unwrap_err();
+        assert!(err.contains(BUNDLE_ENV), "{err}");
+    }
+
+    #[test]
     fn a_plain_binary_cannot_update_itself() {
-        let s = install_support(INSTALLED, None, "linux-x86_64", ACTION_KEYS);
+        let s = install_support(INSTALLED, None, "linux-x86_64", ACTION_KEYS, false);
         assert!(!s.can_install);
         assert!(s.note.contains("release page"), "{}", s.note);
     }
@@ -367,7 +562,13 @@ mod tests {
     #[test]
     fn a_disk_image_or_translocated_copy_cannot_install() {
         for exe in [DMG, TRANSLOCATED] {
-            let s = install_support(exe, Some(BundleType::App), "darwin-aarch64", ACTION_KEYS);
+            let s = install_support(
+                exe,
+                Some(BundleType::App),
+                "darwin-aarch64",
+                ACTION_KEYS,
+                false,
+            );
             assert!(!s.can_install, "{exe}");
             assert!(s.note.contains("Move nauvi to Applications"), "{}", s.note);
         }
@@ -376,6 +577,7 @@ mod tests {
             Some(BundleType::App),
             "darwin-aarch64",
             ACTION_KEYS,
+            false,
         );
         assert!(s.can_install);
         assert!(s.note.is_empty());

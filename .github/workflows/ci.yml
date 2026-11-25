@@ -240,6 +240,18 @@ jobs:
         run: |
           shellcheck --version
           shellcheck -s sh install.sh scripts/test-install/*.sh
+          # The apt repository scripts (#427); the release dry run runs them.
+          shellcheck scripts/release/apt-repo.sh scripts/release/apt-repo-check.sh
+          shellcheck -s sh install-apt.sh
+      # install-apt.sh pins the key users trust; it must be the one the
+      # release signs with (#448).
+      - name: install-apt.sh trusts the keys of apt-keys.txt
+        run: |
+          want=$(grep -v '^#' scripts/release/apt-keys.txt | grep -v '^$' | tr '\n' ' ' | sed 's/ $//')
+          have=$(sed -nE 's/^  trusted_keys="(.*)"$/\1/p' install-apt.sh)
+          echo "apt-keys.txt: $want"
+          echo "install-apt.sh: $have"
+          [ -n "$want" ] && [ "$want" = "$have" ] || { echo "::error file=install-apt.sh::trusted_keys must list the fingerprints of scripts/release/apt-keys.txt"; exit 1; }
 
   install-sh:
     name: install.sh (${{ matrix.image || matrix.os }})

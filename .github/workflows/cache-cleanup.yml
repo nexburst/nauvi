@@ -1,0 +1,74 @@
+name: Cache cleanup
+
+# GitHub keeps 10 GB of Actions caches per repository and evicts the least
+# recently used ones beyond that (#439). Two kinds are dead weight:
+#   - On main, a Rust cache whose dependencies changed: rust-cache ends its
+#     keys with a hash of Cargo.lock (and the toolchain), so every dependency
+#     bump leaves the previous cache behind. Only the newest cache of each
+#     key (the key without that last part) is kept. npm caches are small and
+#     one key prefix covers several lockfiles, so they are left alone.
+#   - The caches of closed pull requests, which nothing can restore.
+# Left alone, they push out the release caches (release.yml saves them
+# weekly), and the next release compiles everything again.
+#
+# The job runs no code from this repository: no checkout, only gh against
+# the caches API. Cache ids are numbers; keys are only printed.
+
+on:
+  schedule:
+    - cron: "11 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: cache-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    permissions:
+      actions: write
+      pull-requests: read
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete superseded and closed-PR caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # id, ref, key, created_at, size of every cache, newest first.
+          gh api --paginate "repos/$REPO/actions/caches?per_page=100&sort=created_at&direction=desc" \
+            --jq '.actions_caches[] | [.id, .ref, .key, .created_at, .size_in_bytes] | @tsv' > caches.tsv
+          echo "$(wc -l < caches.tsv) caches, $(awk -F'\t' '{ s += $5 } END { printf "%.1f", s / 1e9 }' caches.tsv) GB"
+
+          : > delete.tsv
+          # main: keep the newest cache of each key without its last part.
+          awk -F'\t' '$2 == "refs/heads/main" && $3 ~ /^v0-rust-/ {
+              group = $3; sub(/-[^-]+$/, "", group)
+              if (seen[group]++) print
+            }' caches.tsv >> delete.tsv
+
+          # Pull requests: the caches of closed ones.
+          declare -A state=()
+          while IFS=$'\t' read -r id ref key created size; do
+            [[ "$ref" =~ ^refs/pull/([0-9]+)/ ]] || continue
+            n="${BASH_REMATCH[1]}"
+            [ -n "${state[$n]:-}" ] || state[$n]=$(gh api "repos/$REPO/pulls/$n" --jq .state)
+            if [ "${state[$n]}" = "closed" ]; then
+              printf '%s\t%s\t%s\t%s\t%s\n' "$id" "$ref" "$key" "$created" "$size" >> delete.tsv
+            fi
+          done < caches.tsv
+
+          freed=0
+          while IFS=$'\t' read -r id ref key created size; do
+            [[ "$id" =~ ^[0-9]+$ ]] || continue
+            echo "delete $ref $key ($((size / 1000000)) MB, $created)"
+            if gh api -X DELETE "repos/$REPO/actions/caches/$id" >/dev/null; then
+              freed=$((freed + size))
+            else
+              echo "::warning::could not delete cache $id ($key)"
+            fi
+          done < delete.tsv
+          echo "freed $((freed / 1000000)) MB" | tee -a "$GITHUB_STEP_SUMMARY"
