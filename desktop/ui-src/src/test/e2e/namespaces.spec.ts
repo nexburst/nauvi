@@ -2,6 +2,8 @@ import { expect, test } from "@playwright/test";
 import { column, namespaceButton, namespacePopover, openApp, openKind, rows, toggleNamespaces } from "./helpers";
 
 const POD = { group: "", version: "v1", kind: "Pod", plural: "pods", namespaced: true };
+/** Each watch gets its own channel (#115). */
+const CHANNEL = expect.stringMatching(/^__CHANNEL__:\d+$/);
 
 test("two namespaces: one watch each, feeding one table", async ({ page }) => {
   const fake = await openApp(page);
@@ -11,8 +13,8 @@ test("two namespaces: one watch each, feeding one table", async ({ page }) => {
   await toggleNamespaces(page, "demo", "kube-system");
   // All namespaces -> demo -> demo + kube-system: the demo watch is kept.
   expect((await fake.calls("cmdWatchStart")).slice(1)).toEqual([
-    { resource: POD, namespace: "demo" },
-    { resource: POD, namespace: "kube-system" },
+    { resource: POD, namespace: "demo", onEvent: CHANNEL },
+    { resource: POD, namespace: "kube-system", onEvent: CHANNEL },
   ]);
   expect((await fake.activeWatches()).map((w) => w.namespace)).toEqual(["demo", "kube-system"]);
   await expect(rows(page)).toHaveCount(5);
