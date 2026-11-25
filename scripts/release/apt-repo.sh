@@ -20,6 +20,8 @@
 #   APT_KEEP            versions to keep in the pool (default 5)
 #   APT_TRUSTED_KEYS    the trusted key fingerprints, first one signs
 #                       (default: the lines of scripts/release/apt-keys.txt)
+#   APT_PREVIOUS        the release before this one (MAJOR.MINOR.PATCH): the
+#                       published repository must have it or something newer
 #
 # Anyone who can push to gh-pages can change <repo-dir>, so nothing in it is
 # signed again unless the published repository checks out first: its
@@ -29,7 +31,9 @@
 #
 # Refuses a package that is not nauvi/amd64, a pre-release version (dpkg
 # sorts 0.2.0-1 after 0.2.0, the opposite of the app's versions) and a
-# version already in the pool with other contents.
+# version already in the pool with other contents, and (with APT_PREVIOUS) a
+# published repository older than the previous release: an older copy, still
+# validly signed, put back on gh-pages (#445).
 set -euo pipefail
 
 usage() { echo "usage: $0 <repo-dir> <deb>...   (e.g. site/apt nauvi_0.2.0_amd64.deb)" >&2; exit 2; }
@@ -105,7 +109,7 @@ if [ -d "$repo" ] && [ -n "$(find "$repo" -mindepth 1 -print -quit)" ]; then
 
   want=$(awk -v f="$packages_rel" '/^SHA256:/ { s = 1; next } /^[^ ]/ { s = 0 } s && $3 == f { print $1; exit }' "$work/Release")
   got=$(sha256sum < "$dist/$packages_rel" | cut -d' ' -f1)
-  [ -n "$want" ] && [ "$got" = "$want" ] || die "the published Packages does not match the signed InRelease"
+  if [ -z "$want" ] || [ "$got" != "$want" ]; then die "the published Packages does not match the signed InRelease"; fi
 
   # Every package listed must be a nauvi .deb in its pool, with that hash.
   while read -r name file sum; do
@@ -133,6 +137,17 @@ if [ -d "$repo" ] && [ -n "$(find "$repo" -mindepth 1 -print -quit)" ]; then
       *) [ -n "${known[$rel]:-}" ] || die "$rel in the published repository is not in its signed Packages" ;;
     esac
   done < <(find "$repo" -type f -print0)
+fi
+
+# A rollback: signing on top of an older copy would drop every version
+# released since from the pool.
+if [ -n "${APT_PREVIOUS:-}" ]; then
+  [[ "$APT_PREVIOUS" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "APT_PREVIOUS is not MAJOR.MINOR.PATCH: $APT_PREVIOUS"
+  newest=$(for f in "${!known[@]}"; do echo "$f"; done | sed -nE 's#^pool/main/n/nauvi/nauvi_(.*)_amd64\.deb$#\1#p' | sort -V | tail -n1)
+  [ -n "$newest" ] \
+    || die "the published repository has no nauvi, but $APT_PREVIOUS was released before; restore gh-pages from its last apt-pages commit"
+  [ "$(printf '%s\n%s\n' "$APT_PREVIOUS" "$newest" | sort -V | head -n1)" = "$APT_PREVIOUS" ] \
+    || die "the published repository's newest nauvi is $newest, older than the previous release $APT_PREVIOUS: an older copy was put back on gh-pages; restore it from its last apt-pages commit"
 fi
 
 mkdir -p "$pool"
