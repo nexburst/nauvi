@@ -2,18 +2,7 @@
 # Temporary (#467): what diskutil image attach does on the CI runner.
 set -u
 [ "$(uname -s)" = Darwin ] || exit 0
-echo "=== sw_vers"
 sw_vers
-echo "=== diskutil image"
-diskutil image 2>&1 | head -40
-echo "=== diskutil image attach (no args)"
-diskutil image attach 2>&1 | head -60
-echo "=== diskutil image attach --help"
-diskutil image attach --help 2>&1 | head -60
-echo "=== diskutil image detach (no args)"
-diskutil image detach 2>&1 | head -30
-echo "=== man diskutil (image part)"
-man diskutil 2>/dev/null | col -b | awk '/^ *image/ {p=1} p' | head -250
 echo "=== hdiutil attach deprecation?"
 w=$(mktemp -d)
 sh "$(dirname "$0")/fixtures.sh" "$w/rel" v0.0.9 >/dev/null || echo "fixtures failed"
@@ -31,10 +20,14 @@ try() {
   mount | grep "$w/m" || true
   hdiutil detach -quiet "$w/m" 2>/dev/null || diskutil image detach "$w/m" 2>/dev/null || true
 }
-try "diskutil stdin null" sh -c "diskutil image attach --readOnly --nobrowse --mountPoint '$w/m' '$dmg' </dev/null"
-try "diskutil yes" sh -c "yes | PAGER=cat diskutil image attach --readOnly --nobrowse --mountPoint '$w/m' '$dmg'"
-try "diskutil mountOptions" sh -c "yes | PAGER=cat diskutil image attach --readOnly --mountOptions nobrowse --mountPoint '$w/m' '$dmg'"
-try "hdiutil yes" sh -c "yes | PAGER=cat hdiutil attach -nobrowse -readonly -noautoopen -mountpoint '$w/m' '$dmg'"
-try "diskutil yes plist" sh -c "yes | PAGER=cat diskutil image attach --readOnly --nobrowse --plist --mountPoint '$w/m' '$dmg'"
+for fmt in RAW UDRO UDZO; do
+  rm -f "$w/c.img" "$w/c.dmg"
+  out="$w/c.img"; [ "$fmt" = RAW ] || out="$w/c.dmg"
+  try "create from $fmt" sh -c "diskutil image create from --format $fmt '$dmg' '$out' </dev/null; ls -l '$out'; hdiutil imageinfo '$out' | grep -i licen"
+  try "attach converted $fmt" sh -c "time diskutil image attach --readOnly --nobrowse --mountPoint '$w/m' '$out' </dev/null"
+  try "attach converted $fmt plist" sh -c "diskutil image --plist attach --readOnly --nobrowse --mountPoint '$w/m' '$out' </dev/null | head -40"
+done
+try "diskutil info licensed" sh -c "diskutil image info '$dmg' </dev/null | head -30"
+try "diskutil eject" sh -c "diskutil image attach --readOnly --nobrowse --mountPoint '$w/m' '$w/c.dmg' </dev/null && diskutil eject '$w/m'; echo eject=\$?; mount | grep '$w/m' || echo gone"
 rm -rf "$w"
 echo "=== probe done"
