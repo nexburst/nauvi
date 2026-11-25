@@ -61,6 +61,7 @@ rec = {
     "mcp_flags": [a for a in args if "mcp" in a.lower()],
     "mcp_env": sorted(k for k in os.environ if k in ("NAUVI_MCP_CONFIG", "GEMINI_CLI_SYSTEM_DEFAULTS_PATH")),
     "skill_exists": os.path.isfile(skill),
+    "ask_ai_env": os.environ.get("NAUVI_ASK_AI", ""),
 }
 if rec["skill_exists"]:
     rec["skill_mode"] = oct(os.stat(skill).st_mode & 0o777)
@@ -239,6 +240,8 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     assert.deepEqual(rec.args, ["--", prompt]);
     assert.deepEqual(rec.mcp_flags, []);
     assert.deepEqual(rec.mcp_env, []);
+    // The skill trusts KUBECONFIG only in a terminal nauvi opened.
+    assert.equal(rec.ask_ai_env, "1");
     // The same kubeconfig as a local terminal: the per-terminal file first.
     assert.match(rec.kubeconfig, /nauvi-shell-\d+-\d+\.yaml/);
     assert.ok(rec.kubeconfig.startsWith(tmp), rec.kubeconfig);

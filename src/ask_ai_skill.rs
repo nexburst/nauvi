@@ -28,8 +28,27 @@ use std::path::{Path, PathBuf};
 pub const SKILL_NAME: &str = "nauvi";
 /// The file a CLI reads.
 pub const SKILL_FILE: &str = "SKILL.md";
-/// The start of the line that marks a `SKILL.md` as nauvi's.
-const MARKER: &str = "<!-- nauvi-skill:";
+/// The start of the line that marks a `SKILL.md` as nauvi's; the version
+/// follows, then [`MARKER_END`]. Only the whole line counts ([`is_marker`]).
+const MARKER: &str = "<!-- nauvi-skill: written by the nauvi app ";
+const MARKER_END: &str =
+    ". nauvi replaces this file when the app changes, and Settings, AI removes it: \
+                          edits here do not last. -->";
+/// The environment variable an Ask AI terminal sets, so the skill knows its
+/// KUBECONFIG was chosen by nauvi.
+pub const ASK_AI_ENV: &str = "NAUVI_ASK_AI";
+
+/// `line` is nauvi's whole marker line, with a version of letters, digits,
+/// dots, dashes and pluses.
+fn is_marker(line: &str) -> bool {
+    line.strip_prefix(MARKER)
+        .and_then(|rest| rest.strip_suffix(MARKER_END))
+        .is_some_and(|v| {
+            !v.is_empty()
+                && v.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '+'))
+        })
+}
 /// The start of nauvi's temporary files in the skill folder.
 const TEMP_PREFIX: &str = ".SKILL.md.nauvi-";
 
@@ -85,13 +104,15 @@ pub fn skills_root(
 /// guidance a CLI without skills gets in its first prompt.
 pub const GUIDANCE: &str = r#"# Kubernetes with kubectl and nauvi
 
-This terminal's KUBECONFIG already points at the cluster and namespace to look at: don't pass `--context` or `--kubeconfig` unless asked, and use `-n` for another namespace.
+## Which cluster
+- If the environment variable `NAUVI_ASK_AI` is set (`echo "$NAUVI_ASK_AI"`), this is a terminal the nauvi app opened for one cluster: its KUBECONFIG already points at the cluster and namespace to look at. Don't pass `--context` or `--kubeconfig` unless asked; use `-n` for another namespace.
+- Otherwise you are not in a nauvi terminal: run `kubectl config current-context`, tell the user which context you will use, and ask before you change anything there.
 
 ## Which command
 - **What is wrong** (a health check, "why is it failing"): `nauvi problems -n <namespace>` first. It lists only the unhealthy objects, one line each with the reason (last termination, exit code, the memory limit of an OOM kill, failed conditions). Without `-n`: every namespace; `-k pods,jobs` narrows the kinds.
 - **Everything else, reads and changes**: `kubectl`, narrowed so the output stays small: `-n`, `-l`, `--field-selector`, `-o name`, `-o jsonpath=...`, `-o custom-columns=...`; `kubectl logs --tail=100` (`--previous` after a crash); `kubectl events -n <namespace> --for <kind>/<name>`.
 - **Logs of a whole workload**: `nauvi logs deploy/<name> -n <namespace> --tail 100` (also `sts/`, `ds/`, `job/`): every pod's lines, each with its pod.
-- **Showing an object**: `nauvi describe <kind>/<name> -n <namespace>` and `nauvi yaml <kind>/<name> -n <namespace>`. Use these for Secrets: they hide Secret values, while `kubectl get secret -o yaml` and `kubectl describe` print them. Don't print Secret values unless the user asks for them.
+- **Showing an object**: `nauvi describe <kind>/<name> -n <namespace>` and `nauvi yaml <kind>/<name> -n <namespace>`. Use these for Secrets: they hide Secret values, while `kubectl get secret -o yaml` (or `-o json`, `-o jsonpath`) prints them (base64). Don't print Secret values unless the user asks for them.
 - **Helm releases**: `nauvi helm list -n <namespace>` and `nauvi helm get <release> [values|manifest|notes|history] -n <namespace>`; no helm binary needed.
 
 If `nauvi` is not on PATH, use kubectl only.
@@ -105,11 +126,10 @@ If `nauvi` is not on PATH, use kubectl only.
 /// The whole `SKILL.md` that app version `version` writes.
 pub fn skill_text(version: &str) -> String {
     format!(
-        "---\nname: {SKILL_NAME}\ndescription: Inspect and troubleshoot the Kubernetes cluster this terminal points at, \
+        "---\nname: {SKILL_NAME}\ndescription: Inspect and troubleshoot a Kubernetes cluster \
          with kubectl and the nauvi CLI. Use for questions about a cluster, namespace, pod, workload, node, Helm \
          release or Secret: what is wrong and why, crashes, logs, events, rollouts.\n---\n\n\
-         {MARKER} written by the nauvi app {version}. nauvi replaces this file when the app changes, and \
-         Settings, AI removes it: edits here do not last. -->\n\n{GUIDANCE}"
+         {MARKER}{version}{MARKER_END}\n\n{GUIDANCE}"
     )
 }
 
@@ -166,7 +186,7 @@ pub fn state(dir: &Path, version: &str) -> SkillState {
     }
     match fs::read_to_string(&file) {
         Ok(text) if text == skill_text(version) => SkillState::Current,
-        Ok(text) if text.lines().any(|l| l.starts_with(MARKER)) => SkillState::Outdated,
+        Ok(text) if text.lines().any(is_marker) => SkillState::Outdated,
         Ok(_) => SkillState::Foreign(format!(
             "{} is a skill nauvi did not write: it is left as it is",
             file.display()
@@ -346,6 +366,35 @@ mod tests {
         ] {
             assert!(GUIDANCE.contains(needle), "{needle}");
         }
+        // Only an Ask AI terminal's KUBECONFIG is taken as chosen; elsewhere
+        // the model names the context and asks before changes.
+        assert!(GUIDANCE.contains(ASK_AI_ENV));
+        assert!(GUIDANCE.contains("kubectl config current-context"));
+        // `kubectl describe` hides Secret values: only `get -o` is named.
+        assert!(!GUIDANCE.contains("kubectl describe` print"));
+        assert_eq!(t.lines().filter(|l| is_marker(l)).count(), 1);
+    }
+
+    /// Only nauvi's whole marker line makes a file nauvi's (security review).
+    #[test]
+    fn only_the_whole_marker_line_counts() {
+        let line = |v: &str| format!("{MARKER}{v}{MARKER_END}");
+        assert!(is_marker(&line("0.1.0")));
+        assert!(is_marker(&line("1.2.3-rc.1+abc")));
+        assert!(!is_marker(&line("")));
+        assert!(!is_marker(&line("1 2")));
+        assert!(!is_marker("<!-- nauvi-skill: my own notes -->"));
+        assert!(!is_marker(&format!("x{}", line("1"))));
+        assert!(!is_marker(&format!("{} more", line("1"))));
+        // A user's skill that mentions the prefix is not nauvi's.
+        let root = temp("prefix").join("skills");
+        let dir = root.join("nauvi");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(SKILL_FILE), "<!-- nauvi-skill: mine -->\nhello").unwrap();
+        assert!(matches!(state(&dir, "1"), SkillState::Foreign(_)));
+        assert!(install(&root, "1").is_err());
+        assert!(remove(&root).is_err());
+        fs::remove_dir_all(root.parent().unwrap()).unwrap();
     }
 
     #[test]

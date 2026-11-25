@@ -242,16 +242,36 @@ pub fn with_guidance(prompt: &str) -> String {
     )
 }
 
+/// What the model is told when the `nauvi` on PATH cannot be used: there is
+/// none, or it is the desktop app itself (running it would open a window).
+pub const NO_NAUVI_NOTE: &str = "In this terminal `nauvi` is not the nauvi CLI (it is missing, or it is the \
+                                 nauvi desktop app, which would open a window): don't run `nauvi`. Use kubectl \
+                                 only, and don't print Secret values unless I ask.";
+
+/// `prompt` for a session: with [`NO_NAUVI_NOTE`] at its end unless
+/// `nauvi_usable`.
+pub fn session_prompt(prompt: String, nauvi_usable: bool) -> String {
+    if nauvi_usable {
+        prompt
+    } else if prompt.is_empty() {
+        NO_NAUVI_NOTE.to_string()
+    } else {
+        format!("{prompt}\n{NO_NAUVI_NOTE}")
+    }
+}
+
 /// How to start `cli` (found at `program`) with `prompt` (`""`: none).
 /// `prompt_file` holds the prompt for a custom command, which gets it only
-/// that way.
+/// that way. Every CLI gets `NAUVI_ASK_AI=1`, so the skill knows this
+/// terminal's KUBECONFIG was set by nauvi for one cluster.
 ///
 /// - Claude Code and Codex: `--` and the prompt.
 /// - Gemini CLI: `--prompt-interactive=<prompt>`.
 /// - Custom: its own arguments; `NAUVI_PROMPT_FILE`.
 pub fn launch(cli: &Cli, program: PathBuf, prompt: &str, prompt_file: Option<&Path>) -> Launch {
     let mut args: Vec<OsString> = Vec::new();
-    let mut env: Vec<(OsString, OsString)> = Vec::new();
+    let mut env: Vec<(OsString, OsString)> =
+        vec![(crate::ask_ai_skill::ASK_AI_ENV.into(), "1".into())];
     match cli {
         // After `--`, a prompt that starts with `-` is not read as a flag.
         Cli::Claude | Cli::Codex => {
@@ -403,7 +423,7 @@ mod tests {
         for cli in [Cli::Claude, Cli::Codex] {
             let l = launch(&cli, "/bin/ai".into(), PROMPT, None);
             assert_eq!(strs(&l.args), ["--", PROMPT]);
-            assert!(l.env.is_empty());
+            assert_eq!(l.env, ask_ai_env());
             let l = launch(&cli, "/bin/ai".into(), "", None);
             assert!(l.args.is_empty());
         }
@@ -413,7 +433,7 @@ mod tests {
     fn gemini_gets_the_prompt_in_one_flag() {
         let l = launch(&Cli::Gemini, "/bin/gemini".into(), PROMPT, None);
         assert_eq!(strs(&l.args), [format!("--prompt-interactive={PROMPT}")]);
-        assert!(l.env.is_empty());
+        assert_eq!(l.env, ask_ai_env());
     }
 
     #[test]
@@ -425,13 +445,27 @@ mod tests {
             Some(Path::new("/tmp/p.md")),
         );
         assert_eq!(strs(&l.args), ["--flag"]);
-        assert_eq!(
-            l.env,
-            [(
-                OsString::from(CUSTOM_PROMPT_ENV),
-                OsString::from("/tmp/p.md")
-            )]
-        );
+        let mut want = ask_ai_env();
+        want.push((
+            OsString::from(CUSTOM_PROMPT_ENV),
+            OsString::from("/tmp/p.md"),
+        ));
+        assert_eq!(l.env, want);
+    }
+
+    fn ask_ai_env() -> Vec<(OsString, OsString)> {
+        vec![(OsString::from("NAUVI_ASK_AI"), OsString::from("1"))]
+    }
+
+    /// Without a usable `nauvi` (none, or the app itself) the model is told
+    /// not to run it (review of #474).
+    #[test]
+    fn without_a_usable_nauvi_the_prompt_says_so() {
+        assert_eq!(session_prompt("Look".into(), true), "Look");
+        let p = session_prompt("Look".into(), false);
+        assert!(p.starts_with("Look\n") && p.ends_with(NO_NAUVI_NOTE), "{p}");
+        assert!(NO_NAUVI_NOTE.contains("don't run `nauvi`"));
+        assert_eq!(session_prompt(String::new(), false), NO_NAUVI_NOTE);
     }
 
     #[test]

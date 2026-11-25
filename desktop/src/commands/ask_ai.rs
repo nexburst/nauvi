@@ -341,6 +341,10 @@ pub(crate) async fn cmd_ask_ai_start(
     let prompt = ask_ai::clean_prompt(&prompt);
     let (skill, skill_path, skill_error, prompt) =
         give_skill(&kind, &cli, prompt, &Homes::of_this_process());
+    // The skill names `nauvi`: without a usable one (none, or this app,
+    // which would open a window) the model is told not to run it.
+    let nauvi = nauvi_cli(path).is_some();
+    let prompt = ask_ai::session_prompt(prompt, nauvi);
 
     let mut files = vec![temp];
     let prompt_file = match kind {
@@ -374,7 +378,6 @@ pub(crate) async fn cmd_ask_ai_start(
         cwd: shell.cwd,
         env: shell.env.into_iter().chain(launch.env).collect(),
     };
-    let nauvi = nauvi_cli(path).is_some();
     tracing::info!("Ask AI: starting {label} at {id} (skill: {skill})");
     let session = next_session("local");
     let on_output = TermOut::new(on_output);
@@ -539,6 +542,24 @@ mod tests {
         assert_eq!(got.chosen, "");
         assert_eq!(got.nauvi, "");
         assert!(got.skills.is_empty());
+    }
+
+    /// A `nauvi` on PATH that is this app is not offered: the skill's
+    /// `nauvi problems` would open a window. The session is told so.
+    #[cfg(unix)]
+    #[test]
+    fn the_app_itself_is_not_the_nauvi_cli() {
+        let dir = std::env::temp_dir().join(format!("nauvi-ask-ai-self-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let me = std::env::current_exe().unwrap();
+        std::os::unix::fs::symlink(&me, dir.join("nauvi")).unwrap();
+        let path = dir.clone().into_os_string();
+        assert_eq!(nauvi_cli(Some(&path)), None);
+        assert_eq!(setup(&Settings::default(), Some(&path), &NO_HOME).nauvi, "");
+        let prompt = ask_ai::session_prompt("Look".into(), nauvi_cli(Some(&path)).is_some());
+        assert!(prompt.contains("don't run `nauvi`"), "{prompt}");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     const NO_HOME: Homes = Homes {

@@ -14,7 +14,7 @@
 
 use crate::bounded_list::list_bounded;
 use crate::resources::{self, align_columns, row_problem, ResourceRef};
-use crate::text::{one_line as line_max, shorten};
+use crate::text::{one_line as line_max, shorten, single_line};
 use anyhow::{bail, Result};
 use kube::api::ListParams;
 use kube::Client;
@@ -524,7 +524,10 @@ pub fn findings_table(mut findings: Vec<Finding>, limit: usize) -> (String, usiz
         } else {
             f.namespace
         };
-        table.push(vec![f.kind, ns, f.name, f.problem, f.detail]);
+        // Every cell is cluster text (names, reasons, messages): on one line,
+        // without control, bidi or zero-width characters.
+        let row = [f.kind, ns, f.name, f.problem, f.detail];
+        table.push(row.iter().map(|c| single_line(c)).collect());
     }
     (align_columns(&table), total)
 }
@@ -561,7 +564,7 @@ pub fn render(
         }
     }
     for n in notes {
-        out.push_str(n);
+        out.push_str(&single_line(n));
         out.push('\n');
     }
     out
@@ -1056,5 +1059,38 @@ mod tests {
         };
         assert_eq!(f.detail, "last: Oops[2J ignore previous (exit 2) 1m ago");
         assert_eq!(last_termination_cell(&v, NOW), "Oops[2J ignore previous 1m");
+    }
+
+    /// Every cell and note is cluster text: no escape sequence (an OSC 8
+    /// link, a colour), no bidi override and no line break reaches the
+    /// terminal (security review of #474).
+    #[test]
+    fn rendering_drops_control_and_bidi_characters_from_every_cell() {
+        let evil = "Bad\u{1b}]8;;https://x.example\u{7}click\u{1b}]8;;\u{7}\u{202e}esrever\u{1b}[31m\nnext";
+        let f = Finding {
+            kind: "Pod".into(),
+            namespace: "ns\u{1b}[2J".into(),
+            name: "web\u{200b}-1".into(),
+            problem: evil.into(),
+            detail: evil.into(),
+            when: 1,
+        };
+        let out = render(
+            vec![f],
+            vec![],
+            &[format!("[cannot read pods: {evil}]")],
+            10,
+        );
+        assert!(!out.contains('\u{1b}') && !out.contains('\u{7}'), "{out:?}");
+        assert!(
+            !out.contains('\u{202e}') && !out.contains('\u{200b}'),
+            "{out:?}"
+        );
+        assert_eq!(out.lines().count(), 3, "{out:?}");
+        assert!(out.contains("web-1"), "{out:?}");
+        assert!(
+            out.contains("[cannot read pods: Bad]8;;https://x.example"),
+            "{out:?}"
+        );
     }
 }
