@@ -15,6 +15,7 @@
   import CodeEditor from "./editor/CodeEditor.svelte";
   import DiffView from "./editor/DiffView.svelte";
   import { api, visibleCluster } from "../cluster";
+  import { rawText } from "../rawIpc";
   import type { FieldTakeover } from "../bindings";
   import type { Target } from "../stores/detail.svelte";
   import { confirmDiscard, markSaved, markUnsaved } from "../stores/unsaved.svelte";
@@ -78,7 +79,7 @@
   }
 
   async function fetchYaml(): Promise<string> {
-    return api(visibleCluster()).cmdGetResourceYaml(target.resource, target.namespace, target.name, revealed);
+    return rawText(await api(visibleCluster()).cmdGetResourceYaml(target.resource, target.namespace, target.name, revealed));
   }
 
   async function load() {

@@ -1,15 +1,14 @@
 <script module lang="ts">
-  /** Feed ids, unique across mounts so a stale feed's events are ignored. */
+  /** Feed ids, unique across mounts so a stale feed's messages are ignored. */
   let nextFeed = 0;
 </script>
 
 <script lang="ts">
   import { GiveUp, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
   import { onDestroy, untrack } from "svelte";
-  import { events } from "../bindings";
+  import { Channel } from "@tauri-apps/api/core";
   import { api, visibleCluster } from "../cluster";
-  import { thisWindow } from "../window";
-  import type { EventInfo, KindCounts, ProblemWorkload, WorkloadsOverview, WorkloadsStateChanged } from "../bindings";
+  import type { EventInfo, KindCounts, ProblemWorkload, WatchState, WorkloadsMessage, WorkloadsOverview } from "../bindings";
   import { app, kinds, openObject, openWithStatus, setStatus, setView, showError, stamp } from "../stores/app.svelte";
   import { clusterError } from "../clusterError";
   import { formatAge } from "../format";
@@ -29,22 +28,20 @@
 
   let overview = $state.raw<WorkloadsOverview | null>(null);
   let now = $state(Date.now());
-  /** The running feed, or 0. Events of other ids are from stopped feeds. */
+  /** The running feed, or 0. Messages of other ids are from stopped feeds. */
   let feed = 0;
   let retry: ReturnType<typeof setTimeout> | null = null;
 
-  const listening = Promise.all([
-    events.workloadsUpdate(thisWindow()).listen((e) => {
-      if (e.payload.id !== feed) return;
-      overview = e.payload.overview;
-      const total = overview.kinds.reduce((n, k) => n + k.total, 0);
-      app.count = `${total} workload objects`;
-      stamp();
-    }),
-    events.workloadsState(thisWindow()).listen((e) => {
-      if (e.payload.id === feed) onState(e.payload);
-    }),
-  ]);
+  // The backend pushes a new summary when something changes, and a state
+  // when the connection changes, on the channel of the feed (#115).
+  function onMessage(id: number, m: WorkloadsMessage) {
+    if (id !== feed) return;
+    if (m.type === "state") return onState(m);
+    overview = m.overview;
+    const total = overview.kinds.reduce((n, k) => n + k.total, 0);
+    app.count = `${total} workload objects`;
+    stamp();
+  }
 
   /** The banner message this view set, so it clears only its own. */
   let shown = "";
@@ -59,7 +56,7 @@
     shown = "";
   }
 
-  function onState(s: WorkloadsStateChanged) {
+  function onState(s: WatchState) {
     if (s.state === "live") {
       giveUp.clear();
       setStatus(true, "Live");
@@ -100,11 +97,9 @@
       clearError();
     }
     setStatus(null, again ? "Retrying…" : "Connecting…");
-    // Listen first: the backend may send the first summary right away.
-    await listening;
-    if (feed !== id) return;
     try {
-      await api(visibleCluster()).cmdWorkloadsStart(id, namespaces);
+      const channel = new Channel<WorkloadsMessage>((m) => onMessage(id, m));
+      await api(visibleCluster()).cmdWorkloadsStart(id, namespaces, channel);
     } catch (e) {
       if (feed !== id) return;
       const err = clusterError(e);
@@ -129,7 +124,6 @@
   onDestroy(() => {
     clearInterval(ageTimer);
     stop();
-    listening.then((uns) => uns.forEach((un) => un()));
   });
 
   const scope = $derived(

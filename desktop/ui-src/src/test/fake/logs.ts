@@ -25,6 +25,8 @@ export function logsHandlers(s: FakeState) {
       s.logStreams.delete(id);
       return null;
     },
-    cmdSaveLogs: (filename) => `/home/tester/Downloads/${filename}`,
+    // A raw upload (#115): no arguments in `bindings.ts`; `RAW_UPLOADS` in
+    // `fake-backend.ts` passes (filename, content).
+    cmdSaveLogs: (...args: unknown[]) => `/home/tester/Downloads/${String(args[0])}`,
   } satisfies AreaHandlers;
 }

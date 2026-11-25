@@ -1,27 +1,27 @@
 // The Applications feed (`commands/applications.rs`): the list of
-// `cluster.applications`, then "live". Change the list and press Refresh
-// (or switch namespaces) to see a new one.
+// `cluster.applications`, then "live", on the feed's channel (#115). Change
+// the list and press Refresh (or switch namespaces), or `emitApplications`,
+// to see a new one.
 
-import { events } from "../../lib/bindings";
 import { applicationsList } from "../fixtures/applications";
+import { sendApplications } from "./state";
 import type { AreaHandlers, FakeState } from "./state";
-
-/** Running feeds by id, with their namespaces. */
-const feeds = new Map<number, string[]>();
 
 export function applicationsHandlers(s: FakeState) {
   return {
-    cmdApplicationsStart: (id, namespaces) => {
-      feeds.set(id, [...namespaces]);
+    cmdApplicationsStart: (id, namespaces, onEvent) => {
+      s.applicationsFeeds.set(id, [...namespaces]);
+      s.applicationsChannels.set(id, onEvent);
+      s.lastApplications = id;
       setTimeout(() => {
-        if (!feeds.has(id)) return;
-        void events.applicationsUpdate.emit({ id, list: applicationsList(s.cluster, namespaces) });
-        void events.applicationsState.emit({ id, state: "live" });
+        if (!s.applicationsFeeds.has(id)) return;
+        sendApplications(s, id, { type: "update", list: applicationsList(s.cluster, namespaces) });
+        sendApplications(s, id, { type: "state", state: "live" });
       }, 0);
       return null;
     },
     cmdApplicationsStop: (id) => {
-      feeds.delete(id);
+      s.applicationsFeeds.delete(id);
       return null;
     },
   } satisfies AreaHandlers;

@@ -2,6 +2,7 @@
 
 use super::log_flow::{batch_with_credit, queue};
 use super::log_frame::{send, LogChannel, LogEvent, LogFrame};
+use super::raw_body::RawUpload;
 use crate::state::Cluster;
 use nauvi::{
     stream_pod_containers_logs, stream_pod_logs_into, stream_workload_logs, LogOptions, StopReason,
@@ -279,9 +280,39 @@ fn end_stream(out: &LogChannel, result: anyhow::Result<()>) {
 /// Save log text to the user's Downloads folder and return the path. A
 /// webview Blob download is not reliable across the platforms Tauri targets
 /// and there is no file dialog without an extra plugin, so we write directly.
+/// The text comes as raw bytes (#115), `<file name>\n<log text>`: call it
+/// through `saveLogs` in `lib/rawIpc.ts`.
 #[tauri::command]
 #[specta::specta]
-pub(crate) async fn cmd_save_logs(filename: String, content: String) -> Result<String, String> {
+pub(crate) async fn cmd_save_logs(upload: RawUpload) -> Result<String, String> {
+    let RawUpload {
+        head: filename,
+        body: content,
+    } = upload;
+    let safe = log_file_name(&filename);
+    // Windows keeps the profile in USERPROFILE; HOME there (Git Bash, MSYS)
+    // may point somewhere else.
+    let (first, second) = if cfg!(windows) {
+        ("USERPROFILE", "HOME")
+    } else {
+        ("HOME", "USERPROFILE")
+    };
+    let home = std::env::var_os(first)
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var_os(second).filter(|v| !v.is_empty()))
+        .ok_or("cannot locate home directory")?;
+    let dir = std::path::PathBuf::from(home).join("Downloads");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = write_new_file(&dir, &safe, &content)
+        .map_err(|e| format!("could not save the logs in {}: {e}", dir.display()))?;
+    Ok(path.display().to_string())
+}
+
+/// The name a saved log gets in Downloads: `filename` with only ASCII
+/// letters, digits, `-`, `_` and `.` (the rest become `_`), never hidden,
+/// and always ending in `.log`, so the page cannot leave a runnable file
+/// (`.desktop`, `.sh`, `.exe`) there.
+fn log_file_name(filename: &str) -> String {
     let safe: String = filename
         .chars()
         .map(|c| {
@@ -297,22 +328,11 @@ pub(crate) async fn cmd_save_logs(filename: String, content: String) -> Result<S
     } else {
         safe
     };
-    // Windows keeps the profile in USERPROFILE; HOME there (Git Bash, MSYS)
-    // may point somewhere else.
-    let (first, second) = if cfg!(windows) {
-        ("USERPROFILE", "HOME")
+    if safe.ends_with(".log") {
+        safe
     } else {
-        ("HOME", "USERPROFILE")
-    };
-    let home = std::env::var_os(first)
-        .filter(|v| !v.is_empty())
-        .or_else(|| std::env::var_os(second).filter(|v| !v.is_empty()))
-        .ok_or("cannot locate home directory")?;
-    let dir = std::path::PathBuf::from(home).join("Downloads");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = write_new_file(&dir, &safe, content.as_bytes())
-        .map_err(|e| format!("could not save the logs in {}: {e}", dir.display()))?;
-    Ok(path.display().to_string())
+        format!("{safe}.log")
+    }
 }
 
 /// Write `content` to a new file `name` in `dir`, or to `stem (1).ext`,
@@ -367,7 +387,18 @@ pub(crate) async fn cmd_stop_logs(cluster: Cluster, stream_id: u64) -> Result<()
 
 #[cfg(test)]
 mod save_tests {
-    use super::write_new_file;
+    use super::{log_file_name, write_new_file};
+
+    #[test]
+    fn a_saved_log_always_ends_in_dot_log() {
+        assert_eq!(log_file_name("web-1_app_2026.log"), "web-1_app_2026.log");
+        assert_eq!(log_file_name("evil.desktop"), "evil.desktop.log");
+        assert_eq!(log_file_name("run.sh"), "run.sh.log");
+        assert_eq!(log_file_name("x.LOG"), "x.LOG.log");
+        assert_eq!(log_file_name("../../.bashrc"), "log.._.._.bashrc.log");
+        assert_eq!(log_file_name(""), "log.log");
+        assert_eq!(log_file_name("é ü/a"), "____a.log");
+    }
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(

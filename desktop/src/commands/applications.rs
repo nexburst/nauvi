@@ -1,5 +1,6 @@
-//! The live Applications view (#226), pushed to the window as events while
-//! it is open, like the Workloads overview (`workloads.rs`).
+//! The live Applications view (#226), pushed to the view while it is open,
+//! on the channel the start command was given (#115), like the Workloads
+//! overview (`workloads.rs`).
 
 use crate::state::Cluster;
 use futures::StreamExt;
@@ -8,24 +9,17 @@ use nauvi::watch::WatchState;
 use nauvi::{watch_applications, ApplicationsUpdate};
 use serde::Serialize;
 use specta::Type;
-use tauri_specta::Event;
+use tauri::ipc::Channel;
 
-/// A new applications list for the feed `id` (sent when it changed, at
-/// most about once a second).
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[tauri_specta(event_name = "applications-update")]
-pub(crate) struct ApplicationsChanged {
-    id: u32,
-    list: ApplicationsList,
-}
-
-/// Connection state of the applications feed `id`.
-#[derive(Debug, Clone, Serialize, Type, Event)]
-#[tauri_specta(event_name = "applications-state")]
-pub(crate) struct ApplicationsStateChanged {
-    id: u32,
-    #[serde(flatten)]
-    state: WatchState,
+/// A message on an applications feed's channel.
+#[derive(Debug, Clone, Serialize, Type)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub(crate) enum ApplicationsMessage {
+    /// A new applications list (sent when it changed, at most about once a
+    /// second).
+    Update { list: Box<ApplicationsList> },
+    /// The feed's connection state changed.
+    State(WatchState),
 }
 
 /// The feed's key in `ClusterSession::watches`, so a context switch stops it
@@ -35,26 +29,27 @@ fn key(id: u32) -> String {
 }
 
 /// Start the applications feed `id` (chosen by the UI) for `namespaces`
-/// (empty: all namespaces). Replaces a feed with the same id; the UI starts
-/// a new one when the namespace selection changes.
+/// (empty: all namespaces), sending to `on_event`. Replaces a feed with the
+/// same id; the UI starts a new one when the namespace selection changes.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_applications_start(
     cluster: Cluster,
     id: u32,
     namespaces: Vec<String>,
+    on_event: Channel<ApplicationsMessage>,
 ) -> Result<(), String> {
     let (client, prober) = cluster.watch_client().await?;
-    let out = cluster.emitter();
     let mut updates = watch_applications(&client, &prober, &namespaces);
     let task = tauri::async_runtime::spawn(async move {
         while let Some(update) = updates.next().await {
-            match update {
-                ApplicationsUpdate::List(list) => out.emit(ApplicationsChanged { id, list: *list }),
-                ApplicationsUpdate::State(state) => {
-                    out.emit(ApplicationsStateChanged { id, state })
-                }
-            }
+            let msg = match update {
+                ApplicationsUpdate::List(list) => ApplicationsMessage::Update { list },
+                ApplicationsUpdate::State(state) => ApplicationsMessage::State(state),
+            };
+            // A closed view has nobody left to read it; its feed is stopped
+            // by the view, or with its window or cluster session.
+            let _ = on_event.send(msg);
         }
     });
     cluster.add_watch(key(id), task);

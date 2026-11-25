@@ -5,12 +5,15 @@
 //     handled while it floods,
 //   - the first snapshot of a watch of 5k pods, and the incremental
 //     batches while 1k of them are deleted,
+//   - saving the 50k lines (Download), and loading the YAML of a ConfigMap
+//     of about 900 KB (Reload in its YAML tab),
 // with the frame times of the page, the CPU time of the core and of the
 // WebKitWebProcess, and their peak memory.
 //
 // The numbers go to the console, artifacts/stream-perf.json and, on GitHub
-// Actions, the job summary. The log burst and the two terminals have budgets
-// (LOG_BUDGET, TERM_BUDGET, per build); the watch is report-only.
+// Actions, the job summary. The log burst, the two terminals and the watch
+// snapshot have budgets (LOG_BUDGET, TERM_BUDGET, WATCH_BUDGET, per build);
+// the watch updates, the log download and the YAML are report-only.
 // QA_PERF_BUDGET=off turns them off.
 //
 // qa.yml builds a release binary when idle-memory runs; with
@@ -19,7 +22,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { appendFileSync, existsSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
@@ -45,6 +48,10 @@ const CHURN = Math.floor(PODS / 5);
 
 /** Log bursts measured; the median one is reported and checked. */
 const BURSTS = 3;
+/** Downloads and YAML reloads measured; the median one is reported. */
+const REPEATS = 3;
+/** Lines of 100 bytes in the big ConfigMap (about 900 KB, under the 1 MiB limit). */
+const YAML_LINES = 9000;
 
 /**
  * The 50k-line burst (median of BURSTS). Release, on qa.yml runners (#115):
@@ -85,6 +92,16 @@ const YES_MS = 5000;
 const YES_BUDGET = RELEASE
   ? { promptMs: 1500, coreAndWebRssMb: 900 }
   : { promptMs: 5000, coreAndWebRssMb: 1200 };
+
+/**
+ * The first snapshot of a watch of PODS pods. Release, qa.yml runners
+ * (#115): 0.4-0.7 s, frame p95 16 ms, core and web 0.25 s CPU each, peak
+ * RSS core 180-340 MB and web 360-375 MB. The limits leave about 4x over
+ * that. Debug, a loaded dev box: about 3 s.
+ */
+const WATCH_BUDGET = RELEASE
+  ? { ms: 3000, p95Frame: 150, coreCpuS: 2, webCpuS: 2, coreAndWebRssMb: 1200 }
+  : { ms: 15_000, p95Frame: 400, coreCpuS: 15, webCpuS: 10, coreAndWebRssMb: 1800 };
 
 /** The keys `over` its budget, as "key value > limit" (none: budgets off). */
 function overBudget(r, budget) {
@@ -175,6 +192,8 @@ function report() {
     row(`Log burst, ${LOG_LINES.toLocaleString("en")} lines (median of ${BURSTS})`, results.logs),
     row("Pod terminal, 10 MB", results.terminal),
     row("Local shell, 10 MB", results.localShell),
+    row(`Save the log, ${LOG_LINES.toLocaleString("en")} lines (median of ${REPEATS})`, results.saveLogs),
+    row(`YAML of a ${YAML_LINES.toLocaleString("en")}-line ConfigMap (median of ${REPEATS})`, results.yaml),
     row(`Watch snapshot, ${PODS.toLocaleString("en")} pods`, results.watchSnapshot),
     row(`Watch updates, ${CHURN.toLocaleString("en")} of them deleted`, results.watchChurn),
     "",
@@ -212,6 +231,9 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     deleteNamespace(watchNs);
   });
   // bash for the local shell, so its prompt is the one `waitForPrompt` knows.
+  /** The burst pod's log tab, kept open for the download. */
+  let logTab = "";
+  const median = (runs) => [...runs].sort((a, b) => a.ms - b.ms)[Math.floor(runs.length / 2)];
   const s = appSession("stream-perf", { env: { SHELL: existsSync("/bin/bash") ? "/bin/bash" : "/bin/sh" } });
 
   it(`shows a burst of ${LOG_LINES} log lines`, T, async () => {
@@ -221,6 +243,7 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     const pid = appPid(app.profile.home);
     assert.ok(pid, "found the app's process");
     const id = await openPodLogs(app, ns, "burst");
+    logTab = id;
     const lines = `${pane(id)} [data-testid="log-line"]`;
     await app.waitFor(
       () => app.js(`return Array.from(document.querySelectorAll(arguments[0]), (l) => l.textContent).some((t) => t.includes("ready"))`, lines),
@@ -254,6 +277,71 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     results.kubectlLogsMs = Date.now() - t0;
     assert.ok(text.includes(`BURST-END-${BURSTS}`), "kubectl logs has every burst");
     assert.deepEqual(overBudget(r, LOG_BUDGET), [], `the 50k-line log burst (${BUILD}) is over its budget`);
+  });
+
+  // Report-only: what the log download costs (the text goes to the core
+  // and into a file in Downloads), from Download to the "Saved to" note.
+  it(`saves the ${LOG_LINES} log lines`, T, async () => {
+    const { app } = s;
+    assert.ok(logTab, "the log tab of the burst test");
+    const pid = appPid(app.profile.home);
+    const note = `${pane(logTab)} [data-testid="log-saved"]`;
+    const noteText = () => app.js(`return document.querySelector(arguments[0])?.textContent ?? ""`, note);
+    const runs = [];
+    for (let i = 1; i <= REPEATS; i++) {
+      // The note of the last save goes after 10 s.
+      await app.waitFor(async () => (await noteText()) === "", { timeout: 20_000, message: "no saved note" });
+      const r = await measured(
+        app,
+        pid,
+        { selector: note, text: "Saved to" },
+        async () => (await app.find(By.xpath(`//*[@data-tab=${xq(logTab)}]//button[normalize-space()='Download']`))).click(),
+        { timeout: 60_000, message: `the saved note ${i}` },
+      );
+      console.log(`save logs ${i}`, JSON.stringify(r));
+      runs.push(r);
+    }
+    results.saveLogs = median(runs);
+    const path = await app.profile.waitForDownload(/^burst_.*\.log$/);
+    const text = readFileSync(path, "utf8");
+    assert.ok(text.includes(`BURST-END-${BURSTS}`), "the saved log has the last burst");
+    await app.shot("log-saved");
+  });
+
+  // Report-only: one ConfigMap of YAML_LINES lines in its YAML tab, from
+  // Reload until the changed first key shows.
+  it(`loads the YAML of a ${YAML_LINES}-line ConfigMap`, T, async () => {
+    const { app } = s;
+    const pid = appPid(app.profile.home);
+    const file = join(app.profile.home, "big.txt");
+    writeFileSync(file, Array.from({ length: YAML_LINES }, (_, i) => `${String(i).padStart(6, "0")} ${"y".repeat(92)}`).join("\n"));
+    kubectl(["-n", ns, "create", "configmap", "big", `--from-file=big.txt=${file}`, "--from-literal=a0=r0"]);
+    await app.openDetail("Config Maps", ns, "big");
+    const panelEl = await app.find(By.css('[data-testid="detail-panel"]'));
+    await (await panelEl.findElement(By.xpath(".//button[@role='tab'][normalize-space()='YAML']"))).click();
+    const content = '[data-testid="yaml-editor"] .cm-content';
+    await app.waitFor(() => app.js(`return document.querySelector(arguments[0])?.textContent.includes("a0: r0") ?? false`, content), {
+      timeout: 60_000,
+      message: "the big YAML",
+    });
+    const runs = [];
+    for (let i = 1; i <= REPEATS; i++) {
+      kubectl(["-n", ns, "patch", "configmap", "big", "--type=merge", "-p", JSON.stringify({ data: { a0: `r${i}` } })]);
+      const r = await measured(
+        app,
+        pid,
+        { selector: content, text: `a0: r${i}` },
+        async () => (await panelEl.findElement(By.xpath(".//button[normalize-space()='Reload']"))).click(),
+        { timeout: 60_000, message: `the reloaded YAML ${i}` },
+      );
+      console.log(`yaml ${i}`, JSON.stringify(r));
+      runs.push(r);
+    }
+    results.yaml = median(runs);
+    await app.shot("yaml-big");
+    await setTheme(app, "light");
+    await app.shot("yaml-big-light");
+    await setTheme(app, null);
   });
 
   /** Type `command` in `term` and measure until `marker`42 shows, with key presses timed while it floods. */
@@ -331,17 +419,31 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
       await new Promise((done) => setTimeout(done, YES_MS));
       await app.shot("yes-skipped-notice");
       const t1 = performance.now();
+      // The Ctrl-C notice is written at the cursor, and the prompt that
+      // follows can land on the same row and cover it (#477): watch the
+      // screen from Ctrl-C on instead of reading it once at the end.
+      let sawAtCtrlC = false;
+      let watching = true;
+      const watcher = (async () => {
+        while (watching && !sawAtCtrlC) {
+          sawAtCtrlC = atCtrlC.test(await term.screen());
+          await new Promise((done) => setTimeout(done, 50));
+        }
+      })();
       await term.interrupt();
       // Typed ahead: the shell runs it once `yes` has stopped.
       await term.type("echo YES$((40+2))DONE");
       await term.waitFor("YES42DONE", { timeout: 60_000, message: "the command typed after Ctrl-C" });
       r.promptMs = Math.round(performance.now() - t1);
+      watching = false;
+      await watcher;
+      r.clearedNotice = sawAtCtrlC;
     } finally {
       r = { ...r, ...mem.stop() };
     }
     const screen = await term.screen();
     r.skippedNotice = skipped.test(screen);
-    r.clearedNotice = atCtrlC.test(screen);
+    r.clearedNotice = Boolean(r.clearedNotice) || atCtrlC.test(screen);
     results.yesInterrupt = r;
     console.log("yes then Ctrl-C", JSON.stringify(r));
     await app.shot("yes-interrupted");
@@ -368,7 +470,7 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     console.log("watch snapshot", JSON.stringify(results.watchSnapshot));
     await app.shot("watch-5k-pods");
     // Incremental batches: CHURN deletions, at the API server's pace (the
-    // table gets them coalesced, #115). Report-only, like the snapshot.
+    // table gets them coalesced, #115). Report-only: paced by the API server.
     results.watchChurn = await measured(app, pid, rows(PODS - CHURN), () => deletePods(watchNs, "churn=yes"), {
       timeout: 300_000,
       message: `${PODS - CHURN} pod rows after deleting ${CHURN}`,
@@ -377,5 +479,6 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     await app.shot("watch-after-churn");
     // Not timed: deleting 5k pods goes at the API server's pace (minutes on
     // kind), not the app's. The namespace goes in `after`.
+    assert.deepEqual(overBudget(results.watchSnapshot, WATCH_BUDGET), [], `the ${PODS}-pod watch snapshot (${BUILD}) is over its budget`);
   });
 });

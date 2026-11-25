@@ -162,9 +162,9 @@ jobs:
       - name: Smoke tests
         run: xvfb-run -a -s "-screen 0 1600x1000x24" npm --prefix desktop/e2e test
 
-      # Report only: the numbers go to the job summary and never fail the job.
+      # The numbers go to the job summary; the job fails when one is past
+      # its limit (BUDGET in desktop/e2e/bench.mjs, #115).
       - name: Table benchmark (10k rows)
-        continue-on-error: true
         timeout-minutes: 5
         run: xvfb-run -a -s "-screen 0 1600x1000x24" npm --prefix desktop/e2e run bench
 
