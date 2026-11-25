@@ -6,8 +6,9 @@
 #   scripts/test-install/fixtures.sh <dir> <tag> [--tamper]
 #
 # --tamper changes the assets after SHA256SUMS is written, so every checksum
-# check must fail. The macOS .dmg is only written where hdiutil exists, the
-# Windows CLI .zip where python3 exists.
+# check must fail. The macOS .dmg (with a licence agreement, like the
+# release's) is only written where hdiutil exists, the Windows CLI .zip
+# where python3 exists.
 set -eu
 
 [ $# -ge 2 ] || {
@@ -74,6 +75,17 @@ PL
   chmod 755 "$app/MacOS/nauvi-desktop"
   hdiutil create -quiet -volname nauvi -srcfolder "$work/dmg" -format UDZO \
     -ov "$dir/nauvi_${ver}_universal.dmg"
+  # A licence agreement, like the release DMG (#210, #467): install.sh must
+  # accept it without asking.
+  printf 'Fixture licence %s.\nPress Agree to go on.\n' "$ver" >"$work/license.txt"
+  base64 <"$work/license.txt" | tr -d '\n' | fold -w 52 >"$work/license.b64"
+  awk -v f="$work/license.b64" '$0 == "@EULA_DATA@" { while ((getline l <f) > 0) print "\t\t\t" l; next } { print }' \
+    "$(dirname "$0")/eula-resources.xml" >"$work/eula.xml"
+  hdiutil udifrez -xml "$work/eula.xml" '' -quiet "$dir/nauvi_${ver}_universal.dmg"
+  hdiutil imageinfo "$dir/nauvi_${ver}_universal.dmg" | grep -q 'Software License Agreement: true' || {
+    echo "the fixture DMG has no licence agreement" >&2
+    exit 1
+  }
 fi
 
 rm -f "$dir/SHA256SUMS"
