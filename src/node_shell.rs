@@ -14,7 +14,10 @@ use std::time::Duration;
 
 /// Pod Security Admission usually lets this namespace run privileged pods.
 pub const NODE_SHELL_NAMESPACE: &str = "kube-system";
-pub const NODE_SHELL_IMAGE: &str = "busybox:1.37";
+/// Pinned by digest (the multi-arch index of `busybox:1.37`, from the Docker
+/// Hub registry API), since the pod is privileged and enters the host.
+pub const NODE_SHELL_IMAGE: &str =
+    "busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec";
 /// Every node shell pod carries this label (value `true`).
 pub const NODE_SHELL_LABEL: &str = "nauvi.dev/node-shell";
 pub const MANAGED_BY: &str = "app.kubernetes.io/managed-by";
@@ -250,6 +253,14 @@ mod tests {
         assert_eq!(c["image"], "busybox:1.37");
         assert_eq!(c["securityContext"]["privileged"], true);
         assert_eq!(c["command"], serde_json::json!(["sleep", "14400"]));
+    }
+
+    #[test]
+    fn node_shell_image_is_pinned_by_digest() {
+        let (tag, digest) = NODE_SHELL_IMAGE.split_once("@sha256:").unwrap();
+        assert!(tag.starts_with("busybox:"), "{tag}");
+        assert_eq!(digest.len(), 64);
+        assert!(digest.bytes().all(|b| b.is_ascii_hexdigit()));
     }
 
     #[test]
