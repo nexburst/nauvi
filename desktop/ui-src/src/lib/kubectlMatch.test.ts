@@ -45,6 +45,15 @@ describe("offerState", () => {
   });
 });
 
+describe("offerState for a cluster older than the floor (#444)", () => {
+  it("says why nothing is offered", () => {
+    const note =
+      "the cluster reports v1.10.0; nauvi only downloads kubectl 1.27 or newer (older ones have known security bugs). Your own kubectl is used.";
+    const s = offerState({ ...base, server: "v1.10.0", url: "", note }, "");
+    expect(s).toEqual({ kind: "note", text: `No matching kubectl to offer: ${note}` });
+  });
+});
+
 describe("kubectlIntro", () => {
   it("names the version, or says nothing", () => {
     expect(kubectlIntro("")).toBe("");

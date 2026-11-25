@@ -92,3 +92,21 @@ test("no offer when the kubectl is close enough", async ({ page }) => {
   await expect.poll(() => fake.calls("cmdKubectlMatch")).toHaveLength(1);
   await expect(offer(page)).toHaveCount(0);
 });
+
+test("a cluster older than 1.27 gets no download, and the bar says why (#444)", async ({ page }) => {
+  const fake = await openApp(page, (cluster) => {
+    cluster.settings = { ...cluster.settings, kubectl_match: true };
+    cluster.kubectl = { server: "v1.10.0", installed: "v1.31.0", downloaded: false, downloadError: "" };
+  });
+  await newLocalTerminal(page);
+  await expect(offer(page)).toContainText(
+    "No matching kubectl to offer: the cluster reports v1.10.0; nauvi only downloads kubectl 1.27 or newer",
+  );
+  await expect(offer(page)).toContainText("Your own kubectl is used.");
+  await expect(offer(page).getByRole("button", { name: /Download/ })).toHaveCount(0);
+  await expect(offer(page)).not.toContainText("dl.k8s.io/release");
+  expect(await fake.calls("cmdKubectlDownload")).toHaveLength(0);
+  await offer(page).getByRole("button", { name: "Dismiss" }).click();
+  await expect(offer(page)).toHaveCount(0);
+  expect(fake.errors).toEqual([]);
+});
