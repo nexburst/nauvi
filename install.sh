@@ -147,8 +147,18 @@ nauvi_install() {
   esac
 
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/nauvi-install.XXXXXX")
-  # shellcheck disable=SC2064 # expand $tmp now
-  trap "rm -rf '$tmp'" EXIT
+  # On every exit, Ctrl-C included (#473): detach a disk image still
+  # mounted under $tmp and drop a half-copied app before removing $tmp.
+  mounted=""
+  partial=""
+  cleanup() {
+    if [ -n "$mounted" ]; then
+      hdiutil detach -quiet "$mounted" 2>/dev/null || hdiutil detach -quiet -force "$mounted" 2>/dev/null || true
+    fi
+    [ -z "$partial" ] || rm -rf "$partial"
+    rm -rf "$tmp"
+  }
+  trap cleanup EXIT
   trap 'exit 130' INT TERM
 
   fetch() {
@@ -259,6 +269,7 @@ nauvi_install() {
     mnt="$tmp/mnt"
     mkdir "$mnt"
     attach_dmg "$dmg" "$mnt" || die "could not open $name"
+    mounted="$mnt"
     if [ ! -d "$mnt/nauvi.app" ]; then
       hdiutil detach -quiet "$mnt" || true
       die "$name has no nauvi.app"
@@ -269,14 +280,17 @@ nauvi_install() {
       die "could not create $dest"
     }
     rm -rf "$dest/.nauvi.app.new"
+    partial="$dest/.nauvi.app.new"
     if ! ditto "$mnt/nauvi.app" "$dest/.nauvi.app.new"; then
       rm -rf "$dest/.nauvi.app.new"
       hdiutil detach -quiet "$mnt" || true
       die "could not copy nauvi.app to $dest"
     fi
     hdiutil detach -quiet "$mnt" || hdiutil detach -quiet -force "$mnt" || true
+    mounted=""
     rm -rf "$dest/nauvi.app"
     mv "$dest/.nauvi.app.new" "$dest/nauvi.app"
+    partial=""
     say "Installed nauvi ($name) to $dest/nauvi.app"
     say "Start it from Launchpad or with: open \"$dest/nauvi.app\""
     say "The CLI is separate: run this script again with --cli."
