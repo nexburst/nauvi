@@ -12,6 +12,7 @@ installer="$root/install.sh"
 fixtures="$root/scripts/test-install/fixtures.sh"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+sh "$root/scripts/test-install/probe-467.sh" || true # TEMP #467
 
 sh "$fixtures" "$work/v1" v0.0.1 >/dev/null
 sh "$fixtures" "$work/v2" v0.0.2 >/dev/null
