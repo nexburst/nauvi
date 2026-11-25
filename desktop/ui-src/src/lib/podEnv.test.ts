@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnvFromGroup, EnvValue } from "./bindings";
-import { envCount, envGroupTitle, envRowId, envShownValue, envValueSource, MASK } from "./podEnv";
+import { envCount, envGroupTitle, envRowId, envShownValue, envValueSource, MASK, visibleText } from "./podEnv";
 
 const v = (r: Partial<EnvValue>): EnvValue => ({
   name: "X",
@@ -52,5 +52,17 @@ describe("env values", () => {
     const groups = [g({ rows: [v({ name: "A" }), v({ name: "B", overridden: true })] })];
     expect(envCount(groups, [v({ name: "B" })])).toBe(2);
     expect(envRowId(0, 1)).not.toBe(envRowId("env", 1));
+  });
+
+  it("shows bidi and other invisible characters as escapes", () => {
+    const rlo = String.fromCharCode(0x202e);
+    expect(visibleText(`abc${rlo}fdp.exe`)).toBe("abc\\u{202E}fdp.exe");
+    for (const cp of [0x202a, 0x202b, 0x202c, 0x202d, 0x2066, 0x2067, 0x2068, 0x2069, 0x200b, 0xfeff]) {
+      expect(visibleText(String.fromCharCode(cp))).toBe(`\\u{${cp.toString(16).toUpperCase()}}`);
+    }
+    const controls = ["a", "\u0000", "b", "\u001b", "c", "\u007f", "d", "\u0085", "e"].join("");
+    expect(visibleText(controls)).toBe("a\\u{0000}b\\u{001B}c\\u{007F}d\\u{0085}e");
+    // Newlines and tabs keep a multi-line value's shape; other text is untouched.
+    expect(visibleText("a=1\n\tb=2 ünï 日本")).toBe("a=1\n\tb=2 ünï 日本");
   });
 });

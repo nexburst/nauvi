@@ -90,9 +90,52 @@ test("a secret-looking literal is masked and revealed through the pod", async ({
   await expect(tok.getByTestId("env-value")).toHaveText("••••");
   await tok.getByRole("button", { name: "Reveal API_TOKEN" }).click();
   await expect(tok.getByTestId("env-value")).toHaveText("tok-123-literal");
+  // Named by its position in the pod spec (env index 2), not only by name.
   expect(await fake.calls("cmdRevealPodEnv")).toEqual([
-    expect.objectContaining({ namespace: "demo", pod: "web-1", container: "app", name: "API_TOKEN" }),
+    expect.objectContaining({ namespace: "demo", pod: "web-1", container: "app", group: -1, index: 2, name: "API_TOKEN" }),
   ]);
+});
+
+test("a ConfigMap value that looks like a secret is masked and revealed by its row", async ({ page }) => {
+  const fake = await openEnv(page);
+  const row = envRow(page, "CFG_secret_token");
+  await expect(row.getByTestId("env-value")).toHaveText("••••");
+  await expect(row).toContainText("from ConfigMap settings/secret_token");
+  await row.getByRole("button", { name: "Reveal CFG_secret_token" }).click();
+  await expect(row.getByTestId("env-value")).toHaveText("cm-tok-777");
+  expect(await fake.calls("cmdRevealPodEnv")).toEqual([
+    expect.objectContaining({ group: 0, index: 2, name: "CFG_secret_token" }),
+  ]);
+  // Not through the Secret path.
+  expect(await fake.calls("cmdRevealDataValue")).toHaveLength(0);
+});
+
+test("bidi overrides and zero-width characters are shown as escapes", async ({ page }) => {
+  await openEnv(page);
+  await expect(envRow(page, "TRICKY").getByTestId("env-value")).toHaveText("abc\\u{202E}def\\u{200B}ghi");
+});
+
+test("a reveal that answers after a reload is dropped", async ({ page }) => {
+  await openEnv(page);
+  // Hold the reveal back until the list has reloaded.
+  await page.evaluate(() => {
+    window.__podEnvRevealGate = new Promise((r) => ((window as unknown as { __release: () => void }).__release = () => r(null)));
+  });
+  const tok = envRow(page, "API_TOKEN");
+  await tok.getByRole("button", { name: "Reveal API_TOKEN" }).click();
+  await card(page).getByRole("button", { name: "Reload" }).click();
+  await expect(card(page).getByRole("button", { name: "Reload" })).toBeEnabled();
+  await page.evaluate(() => {
+    (window as unknown as { __release: () => void }).__release();
+    window.__podEnvRevealGate = undefined;
+  });
+  // Give the held answer time to arrive; it must not land on any row.
+  await page.waitForTimeout(300);
+  await expect(envRow(page, "API_TOKEN").getByTestId("env-value")).toHaveText("••••");
+  await expect(page.locator("body")).not.toContainText("tok-123-literal");
+  // A new reveal still works.
+  await envRow(page, "API_TOKEN").getByRole("button", { name: "Reveal API_TOKEN" }).click();
+  await expect(envRow(page, "API_TOKEN").getByTestId("env-value")).toHaveText("tok-123-literal");
 });
 
 test("a forbidden reveal says so on its row", async ({ page }) => {

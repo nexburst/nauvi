@@ -148,7 +148,7 @@ async fn pod_env_resolves_values_without_secret_values() -> Result<()> {
         }
         // The hidden literal, on request.
         ensure!(
-            reveal_pod_env_value(&client, &ns, "app", "main", "API_TOKEN").await?
+            reveal_pod_env_value(&client, &ns, "app", "main", -1, 1, "API_TOKEN").await?
                 == "tok-literal-it"
         );
         Ok(())

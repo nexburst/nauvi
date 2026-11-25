@@ -77,8 +77,8 @@ pub use pod_detail::{
     MountInfo, PodExtras, PortInfo, ProbeInfo, StateInfo,
 };
 pub use pod_env::{
-    env_sources, env_value_of, field_value, get_pod_env, resolve_env, reveal_pod_env_value,
-    ContainerEnv, EnvFromGroup, EnvSource, EnvSourceKind, EnvValue,
+    env_reveal_from, env_sources, field_value, get_pod_env, resolve_env, reveal_pod_env_value,
+    ContainerEnv, EnvFromGroup, EnvSource, EnvSourceKind, EnvValue, RevealFrom,
 };
 pub use pod_printer::printed_pod_status;
 pub use problems::{not_ready_reason, row_problem};

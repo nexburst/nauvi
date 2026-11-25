@@ -24,8 +24,11 @@ pub(crate) async fn cmd_pod_env(
         .map_err(|e| actions::describe_error(&e))
 }
 
-/// One literal (or pod field) value that `cmd_pod_env` withheld because it
-/// looks like a secret, on an explicit reveal. Never logged.
+/// One value that `cmd_pod_env` withheld because it looks like a secret (a
+/// literal, a pod field or a ConfigMap value), on an explicit reveal. The
+/// row is named by position: `group` is its `envFrom` source's index, or
+/// -1 for `env`, where `index` is its position; `name` must match. Never
+/// logged.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_reveal_pod_env(
@@ -33,10 +36,12 @@ pub(crate) async fn cmd_reveal_pod_env(
     namespace: String,
     pod: String,
     container: String,
+    group: i32,
+    index: u32,
     name: String,
 ) -> Result<String, String> {
     let client = cluster.client().await?;
-    resources::reveal_pod_env_value(&client, &namespace, &pod, &container, &name)
+    resources::reveal_pod_env_value(&client, &namespace, &pod, &container, group, index, &name)
         .await
         .map_err(|e| actions::describe_error(&e))
 }

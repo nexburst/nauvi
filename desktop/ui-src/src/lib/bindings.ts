@@ -406,10 +406,13 @@ export const commands = {
 	 */
 	cmdPodEnv: (cluster: string, namespace: string, pod: string, container: string, options?: InvokeOptions) => __TAURI_INVOKE<ContainerEnv>("cmd_pod_env", { cluster, namespace, pod, container }, options),
 	/**
-	 *  One literal (or pod field) value that `cmd_pod_env` withheld because it
-	 *  looks like a secret, on an explicit reveal. Never logged.
+	 *  One value that `cmd_pod_env` withheld because it looks like a secret (a
+	 *  literal, a pod field or a ConfigMap value), on an explicit reveal. The
+	 *  row is named by position: `group` is its `envFrom` source's index, or
+	 *  -1 for `env`, where `index` is its position; `name` must match. Never
+	 *  logged.
 	 */
-	cmdRevealPodEnv: (cluster: string, namespace: string, pod: string, container: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_reveal_pod_env", { cluster, namespace, pod, container, name }, options),
+	cmdRevealPodEnv: (cluster: string, namespace: string, pod: string, container: string, group: number, index: number, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_reveal_pod_env", { cluster, namespace, pod, container, group, index, name }, options),
 	/**
 	 *  Start the saved forwards of the selected context marked "Start
 	 *  automatically", except those another window runs already. Called when

@@ -29,6 +29,8 @@ export const POD_ENV: Record<string, ContainerEnv> = {
         rows: [
           v({ name: "CFG_app.conf", kind: "configmap", object: "settings", key: "app.conf", value: "a=1\nb=2" }),
           v({ name: "CFG_mode", kind: "configmap", object: "settings", key: "mode", value: "dev", overridden: true }),
+          // A ConfigMap value that looks like a secret: hidden like a literal.
+          v({ name: "CFG_secret_token", kind: "configmap", object: "settings", key: "secret_token", hidden: true }),
         ],
       },
       {
@@ -53,6 +55,8 @@ export const POD_ENV: Record<string, ContainerEnv> = {
         value: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dfile.encoding=UTF-8 -Duser.timezone=UTC",
       }),
       v({ name: "CFG_mode", value: "override" }),
+      // A right-to-left override (U+202E) and a zero-width space: shown escaped.
+      v({ name: "TRICKY", value: "abc\u202Edef\u200Bghi" }),
     ],
   },
 };
@@ -60,4 +64,5 @@ export const POD_ENV: Record<string, ContainerEnv> = {
 /** The hidden literal values, by `namespace/pod/container/name`. */
 export const POD_ENV_LITERALS: Record<string, string> = {
   "demo/web-1/app/API_TOKEN": "tok-123-literal",
+  "demo/web-1/app/CFG_secret_token": "cm-tok-777",
 };

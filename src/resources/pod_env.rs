@@ -206,6 +206,15 @@ fn looks_secret(name: &str, value: &str) -> bool {
     !value.is_empty() && mask_args(&[format!("{name}={value}")]).1
 }
 
+/// Show `value` on `r`, or hide it if it looks like a secret.
+fn set_value(r: &mut EnvValue, value: String) {
+    if looks_secret(&r.name, &value) {
+        r.hidden = true;
+    } else {
+        r.value = value;
+    }
+}
+
 fn row(name: String, kind: EnvSourceKind, object: String, key: String) -> EnvValue {
     EnvValue {
         name,
@@ -257,7 +266,9 @@ pub fn resolve_env(
                             let mut r =
                                 row(format!("{prefix}{k}"), kind, object.clone(), k.clone());
                             match v {
-                                Some(v) if kind == EnvSourceKind::ConfigMap => r.value = v.clone(),
+                                Some(v) if kind == EnvSourceKind::ConfigMap => {
+                                    set_value(&mut r, v.clone())
+                                }
                                 _ => r.hidden = kind == EnvSourceKind::Secret,
                             }
                             r
@@ -288,11 +299,7 @@ pub fn resolve_env(
                     String::new(),
                     String::new(),
                 );
-                if looks_secret(&e.name, &value) {
-                    r.hidden = true;
-                } else {
-                    r.value = value;
-                }
+                set_value(&mut r, value);
                 return r;
             };
             let keyed = |kind: EnvSourceKind, object: &str, key: &str, optional: bool| {
@@ -302,7 +309,7 @@ pub fn resolve_env(
                 match source((kind, object.to_string())) {
                     EnvSource::Found(keys) => match keys.get(key) {
                         Some(_) if kind == EnvSourceKind::Secret => r.hidden = true,
-                        Some(v) => r.value = v.clone().unwrap_or_default(),
+                        Some(v) => set_value(&mut r, v.clone().unwrap_or_default()),
                         None => r.error = format!("{what} {object} has no key {key}{opt}"),
                     },
                     EnvSource::NotFound => r.error = format!("{what} {object} not found{opt}"),
@@ -331,12 +338,7 @@ pub fn resolve_env(
                     String::new(),
                     f.field_path.clone(),
                 );
-                let value = field_value(pod, &f.field_path).unwrap_or_default();
-                if looks_secret(&e.name, &value) {
-                    r.hidden = true;
-                } else {
-                    r.value = value;
-                }
+                set_value(&mut r, field_value(pod, &f.field_path).unwrap_or_default());
                 r
             } else if let Some(res) = &v.resource_field_ref {
                 row(
@@ -454,33 +456,92 @@ pub async fn get_pod_env(
     resolve_env(&p, container, &sources)
 }
 
-/// The value of a literal or `fieldRef` variable of `container` that
-/// [`resolve_env`] hid: the last `env` entry named `name` wins.
-pub fn env_value_of(pod: &Pod, container: &str, name: &str) -> Result<String> {
-    let Some((env, _)) = container_env(pod, container) else {
+/// Where the value of a hidden row is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RevealFrom {
+    /// In the pod spec (a literal, or a resolved `fieldRef`).
+    Value(String),
+    /// A key of a ConfigMap.
+    ConfigMapKey { name: String, key: String },
+}
+
+/// Where the value of one row of [`resolve_env`] is. The row is named by
+/// its position, so a variable that appears twice is never confused with
+/// the other one: `group` is the index of its `envFrom` source, or `-1` for
+/// `env`, where `index` is its position; `name` must still match. Secret
+/// values are not revealed here (they go through `reveal_data_value`).
+pub fn env_reveal_from(
+    pod: &Pod,
+    container: &str,
+    group: i32,
+    index: u32,
+    name: &str,
+) -> Result<RevealFrom> {
+    let Some((env, env_from)) = container_env(pod, container) else {
         bail!("the pod has no container {container}");
     };
-    let Some(e) = env.iter().rev().find(|e| e.name == name) else {
-        bail!("container {container} has no variable {name} any more");
+    let gone = || anyhow::anyhow!("container {container} has no variable {name} there any more");
+    if group >= 0 {
+        let f = env_from.get(group as usize).ok_or_else(gone)?;
+        let Some(c) = &f.config_map_ref else {
+            bail!("{name} comes from a Secret: reveal it from the Secret");
+        };
+        let key = name
+            .strip_prefix(f.prefix.as_deref().unwrap_or(""))
+            .ok_or_else(gone)?;
+        return Ok(RevealFrom::ConfigMapKey {
+            name: c.name.clone(),
+            key: key.to_string(),
+        });
+    }
+    let e = env
+        .get(index as usize)
+        .filter(|e| e.name == name)
+        .ok_or_else(gone)?;
+    let Some(v) = &e.value_from else {
+        return Ok(RevealFrom::Value(e.value.clone().unwrap_or_default()));
     };
-    match &e.value_from {
-        None => Ok(e.value.clone().unwrap_or_default()),
-        Some(v) => match &v.field_ref {
-            Some(f) => Ok(field_value(pod, &f.field_path).unwrap_or_default()),
-            None => bail!("{name} is not set in the pod spec: reveal it from its source"),
-        },
+    if let Some(f) = &v.field_ref {
+        Ok(RevealFrom::Value(
+            field_value(pod, &f.field_path).unwrap_or_default(),
+        ))
+    } else if let Some(c) = &v.config_map_key_ref {
+        Ok(RevealFrom::ConfigMapKey {
+            name: c.name.clone(),
+            key: c.key.clone(),
+        })
+    } else if v.secret_key_ref.is_some() {
+        bail!("{name} comes from a Secret: reveal it from the Secret")
+    } else {
+        bail!("{name} has no value to reveal")
     }
 }
 
-/// Read one hidden literal (or field) value again (the user asked to see it).
+/// Read one value [`resolve_env`] hid because it looks like a secret (the
+/// user asked to see it): a literal, a field or a ConfigMap value. The row
+/// is named as in [`env_reveal_from`].
 pub async fn reveal_pod_env_value(
     client: &Client,
     namespace: &str,
     pod: &str,
     container: &str,
+    group: i32,
+    index: u32,
     name: &str,
 ) -> Result<String> {
-    env_value_of(&get_pod(client, namespace, pod).await?, container, name)
+    let p = get_pod(client, namespace, pod).await?;
+    match env_reveal_from(&p, container, group, index, name)? {
+        RevealFrom::Value(v) => Ok(v),
+        RevealFrom::ConfigMapKey { name: cm, key } => {
+            let c = Api::<ConfigMap>::namespaced(client.clone(), namespace)
+                .get(&cm)
+                .await
+                .with_context(|| format!("cannot read ConfigMap {cm}"))?;
+            c.data
+                .and_then(|mut d| d.remove(&key))
+                .with_context(|| format!("ConfigMap {cm} has no key {key} any more"))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -690,17 +751,103 @@ mod tests {
         }
     }
 
+    fn value(from: Result<RevealFrom>) -> String {
+        match from.unwrap() {
+            RevealFrom::Value(v) => v,
+            other => panic!("{other:?}"),
+        }
+    }
+
     #[test]
-    fn reveals_a_hidden_literal_only() {
+    fn reveals_the_row_at_its_position() {
         let p = sample();
+        // env indexes: DB_PASSWORD 1, LEVEL 3, TOKEN 4, POD 8.
         assert_eq!(
-            env_value_of(&p, "app", "DB_PASSWORD").unwrap(),
+            value(env_reveal_from(&p, "app", -1, 1, "DB_PASSWORD")),
             "s3cr3t-literal"
         );
-        assert_eq!(env_value_of(&p, "app", "POD").unwrap(), "web-1");
-        let e = env_value_of(&p, "app", "TOKEN").unwrap_err().to_string();
-        assert!(e.contains("not set in the pod spec"), "{e}");
-        assert!(env_value_of(&p, "app", "NOPE").is_err());
-        assert!(env_value_of(&p, "nope", "A").is_err());
+        assert_eq!(value(env_reveal_from(&p, "app", -1, 8, "POD")), "web-1");
+        assert_eq!(
+            env_reveal_from(&p, "app", -1, 3, "LEVEL").unwrap(),
+            RevealFrom::ConfigMapKey {
+                name: "base".into(),
+                key: "level".into()
+            }
+        );
+        assert_eq!(
+            env_reveal_from(&p, "app", 0, 0, "CFG_mode").unwrap(),
+            RevealFrom::ConfigMapKey {
+                name: "base".into(),
+                key: "mode".into()
+            }
+        );
+        let e = env_reveal_from(&p, "app", -1, 4, "TOKEN")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("from the Secret"), "{e}");
+        let e = env_reveal_from(&p, "app", 1, 0, "token")
+            .unwrap_err()
+            .to_string();
+        assert!(e.contains("from the Secret"), "{e}");
+        // A name that is not at that position any more.
+        assert!(env_reveal_from(&p, "app", -1, 2, "DB_PASSWORD").is_err());
+        assert!(env_reveal_from(&p, "app", -1, 99, "DB_PASSWORD").is_err());
+        assert!(env_reveal_from(&p, "app", 9, 0, "CFG_mode").is_err());
+        assert!(env_reveal_from(&p, "nope", -1, 0, "A").is_err());
+    }
+
+    #[test]
+    fn a_duplicated_name_reveals_the_row_asked_for() {
+        let p = pod(json!({ "spec": { "containers": [{ "name": "app", "env": [
+            { "name": "API_TOKEN", "value": "first-token" },
+            { "name": "API_TOKEN", "value": "second-token" }
+        ] }] } }));
+        let env = resolve_env(&p, "app", &BTreeMap::new()).unwrap();
+        assert!(env.env[0].hidden && env.env[0].overridden);
+        assert!(env.env[1].hidden && !env.env[1].overridden);
+        assert_eq!(
+            value(env_reveal_from(&p, "app", -1, 0, "API_TOKEN")),
+            "first-token"
+        );
+        assert_eq!(
+            value(env_reveal_from(&p, "app", -1, 1, "API_TOKEN")),
+            "second-token"
+        );
+    }
+
+    #[test]
+    fn config_map_values_that_look_secret_are_hidden() {
+        let p = pod(json!({ "spec": { "containers": [{ "name": "app",
+            "envFrom": [{ "configMapRef": { "name": "cfg" } }],
+            "env": [{ "name": "DB_PASSWORD", "valueFrom": { "configMapKeyRef": { "name": "cfg", "key": "mode" } } }]
+        }] } }));
+        let s = BTreeMap::from([(
+            (EnvSourceKind::ConfigMap, "cfg".to_string()),
+            cm(&[
+                ("mode", "cm-pw-value"),
+                ("API_KEY", "cm-key-value"),
+                ("level", "debug"),
+            ]),
+        )]);
+        let env = resolve_env(&p, "app", &s).unwrap();
+        // The variable's name says secret: hidden, whatever the key is called.
+        assert!(env.env[0].hidden && env.env[0].value.is_empty());
+        // Through envFrom the variable is named after the key: `mode` is not
+        // a secret-looking name, `API_KEY` is.
+        let rows: Vec<(&str, bool, &str)> = env.from[0]
+            .rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.hidden, r.value.as_str()))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("API_KEY", true, ""),
+                ("level", false, "debug"),
+                ("mode", false, "cm-pw-value")
+            ]
+        );
+        let text = serde_json::to_string(&env).unwrap();
+        assert!(!text.contains("cm-key-value"), "{text}");
     }
 }

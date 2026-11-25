@@ -5,6 +5,9 @@
 //   ConfigMap (with its prefix) are shown
 // - Secret values and secret-looking literals are •••• until Reveal, one
 //   row at a time; Hide and closing the list drop them
+// - a ConfigMap value that looks like a secret is masked like a literal
+// - of two variables with the same name, Reveal shows each row's own value
+// - a bidi override in a value is shown as an escape (\u{202E})
 // - a missing optional ConfigMap says so on its row
 // - a user who may read the pod and ConfigMaps but not Secrets gets
 //   "not allowed to read Secret ..." on the Secret rows
@@ -28,6 +31,9 @@ const T = { timeout: 180_000 };
 const PASSWORD = "qa-env-pw-5c8e21";
 const API_KEY = "qa-env-key-91b0";
 const TOKEN = "qa-env-tok-3d7a";
+const CM_TOKEN = "qa-env-cmtok-55e1";
+const DUP_FIRST = "qa-dup-first-1a";
+const DUP_SECOND = "qa-dup-second-2b";
 const b64 = (s) => Buffer.from(s).toString("base64");
 
 const FIXTURE = `
@@ -37,6 +43,7 @@ metadata: { name: qa-cfg }
 data:
   level: debug
   region: eu-west-1
+  api_token: ${CM_TOKEN}
 ---
 apiVersion: v1
 kind: Secret
@@ -72,6 +79,9 @@ spec:
           valueFrom: { fieldRef: { fieldPath: metadata.name } }
         - name: CPU_LIMIT
           valueFrom: { resourceFieldRef: { resource: limits.cpu } }
+        - { name: DUP_PASSWORD, value: ${DUP_FIRST} }
+        - { name: DUP_PASSWORD, value: ${DUP_SECOND} }
+        - { name: TRICKY, value: "abc\u202Edef" }
 `;
 
 const LIST = '[data-testid="env-list"]';
@@ -82,8 +92,20 @@ let dir;
 
 const listText = (app) => app.js(`return document.querySelector('${LIST}')?.innerText ?? ""`);
 const bodyText = (app) => app.js("return document.body.innerText");
-const valueOf = (app, name) =>
-  app.js(`return document.querySelector('${rowCss(name)} [data-testid="env-value"]')?.textContent ?? ""`);
+const valueOf = (app, name, nth = 0) =>
+  app.js(`return document.querySelectorAll('${rowCss(name)}')[${nth}]?.querySelector('[data-testid="env-value"]')?.textContent ?? ""`);
+
+/** Click Reveal on the `nth` row named `name`. */
+function revealNth(app, name, nth) {
+  return app.js(
+    `const b = document.querySelectorAll('${rowCss(name)}')[${nth}]?.querySelector('button[aria-label="Reveal ' + arguments[0] + '"]');
+     if (!b) return false;
+     b.scrollIntoView({ block: 'center' });
+     b.click();
+     return true;`,
+    name,
+  );
+}
 
 async function waitList(app, needle, message = needle) {
   return app.waitFor(async () => (await listText(app)).includes(needle), { message, timeout: 30_000 });
@@ -215,6 +237,31 @@ describe("pod env values (#447)", { timeout: 20 * 60_000 }, () => {
     await app.waitFor(async () => !(await bodyText(app)).includes(PASSWORD), { message: "the password hidden again" });
   });
 
+  it("masks a secret-looking ConfigMap value, reveals duplicates by row, escapes bidi (dark)", T, async () => {
+    const { app } = s;
+    assert.equal(await valueOf(app, "CFG_api_token"), "••••");
+    assert.equal(await valueOf(app, "CFG_level"), "debug");
+    await clickIn(app, "CFG_api_token", "Reveal");
+    await waitList(app, CM_TOKEN, "the revealed ConfigMap value");
+
+    assert.equal(await valueOf(app, "DUP_PASSWORD", 0), "••••");
+    assert.equal(await valueOf(app, "DUP_PASSWORD", 1), "••••");
+    assert.ok(await revealNth(app, "DUP_PASSWORD", 0), "the first DUP_PASSWORD has Reveal");
+    await app.waitFor(async () => (await valueOf(app, "DUP_PASSWORD", 0)) === DUP_FIRST, {
+      message: "the first DUP_PASSWORD's own value",
+    });
+    assert.equal(await valueOf(app, "DUP_PASSWORD", 1), "••••", "the second one stays hidden");
+    assert.ok(await revealNth(app, "DUP_PASSWORD", 1));
+    await app.waitFor(async () => (await valueOf(app, "DUP_PASSWORD", 1)) === DUP_SECOND, {
+      message: "the second DUP_PASSWORD's own value",
+    });
+    assert.equal(await valueOf(app, "DUP_PASSWORD", 0), DUP_FIRST);
+
+    assert.equal(await valueOf(app, "TRICKY"), "abc\\u{202E}def");
+    await app.js(`document.querySelector('${rowCss("DUP_PASSWORD")}')?.scrollIntoView({ block: 'center' })`);
+    await app.shot("duplicates-bidi-dark");
+  });
+
   it("closing the list drops revealed values (light)", T, async () => {
     const { app } = s;
     await setTheme(app, "light");
@@ -238,7 +285,7 @@ describe("pod env values (#447)", { timeout: 20 * 60_000 }, () => {
         continue;
       }
       const text = readFileSync(f, "utf8");
-      for (const v of [PASSWORD, API_KEY, TOKEN, b64(PASSWORD), b64(API_KEY)]) {
+      for (const v of [PASSWORD, API_KEY, TOKEN, CM_TOKEN, DUP_FIRST, DUP_SECOND, b64(PASSWORD), b64(API_KEY)]) {
         assert.ok(!text.includes(v), `${f} does not contain a hidden value`);
       }
       console.log(`${f}: ${text.length} bytes, no hidden value`);

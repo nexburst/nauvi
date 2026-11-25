@@ -59,6 +59,18 @@ export function envShownValue(r: EnvValue): string {
   return r.value;
 }
 
+/** Control characters (C0, C1) other than newline and tab, and format
+ *  characters (bidi overrides and isolates, zero-width): the classes
+ *  `askAi.ts` drops from names. */
+const INVISIBLE = /[\p{Cf}\u0000-\u0008\u000B-\u001F\u007F-\u009F]/gu;
+
+/** `text` with every invisible or bidi character shown as `\u{202E}`, so a
+ *  value from the cluster cannot reorder or hide what is on screen.
+ *  Newlines and tabs stay (multi-line values keep their shape). */
+export function visibleText(text: string): string {
+  return text.replace(INVISIBLE, (c) => `\\u{${c.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0")}}`);
+}
+
 /** Number of variables the container gets (overridden ones not counted). */
 export function envCount(groups: EnvFromGroup[], env: EnvValue[]): number {
   return [...groups.flatMap((g) => g.rows), ...env].filter((r) => !r.overridden).length;

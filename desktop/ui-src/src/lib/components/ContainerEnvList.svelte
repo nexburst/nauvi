@@ -3,7 +3,15 @@
   import { api, visibleCluster } from "../cluster";
   import type { ContainerEnv, EnvInfo, EnvValue } from "../bindings";
   import { envSourceText } from "../containers";
-  import { envGroupTitle, envRowId, envShownValue, envValueSource, LONG_VALUE, SECRET_REF } from "../podEnv";
+  import {
+    envGroupTitle,
+    envRowId,
+    envShownValue,
+    envValueSource,
+    LONG_VALUE,
+    SECRET_REF,
+    visibleText,
+  } from "../podEnv";
 
   /** A container's environment with its values (#447), loaded when the
    *  Environment list is opened (this component is mounted only then).
@@ -26,29 +34,40 @@
   let unfolded = $state.raw(new Set<string>());
   let rowError = $state.raw(new Map<string, string>());
   let status = $state("");
+  /** Bumped by every load: a reveal that answers after a reload is
+   *  dropped, since its row id may name another row by then. */
+  let generation = 0;
 
   async function load() {
+    const gen = ++generation;
     loading = true;
     loadError = "";
     try {
-      env = await api(visibleCluster()).cmdPodEnv(namespace, pod, container);
+      const next = await api(visibleCluster()).cmdPodEnv(namespace, pod, container);
+      if (gen !== generation) return;
+      env = next;
       revealed = new Map();
       rowError = new Map();
     } catch (e) {
-      loadError = String(e);
+      if (gen === generation) loadError = String(e);
     } finally {
-      loading = false;
+      if (gen === generation) loading = false;
     }
   }
 
   onMount(load);
 
-  async function valueOf(r: EnvValue): Promise<string> {
+  /** The hidden value of `r`: a Secret key through the Secret's one-key
+   *  reveal, anything else (a literal, field or ConfigMap value that looks
+   *  like a secret) by the row's position in the pod spec, so a name that
+   *  appears twice reveals the row asked for. `group` is the envFrom index,
+   *  -1 for `env`. */
+  async function valueOf(r: EnvValue, group: number, index: number): Promise<string> {
     if (r.kind === "secret") {
       const v = await api(visibleCluster()).cmdRevealDataValue(SECRET_REF, namespace, r.object, r.key);
       return v.binary ? `${v.value} (base64)` : v.value;
     }
-    return await api(visibleCluster()).cmdRevealPodEnv(namespace, pod, container, r.name);
+    return await api(visibleCluster()).cmdRevealPodEnv(namespace, pod, container, group, index, r.name);
   }
 
   function setRowError(id: string, text: string) {
@@ -58,13 +77,16 @@
     rowError = next;
   }
 
-  async function reveal(id: string, r: EnvValue) {
+  async function reveal(id: string, r: EnvValue, group: number, index: number) {
     status = "";
+    const gen = generation;
     try {
-      const v = await valueOf(r);
+      const v = await valueOf(r, group, index);
+      if (gen !== generation) return;
       revealed = new Map(revealed).set(id, v);
       setRowError(id, "");
     } catch (e) {
+      if (gen !== generation) return;
       setRowError(id, `Could not read ${r.name}: ${e}`);
     }
   }
@@ -94,17 +116,17 @@
   }
 </script>
 
-{#snippet valueRow(id: string, r: EnvValue)}
+{#snippet valueRow(id: string, r: EnvValue, group: number, index: number)}
   {@const shown = revealed.get(id)}
-  {@const text = shown ?? envShownValue(r)}
+  {@const text = visibleText(shown ?? envShownValue(r))}
   {@const long = text.length > LONG_VALUE}
   {@const source = envValueSource(r)}
   <li class="row" class:overridden={r.overridden} data-testid="env-row" data-name={r.name}>
     <span class="mono name" title={r.overridden ? "Overridden by a later variable of the same name" : undefined}
-      >{r.name}</span
+      >{visibleText(r.name)}</span
     >
     {#if r.error}
-      <span class="error-text err" data-testid="env-error">{r.error}</span>
+      <span class="error-text err" data-testid="env-error">{visibleText(r.error)}</span>
     {:else}
       <span
         class="mono value"
@@ -122,7 +144,7 @@
         {/if}
         {#if r.hidden}
           {#if shown === undefined}
-            <button type="button" class="link" aria-label="Reveal {r.name}" title="Reveal this value" onclick={() => reveal(id, r)}
+            <button type="button" class="link" aria-label="Reveal {r.name}" title="Reveal this value" onclick={() => reveal(id, r, group, index)}
               >Reveal</button
             >
           {:else}
@@ -134,9 +156,9 @@
         {/if}
       </span>
     {/if}
-    {#if source}<span class="muted src">from {source}</span>{/if}
+    {#if source}<span class="muted src">from {visibleText(source)}</span>{/if}
     {#if r.overridden}<span class="muted src">(overridden)</span>{/if}
-    {#if rowError.get(id)}<span class="error-text err" data-testid="env-reveal-error">{rowError.get(id)}</span>{/if}
+    {#if rowError.get(id)}<span class="error-text err" data-testid="env-reveal-error">{visibleText(rowError.get(id) ?? "")}</span>{/if}
   </li>
 {/snippet}
 
@@ -147,22 +169,22 @@
     <p class="error-text" data-testid="env-load-error">Could not load the values: {loadError}</p>
     <ul>
       {#each names as e, i (i)}
-        <li><span class="mono">{e.name}</span> <span class="muted">{envSourceText(e.source)}</span></li>
+        <li><span class="mono">{visibleText(e.name)}</span> <span class="muted">{visibleText(envSourceText(e.source))}</span></li>
       {/each}
     </ul>
     <button type="button" class="link" onclick={load}>Try again</button>
   {:else if env}
     {#each env.from as g, gi (gi)}
       <div class="group" data-testid="env-group">
-        <div class="group-title muted">{envGroupTitle(g)}</div>
+        <div class="group-title muted">{visibleText(envGroupTitle(g))}</div>
         {#if g.error}
-          <p class="error-text err" data-testid="env-error">{g.error}</p>
+          <p class="error-text err" data-testid="env-error">{visibleText(g.error)}</p>
         {:else if g.rows.length === 0}
           <p class="muted">No keys.</p>
         {:else}
           <ul>
             {#each g.rows as r, i (i)}
-              {@render valueRow(envRowId(gi, i), r)}
+              {@render valueRow(envRowId(gi, i), r, gi, i)}
             {/each}
           </ul>
         {/if}
@@ -171,7 +193,7 @@
     {#if env.env.length > 0}
       <ul>
         {#each env.env as r, i (i)}
-          {@render valueRow(envRowId("env", i), r)}
+          {@render valueRow(envRowId("env", i), r, -1, i)}
         {/each}
       </ul>
     {/if}
