@@ -22,7 +22,8 @@ set -euo pipefail
 
 # Keep in sync with demo.yaml, limited-user.sh, the charts, src/debug.rs and
 # src/node_shell.rs (DEFAULT_DEBUG_IMAGE, NODE_SHELL_IMAGE) and the QA
-# scenarios.
+# scenarios. NODE_SHELL_IMAGE also pins busybox:1.37 by digest; the nodes
+# find it under that digest only while the tag still points at it.
 IMAGES=(
   busybox:1.36
   busybox:1.37

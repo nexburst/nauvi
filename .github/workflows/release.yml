@@ -785,7 +785,8 @@ jobs:
           DRY_RUN_PUBKEY: ${{ needs.prepare.outputs.dry_run_pubkey }}
         run: |
           # Ubuntu 22.04 has no minisign package; the script checks the same.
-          python3 -m pip install --quiet "cryptography==44.0.2"
+          python3 -m pip install --quiet --require-hashes --only-binary :all: \
+            -r scripts/release/requirements-verify.txt
           config=desktop/tauri.conf.json
           if [ "$DRY_RUN" = "true" ]; then
             config="$RUNNER_TEMP/dry-run-updater.json"

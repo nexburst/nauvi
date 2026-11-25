@@ -310,9 +310,50 @@ pub(crate) async fn cmd_save_logs(filename: String, content: String) -> Result<S
         .ok_or("cannot locate home directory")?;
     let dir = std::path::PathBuf::from(home).join("Downloads");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(safe);
-    std::fs::write(&path, content).map_err(|e| e.to_string())?;
+    let path = write_new_file(&dir, &safe, content.as_bytes())
+        .map_err(|e| format!("could not save the logs in {}: {e}", dir.display()))?;
     Ok(path.display().to_string())
+}
+
+/// Write `content` to a new file `name` in `dir`, or to `stem (1).ext`,
+/// `stem (2).ext` and so on if that name is taken. It never overwrites a file
+/// and never follows a symlink: `create_new` fails on any existing entry.
+fn write_new_file(
+    dir: &std::path::Path,
+    name: &str,
+    content: &[u8],
+) -> std::io::Result<std::path::PathBuf> {
+    use std::io::Write;
+    let base = std::path::Path::new(name);
+    let stem = base.file_stem().and_then(|s| s.to_str()).unwrap_or(name);
+    let ext = base.extension().and_then(|s| s.to_str());
+    for n in 0..1000 {
+        let candidate = match (n, ext) {
+            (0, _) => name.to_string(),
+            (_, Some(ext)) => format!("{stem} ({n}).{ext}"),
+            (_, None) => format!("{stem} ({n})"),
+        };
+        let path = dir.join(candidate);
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&path)
+        {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        };
+        if let Err(e) = file.write_all(content).and_then(|()| file.sync_all()) {
+            drop(file);
+            let _ = std::fs::remove_file(&path);
+            return Err(e);
+        }
+        return Ok(path);
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!("{name} and 999 numbered copies of it already exist"),
+    ))
 }
 
 /// Stop one log stream (pod or workload, with every per-pod task under it).
@@ -322,4 +363,52 @@ pub(crate) async fn cmd_save_logs(filename: String, content: String) -> Result<S
 pub(crate) async fn cmd_stop_logs(cluster: Cluster, stream_id: u64) -> Result<(), String> {
     cluster.log_streams.stop(stream_id);
     Ok(())
+}
+
+#[cfg(test)]
+mod save_tests {
+    use super::write_new_file;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "nauvi-save-logs-{tag}-{}-{:?}",
+            std::process::id(),
+            std::time::SystemTime::now()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn never_overwrites_and_numbers_the_copies() {
+        let dir = temp_dir("numbers");
+        let first = write_new_file(&dir, "web.log", b"one").unwrap();
+        let second = write_new_file(&dir, "web.log", b"two").unwrap();
+        let third = write_new_file(&dir, "web.log", b"three").unwrap();
+        assert_eq!(first, dir.join("web.log"));
+        assert_eq!(second, dir.join("web (1).log"));
+        assert_eq!(third, dir.join("web (2).log"));
+        assert_eq!(std::fs::read(&first).unwrap(), b"one");
+        assert_eq!(std::fs::read(&second).unwrap(), b"two");
+        let plain = write_new_file(&dir, "logs", b"x").unwrap();
+        let plain2 = write_new_file(&dir, "logs", b"y").unwrap();
+        assert_eq!((plain, plain2), (dir.join("logs"), dir.join("logs (1)")));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn never_follows_a_symlink() {
+        let dir = temp_dir("symlink");
+        let target = dir.join("target.txt");
+        std::fs::write(&target, b"keep").unwrap();
+        std::os::unix::fs::symlink(&target, dir.join("web.log")).unwrap();
+        // A dangling link too: create_new must not create its target.
+        std::os::unix::fs::symlink(dir.join("missing"), dir.join("web (1).log")).unwrap();
+        let path = write_new_file(&dir, "web.log", b"new").unwrap();
+        assert_eq!(path, dir.join("web (2).log"));
+        assert_eq!(std::fs::read(&target).unwrap(), b"keep");
+        assert!(!dir.join("missing").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

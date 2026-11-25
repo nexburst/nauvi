@@ -488,7 +488,7 @@ mod tests {
         };
         assert_eq!(
             (node.as_str(), namespace.as_str(), image.as_str()),
-            ("worker", "kube-system", "busybox:1.37")
+            ("worker", "kube-system", nauvi::node_shell::NODE_SHELL_IMAGE)
         );
     }
 
