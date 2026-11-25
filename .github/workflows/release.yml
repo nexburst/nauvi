@@ -3,7 +3,11 @@ name: Release
 # Pushing a tag like v0.1.0 builds the desktop installers and CLI binaries for
 # Linux, macOS and Windows and releases them:
 #   1. `prepare` checks the versions and creates a *draft* release.
-#   2. `desktop` and `cli` build, smoke-check and upload into the draft.
+#   2. `desktop` builds and smoke-checks the installers and update bundles,
+#      without the signing key and with a read-only token, and uploads them
+#      as workflow artifacts; `sign` signs the update bundles and uploads
+#      them, their .sig files and the other installers into the draft.
+#      `cli` builds, smoke-checks and uploads the CLI archives.
 #   3. `sbom` writes CycloneDX SBOMs of the Rust crates (cargo-cyclonedx)
 #      and the frontend's npm dependencies (npm sbom); `scan` runs Grype on
 #      them and on the unpacked Linux bundles and CLI, and fails on a High
@@ -28,8 +32,14 @@ name: Release
 # key is in desktop/tauri.conf.json, and `publish` checks every signature
 # against it. They are not repository secrets: those reach a workflow on any
 # branch, and every install trusts this key (#442). A dry run never sees
-# them: `prepare` makes a throwaway key, `desktop` signs with it and
-# `publish` checks the signatures against it instead.
+# them: `prepare` makes a throwaway key, `sign` signs with it and `publish`
+# checks the signatures against it instead.
+#
+# Only `sign` sees the key (#245). The build runs every crate's build.rs,
+# Vite and the npm dependencies, so `desktop` gets neither the key nor a
+# write token; `sign` runs no build code: it takes the bundles `desktop`
+# uploaded and runs only `tauri signer sign` (the prebuilt Tauri CLI from
+# ui-src's package-lock.json, installed without install scripts) on them.
 #
 # Running it by hand (Actions > Release > Run workflow) is a dry run by
 # default: it builds everything and uploads it as workflow artifacts, without
@@ -196,11 +206,9 @@ jobs:
           echo "pubkey=$(cat "$RUNNER_TEMP/dry-run.key.pub")" >> "$GITHUB_OUTPUT"
           rm -f "$RUNNER_TEMP/dry-run.key" "$RUNNER_TEMP/dry-run.key.pub"
 
+  # No signing key and a read-only token: this job runs build code (#245).
   desktop:
     needs: prepare
-    # The signing key is only in the `release` environment, so only a real
-    # release (from a v* tag, after a reviewer approves) can read it (#442).
-    environment: ${{ needs.prepare.outputs.dry_run == 'false' && 'release' || '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -218,7 +226,7 @@ jobs:
             args: ""
             targets: ""
     permissions:
-      contents: write
+      contents: read
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -262,9 +270,9 @@ jobs:
       # The Tauri CLI is the prebuilt @tauri-apps/cli from ui-src's
       # package-lock.json (#439; compiling tauri-cli took 6-9 minutes per
       # job). An exact version, checked by the lockfile's integrity hashes
-      # (#245): this job holds the signing key and a `contents: write` token,
-      # so it must not pick up a new release of the CLI on its own. Bump it
-      # on purpose, next to @tauri-apps/api and the `tauri` crate.
+      # (#245): `sign` runs the same one next to the signing key, so it must
+      # not pick up a new release of the CLI on its own. Bump it on purpose,
+      # next to @tauri-apps/api and the `tauri` crate.
       - name: Check the Tauri CLI
         shell: bash
         run: node desktop/ui-src/node_modules/@tauri-apps/cli/tauri.js --version
@@ -283,24 +291,31 @@ jobs:
           PY
           node desktop/ui-src/node_modules/@tauri-apps/cli/tauri.js icon desktop/icons/icon.png --output desktop/icons
 
-      # With a releaseId it uploads into the draft; without one (dry run) it
-      # only builds. Both sign the update bundles (createUpdaterArtifacts in
-      # tauri.conf.json), a release with the real key and a dry run with the
-      # throwaway one; the build fails without a key. With a release it also uploads the .sig files and latest.json;
-      # `publish` rewrites latest.json from all of them (see
-      # scripts/release/updater_json.py).
+      # createUpdaterArtifacts in tauri.conf.json makes the build write the
+      # update bundles (the AppImage, .deb, .app.tar.gz, MSI and NSIS
+      # installer) and sign them, and it fails without a key. This job must
+      # not hold the real one (#245), so it signs with a key made here and
+      # thrown away; nothing trusts it, and its .sig files are not
+      # collected. `sign` signs the very same files with the real key.
+      - name: Make a build-only updater key
+        id: build_key
+        shell: bash
+        run: |
+          key="$RUNNER_TEMP/build-only.key"
+          node desktop/ui-src/node_modules/@tauri-apps/cli/tauri.js signer generate --ci -w "$key" >/dev/null
+          echo "key=$(cat "$key")" >> "$GITHUB_OUTPUT"
+          rm -f "$key" "$key.pub"
+
+      # Without a releaseId or tagName it only builds: the bundles reach the
+      # draft through `sign`.
       - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.TAURI_SIGNING_PRIVATE_KEY || needs.prepare.outputs.dry_run_key }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ steps.build_key.outputs.key }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
           projectPath: desktop
           # Run from projectPath (desktop/).
           tauriScript: node ui-src/node_modules/@tauri-apps/cli/tauri.js
-          releaseId: ${{ needs.prepare.outputs.release_id }}
-          uploadUpdaterJson: true
-          uploadUpdaterSignatures: true
           args: >-
             ${{ matrix.args }}
             --config '{"bundle":{"icon":["icons/32x32.png","icons/128x128.png","icons/128x128@2x.png","icons/icon.icns","icons/icon.ico"]}}'
@@ -312,26 +327,27 @@ jobs:
         run: |
           mkdir dist
           # target/release/bundle, or target/<triple>/release/bundle. (No
-          # globstar: macOS ships bash 3.2.)
+          # globstar: macOS ships bash 3.2.) Not the .sig files: they are
+          # signed with the build-only key.
           find target -path '*/release/bundle/*' -type f \( \
-              -path '*/bundle/appimage/*.AppImage' -o -path '*/bundle/appimage/*.AppImage.sig' -o \
-              -path '*/bundle/deb/*.deb' -o -path '*/bundle/deb/*.deb.sig' -o \
+              -path '*/bundle/appimage/*.AppImage' -o \
+              -path '*/bundle/deb/*.deb' -o \
               -path '*/bundle/dmg/*.dmg' -o \
-              -path '*/bundle/macos/*.app.tar.gz' -o -path '*/bundle/macos/*.app.tar.gz.sig' -o \
-              -path '*/bundle/msi/*.msi' -o -path '*/bundle/msi/*.msi.sig' -o \
-              -path '*/bundle/nsis/*.exe' -o -path '*/bundle/nsis/*.exe.sig' \) -exec cp {} dist/ \;
+              -path '*/bundle/macos/*.app.tar.gz' -o \
+              -path '*/bundle/msi/*.msi' -o \
+              -path '*/bundle/nsis/*.exe' \) -exec cp {} dist/ \;
           # The .app.tar.gz has no version or arch in its name; use the name
-          # tauri-action gives it in a release.
-          for f in dist/*.app.tar.gz dist/*.app.tar.gz.sig; do
+          # tauri-action gave it in a release.
+          for f in dist/*.app.tar.gz; do
             [ -e "$f" ] || continue
-            base=$(basename "$f"); name=${base%%.app.tar.gz*}; ext=${base#"$name"}
-            mv "$f" "dist/${name}_${VERSION}_universal${ext}"
+            base=$(basename "$f"); name=${base%%.app.tar.gz}
+            mv "$f" "dist/${name}_${VERSION}_universal.app.tar.gz"
           done
           ls -l dist
           case "$RUNNER_OS" in
-            Linux)   want=("*.AppImage" "*.AppImage.sig" "*.deb") ;;
-            macOS)   want=("*_universal.dmg" "*_universal.app.tar.gz" "*_universal.app.tar.gz.sig") ;;
-            Windows) want=("*.msi" "*.msi.sig" "*-setup.exe" "*-setup.exe.sig") ;;
+            Linux)   want=("*.AppImage" "*.deb") ;;
+            macOS)   want=("*_universal.dmg" "*_universal.app.tar.gz") ;;
+            Windows) want=("*.msi" "*-setup.exe") ;;
           esac
           for p in "${want[@]}"; do
             compgen -G "dist/$p" >/dev/null || { echo "::error::no bundle matching $p"; exit 1; }
@@ -379,7 +395,8 @@ jobs:
             [ "$size" -gt 1000000 ] || { echo "::error::$f is suspiciously small"; exit 1; }
           done
 
-      # Also in a real release: `scan` reads them from here.
+      # `sign` uploads them into the draft; `scan`, `install-check`,
+      # `apt-check` and `apt` read them from here.
       - name: Upload the bundles as workflow artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -387,6 +404,132 @@ jobs:
           path: dist/*
           if-no-files-found: error
           retention-days: 7
+
+  # Signs the update bundles `desktop` built and, in a real release, uploads
+  # them, their .sig files and the .dmg into the draft (#245). The key is
+  # only in the `release` environment, so only a real release (from a v*
+  # tag, after a reviewer approves) can read it (#442); a dry run signs with
+  # `prepare`'s throwaway key. No build code runs here: the checkout is only
+  # for package-lock.json, npm installs the pinned Tauri CLI without running
+  # any install script, and the key goes only to `tauri signer sign`.
+  sign:
+    needs: [prepare, desktop]
+    environment: ${{ needs.prepare.outputs.dry_run == 'false' && 'release' || '' }}
+    permissions:
+      contents: write
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No npm cache: nothing a cache could hold should run next to the key.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: desktop/ui-src/.nvmrc
+
+      # The same CLI `desktop` builds with: the prebuilt @tauri-apps/cli of
+      # the lockfile, checked by its integrity hashes.
+      - name: Install the Tauri CLI
+        working-directory: desktop/ui-src
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund >/dev/null
+          node node_modules/@tauri-apps/cli/tauri.js --version
+
+      # By name, each into its own directory: `desktop` runs build code,
+      # which could upload artifacts of its own (#245), so nothing else may
+      # reach the draft through this job.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-linux
+          path: ${{ runner.temp }}/bundles/linux
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-macos-universal
+          path: ${{ runner.temp }}/bundles/macos-universal
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-windows
+          path: ${{ runner.temp }}/bundles/windows
+
+      # Each artifact must hold exactly its platform's files, by name; only
+      # those are copied to release/, the one directory signed and uploaded.
+      - name: Check the bundles
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          in="$RUNNER_TEMP/bundles"
+          out="$RUNNER_TEMP/release"
+          mkdir "$out"
+          # Artifact directory, then the exact files it must contain.
+          take() {
+            local leg=$1; shift
+            local got want
+            got=$(cd "$in/$leg" && find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort)
+            want=$(printf '%s\n' "$@" | LC_ALL=C sort)
+            if [ "$got" != "$want" ]; then
+              echo "::error::desktop-$leg holds [$(echo "$got" | paste -sd' ')], expected [$(echo "$want" | paste -sd' ')]"
+              exit 1
+            fi
+            for f in "$@"; do cp -- "$in/$leg/$f" "$out/$f"; done
+          }
+          take linux "nauvi_${VERSION}_amd64.AppImage" "nauvi_${VERSION}_amd64.deb"
+          take macos-universal "nauvi_${VERSION}_universal.dmg" "nauvi_${VERSION}_universal.app.tar.gz"
+          take windows "nauvi_${VERSION}_x64_en-US.msi" "nauvi_${VERSION}_x64-setup.exe"
+          ls -l "$out"
+
+      # The update bundles the app installs from: the AppImage, the .deb,
+      # the universal .app.tar.gz, the MSI and the NSIS installer (the .dmg
+      # is not one). `publish` checks every .sig against the key and writes
+      # latest.json from them.
+      - name: Sign the update bundles
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.TAURI_SIGNING_PRIVATE_KEY || needs.prepare.outputs.dry_run_key }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          cli="$GITHUB_WORKSPACE/desktop/ui-src/node_modules/@tauri-apps/cli/tauri.js"
+          cd "$RUNNER_TEMP/release"
+          for f in "nauvi_${VERSION}_amd64.AppImage" "nauvi_${VERSION}_amd64.deb" \
+                   "nauvi_${VERSION}_universal.app.tar.gz" \
+                   "nauvi_${VERSION}_x64_en-US.msi" "nauvi_${VERSION}_x64-setup.exe"; do
+            # --app-version, as `tauri build` signs: the version goes into
+            # the signed trusted comment.
+            node "$cli" signer sign --app-version "$VERSION" -- "$f" </dev/null >/dev/null
+            [ -s "$f.sig" ] || { echo "::error::no signature written for $f"; exit 1; }
+            echo "signed $f"
+          done
+
+      # `publish` reads them from here in a dry run.
+      - name: Upload the signatures as a workflow artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: updater-signatures
+          path: |
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_amd64.AppImage.sig
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_amd64.deb.sig
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_universal.app.tar.gz.sig
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_x64_en-US.msi.sig
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_x64-setup.exe.sig
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Upload the bundles and signatures to the draft release
+        if: needs.prepare.outputs.dry_run == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          cd "$RUNNER_TEMP/release"
+          files=()
+          for f in "nauvi_${VERSION}_amd64.AppImage" "nauvi_${VERSION}_amd64.deb" \
+                   "nauvi_${VERSION}_universal.app.tar.gz" \
+                   "nauvi_${VERSION}_x64_en-US.msi" "nauvi_${VERSION}_x64-setup.exe"; do
+            files+=("$f" "$f.sig")
+          done
+          files+=("nauvi_${VERSION}_universal.dmg")
+          gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
 
   cli:
     needs: prepare
@@ -629,9 +772,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Exact artifact names, not desktop-*/cli-*: build code could upload
+      # artifacts of its own (#245).
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "{desktop-*,cli-*}"
+          pattern: "{desktop-linux,desktop-macos-universal,desktop-windows,cli-x86_64-unknown-linux-gnu,cli-aarch64-apple-darwin,cli-x86_64-apple-darwin,cli-x86_64-pc-windows-msvc}"
           path: ${{ runner.temp }}/assets
           merge-multiple: true
 
@@ -691,7 +836,7 @@ jobs:
           scripts/release/apt-repo-check.sh "$(ls "$RUNNER_TEMP"/desktop/*.deb)" ubuntu:22.04 ubuntu:24.04
 
   publish:
-    needs: [prepare, desktop, cli, sbom, scan, install-check, apt-check]
+    needs: [prepare, desktop, sign, cli, sbom, scan, install-check, apt-check]
     permissions:
       contents: write
     runs-on: ubuntu-22.04
@@ -709,9 +854,8 @@ jobs:
         run: |
           mkdir assets
           gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
-          rm -f assets/SHA256SUMS
-          # tauri-action's latest.json: checked against, then replaced.
-          if [ -f assets/latest.json ]; then mv assets/latest.json tauri-action-latest.json; fi
+          # Written below (a draft reused from an earlier run may have them).
+          rm -f assets/SHA256SUMS assets/latest.json
 
       - name: Fetch the SBOMs
         if: needs.prepare.outputs.dry_run == 'false'
@@ -720,12 +864,13 @@ jobs:
           name: sbom
           path: assets
 
-      # The bundles, the CLI archives and the SBOMs (not the scan reports).
+      # The bundles, their signatures, the CLI archives and the SBOMs (not
+      # the scan reports), by exact artifact name (#245).
       - name: Fetch the workflow artifacts (dry run)
         if: needs.prepare.outputs.dry_run == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "{desktop-*,cli-*,sbom}"
+          pattern: "{desktop-linux,desktop-macos-universal,desktop-windows,updater-signatures,cli-x86_64-unknown-linux-gnu,cli-aarch64-apple-darwin,cli-x86_64-apple-darwin,cli-x86_64-pc-windows-msvc,sbom}"
           path: assets
           merge-multiple: true
 
@@ -737,7 +882,7 @@ jobs:
           ls -l
           fail=0
           for p in "*.AppImage" "*.deb" "*_universal.dmg" "*.msi" "*-setup.exe" \
-                   "*.AppImage.sig" "*_universal.app.tar.gz" "*_universal.app.tar.gz.sig" \
+                   "*.AppImage.sig" "*.deb.sig" "*_universal.app.tar.gz" "*_universal.app.tar.gz.sig" \
                    "*.msi.sig" "*-setup.exe.sig" \
                    "nauvi-cli-$TAG-x86_64-unknown-linux-gnu.tar.gz" \
                    "nauvi-cli-$TAG-aarch64-apple-darwin.tar.gz" \
@@ -798,10 +943,8 @@ jobs:
         env:
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          check=()
-          if [ -f tauri-action-latest.json ]; then check=(--check tauri-action-latest.json); fi
           python3 scripts/release/updater_json.py --assets assets --repo "$GITHUB_REPOSITORY" \
-            --tag "$TAG" "${check[@]}" --out assets/latest.json
+            --tag "$TAG" --out assets/latest.json
           cd assets
           sha256sum -- * > SHA256SUMS
           cat SHA256SUMS
