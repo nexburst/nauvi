@@ -24,6 +24,12 @@
 //!   numbers ([`KubeVersion`]) and only those numbers go into URLs and
 //!   paths: a server cannot point the download elsewhere or write outside
 //!   the app's data dir.
+//! - Nothing older than [`MIN_MINOR`] is downloaded or used
+//!   ([`check_downloadable`]): the version comes from the cluster, and a
+//!   hostile one could otherwise report `v1.10.0` and get the user an old
+//!   kubectl with the `kubectl cp` path-traversal bugs (CVE-2018-1002100,
+//!   CVE-2019-1002101, CVE-2019-11246, CVE-2019-11249, CVE-2019-11251),
+//!   first on `PATH` in local terminals.
 //! - The binary is written to a private temp file next to its final name,
 //!   synced, then renamed into place: a half-written kubectl is never run.
 //!   It is then made read-only and executable for its owner (0500).
@@ -45,6 +51,26 @@ pub const MAX_BINARY_BYTES: u64 = 256 * 1024 * 1024;
 
 /// The most a `.sha256` file may be (it is 64 hex digits).
 pub const MAX_CHECKSUM_BYTES: u64 = 1024;
+
+/// The oldest kubectl minor (`1.<MIN_MINOR>`) that is downloaded or used.
+/// Fixed, not derived from anything the cluster says. Every known
+/// `kubectl cp` path-traversal fix is in 1.16, so this is far past them;
+/// 1.27 is also the oldest minor any major cloud still ran under extended
+/// support in 2025, so real clusters are not left out. A cluster older
+/// than this keeps the user's own kubectl.
+pub const MIN_MINOR: u32 = 27;
+
+/// Refuse to download (or run a downloaded) kubectl older than
+/// [`MIN_MINOR`], saying why.
+pub fn check_downloadable(version: &KubeVersion) -> Result<(), String> {
+    if version.major == 1 && version.minor >= MIN_MINOR {
+        return Ok(());
+    }
+    Err(format!(
+        "the cluster reports {version}; nauvi only downloads kubectl 1.{MIN_MINOR} or newer \
+         (older ones have known security bugs). Your own kubectl is used."
+    ))
+}
 
 /// A Kubernetes release, `v<major>.<minor>.<patch>`, as numbers only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -297,6 +323,7 @@ fn checksum_name(binary_name: &str) -> String {
 /// again). Reads and hashes the whole binary: call it off the async
 /// runtime's threads.
 pub fn installed(data_dir: &Path, version: &KubeVersion, platform: &Platform) -> Option<PathBuf> {
+    check_downloadable(version).ok()?;
     let dir = version_dir(data_dir, version);
     let path = dir.join(platform.binary_name());
     let sum_path = dir.join(checksum_name(platform.binary_name()));
@@ -334,7 +361,8 @@ pub trait Fetch {
 /// Download kubectl `version` for `platform` from `base`, check it against
 /// its published SHA-256 and save it under `data_dir` (see
 /// [`version_dir`]). Returns the binary's path. Nothing is saved unless
-/// the checksum matches.
+/// the checksum matches, and nothing is fetched for a version older than
+/// [`MIN_MINOR`].
 pub async fn download(
     fetch: &impl Fetch,
     base: &DownloadBase,
@@ -342,6 +370,7 @@ pub async fn download(
     platform: &Platform,
     data_dir: &Path,
 ) -> Result<PathBuf, String> {
+    check_downloadable(version)?;
     let sum = fetch
         .get(&base.checksum_url(version, platform), MAX_CHECKSUM_BYTES)
         .await?;
@@ -498,6 +527,60 @@ mod tests {
         assert!(skew_too_large(Some(&v("v1.29.3")), &server));
         assert!(skew_too_large(Some(&v("v1.33.0")), &server));
         assert!(skew_too_large(None, &server));
+    }
+
+    #[test]
+    fn nothing_older_than_the_floor_is_downloadable() {
+        assert!(check_downloadable(&v(&format!("v1.{MIN_MINOR}.0"))).is_ok());
+        assert!(check_downloadable(&v("v1.31.2+k3s1")).is_ok());
+        for old in [
+            "v1.10.0",
+            "v1.15.3",
+            "v1.26.15",
+            &format!("v1.{}.99", MIN_MINOR - 1),
+        ] {
+            let e = check_downloadable(&v(old)).unwrap_err();
+            assert!(e.contains(&v(old).tag()), "{e}");
+            assert!(e.contains(&format!("1.{MIN_MINOR} or newer")), "{e}");
+        }
+    }
+
+    #[tokio::test]
+    async fn an_old_version_is_not_fetched_or_used() {
+        let data = temp_dir("old");
+        let binary = b"#!/bin/sh\necho kubectl\n";
+        let p = Platform::of("linux", "x86_64").unwrap();
+        let old = v("v1.10.0");
+        let f = FakeFetch {
+            bodies: vec![
+                (
+                    DownloadBase::official().checksum_url(&old, &p),
+                    sha256_hex(binary).into_bytes(),
+                ),
+                (
+                    DownloadBase::official().binary_url(&old, &p),
+                    binary.to_vec(),
+                ),
+            ],
+            asked: Mutex::new(Vec::new()),
+        };
+        let e = download(&f, &DownloadBase::official(), &old, &p, &data)
+            .await
+            .unwrap_err();
+        assert!(e.contains("v1.10.0") && e.contains("or newer"), "{e}");
+        assert!(f.asked.lock().unwrap().is_empty(), "nothing fetched");
+        assert!(!data.join("kubectl").exists(), "nothing saved");
+        // One saved by an older nauvi (or by hand) is not used either.
+        install(
+            &version_dir(&data, &old),
+            "kubectl.sha256",
+            sha256_hex(binary).as_bytes(),
+            0o400,
+        )
+        .unwrap();
+        install(&version_dir(&data, &old), "kubectl", binary, 0o500).unwrap();
+        assert_eq!(installed(&data, &old, &p), None);
+        let _ = std::fs::remove_dir_all(&data);
     }
 
     #[test]

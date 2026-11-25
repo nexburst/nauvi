@@ -13,7 +13,7 @@ use crate::kubectl_fetch::{download_base, HttpsFetch};
 use crate::settings::SettingsStore;
 use crate::state::{AppState, Cluster};
 use nauvi::kubectl_download::{
-    download, installed, kubectl_version, skew_too_large, KubeVersion, Platform,
+    check_downloadable, download, installed, kubectl_version, skew_too_large, KubeVersion, Platform,
 };
 use serde::Serialize;
 use specta::Type;
@@ -89,6 +89,14 @@ fn offer(
     m.server = server.tag();
     m.skew = skew_too_large(installed_version.as_ref(), &server);
     m.downloaded = downloaded;
+    if let Err(e) = check_downloadable(&server) {
+        // Only worth saying when there is a reason to offer one.
+        if m.skew {
+            m.note = e;
+        }
+        m.downloaded = false;
+        return m;
+    }
     match platform {
         Ok(p) => m.url = url_of(&server, &p),
         Err(e) => m.note = e,
@@ -149,6 +157,7 @@ pub(crate) async fn cmd_kubectl_download(
     let app = cluster.app().clone();
     let data = data_dir(&app)?;
     let version = server_version(&cluster, 10).await?;
+    check_downloadable(&version)?;
     let platform = Platform::current()?;
     let (base, ca) = download_base()?;
     let proxy = state.sources.proxy(cluster.id());
@@ -174,6 +183,7 @@ pub(crate) async fn terminal_kubectl(
     }
     let data = data_dir(cluster.app()).ok()?;
     let server = server_version(cluster, 5).await.ok()?;
+    check_downloadable(&server).ok()?;
     let platform = Platform::current().ok()?;
     let binary = checked_download(data, server, platform).await?;
     let own = kubectl_version(OsStr::new("kubectl")).await;
@@ -224,6 +234,42 @@ mod tests {
         assert!(!m.skew);
         let m = offer(Ok(v("v1.31.2")), None, linux, true, url);
         assert!(m.skew && m.downloaded && m.installed.is_empty());
+    }
+
+    #[test]
+    fn offers_nothing_older_than_the_floor() {
+        let linux = Platform::of("linux", "x86_64");
+        // A (hostile) cluster that says it is ancient: no URL, and why.
+        let m = offer(
+            Ok(v("v1.10.0")),
+            Some(v("v1.31.0")),
+            linux.clone(),
+            true,
+            url,
+        );
+        assert!(m.skew && !m.downloaded && m.url.is_empty());
+        assert_eq!(m.server, "v1.10.0");
+        assert!(
+            m.note.contains("v1.10.0") && m.note.contains("1.27 or newer"),
+            "{}",
+            m.note
+        );
+        // Close enough to the user's own kubectl: nothing to say.
+        let m = offer(
+            Ok(v("v1.25.3")),
+            Some(v("v1.25.0")),
+            linux.clone(),
+            false,
+            url,
+        );
+        assert!(!m.skew && m.url.is_empty() && m.note.is_empty());
+        // The floor itself is offered.
+        let m = offer(Ok(v("v1.27.0")), None, linux, false, url);
+        assert!(m.skew && m.note.is_empty());
+        assert_eq!(
+            m.url,
+            "https://dl.k8s.io/release/v1.27.0/bin/linux/amd64/kubectl"
+        );
     }
 
     #[test]

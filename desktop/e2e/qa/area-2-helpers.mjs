@@ -3,13 +3,16 @@
 
 import { By, Key } from "selenium-webdriver";
 import { byTestId, xq } from "../lib/app.mjs";
+import { namespaceLabel } from "../lib/table.mjs";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** Show only `namespace` in the tables (the namespace picker). */
 export async function pickNamespace(app, namespace) {
   const trigger = await app.find(By.css('button[aria-label="Namespace"]'));
-  if ((await trigger.getText()).trim() === namespace) return;
+  // textContent, not getText(): WebKitWebDriver reads the ellipsis-cut
+  // button (overflow: hidden, #384) as having no visible text.
+  if ((await namespaceLabel(app)) === namespace) return;
   await trigger.click();
   const pop = await app.find(By.css('[role="dialog"][aria-label="Namespaces"]'));
   await app.setValue(await pop.findElement(By.css('input[aria-label="Search namespaces"]')), namespace);
@@ -17,8 +20,8 @@ export async function pickNamespace(app, namespace) {
   const option = await app.find(By.xpath(`//*[@aria-label='Namespace list']//label[normalize-space()=${xq(namespace)}]/input`));
   if (!(await option.isSelected())) await option.click();
   await app.driver.actions().sendKeys(Key.ESCAPE).perform();
-  await app.waitFor(async () => (await trigger.getText()).trim() === namespace, {
-    message: `namespace picker on ${namespace} (says "${await trigger.getText()}")`,
+  await app.waitFor(async () => (await namespaceLabel(app)) === namespace, {
+    message: `namespace picker on ${namespace} (says "${await namespaceLabel(app)}")`,
   });
 }
 
