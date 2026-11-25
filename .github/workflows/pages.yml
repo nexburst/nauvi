@@ -24,12 +24,14 @@ name: Pages
 # - release.yml calls this workflow with the release's tag after publishing
 #   the release: docs/<tag>/ is added (never rebuilt once there) and
 #   docs/latest/ moves to the newest release.
-# - Run by hand with a tag to publish a release's docs afterwards. A tag
-#   from before docs/user/ existed (v0.1.0) has no docs: run it from main
-#   with `docs_from_main` to build that version's docs from main once.
+# - Run by hand on a tag (`gh workflow run pages.yml --ref v0.2.0 -f
+#   tag=v0.2.0`) to publish that release's docs afterwards. A tag from
+#   before docs/user/ existed (v0.1.0) has no docs: run it on main with
+#   `docs_from_main` to build that version's docs from main once.
 #
-# Only release tags and main are ever built here (no free-form ref), and
-# the build job uses no cache and has a read-only token.
+# The build always checks out the commit the run is for (the tag, or
+# main), never a ref named by an input; it uses no cache and has a
+# read-only token.
 #
 # The publish job has no checkout: no code of this repository runs next to
 # the write token, only the shell below.
@@ -98,13 +100,14 @@ jobs:
             [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
             git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$TAG" >/dev/null \
               || { echo "::error::no tag $TAG"; exit 1; }
-            mode=release version="$TAG" ref="refs/tags/$TAG" publish=true
+            mode=release version="$TAG" publish=true
             if [ "$FROM_MAIN" = "true" ]; then
-              [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "::error::docs_from_main must run from main"; exit 1; }
-              ref="$GITHUB_SHA"
+              [ "$GITHUB_REF" = "refs/heads/main" ] || { echo "::error::docs_from_main must run on main (--ref main)"; exit 1; }
+            else
+              [ "$GITHUB_REF" = "refs/tags/$TAG" ] || { echo "::error::run on the tag itself (--ref $TAG), not $GITHUB_REF"; exit 1; }
             fi
           else
-            mode=site version=dev ref="$GITHUB_SHA"
+            mode=site version=dev
             # Only main is published; a pull request or another branch only builds.
             if [ "$GITHUB_EVENT_NAME" != "pull_request" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
               publish=true
@@ -112,18 +115,15 @@ jobs:
               publish=false
             fi
           fi
-          [[ "$ref" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::not a ref: $ref"; exit 1; }
-          echo "mode=$mode version=$version ref=$ref publish=$publish"
+          echo "mode=$mode version=$version publish=$publish ($GITHUB_REF $GITHUB_SHA)"
           {
             echo "mode=$mode"
             echo "version=$version"
-            echo "ref=$ref"
             echo "publish=$publish"
           } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ steps.meta.outputs.ref }}
           persist-credentials: false
 
       - name: Install mdBook ${{ env.MDBOOK_VERSION }}
