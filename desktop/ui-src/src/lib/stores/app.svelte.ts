@@ -149,8 +149,10 @@ function restorePendingView() {
     app.view = view;
     // These views watch nothing, so nothing sets the header status: it
     // would keep what the overview had said before it was replaced, maybe
-    // "Connecting…" for good (#459). Discovery just got an answer.
+    // "Connecting…" for good (#459). Discovery just got an answer, so the
+    // overview's error banner goes too.
     setStatus(true, "Live");
+    showError("");
     return;
   }
   if (view === WORKLOADS_VIEW || view === APPLICATIONS_VIEW) {
