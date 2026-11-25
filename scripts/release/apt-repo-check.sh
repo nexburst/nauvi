@@ -90,6 +90,18 @@ for v in 0.0.2 0.0.3 0.0.4 0.0.5; do "$here/apt-repo.sh" "$rules/apt" "$(fake "$
 pool=$(find "$rules/apt/pool" -name '*.deb' -printf '%f\n' | sort -V | tr '\n' ' ')
 [ "$pool" = "nauvi_0.0.2_amd64.deb nauvi_0.0.3_amd64.deb nauvi_0.0.4_amd64.deb nauvi_0.0.5_amd64.deb nauvi_${version}_amd64.deb " ] \
   || { echo "error: the pool should keep the last 5 versions, has: $pool" >&2; exit 1; }
+# A rollback (#445): r1 (only 0.0.1) as the base after 0.0.5 was released.
+rollback="$work/rollback"
+cp -r "$site/r1" "$rollback"
+if APT_PREVIOUS=0.0.5 "$here/apt-repo.sh" "$rollback/apt" "$deb" 2>"$work/rollback.err"; then
+  echo "error: an older repository was signed again on top of a newer release" >&2; exit 1
+fi
+grep -q "older than the previous release" "$work/rollback.err" || { cat "$work/rollback.err" >&2; exit 1; }
+if APT_PREVIOUS=0.0.1 "$here/apt-repo.sh" "$work/emptied/apt" "$deb" 2>/dev/null; then
+  echo "error: an emptied repository was signed after a release" >&2; exit 1
+fi
+APT_PREVIOUS=0.0.1 "$here/apt-repo.sh" "$rollback/apt" "$deb" >/dev/null
+echo "ok: an older or emptied repository is refused after a release, the previous one is accepted"
 other_home="$work/other-gnupg"
 mkdir -m 700 "$other_home"
 GNUPGHOME="$other_home" gpg --batch --quiet --passphrase "" --quick-gen-key "other <other@nauvi.invalid>" ed25519 sign 1d

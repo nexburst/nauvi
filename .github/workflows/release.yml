@@ -994,8 +994,23 @@ jobs:
         env:
           APT_GPG_PRIVATE_KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
           APT_GPG_PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           command -v apt-ftparchive >/dev/null || { sudo apt-get update && sudo apt-get install -y apt-utils; }
+          # The newest published release before this one: gh-pages must
+          # already have it, or an older copy was put back there (#445).
+          # A failed list must fail the job, not turn the check off.
+          set -o pipefail
+          current="${TAG#v}"
+          tags=$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --limit 100 --json tagName --jq '.[].tagName')
+          APT_PREVIOUS=$(printf '%s\n' "$tags" \
+            | sed -nE 's/^v([0-9]+\.[0-9]+\.[0-9]+)$/\1/p' \
+            | { grep -vxF "$current" || true; } \
+            | { cat; echo "$current"; } | sort -V | sed -n "/^${current//./\\.}\$/q;p" | tail -n1)
+          export APT_PREVIOUS
+          echo "previous release: ${APT_PREVIOUS:-none}"
           GNUPGHOME=$(mktemp -d)
           export GNUPGHOME
           trap 'gpgconf --kill gpg-agent; rm -rf "$GNUPGHOME"' EXIT
