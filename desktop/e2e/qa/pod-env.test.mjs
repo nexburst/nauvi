@@ -21,7 +21,7 @@ import { ARTIFACTS, xq } from "../lib/app.mjs";
 import { deleteNamespace, kubectl, tempNamespace } from "../lib/cluster.mjs";
 import { closePanel, setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
-import { openKind } from "./area-2-helpers.mjs";
+import { pickNamespaces } from "../lib/table.mjs";
 
 const T = { timeout: 180_000 };
 // Distinctive, so a leak into a log or the page is easy to spot.
@@ -91,17 +91,32 @@ async function waitList(app, needle, message = needle) {
 
 /** Open the pod and its Environment list. */
 async function openEnv(app) {
-  await openKind(app, "Pods", ns, "qa-env");
+  await app.nav("Pods");
+  // Not area-2's pickNamespace: WebKitWebDriver's getText() of the picker
+  // can come back empty for a long namespace name.
+  await pickNamespaces(app, [ns]);
+  await app.filter("qa-env");
   await (await app.find(app.row("qa-env", ns))).click();
   const summary = await app.find(
     By.xpath(`//section[@aria-label="Container app"]//summary[starts-with(normalize-space(), ${xq("Environment (")})]`),
     { timeout: 30_000 },
   );
-  await app.js("arguments[0].scrollIntoView({ block: 'start' })", summary);
-  await summary.click();
+  // The panel's sticky header can sit over it: scroll it to the middle and
+  // toggle it the way a click does.
+  await app.js("arguments[0].scrollIntoView({ block: 'center' }); arguments[0].click()", summary);
   await app.find(By.css(LIST), { timeout: 30_000 });
   await app.waitFor(async () => !(await listText(app)).includes("Loading"), { message: "the env values", timeout: 30_000 });
-  await app.js(`document.querySelector('${LIST}')?.scrollIntoView({ block: 'start' })`);
+  await scrollList(app);
+}
+
+/** Bring the Environment list into view under the panel's header. */
+function scrollList(app) {
+  return app.js(`const s = document.querySelector('${LIST}')?.closest('details')?.querySelector('summary');
+    if (!s) return;
+    s.scrollIntoView({ block: 'start' });
+    let p = s.parentElement;
+    while (p && !(p.scrollHeight > p.clientHeight && /auto|scroll/.test(getComputedStyle(p).overflowY))) p = p.parentElement;
+    p?.scrollBy(0, -60);`);
 }
 
 async function clickIn(app, name, label) {
@@ -181,8 +196,11 @@ describe("pod env values (#447)", { timeout: 20 * 60_000 }, () => {
       assert.equal(await valueOf(app, n), "••••", `${n} is hidden`);
     }
     assert.match(t, /ConfigMap qa-flags not found \(optional: not set\)/);
+    // Secret values are nowhere on the page. The literal is in the pod's own
+    // YAML (the spec as stored), but not in the list until revealed.
     const body = await bodyText(app);
-    for (const v of [PASSWORD, API_KEY, TOKEN]) assert.ok(!body.includes(v), "no hidden value on the page");
+    for (const v of [PASSWORD, API_KEY]) assert.ok(!body.includes(v), "no Secret value on the page");
+    assert.ok(!t.includes(TOKEN), "the secret-looking literal is hidden in the list");
   });
 
   it("reveals one Secret key and one literal, then hides them (dark)", T, async () => {
@@ -249,6 +267,6 @@ describe("pod env values: no access to Secrets (#447)", { timeout: 10 * 60_000 }
   it("the same in the light theme", T, async () => {
     const { app } = s;
     await setTheme(app, "light");
-    await app.js(`document.querySelector('${LIST}')?.scrollIntoView({ block: 'start' })`);
+    await scrollList(app);
   });
 });
