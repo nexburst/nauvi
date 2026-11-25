@@ -1,0 +1,17 @@
+# What verify_sigs.py needs, for the publish job in release.yml:
+#   python3 -m pip install --require-hashes --only-binary :all: -r <this file>
+# Pinned with the hashes of the wheels for CPython 3.10 (the system Python of
+# the ubuntu-22.04 runner) on x86_64 Linux, from the PyPI JSON API
+# (https://pypi.org/pypi/<name>/<version>/json). A new version or runner
+# Python needs new hashes.
+cryptography==44.0.2 \
+    --hash=sha256:bc821e161ae88bfe8088d11bb39caf2916562e0a2dc7b6d56714a48b784ef0bb \
+    --hash=sha256:4973da6ca3db4405c54cd0b26d328be54c7747e89e284fcff166132eb7bccc9c \
+    --hash=sha256:f514ef4cd14bb6fb484b4a60203e912cfcb64f2ab139e88c2274511514bf7308 \
+    --hash=sha256:9a1e657c0f4ea2a23304ee3f964db058c9e9e635cc7019c4aa21c330755ef6fd \
+    --hash=sha256:b042d2a275c8cee83a4b7ae30c45a15e6a4baa65a179a0ec2d78ebb90e4f6699 \
+    --hash=sha256:c7362add18b416b69d58c910caa217f980c5ef39b23a38a0880dfd87bdf8cd23
+cffi==1.17.1 \
+    --hash=sha256:2bb1a08b8008b281856e5971307cc386a8e9c5b625ac297e853d36da6efe9c17
+pycparser==2.22 \
+    --hash=sha256:c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc
