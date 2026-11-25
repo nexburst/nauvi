@@ -28,7 +28,12 @@ pub fn debug_container_name(suffix: &str) -> String {
 
 /// The ephemeral container added to the pod. `target` is the container whose
 /// process namespace it joins, so `ps` lists that container's processes.
-/// `tty` is false for a CLI run with piped stdin. Pure.
+/// `tty` is false for a CLI run with piped stdin. Then `stdinOnce` is set:
+/// without it, the runtime ends the attach session (stdout included) as
+/// soon as the piped stdin reaches EOF, so the output of the last commands
+/// is lost when they run slower than the EOF arrives (#452). With it, EOF
+/// closes the shell's stdin and the output streams stay attached until the
+/// shell exits. Pure.
 pub fn debug_container_spec(
     name: &str,
     target: &str,
@@ -40,6 +45,7 @@ pub fn debug_container_spec(
         image: Some(image.to_string()),
         stdin: Some(true),
         tty: Some(tty),
+        stdin_once: Some(!tty),
         target_container_name: (!target.is_empty()).then(|| target.to_string()),
         termination_message_policy: Some("File".to_string()),
         ..EphemeralContainer::default()
@@ -282,11 +288,17 @@ mod tests {
         assert_eq!(v["image"], "busybox:1.37");
         assert_eq!(v["stdin"], true);
         assert_eq!(v["tty"], true);
+        assert_eq!(v["stdinOnce"], false);
         assert_eq!(v["targetContainerName"], "app");
         assert!(v.get("command").is_none(), "the image's own shell runs");
         let c = debug_container_spec("d", "", "x", false);
         assert_eq!(c.target_container_name, None);
         assert_eq!(c.tty, Some(false));
+        assert_eq!(
+            c.stdin_once,
+            Some(true),
+            "piped stdin ends the shell, not the attach"
+        );
         assert!(debug_container_name("abcde").len() <= 63);
         assert_eq!(debug_container_name("abcde"), "debugger-abcde");
     }
