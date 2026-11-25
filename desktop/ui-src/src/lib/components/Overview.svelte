@@ -25,6 +25,8 @@
   import { blips as toBlips, type Blip } from "../sonar";
   import { observeOverview, scope } from "../stores/watch.svelte";
   import CalmWater from "./CalmWater.svelte";
+  import OutOfReach from "./OutOfReach.svelte";
+  import { troubleTitle } from "../health";
   import { NODE_KIND_ID, POD_KIND_ID, overviewBadges } from "../problems";
   import { reportProblems, staleProblems } from "../stores/problems.svelte";
   import MetricsOffer from "./helm/MetricsOffer.svelte";
@@ -393,6 +395,9 @@
         <h2 class="headline">Taking the first sounding…</h2>
       </div>
     </div>
+  {:else}
+    <!-- Not blank under the banner (#462). -->
+    <OutOfReach title={troubleTitle(app.status) ?? app.status.text} />
   {/if}
 </div>
 

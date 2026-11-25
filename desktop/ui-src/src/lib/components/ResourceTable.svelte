@@ -1,5 +1,7 @@
 <script lang="ts">
   import CalmWater from "./CalmWater.svelte";
+  import OutOfReach from "./OutOfReach.svelte";
+  import { troubleTitle } from "../health";
   import { chart } from "../stores/chart.svelte";
   import { visibleRows } from "../stores/visibleRows.svelte";
   import { app, kinds, openObject, switchNamespace } from "../stores/app.svelte";
@@ -105,6 +107,8 @@
     () => now,
   );
   const visible = $derived(rows.value);
+  /** The header status while the cluster does not answer (#462). */
+  const trouble = $derived(troubleTitle(app.status));
   const getKey = $derived((i: number) => visible[i]?.key ?? i);
 
   $effect(() => {
@@ -723,7 +727,12 @@
     </div>
   {/if}
 
-  {#if visible.length === 0}
+  {#if visible.length === 0 && trouble}
+    <!-- Not "No items found" while the cluster does not answer (#462). -->
+    <div class="empty">
+      <OutOfReach title={trouble} />
+    </div>
+  {:else if visible.length === 0}
     <div class="empty">
       <CalmWater mark="buoy">
         <p class="way-out">

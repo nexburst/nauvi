@@ -32,6 +32,10 @@ export function clustersHandlers(s: FakeState) {
       cluster.forwards = [];
       return null;
     },
+    cmdClusterHealth: () => {
+      if (cluster.healthError) throw cluster.healthError;
+      return null;
+    },
     cmdClusterDisconnect: () => {
       s.connected.delete(s.target);
       // Its forwards stop with it.

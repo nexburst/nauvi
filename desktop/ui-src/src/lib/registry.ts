@@ -14,6 +14,7 @@ import { CATALOG_VIEW } from "./catalog";
 import { PORT_FORWARDS_VIEW } from "./forwards";
 import { HELM_VIEW } from "./helm";
 import { HELM_CHARTS_VIEW } from "./helmCharts";
+import { isWatchless } from "./health";
 import { WORKLOADS_VIEW } from "./workloads";
 import { app } from "./stores/app.svelte";
 import { listenDrain } from "./stores/actions.svelte";
@@ -48,6 +49,7 @@ import HelmConfirm from "./components/helm/HelmConfirm.svelte";
 import HelmDeployDialog from "./components/helm/HelmDeployDialog.svelte";
 import HelmDetail from "./components/helm/HelmDetail.svelte";
 import HideClusterDialog from "./components/HideClusterDialog.svelte";
+import HealthCheck from "./components/HealthCheck.svelte";
 import HelmView from "./components/helm/HelmView.svelte";
 import MetricsInstallDialog from "./components/helm/MetricsInstallDialog.svelte";
 import NodeShellLeftovers from "./components/NodeShellLeftovers.svelte";
@@ -111,6 +113,8 @@ export const BANNERS: Slot[] = [
   slot(ActionNotice),
   slot(UpdateBanner),
   slot(NodeShellLeftovers),
+  // The views that watch nothing ask whether the cluster answers (#469).
+  slot(HealthCheck, { when: () => app.ready && app.contexts.length > 0 && isWatchless(app.view) }),
 ];
 
 /** Right of the view, after the resource detail panel. */

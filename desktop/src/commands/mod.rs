@@ -82,6 +82,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             cluster::cmd_set_context,
             clusters::cmd_cluster_connect,
             clusters::cmd_cluster_disconnect,
+            clusters::cmd_cluster_health,
             clusters::cmd_cluster_reconnect,
             debug::cmd_debug_start,
             debug::cmd_node_shell_cleanup,
