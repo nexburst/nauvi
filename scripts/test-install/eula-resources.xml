@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- The licence resources Tauri's bundle_dmg gives the release DMG (tauri-bundler,
-     src/bundle/macos/dmg/eula-resources-template.xml, Apache-2.0 OR MIT), for
+     src/bundle/macos/dmg/eula-resources-template.xml, Apache-2.0 OR MIT,
+     Copyright (c) Tauri Programme within The Commons Conservancy), for
      the test DMG of fixtures.sh (#467). @EULA_DATA@ is the licence text in
      base64. -->
 <plist version="1.0">
