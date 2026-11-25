@@ -227,14 +227,38 @@ nauvi_install() {
   fi
 
   # --- the desktop app: macOS ----------------------------------------------
+  # Mounts the DMG ($1) read-only at $2, hidden from Finder (so no window
+  # opens), past its licence agreement (#210). `diskutil image` where it
+  # exists (#467: macOS 27 deprecates `hdiutil attach`), else hdiutil.
+  # NAUVI_TEST_DMG_TOOL=diskutil|hdiutil, for tests only, takes one of the
+  # two without falling back.
+  attach_dmg() {
+    tool=${NAUVI_TEST_DMG_TOOL:-}
+    if [ "$tool" != hdiutil ] && diskutil image >/dev/null 2>&1; then
+      # diskutil cannot accept a licence on its own (before macOS 27.2 it
+      # shows a dialog and waits), so it attaches a copy without one: a
+      # RAW image carries no licence.
+      rm -f "$tmp/app.img"
+      if diskutil image create from --format RAW "$1" "$tmp/app.img" </dev/null >/dev/null 2>&1 &&
+        diskutil image attach --readOnly --nobrowse --mountPoint "$2" "$tmp/app.img" </dev/null >/dev/null; then
+        return 0
+      fi
+      rm -f "$tmp/app.img"
+      [ "$tool" != diskutil ] || return 1
+    elif [ "$tool" = diskutil ]; then
+      return 1
+    fi
+    # Answering the licence agreement lets attach go on.
+    { yes || true; } | PAGER='cat' hdiutil attach -nobrowse -readonly -noautoopen \
+      -mountpoint "$2" "$1" >/dev/null
+  }
+
   if [ "$platform" = macos ]; then
     name=$(pick '^[^ ]+_universal\.dmg$')
     dmg=$(download "$name")
     mnt="$tmp/mnt"
     mkdir "$mnt"
-    # The DMG has a licence agreement; answering it lets attach go on.
-    { yes || true; } | PAGER='cat' hdiutil attach -nobrowse -readonly -noautoopen \
-      -mountpoint "$mnt" "$dmg" >/dev/null || die "could not open $name"
+    attach_dmg "$dmg" "$mnt" || die "could not open $name"
     if [ ! -d "$mnt/nauvi.app" ]; then
       hdiutil detach -quiet "$mnt" || true
       die "$name has no nauvi.app"
