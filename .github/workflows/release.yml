@@ -436,16 +436,52 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund >/dev/null
           node node_modules/@tauri-apps/cli/tauri.js --version
 
+      # By name, each into its own directory: `desktop` runs build code,
+      # which could upload artifacts of its own (#245), so nothing else may
+      # reach the draft through this job.
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: desktop-*
-          path: ${{ runner.temp }}/bundles
-          merge-multiple: true
+          name: desktop-linux
+          path: ${{ runner.temp }}/bundles/linux
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-macos-universal
+          path: ${{ runner.temp }}/bundles/macos-universal
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-windows
+          path: ${{ runner.temp }}/bundles/windows
 
-      # Exactly one file per update bundle the app installs from: the
-      # AppImage, the .deb, the universal .app.tar.gz, the MSI and the NSIS
-      # installer (the .dmg is not an update bundle). `publish` checks every
-      # .sig against the key and writes latest.json from them.
+      # Each artifact must hold exactly its platform's files, by name; only
+      # those are copied to release/, the one directory signed and uploaded.
+      - name: Check the bundles
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          in="$RUNNER_TEMP/bundles"
+          out="$RUNNER_TEMP/release"
+          mkdir "$out"
+          # Artifact directory, then the exact files it must contain.
+          take() {
+            local leg=$1; shift
+            local got want
+            got=$(cd "$in/$leg" && find . -mindepth 1 -printf '%P\n' | LC_ALL=C sort)
+            want=$(printf '%s\n' "$@" | LC_ALL=C sort)
+            if [ "$got" != "$want" ]; then
+              echo "::error::desktop-$leg holds [$(echo "$got" | paste -sd' ')], expected [$(echo "$want" | paste -sd' ')]"
+              exit 1
+            fi
+            for f in "$@"; do cp -- "$in/$leg/$f" "$out/$f"; done
+          }
+          take linux "nauvi_${VERSION}_amd64.AppImage" "nauvi_${VERSION}_amd64.deb"
+          take macos-universal "nauvi_${VERSION}_universal.dmg" "nauvi_${VERSION}_universal.app.tar.gz"
+          take windows "nauvi_${VERSION}_x64_en-US.msi" "nauvi_${VERSION}_x64-setup.exe"
+          ls -l "$out"
+
+      # The update bundles the app installs from: the AppImage, the .deb,
+      # the universal .app.tar.gz, the MSI and the NSIS installer (the .dmg
+      # is not one). `publish` checks every .sig against the key and writes
+      # latest.json from them.
       - name: Sign the update bundles
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ needs.prepare.outputs.dry_run == 'false' && secrets.TAURI_SIGNING_PRIVATE_KEY || needs.prepare.outputs.dry_run_key }}
@@ -453,20 +489,15 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           cli="$GITHUB_WORKSPACE/desktop/ui-src/node_modules/@tauri-apps/cli/tauri.js"
-          cd "$RUNNER_TEMP/bundles"
-          ls -l
-          if compgen -G "*.sig" >/dev/null; then
-            echo "::error::the bundles came with .sig files; desktop must not upload any"
-            exit 1
-          fi
-          for p in "*.AppImage" "*.deb" "*_universal.app.tar.gz" "*.msi" "*-setup.exe"; do
-            mapfile -t files < <(compgen -G "$p" || true)
-            [ "${#files[@]}" -eq 1 ] || { echo "::error::expected one update bundle matching $p, found ${#files[@]}"; exit 1; }
+          cd "$RUNNER_TEMP/release"
+          for f in "nauvi_${VERSION}_amd64.AppImage" "nauvi_${VERSION}_amd64.deb" \
+                   "nauvi_${VERSION}_universal.app.tar.gz" \
+                   "nauvi_${VERSION}_x64_en-US.msi" "nauvi_${VERSION}_x64-setup.exe"; do
             # --app-version, as `tauri build` signs: the version goes into
             # the signed trusted comment.
-            node "$cli" signer sign --app-version "$VERSION" "${files[0]}" </dev/null >/dev/null
-            [ -s "${files[0]}.sig" ] || { echo "::error::no signature written for ${files[0]}"; exit 1; }
-            echo "signed ${files[0]}"
+            node "$cli" signer sign --app-version "$VERSION" -- "$f" </dev/null >/dev/null
+            [ -s "$f.sig" ] || { echo "::error::no signature written for $f"; exit 1; }
+            echo "signed $f"
           done
 
       # `publish` reads them from here in a dry run.
@@ -474,7 +505,12 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: updater-signatures
-          path: ${{ runner.temp }}/bundles/*.sig
+          path: |
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_amd64.AppImage.sig
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_amd64.deb.sig
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_universal.app.tar.gz.sig
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_x64_en-US.msi.sig
+            ${{ runner.temp }}/release/nauvi_${{ needs.prepare.outputs.version }}_x64-setup.exe.sig
           if-no-files-found: error
           retention-days: 7
 
@@ -483,7 +519,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.prepare.outputs.tag }}
-        run: gh release upload "$TAG" "$RUNNER_TEMP"/bundles/* --clobber --repo "$GITHUB_REPOSITORY"
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          cd "$RUNNER_TEMP/release"
+          files=()
+          for f in "nauvi_${VERSION}_amd64.AppImage" "nauvi_${VERSION}_amd64.deb" \
+                   "nauvi_${VERSION}_universal.app.tar.gz" \
+                   "nauvi_${VERSION}_x64_en-US.msi" "nauvi_${VERSION}_x64-setup.exe"; do
+            files+=("$f" "$f.sig")
+          done
+          files+=("nauvi_${VERSION}_universal.dmg")
+          gh release upload "$TAG" "${files[@]}" --clobber --repo "$GITHUB_REPOSITORY"
 
   cli:
     needs: prepare
@@ -726,9 +772,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Exact artifact names, not desktop-*/cli-*: build code could upload
+      # artifacts of its own (#245).
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "{desktop-*,cli-*}"
+          pattern: "{desktop-linux,desktop-macos-universal,desktop-windows,cli-x86_64-unknown-linux-gnu,cli-aarch64-apple-darwin,cli-x86_64-apple-darwin,cli-x86_64-pc-windows-msvc}"
           path: ${{ runner.temp }}/assets
           merge-multiple: true
 
@@ -817,12 +865,12 @@ jobs:
           path: assets
 
       # The bundles, their signatures, the CLI archives and the SBOMs (not
-      # the scan reports).
+      # the scan reports), by exact artifact name (#245).
       - name: Fetch the workflow artifacts (dry run)
         if: needs.prepare.outputs.dry_run == 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          pattern: "{desktop-*,updater-signatures,cli-*,sbom}"
+          pattern: "{desktop-linux,desktop-macos-universal,desktop-windows,updater-signatures,cli-x86_64-unknown-linux-gnu,cli-aarch64-apple-darwin,cli-x86_64-apple-darwin,cli-x86_64-pc-windows-msvc,sbom}"
           path: assets
           merge-multiple: true
 
