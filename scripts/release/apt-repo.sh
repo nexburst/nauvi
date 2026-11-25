@@ -147,7 +147,7 @@ if [ -n "${APT_PREVIOUS:-}" ]; then
   [ -n "$newest" ] \
     || die "the published repository has no nauvi, but $APT_PREVIOUS was released before; restore gh-pages from its last apt-pages commit"
   [ "$(printf '%s\n%s\n' "$APT_PREVIOUS" "$newest" | sort -V | head -n1)" = "$APT_PREVIOUS" ] \
-    || die "the published repository's newest nauvi is $newest, older than the previous release $APT_PREVIOUS: an older copy was put back on gh-pages; restore it from its last apt-pages commit"
+    || die "the published repository's newest nauvi is $newest, older than the previous release $APT_PREVIOUS: an older copy was put back on gh-pages (restore it from its last apt-pages commit), or the apt job of $APT_PREVIOUS never ran (re-run it first)"
 fi
 
 mkdir -p "$pool"
