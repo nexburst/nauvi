@@ -24,6 +24,7 @@ import { localShellHandlers } from "./local-shell";
 import { logsHandlers } from "./logs";
 import { metricsAddonsHandlers } from "./metrics-addons";
 import { overviewHandlers } from "./overview";
+import { podEnvHandlers } from "./pod-env";
 import { portforwardHandlers } from "./portforward";
 import { prometheusHandlers } from "./prometheus";
 import { proxyHandlers } from "./proxy";
@@ -59,6 +60,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...logsHandlers(s),
     ...metricsAddonsHandlers(s),
     ...overviewHandlers(s),
+    ...podEnvHandlers(s),
     ...portforwardHandlers(s),
     ...prometheusHandlers(s),
     ...proxyHandlers(s),

@@ -66,8 +66,11 @@ test("container cards show state, resources, ports, probes, mounts and env names
   await expect(app).toContainText("/etc/nginx/conf.d");
   await expect(app).toContainText("from config · configmap nginx-conf (ro)");
   await app.getByText("Environment (2)").click();
-  await expect(app).toContainText("DB_PASSWORD from Secret db-creds/password");
-  await expect(app).toContainText("MODE value set");
+  // The values are loaded when the list opens (#447, more in pod-env.spec.ts).
+  await expect(app.locator('[data-testid="env-row"][data-name="DB_PASSWORD"]')).toContainText(
+    "from Secret db-creds/password",
+  );
+  await expect(app.locator('[data-testid="env-row"][data-name="MODE"]')).toContainText("production");
 });
 
 test("the container summary shows command, args, env count and mount sources (#385)", async ({ page }) => {

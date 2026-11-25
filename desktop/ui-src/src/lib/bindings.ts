@@ -400,6 +400,20 @@ export const commands = {
 	 */
 	cmdOverviewUsage: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<OverviewUsageView>("cmd_overview_usage", { cluster }, options),
 	/**
+	 *  The env of one container: literals (secret-looking ones withheld),
+	 *  ConfigMap values, resolved pod fields, Secret keys without values, and a
+	 *  plain line for each source that is missing or may not be read.
+	 */
+	cmdPodEnv: (cluster: string, namespace: string, pod: string, container: string, options?: InvokeOptions) => __TAURI_INVOKE<ContainerEnv>("cmd_pod_env", { cluster, namespace, pod, container }, options),
+	/**
+	 *  One value that `cmd_pod_env` withheld because it looks like a secret (a
+	 *  literal, a pod field or a ConfigMap value), on an explicit reveal. The
+	 *  row is named by position: `group` is its `envFrom` source's index, or
+	 *  -1 for `env`, where `index` is its position; `name` must match. Never
+	 *  logged.
+	 */
+	cmdRevealPodEnv: (cluster: string, namespace: string, pod: string, container: string, group: number, index: number, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_reveal_pod_env", { cluster, namespace, pod, container, group, index, name }, options),
+	/**
 	 *  Start the saved forwards of the selected context marked "Start
 	 *  automatically", except those another window runs already. Called when
 	 *  a window connects to a context. Returns the ones that failed.
@@ -1054,6 +1068,16 @@ export type ContainerDetail = {
 	env: EnvInfo[],
 };
 
+/**
+ *  A container's environment: `envFrom` sources first, then `env`, the
+ *  order the kubelet applies them in (later wins).
+ */
+export type ContainerEnv = {
+	container: string,
+	from: EnvFromGroup[],
+	env: EnvValue[],
+};
+
 export type ContainerKind = "init" | "regular" | "ephemeral";
 
 /**  One container's samples (pods only). */
@@ -1415,6 +1439,18 @@ export type DrainSummary = {
 	still_terminating: number,
 };
 
+/**  One `envFrom` source and the variables it provides. */
+export type EnvFromGroup = {
+	/**  `configmap` or `secret` (`unknown` for neither). */
+	kind: EnvSourceKind,
+	object: string,
+	prefix: string,
+	optional: boolean,
+	/**  Why the source's keys are unknown; `rows` is then empty. */
+	error: string,
+	rows: EnvValue[],
+};
+
 /**  An env variable. Literal values are never included. */
 export type EnvInfo = {
 	/**  The variable, or `<prefix>*` for a whole `envFrom` source. */
@@ -1425,6 +1461,37 @@ export type EnvInfo = {
 	 *  `secret:name` / `configmap:name`.
 	 */
 	source: string,
+};
+
+/**  Where a variable's value comes from. */
+export type EnvSourceKind = "literal" | "configmap" | "secret" | "field" | "resource" | "unknown";
+
+/**  One variable of a container, as the container sees it. */
+export type EnvValue = {
+	/**  The variable (with the `envFrom` prefix). */
+	name: string,
+	kind: EnvSourceKind,
+	/**  The ConfigMap or Secret (empty for other kinds). */
+	object: string,
+	/**  Its key; the field path of a `field`, the resource of a `resource`. */
+	key: string,
+	/**
+	 *  The value: a literal, a ConfigMap value or a resolved field. Empty
+	 *  when `hidden`, on an `error`, or for a `resource`.
+	 */
+	value: string,
+	/**
+	 *  The value is withheld: always for a Secret, and for a literal that
+	 *  looks like a secret. Revealed one at a time on request.
+	 */
+	hidden: boolean,
+	/**  Why there is no value ("ConfigMap app-cfg not found", ...). */
+	error: string,
+	/**
+	 *  A later variable of the same name wins: this one is not what the
+	 *  container sees.
+	 */
+	overridden: boolean,
 };
 
 /**  A warning event, linked to the object it is about. */

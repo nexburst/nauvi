@@ -15,7 +15,7 @@
 //! - `detail`: the detail panel for any kind
 //! - `pod_detail`: the pod section of the detail panel (containers, probes, ...);
 //!   `volume_source` says what a mounted volume is, `mask` hides secret-looking
-//!   values in command lines
+//!   values in command lines; `pod_env` resolves a container's env values
 //! - `detail_watch`: live updates of one object's detail
 //! - `related`: related objects and a per-kind summary (`related_local`,
 //!   `related_summary`, `related_crd` hold the pure per-kind parts)
@@ -42,6 +42,7 @@ mod mask_json;
 mod ops;
 mod pod_containers;
 mod pod_detail;
+mod pod_env;
 mod pod_printer;
 mod problems;
 mod rbac;
@@ -74,6 +75,10 @@ pub use ops::{
 pub use pod_detail::{
     env_refs, pod_extras, probe_summary, state_info, ContainerDetail, ContainerKind, EnvInfo,
     MountInfo, PodExtras, PortInfo, ProbeInfo, StateInfo,
+};
+pub use pod_env::{
+    env_reveal_from, env_sources, field_value, get_pod_env, resolve_env, reveal_pod_env_value,
+    ContainerEnv, EnvFromGroup, EnvSource, EnvSourceKind, EnvValue, RevealFrom,
 };
 pub use pod_printer::printed_pod_status;
 pub use problems::{not_ready_reason, row_problem};
