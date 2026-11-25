@@ -1,0 +1,288 @@
+name: Pages
+
+# The website at https://nexburst.github.io/nauvi/ (#468), served by GitHub
+# Pages from the gh-pages branch:
+#
+#   /                  the landing page (site/), from main
+#   /docs/dev/         the docs (docs/user/) of main
+#   /docs/<tag>/       the docs of each release, built once from the tag
+#   /docs/latest/      a copy of the newest release's docs
+#   /docs/index.html   a redirect to latest/ (dev/ before the first release)
+#   /docs/versions.json  the versions, read by the docs' version switcher
+#   /apt/              the apt repository: release.yml's `apt-pages` owns it
+#
+# Two jobs write gh-pages, this one and release.yml's `apt-pages`. Each one
+# owns its own paths and keeps everything else byte for byte: it clones the
+# branch, replaces only its paths, refuses to push if any other path
+# changed, and pushes one new commit with no history with
+# --force-with-lease, so a push that raced another one fails instead of
+# undoing it. Then it clones again and retries. Neither needs to wait for
+# the other.
+#
+# - A push to main that changes the site or the docs publishes the landing
+#   page and docs/dev/. Pull requests only build and check them.
+# - release.yml calls this workflow with the release's tag after publishing
+#   the release: docs/<tag>/ is added (never rebuilt once there) and
+#   docs/latest/ moves to the newest release.
+# - Run by hand with a tag to publish a release's docs afterwards. A tag
+#   from before docs/user/ existed (v0.1.0) has no docs; `docs_ref` builds
+#   them from another ref, such as main.
+#
+# The publish job has no checkout: no code of this repository runs next to
+# the write token, only the shell below.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/user/**"
+      - "scripts/site/**"
+      - "README.md"
+      - ".github/workflows/pages.yml"
+  pull_request:
+    paths:
+      - "site/**"
+      - "docs/user/**"
+      - "scripts/site/**"
+      - "README.md"
+      - "install.sh"
+      - "install.ps1"
+      - "install-apt.sh"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Publish the docs of this release tag (vX.Y.Z). Empty: the landing page and docs/dev from main."
+        type: string
+        default: ""
+      docs_ref:
+        description: "With a tag: build its docs from this ref instead of the tag (for a tag older than docs/user/)."
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      tag:
+        description: "The release tag whose docs to publish"
+        type: string
+        required: true
+      ref:
+        description: "The commit to build them from (the tag's)"
+        type: string
+        required: true
+
+permissions: {}
+
+env:
+  # mdBook, pinned: the release tarball and its SHA-256 (from the release's
+  # asset digest). Bump both together.
+  MDBOOK_VERSION: v0.5.4
+  MDBOOK_SHA256: 3f28de05dafca9d0f2eab99c662116b0e37b89b1d96a08f8f430b9eeae958cd7
+
+jobs:
+  build:
+    name: build and check the site
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    outputs:
+      mode: ${{ steps.meta.outputs.mode }}
+      version: ${{ steps.meta.outputs.version }}
+      publish: ${{ steps.meta.outputs.publish }}
+    steps:
+      - name: Work out what to build
+        id: meta
+        env:
+          TAG: ${{ inputs.tag }}
+          REF_INPUT: ${{ inputs.ref }}
+          DOCS_REF: ${{ inputs.docs_ref }}
+        run: |
+          if [ -n "$TAG" ]; then
+            [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9]+)?$ ]] || { echo "::error::not a release tag: $TAG"; exit 1; }
+            git ls-remote --exit-code --tags "https://github.com/$GITHUB_REPOSITORY.git" "refs/tags/$TAG" >/dev/null \
+              || { echo "::error::no tag $TAG"; exit 1; }
+            mode=release version="$TAG" ref="${REF_INPUT:-${DOCS_REF:-$TAG}}" publish=true
+          else
+            mode=site version=dev ref="$GITHUB_SHA"
+            # Only main is published; a pull request or another branch only builds.
+            if [ "$GITHUB_EVENT_NAME" != "pull_request" ] && [ "$GITHUB_REF" = "refs/heads/main" ]; then
+              publish=true
+            else
+              publish=false
+            fi
+          fi
+          [[ "$ref" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "::error::not a ref: $ref"; exit 1; }
+          echo "mode=$mode version=$version ref=$ref publish=$publish"
+          {
+            echo "mode=$mode"
+            echo "version=$version"
+            echo "ref=$ref"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.meta.outputs.ref }}
+          persist-credentials: false
+
+      - name: Install mdBook ${{ env.MDBOOK_VERSION }}
+        run: |
+          dir="$RUNNER_TEMP/mdbook"
+          mkdir -p "$dir"
+          tarball="$dir/mdbook.tar.gz"
+          curl -fsSL -o "$tarball" \
+            "https://github.com/rust-lang/mdBook/releases/download/$MDBOOK_VERSION/mdbook-$MDBOOK_VERSION-x86_64-unknown-linux-gnu.tar.gz"
+          echo "$MDBOOK_SHA256  $tarball" | sha256sum -c -
+          tar -xzf "$tarball" -C "$dir" mdbook
+          "$dir/mdbook" --version
+          echo "MDBOOK=$dir/mdbook" >> "$GITHUB_ENV"
+
+      - name: Build and check
+        env:
+          MODE: ${{ steps.meta.outputs.mode }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if [ "$MODE" = site ]; then
+            python3 scripts/site/build.py --check --out "$RUNNER_TEMP/site"
+          else
+            python3 scripts/site/build.py --check --docs-only --version "$VERSION" --out "$RUNNER_TEMP/site"
+          fi
+          du -sh "$RUNNER_TEMP/site"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site
+          path: ${{ runner.temp }}/site/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: publish to gh-pages
+    needs: build
+    if: needs.build.outputs.publish == 'true'
+    permissions:
+      contents: write
+    # One publish per mode and version at a time; a newer push to main
+    # replaces a waiting one. Races with other writers (a release, apt-pages)
+    # are handled by the lease below.
+    concurrency:
+      group: pages-${{ needs.build.outputs.mode }}-${{ needs.build.outputs.version }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: site
+          path: ${{ runner.temp }}/site
+
+      - name: Push to gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ needs.build.outputs.mode }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          # git asks gh for the credentials, so the token never lands in a
+          # URL or in .git/config.
+          gh auth setup-git
+          site="$RUNNER_TEMP/site"
+          url="https://github.com/$GITHUB_REPOSITORY.git"
+          [ -f "$site/docs/$VERSION/index.html" ] || { echo "::error::the artifact has no docs/$VERSION"; exit 1; }
+
+          publish() {
+            local pages="$1" base=""
+            if git ls-remote --exit-code --heads "$url" gh-pages >/dev/null; then
+              git clone --quiet --depth 1 --branch gh-pages "$url" "$pages"
+              base=$(git -C "$pages" rev-parse HEAD)
+            else
+              git init --quiet "$pages"
+              git -C "$pages" remote add origin "$url"
+            fi
+            cd "$pages"
+            mkdir -p docs
+            if [ "$MODE" = site ]; then
+              # The landing page is everything at the root but apt/ and docs/.
+              find . -mindepth 1 -maxdepth 1 ! -name .git ! -name apt ! -name docs -exec rm -rf {} +
+              find "$site" -mindepth 1 -maxdepth 1 ! -name docs -exec cp -r {} . \;
+              rm -rf docs/dev
+              cp -r "$site/docs/dev" docs/dev
+            elif [ -e "docs/$VERSION" ]; then
+              echo "docs/$VERSION is already published; released docs are never rebuilt"
+            else
+              cp -r "$site/docs/$VERSION" "docs/$VERSION"
+            fi
+            # Pages would otherwise run Jekyll over the branch.
+            touch .nojekyll
+
+            # latest/ is a copy of the newest release (pre-releases excluded).
+            latest=$(find docs -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+              | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -n1)
+            rm -rf docs/latest
+            if [ -n "$latest" ]; then
+              cp -r "docs/$latest" docs/latest
+              target="latest/"
+            else
+              target="dev/"
+            fi
+            LATEST="$latest" python3 - <<'PY'
+          import json, os, re
+          docs = "docs"
+          versions = [d for d in os.listdir(docs) if re.fullmatch(r"v\d+\.\d+\.\d+(-\d+)?", d) and os.path.isdir(os.path.join(docs, d))]
+          key = lambda v: [int(x) for x in re.split(r"[.-]", v[1:])] + ([] if "-" in v else [1 << 30])
+          versions.sort(key=key, reverse=True)
+          info = {"latest": os.environ["LATEST"], "versions": versions, "dev": os.path.isdir(os.path.join(docs, "dev"))}
+          with open(os.path.join(docs, "versions.json"), "w") as f:
+              json.dump(info, f, indent=2)
+              f.write("\n")
+          PY
+            printf '%s\n' "<!doctype html>" \
+              "<html lang=\"en\"><head><meta charset=\"utf-8\"><meta http-equiv=\"refresh\" content=\"0; url=$target\">" \
+              "<link rel=\"canonical\" href=\"$target\"><title>nauvi docs</title></head>" \
+              "<body><p><a href=\"$target\">nauvi docs</a></p></body></html>" > docs/index.html
+
+            git add -A
+            if [ -n "$base" ]; then
+              changed=$(git diff --cached --name-only "$base")
+              if [ -z "$changed" ]; then
+                echo "gh-pages already has this site"
+                return 0
+              fi
+              # Only this job's own paths may change: never apt/, and never
+              # an already released version.
+              if [ "$MODE" = site ]; then
+                bad=$(grep -E '^(apt/|docs/v[0-9])' <<<"$changed" || true)
+              else
+                bad=$(grep -vE "^(docs/$VERSION/|docs/latest/|docs/versions\.json$|docs/index\.html$|\.nojekyll$)" <<<"$changed" || true)
+              fi
+              if [ -n "$bad" ]; then
+                echo "::error::refusing to publish: it would change paths this job does not own:"
+                printf '%s\n' "$bad" | head -n 20
+                exit 1
+              fi
+            fi
+            git checkout --quiet --orphan pages-update
+            git -c user.name="github-actions[bot]" \
+                -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+                commit --quiet -m "site: $MODE $VERSION" -m "From $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$GITHUB_SHA"
+            # With no gh-pages yet, base is empty: the lease then expects none.
+            # A refused lease (gh-pages moved since the clone) returns 75:
+            # clone again and retry. Any other failure ends the job.
+            git push --force-with-lease="gh-pages:$base" origin pages-update:gh-pages || return 75
+          }
+
+          for attempt in 1 2 3 4 5; do
+            # Not `(…) || rc=$?`: bash ignores set -e inside a subshell
+            # whose status is tested, and a failed step would go unnoticed.
+            set +e
+            (set -euo pipefail; publish "$RUNNER_TEMP/pages-$attempt")
+            rc=$?
+            set -e
+            if [ "$rc" -eq 0 ]; then
+              echo "gh-pages: $MODE $VERSION published" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            [ "$rc" -eq 75 ] || exit "$rc"
+            echo "gh-pages moved while publishing (attempt $attempt); trying again"
+            sleep $((attempt * 10))
+          done
+          echo "::error::could not publish to gh-pages after 5 attempts"
+          exit 1

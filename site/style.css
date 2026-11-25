@@ -1,0 +1,432 @@
+/* The landing page (#468). Colours from tokens.css (shared with the docs);
+   system fonts only. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--n-bg);
+  color: var(--n-text);
+  font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, sans-serif;
+}
+
+a {
+  color: var(--n-accent);
+  text-underline-offset: 0.18em;
+}
+
+code,
+pre {
+  font-family: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+:not(pre) > code {
+  background: var(--n-bg-hover);
+  padding: 0.08em 0.32em;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.skip {
+  position: absolute;
+  left: -999px;
+}
+.skip:focus {
+  left: 16px;
+  top: 8px;
+  background: var(--n-bg-raised);
+  padding: 4px 8px;
+  z-index: 2;
+}
+
+/* The page's column: 16px gutters on a phone, 1160px at most. */
+.top,
+main > section,
+.bottom {
+  width: min(1160px, 100% - 32px);
+  margin-inline: auto;
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--n-text);
+  font-weight: 700;
+  font-size: 1.2rem;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+}
+
+.mark {
+  width: 32px;
+  height: 32px;
+}
+
+.top nav {
+  display: flex;
+  gap: 18px;
+}
+.top nav a {
+  color: var(--n-muted);
+  text-decoration: none;
+  font-weight: 500;
+}
+.top nav a:hover {
+  color: var(--n-accent);
+}
+
+/* Hero: text, then the main screenshot. The left rule is the berth bar of
+   the icon. */
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 40px;
+  align-items: center;
+  padding: 40px 0 56px;
+}
+
+.hero-text {
+  border-left: 4px solid var(--n-accent);
+  padding-left: 22px;
+}
+
+.eyebrow {
+  margin: 0 0 10px;
+  color: var(--n-brass);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0 0 16px;
+  font-size: clamp(2rem, 1.2rem + 2.6vw, 3rem);
+  line-height: 1.12;
+  letter-spacing: -0.015em;
+}
+
+.pitch {
+  margin: 0 0 24px;
+  color: var(--n-muted);
+  font-size: 1.08rem;
+}
+
+.cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 0 0 18px;
+}
+
+.button {
+  display: inline-block;
+  padding: 10px 18px;
+  border: 1px solid var(--n-border-strong);
+  border-radius: 8px;
+  color: var(--n-text);
+  font-weight: 600;
+  text-decoration: none;
+  background: var(--n-bg-raised);
+}
+.button:hover {
+  border-color: var(--n-accent);
+}
+.button.primary {
+  background: var(--n-accent);
+  border-color: var(--n-accent);
+  color: var(--n-on-accent);
+}
+
+.meta {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--n-muted);
+}
+.meta a {
+  color: var(--n-muted);
+}
+
+.hero-shot,
+.gallery figure {
+  margin: 0;
+}
+
+.hero-shot img,
+.gallery img {
+  border: 1px solid var(--n-border);
+  border-radius: 10px;
+  box-shadow: 0 18px 48px -18px rgba(0, 0, 0, 0.45);
+  background: var(--n-bg-sunken);
+}
+
+/* Sections. The brass knot is the icon's. */
+main > section {
+  padding: 32px 0 40px;
+  border-top: 1px solid var(--n-border);
+}
+
+h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  font-size: 1.6rem;
+}
+
+.knot {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  background: var(--n-brass);
+  border-radius: 2px;
+  transform: rotate(45deg);
+}
+
+.lead {
+  margin: 0 0 20px;
+  max-width: 70ch;
+  color: var(--n-muted);
+}
+
+/* Install tabs. Without JavaScript every panel shows, one after the other;
+   site.js turns them into tabs. */
+.tablist {
+  display: none;
+  gap: 4px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--n-border);
+  margin-bottom: 0;
+}
+.js .tablist {
+  display: flex;
+}
+
+.tablist button {
+  font: inherit;
+  font-weight: 600;
+  color: var(--n-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 14px;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.tablist button[aria-selected="true"] {
+  color: var(--n-text);
+  background: var(--n-bg-raised);
+  border-color: var(--n-border);
+  box-shadow: inset 0 2px 0 var(--n-accent);
+}
+.tablist button:focus-visible {
+  outline: 2px solid var(--n-accent);
+  outline-offset: 2px;
+}
+
+.panel {
+  background: var(--n-bg-raised);
+  border: 1px solid var(--n-border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+.js .panel {
+  border-top-left-radius: 0;
+  margin-bottom: 0;
+}
+.js .panel[hidden] {
+  display: none;
+}
+
+.panel-title {
+  margin: 0 0 12px;
+  font-size: 1.05rem;
+}
+.js .panel-title {
+  display: none;
+}
+
+.step {
+  margin: 0 0 14px;
+}
+.step-title {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--n-muted);
+}
+
+.cmd {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--n-border);
+  border-radius: 8px;
+  background: var(--n-term-bg);
+  overflow: hidden;
+}
+.cmd pre {
+  flex: 1;
+  margin: 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+  color: var(--n-term-text);
+  white-space: pre;
+}
+.cmd button {
+  display: none;
+  flex: none;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--n-term-text);
+  background: rgba(255, 255, 255, 0.06);
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 0 14px;
+  cursor: pointer;
+}
+.js .cmd button {
+  display: block;
+}
+.cmd button:hover,
+.cmd button:focus-visible {
+  background: rgba(92, 214, 198, 0.18);
+  outline: none;
+}
+
+.note {
+  margin: 4px 0 0;
+  font-size: 0.93rem;
+  color: var(--n-muted);
+  max-width: 80ch;
+}
+
+/* Screenshots. */
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+figcaption {
+  margin-top: 10px;
+  color: var(--n-muted);
+  font-size: 0.95rem;
+}
+
+/* Features. */
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.grid li {
+  background: var(--n-bg-raised);
+  border: 1px solid var(--n-border);
+  border-radius: 10px;
+  padding: 16px 18px;
+}
+.grid h3 {
+  margin: 0 0 6px;
+  font-size: 1.02rem;
+}
+.grid p {
+  margin: 0;
+  color: var(--n-muted);
+  font-size: 0.95rem;
+}
+
+/* Performance numbers. */
+.numbers {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 0 0 16px;
+}
+.numbers div {
+  border-left: 3px solid var(--n-brass);
+  padding: 4px 0 4px 14px;
+}
+.numbers dt {
+  font-size: 1.7rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--n-text);
+}
+.numbers dd {
+  margin: 0;
+  color: var(--n-muted);
+  font-size: 0.93rem;
+}
+
+.bottom {
+  border-top: 1px solid var(--n-border);
+  padding: 24px 0 40px;
+  color: var(--n-muted);
+  font-size: 0.92rem;
+}
+.bottom nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin-bottom: 8px;
+}
+
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
+    padding-top: 16px;
+  }
+  .grid,
+  .numbers {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .gallery,
+  .grid,
+  .numbers {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .top nav {
+    gap: 12px;
+  }
+  .hero-text {
+    padding-left: 16px;
+  }
+  .tablist button {
+    padding: 8px 10px;
+  }
+  .panel {
+    padding: 14px;
+  }
+}

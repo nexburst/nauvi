@@ -22,6 +22,9 @@ name: Release
 #   6. `apt` adds the .deb to the apt repository and signs it, if the
 #      APT_GPG_PRIVATE_KEY secret is set; `apt-pages` pushes it to the
 #      gh-pages branch, which GitHub Pages serves (#427).
+#   7. `docs-pages` publishes the tag's docs to docs/<tag>/ on gh-pages and
+#      moves docs/latest/ to the newest release, through pages.yml (#468).
+#      It and `apt-pages` each change only their own paths of gh-pages.
 #
 # The update bundles are signed with the TAURI_SIGNING_PRIVATE_KEY(_PASSWORD)
 # secrets of the `release` environment (reviewers, v* tags only); the public
@@ -926,7 +929,7 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       push: ${{ steps.check.outputs.push }}
-      base: ${{ steps.site.outputs.base }}
+      apt_tree: ${{ steps.site.outputs.apt_tree }}
     steps:
       - name: Check the key and the release
         id: check
@@ -981,13 +984,16 @@ jobs:
         run: |
           site="$RUNNER_TEMP/site"
           url="https://github.com/$GITHUB_REPOSITORY.git"
+          # apt_tree: the git tree of apt/ that was read (empty: none yet).
+          # apt-pages pushes only if apt/ is still exactly that; the rest of
+          # gh-pages (the website, pages.yml) may change meanwhile.
           if git ls-remote --exit-code --heads "$url" gh-pages >/dev/null; then
             git clone --quiet --depth 1 --branch gh-pages "$url" "$site"
-            echo "base=$(git -C "$site" rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            echo "apt_tree=$(git -C "$site" rev-parse -q --verify HEAD:apt || true)" >> "$GITHUB_OUTPUT"
           else
             echo "No gh-pages branch yet: starting an empty repository"
             mkdir "$site"
-            echo "base=" >> "$GITHUB_OUTPUT"
+            echo "apt_tree=" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Add the .deb and sign the repository
@@ -1031,10 +1037,11 @@ jobs:
           retention-days: 7
 
   # Replaces apt/ on the gh-pages branch with what `apt` signed, keeping
-  # everything else there, as one new commit with no history (old .deb files
-  # would otherwise stay in the branch forever). Fails if gh-pages moved
-  # since `apt` read it. No checkout: no code of this repository runs next
-  # to the token.
+  # everything else there byte for byte (the website of pages.yml), as one
+  # new commit with no history (old .deb files would otherwise stay in the
+  # branch forever). Fails if apt/ changed since `apt` read it; if only the
+  # rest of the branch moved (a site deploy), it clones again and retries.
+  # No checkout: no code of this repository runs next to the token.
   apt-pages:
     needs: [prepare, apt]
     if: needs.prepare.outputs.dry_run == 'false' && needs.apt.outputs.push == 'true'
@@ -1050,32 +1057,81 @@ jobs:
       - name: Push to gh-pages
         env:
           GH_TOKEN: ${{ github.token }}
-          BASE: ${{ needs.apt.outputs.base }}
+          APT_TREE: ${{ needs.apt.outputs.apt_tree }}
           TAG: ${{ needs.prepare.outputs.tag }}
         run: |
+          set -euo pipefail
           # git asks gh for the credentials, so the token never lands in a
           # URL or in .git/config.
           gh auth setup-git
-          pages="$RUNNER_TEMP/pages"
           url="https://github.com/$GITHUB_REPOSITORY.git"
-          if [ -n "$BASE" ]; then
-            git clone --quiet --depth 1 --branch gh-pages "$url" "$pages"
-            head=$(git -C "$pages" rev-parse HEAD)
-            [ "$head" = "$BASE" ] || { echo "::error::gh-pages moved from $BASE to $head while the repository was signed; re-run the apt job (apt-pages runs again after it)"; exit 1; }
-          else
-            git init --quiet "$pages"
-            git -C "$pages" remote add origin "$url"
+
+          publish() {
+            local pages="$1" base=""
+            if git ls-remote --exit-code --heads "$url" gh-pages >/dev/null; then
+              git clone --quiet --depth 1 --branch gh-pages "$url" "$pages"
+              base=$(git -C "$pages" rev-parse HEAD)
+            else
+              git init --quiet "$pages"
+              git -C "$pages" remote add origin "$url"
+            fi
+            cd "$pages"
+            now=$(git rev-parse -q --verify HEAD:apt 2>/dev/null || true)
+            if [ "$now" != "$APT_TREE" ]; then
+              echo "::error::apt/ on gh-pages changed from tree ${APT_TREE:-none} to ${now:-none} while the repository was signed; re-run the apt job (apt-pages runs again after it)"
+              exit 1
+            fi
+            rm -rf apt
+            cp -r "$RUNNER_TEMP/apt" apt
             # Pages would otherwise run Jekyll over the branch.
-            touch "$pages/.nojekyll"
-          fi
-          cd "$pages"
-          rm -rf apt
-          cp -r "$RUNNER_TEMP/apt" apt
-          git checkout --quiet --orphan apt-update
-          git add -A
-          git -c user.name="github-actions[bot]" \
-              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-              commit --quiet -m "apt repository: nauvi ${TAG#v}" -m "From https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
-          # With no gh-pages yet, BASE is empty: the lease then expects none.
-          git push --force-with-lease="gh-pages:$BASE" origin apt-update:gh-pages
-          echo "apt repository updated to nauvi ${TAG#v}" >> "$GITHUB_STEP_SUMMARY"
+            touch .nojekyll
+            git add -A
+            if [ -n "$base" ]; then
+              bad=$(git diff --cached --name-only "$base" | { grep -vE '^(apt/|\.nojekyll$)' || true; })
+              if [ -n "$bad" ]; then
+                echo "::error::refusing to publish: it would change paths outside apt/:"
+                printf '%s\n' "$bad" | head -n 20
+                exit 1
+              fi
+            fi
+            git checkout --quiet --orphan apt-update
+            git -c user.name="github-actions[bot]" \
+                -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+                commit --quiet -m "apt repository: nauvi ${TAG#v}" -m "From https://github.com/$GITHUB_REPOSITORY/releases/tag/$TAG"
+            # With no gh-pages yet, base is empty: the lease then expects none.
+            # A refused lease (gh-pages moved since the clone) returns 75:
+            # clone again and retry. Any other failure ends the job.
+            git push --force-with-lease="gh-pages:$base" origin apt-update:gh-pages || return 75
+          }
+
+          for attempt in 1 2 3 4 5; do
+            # Not `(…) || rc=$?`: bash ignores set -e inside a subshell
+            # whose status is tested, and a failed step would go unnoticed.
+            set +e
+            (set -euo pipefail; publish "$RUNNER_TEMP/pages-$attempt")
+            rc=$?
+            set -e
+            if [ "$rc" -eq 0 ]; then
+              echo "apt repository updated to nauvi ${TAG#v}" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            [ "$rc" -eq 75 ] || exit "$rc"
+            echo "gh-pages moved while publishing (attempt $attempt); trying again"
+            sleep $((attempt * 10))
+          done
+          echo "::error::could not push to gh-pages after 5 attempts"
+          exit 1
+
+  # The tag's docs on the website (pages.yml, #468): docs/<tag>/ is added
+  # and docs/latest/ moves to the newest release; the landing page, apt/ and
+  # older versions are left as they are. Only after the release is public,
+  # so the docs never describe a release that failed.
+  docs-pages:
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.dry_run == 'false'
+    permissions:
+      contents: write
+    uses: ./.github/workflows/pages.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      ref: ${{ github.sha }}

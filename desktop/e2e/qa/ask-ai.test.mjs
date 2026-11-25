@@ -363,11 +363,11 @@ describe("Ask AI without an AI CLI on PATH", { timeout: 10 * 60_000 }, () => {
     assert.match(text, /npm install -g @anthropic-ai\/claude-code/);
   });
 
-  it("the help link opens the README's MCP section", T, async () => {
+  it("the help link opens the docs' MCP page", T, async () => {
     const { app } = s;
     await (await app.find(By.xpath("//*[@data-testid='ask-ai-dialog']//button[normalize-space()='AI assistants and nauvi mcp']"))).click();
-    await app.waitFor(async () => app.profile.opened().some((u) => u.includes("#use-nauvi-from-an-ai-assistant-mcp")), {
-      message: "the README link",
+    await app.waitFor(async () => app.profile.opened().some((u) => /^https:\/\/nexburst\.github\.io\/nauvi\/docs\/[^/]+\/how-to\/mcp\.html$/.test(u)), {
+      message: "the docs link (#468)",
     });
   });
 });

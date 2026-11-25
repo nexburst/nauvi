@@ -1772,13 +1772,13 @@ export type HelmStorage = "secret" | "configmap";
 
 /**  An item of the Help menu. */
 export type HelpItem = 
-/**  The README, in the browser. */
+/**  The docs of this version, in the browser. */
 "documentation" | 
 /**  A new GitHub issue with the diagnostics filled in. */
 "report_bug" | 
 /**  The folder with the app log, in the file manager. */
 "log_folder" | 
-/**  The README's section on AI assistants and `nauvi mcp` (#376). */
+/**  The docs' page on AI assistants and `nauvi mcp` (#376). */
 "ai_assistants";
 
 /**  The counts of one workload kind. */

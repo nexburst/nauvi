@@ -1,4 +1,6 @@
 mod args;
+#[cfg(test)]
+mod cli_docs;
 
 use anyhow::Result;
 use args::{Cli, Commands, HelmCommand};

@@ -2,7 +2,7 @@
 // - the app writes nauvi.log in its log folder (0600, the folder 0700),
 //   starting with the version, commit, OS and webview
 // - Help (header) lists Documentation, Report a bug, Open log folder and
-//   About; each opens what it says (the xdg-open recorder sees the README,
+//   About; each opens what it says (the xdg-open recorder sees the docs of this version (#468),
 //   a prefilled new-issue URL and the log folder)
 // - About (Settings) shows the version and commit; Copy diagnostics copies
 //   them with the OS and webview, and nothing about the user or the cluster
@@ -22,7 +22,8 @@ import { appSession, waitLive } from "../lib/qa.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 120_000 };
-const README = "https://github.com/nexburst/nauvi#readme";
+// The docs of the running version: dev/ for a debug build, v<version>/ for a release build (#468).
+const DOCS = /^https:\/\/nexburst\.github\.io\/nauvi\/docs\/(dev|v\d+\.\d+\.\d+(-\d+)?)\/$/;
 const NEW_ISSUE = "https://github.com/nexburst/nauvi/issues/new?";
 
 const logDir = (app) => join(app.profile.home, ".local", "share", "com.nauvi.app", "logs");
@@ -89,7 +90,7 @@ describe("diagnostics: app log, Help menu, About", { timeout: 8 * 60_000 }, () =
       message: "three URLs opened",
     });
     console.log(`opened: ${opened.map((u) => u.slice(0, 120)).join(" | ")}`);
-    assert.equal(opened[0], README);
+    assert.match(opened[0], DOCS);
     assert.ok(opened[1].startsWith(NEW_ISSUE), opened[1]);
     const body = new URL(opened[1]).searchParams.get("body");
     assert.match(body, /Commit: [0-9a-z]+/);

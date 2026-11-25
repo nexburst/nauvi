@@ -1,0 +1,65 @@
+{
+  "_comment": "The install commands of the landing page (site/index.html) and the one place they are written. scripts/site/build.py --check fails unless README.md and docs/user/src/how-to/install.md show every `cmd` exactly as written here. Text in `note` may use `backticks` and [links](url).",
+  "tabs": [
+    {
+      "id": "script",
+      "label": "Linux & macOS",
+      "os": ["linux", "mac"],
+      "steps": [
+        {
+          "title": "The desktop app",
+          "cmd": "curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install.sh | sh"
+        },
+        {
+          "title": "Only the CLI (nauvi)",
+          "cmd": "curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install.sh | sh -s -- --cli"
+        }
+      ],
+      "note": "No sudo. The script checks every file against the release's `SHA256SUMS`. On Linux it installs the AppImage as `~/.local/bin/nauvi-desktop` with a menu entry; on macOS `nauvi.app` into Applications. Because curl sets no quarantine flag, macOS opens the app without the \"could not verify\" prompt. Run it again to upgrade."
+    },
+    {
+      "id": "apt",
+      "label": "Debian & Ubuntu",
+      "os": [],
+      "steps": [
+        {
+          "title": "Add the signed apt repository and install",
+          "cmd": "curl -fsSL https://raw.githubusercontent.com/nexburst/nauvi/main/install-apt.sh | sudo sh"
+        }
+      ],
+      "note": "The script refuses the repository key unless its fingerprint is `B2B644E79A85C438FC3EB8C5408A65C769395FBF`. After that, `sudo apt upgrade` keeps nauvi up to date. The package is the desktop app (x86_64); for the CLI use the Linux & macOS script with `--cli`."
+    },
+    {
+      "id": "brew",
+      "label": "Homebrew",
+      "os": [],
+      "steps": [
+        {
+          "title": "The desktop app (macOS)",
+          "cmd": "brew install --cask nexburst/tap/nauvi"
+        },
+        {
+          "title": "The CLI (macOS and Linux)",
+          "cmd": "brew install nexburst/tap/nauvi-cli"
+        }
+      ],
+      "note": "If Homebrew refuses the tap, run `brew trust nexburst/tap` first. The app is not signed yet: the first launch says \"Apple could not verify…\". Click Done, then System Settings → Privacy & Security → **Open Anyway**."
+    },
+    {
+      "id": "windows",
+      "label": "Windows",
+      "os": ["windows"],
+      "steps": [
+        {
+          "title": "The desktop app (PowerShell)",
+          "cmd": "irm https://raw.githubusercontent.com/nexburst/nauvi/main/install.ps1 | iex"
+        },
+        {
+          "title": "Only the CLI",
+          "cmd": "& ([scriptblock]::Create((irm https://raw.githubusercontent.com/nexburst/nauvi/main/install.ps1))) -Cli"
+        }
+      ],
+      "note": "The app comes from the `.msi` and updates itself; the CLI goes to `%LOCALAPPDATA%\\nauvi\\bin`. The builds are not signed yet, so SmartScreen may say \"Windows protected your PC\": click More info, then Run anyway."
+    }
+  ]
+}

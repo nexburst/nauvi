@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nauvi: a fast Kubernetes IDE in Rust</title>
+<meta name="description" content="nauvi is a Kubernetes IDE written in Rust: a desktop app and a CLI on one core. Live watches of every resource type, logs, terminals, port forwards, YAML with server-side apply, Helm and several clusters at once.">
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="style.css">
+<script>document.documentElement.classList.add("js")</script>
+<script src="site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#install">Skip to install</a>
+<header class="top">
+  <a class="brand" href="./" aria-label="nauvi home">
+    <svg class="mark" viewBox="0 0 1024 1024" aria-hidden="true"><rect x="48" y="48" width="928" height="928" rx="212" fill="#0f131a"/><rect x="136" y="232" width="76" height="560" rx="38" fill="#5cd6c6"/><path d="M368 716 V492 a152 152 0 0 1 304 0 V716" fill="none" stroke="#e3e8f0" stroke-width="124" stroke-linecap="round" stroke-linejoin="round"/><rect x="738" y="730" width="116" height="116" rx="14" transform="rotate(45 796 788)" fill="#d8ab63"/></svg>
+    <span>nauvi</span>
+  </a>
+  <nav aria-label="Site">
+    <a href="docs/">Docs</a>
+    <a href="#install">Install</a>
+    <a href="https://github.com/nexburst/nauvi">GitHub</a>
+  </nav>
+</header>
+
+<main>
+<section class="hero">
+  <div class="hero-text">
+    <p class="eyebrow">Kubernetes IDE · desktop app + CLI</p>
+    <h1>Keep the watch on your clusters, without the wait.</h1>
+    <p class="pitch">nauvi is a fast Kubernetes IDE written in Rust. The desktop app and the <code>nauvi</code> CLI share one core: live watches of every resource type, logs, terminals, port forwards and YAML editing, on Linux, macOS and Windows.</p>
+    <p class="cta">
+      <a class="button primary" href="#install">Install nauvi</a>
+      <a class="button" href="docs/">Read the docs</a>
+    </p>
+    <p class="meta">
+      <a href="https://github.com/nexburst/nauvi/releases/latest">Latest release</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://github.com/nexburst/nauvi">Source on GitHub</a>
+      <span aria-hidden="true">·</span>
+      <a href="https://github.com/nexburst/nauvi/blob/main/LICENSE">MIT licence</a>
+    </p>
+  </div>
+  <figure class="hero-shot">
+    <picture>
+      <source srcset="img/overview-dark.png" media="(prefers-color-scheme: dark)">
+      <img src="img/overview-light.png" width="1280" height="800" alt="The nauvi window on the Overview of a test cluster: pod counts, problem pods, CPU and memory against requests, and the newest warning events.">
+    </picture>
+  </figure>
+</section>
+
+<section id="install" class="install" aria-labelledby="install-title">
+  <h2 id="install-title"><span class="knot" aria-hidden="true"></span>Install</h2>
+  <p class="lead">The desktop app and the CLI install separately. Every release is checked against its <code>SHA256SUMS</code> before anything is installed. <a href="docs/latest/how-to/install.html">All install options</a>.</p>
+{{install}}
+</section>
+
+<section class="shots" aria-labelledby="shots-title">
+  <h2 id="shots-title"><span class="knot" aria-hidden="true"></span>What it looks like</h2>
+  <div class="gallery">
+    <figure>
+      <picture>
+        <source srcset="img/pods-dark.png" media="(prefers-color-scheme: dark)">
+        <img src="img/pods-light.png" width="1280" height="800" loading="lazy" alt="The Pods table of the demo namespace, with a square per container and the crash-looping pod marked red.">
+      </picture>
+      <figcaption>Live tables, kept current by watches, with a square per container.</figcaption>
+    </figure>
+    <figure>
+      <picture>
+        <source srcset="img/logs-dark.png" media="(prefers-color-scheme: dark)">
+        <img src="img/logs-light.png" width="1280" height="800" loading="lazy" alt="A pod's logs streaming in a dock tab below the table, with search highlighting.">
+      </picture>
+      <figcaption>Logs of a pod or a whole workload, with search, Exclude and Context.</figcaption>
+    </figure>
+    <figure>
+      <picture>
+        <source srcset="img/pod-env-dark.png" media="(prefers-color-scheme: dark)">
+        <img src="img/pod-env-light.png" width="1280" height="800" loading="lazy" alt="A pod's detail panel with its Environment list: literal values, ConfigMap values with their source, and Secret values hidden until revealed.">
+      </picture>
+      <figcaption>The pod detail: what is wrong first, then containers, env values and mounts. Secret values stay hidden until you reveal one.</figcaption>
+    </figure>
+    <figure>
+      <picture>
+        <source srcset="img/terminal-dark.png" media="(prefers-color-scheme: dark)">
+        <img src="img/terminal-light.png" width="1280" height="800" loading="lazy" alt="A shell in a pod's container, open in a dock tab.">
+      </picture>
+      <figcaption>Terminals in the dock: shells in pods, debug containers, node shells and your own local shell.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="features" aria-labelledby="features-title">
+  <h2 id="features-title"><span class="knot" aria-hidden="true"></span>What it does</h2>
+  <ul class="grid">
+    <li><h3>Every resource type, live</h3><p>Built-in kinds and CRDs, found through API discovery and kept current by Kubernetes watches, not polling. Smooth with thousands of rows.</p></li>
+    <li><h3>Pod and workload logs</h3><p>Follow one container, the crashed previous one, or every pod of a Deployment in one stream, through rollouts.</p></li>
+    <li><h3>Terminals and port forwards</h3><p>Shells in pods, ephemeral debug containers, node shells and saved port forwards to pods, Services and workloads.</p></li>
+    <li><h3>YAML with server-side apply</h3><p>Edit any object; nauvi tells you which fields it took over from other managers. Create from YAML with a dry run first.</p></li>
+    <li><h3>Actions that ask first</h3><p>Scale, restart, cordon, drain, evict, trigger and delete, greyed out when RBAC says no, with the exact objects listed before anything changes.</p></li>
+    <li><h3>Helm</h3><p>Releases read straight from the cluster, values and manifests, a diff between revisions, install and upgrade with a dry run.</p></li>
+    <li><h3>Many clusters at once</h3><p>A tree of every kubeconfig context, each in its own colour. Read-only and protected modes, enforced by the backend.</p></li>
+    <li><h3>Ask AI</h3><p>Open your own AI coding CLI, pointed at the cluster or object on screen, with a read-only <code>nauvi mcp</code> server for that session.</p></li>
+    <li><h3>The CLI</h3><p><code>nauvi get</code>, <code>logs</code>, <code>exec</code>, <code>port-forward</code>, <code>drain</code> and more, built on the same core, with output made for scripts.</p></li>
+  </ul>
+</section>
+
+<section class="perf" aria-labelledby="perf-title">
+  <h2 id="perf-title"><span class="knot" aria-hidden="true"></span>Measured, not promised</h2>
+  <p class="lead">Numbers from CI runs on Linux. Budgets are checked on release builds, so a change that breaks one fails.</p>
+  <dl class="numbers">
+    <div><dt>234 MB</dt><dd>idle memory of the whole app (PSS), on the Overview of a kind cluster</dd></div>
+    <div><dt>≤ 5 MB</dt><dd>backend memory per extra connected, idle cluster (budget)</dd></div>
+    <div><dt>≤ 1.5 s</dt><dd>until the cluster tree shows, with 50 contexts and 49 of them unreachable (budget)</dd></div>
+    <div><dt>+10 MB</dt><dd>app process growth with a 5,016-row table open</dd></div>
+    <div><dt>8.8 MB</dt><dd>the Windows installer; the Linux <code>.deb</code> is 15.6 MB</dd></div>
+    <div><dt>16 ms</dt><dd>to open a new connection through a port forward on kind (median)</dd></div>
+  </dl>
+  <p><a href="docs/latest/explanations/memory.html">How these are measured</a></p>
+</section>
+</main>
+
+<footer class="bottom">
+  <nav aria-label="More">
+    <a href="docs/">Docs</a>
+    <a href="https://github.com/nexburst/nauvi/releases">Releases</a>
+    <a href="https://github.com/nexburst/nauvi/issues/24">Roadmap</a>
+    <a href="https://github.com/nexburst/nauvi/issues">Issues</a>
+    <a href="https://github.com/nexburst/nauvi/blob/main/LICENSE">MIT licence</a>
+  </nav>
+  <p>nauvi is open source. This page has no trackers, cookies or third-party scripts.</p>
+</footer>
+</body>
+</html>
