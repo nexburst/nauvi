@@ -212,7 +212,13 @@ async fn cli_debug_runs_piped_commands() -> Result<()> {
         serde_json::json!({}),
         |client, ns| async move {
             pause_pod(&client, &ns).await?;
-            let out = run_cli(&["debug", "noshell", "-n", &ns, "-c", "app"], "ps; exit\n")?;
+            // `ps` runs after stdin's EOF has reached the pod, and the EOF
+            // (not `exit`) ends the shell: the output must still arrive
+            // (#452: without stdinOnce the attach ended at the EOF).
+            let out = run_cli(
+                &["debug", "noshell", "-n", &ns, "-c", "app"],
+                "sleep 1; ps\n",
+            )?;
             ensure!(
                 out.status.success(),
                 "{}",
