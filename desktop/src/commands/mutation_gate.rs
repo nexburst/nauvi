@@ -78,6 +78,7 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdOverviewStart", "watches"),
     ("cmdOverviewStop", "stops a watch"),
     ("cmdOverviewUsage", "reads"),
+    ("cmdPodEnv", "reads"),
     // Starts nothing on a protected context (the forwards come back
     // stopped); a read-only one allows forwards.
     (
@@ -92,6 +93,7 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdPortforwardStop", "stops a port-forward"),
     ("cmdPrometheusStatus", "reads"),
     ("cmdRevealDataValue", "reads"),
+    ("cmdRevealPodEnv", "reads"),
     ("cmdServerVersion", "reads"),
     ("cmdServicePorts", "reads"),
     ("cmdSetContext", "switches the window's session"),

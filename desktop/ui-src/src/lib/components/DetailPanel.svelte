@@ -134,7 +134,7 @@
 
       <h3>Containers</h3>
       {#each extras.containers as c (c.kind + "/" + c.name)}
-        <ContainerCard container={c} disabled={live.deleted} onForward={(p) => portForward?.forward(p)} />
+        <ContainerCard container={c} {pod} disabled={live.deleted} onForward={(p) => portForward?.forward(p)} />
       {:else}
         <p class="muted">No containers.</p>
       {/each}

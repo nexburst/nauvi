@@ -27,6 +27,7 @@ pub(crate) mod log_frame;
 pub(crate) mod logs;
 pub(crate) mod metrics_addons;
 pub(crate) mod overview;
+pub(crate) mod pod_env;
 pub(crate) mod portforward;
 pub(crate) mod prometheus;
 pub(crate) mod proxy;
@@ -130,6 +131,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             overview::cmd_overview_start,
             overview::cmd_overview_stop,
             overview::cmd_overview_usage,
+            pod_env::cmd_pod_env,
+            pod_env::cmd_reveal_pod_env,
             portforward::cmd_portforward_autostart,
             portforward::cmd_portforward_delete,
             portforward::cmd_portforward_elsewhere,

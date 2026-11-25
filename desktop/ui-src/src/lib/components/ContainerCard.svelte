@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ContainerDetail } from "../bindings";
+  import ContainerEnvList from "./ContainerEnvList.svelte";
   import {
     envSourceText,
     envSummary,
@@ -19,7 +20,14 @@
     container: c,
     onForward,
     disabled = false,
-  }: { container: ContainerDetail; onForward: (port: number) => void; disabled?: boolean } = $props();
+    pod,
+  }: {
+    container: ContainerDetail;
+    onForward: (port: number) => void;
+    disabled?: boolean;
+    /** The pod, to load env values from (#447); without it only names. */
+    pod?: { namespace: string; name: string };
+  } = $props();
 
   /** Longer than this, a command or args line starts folded to one line. */
   const LONG = 72;
@@ -30,6 +38,9 @@
   const args = $derived(shellJoin(c.args));
   const hasResources = $derived(Object.keys(c.requests).length + Object.keys(c.limits).length > 0);
   let open = $state<Record<string, boolean>>({});
+  /** The Environment list is open: its values are loaded (and dropped
+   *  again when it closes). */
+  let envOpen = $state(false);
 </script>
 
 {#snippet longValue(key: string, text: string)}
@@ -156,13 +167,19 @@
   {/if}
 
   {#if c.env.length > 0}
-    <details>
+    <details ontoggle={(e) => (envOpen = (e.currentTarget as HTMLDetailsElement).open)}>
       <summary>Environment ({c.env.length})</summary>
-      <ul>
-        {#each c.env as e, i (i)}
-          <li><span class="mono">{e.name}</span> <span class="muted">{envSourceText(e.source)}</span></li>
-        {/each}
-      </ul>
+      {#if pod}
+        {#if envOpen}
+          <ContainerEnvList namespace={pod.namespace} pod={pod.name} container={c.name} names={c.env} />
+        {/if}
+      {:else}
+        <ul>
+          {#each c.env as e, i (i)}
+            <li><span class="mono">{e.name}</span> <span class="muted">{envSourceText(e.source)}</span></li>
+          {/each}
+        </ul>
+      {/if}
     </details>
   {/if}
 </section>
