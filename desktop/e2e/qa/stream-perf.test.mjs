@@ -419,17 +419,31 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
       await new Promise((done) => setTimeout(done, YES_MS));
       await app.shot("yes-skipped-notice");
       const t1 = performance.now();
+      // The Ctrl-C notice is written at the cursor, and the prompt that
+      // follows can land on the same row and cover it (#477): watch the
+      // screen from Ctrl-C on instead of reading it once at the end.
+      let sawAtCtrlC = false;
+      let watching = true;
+      const watcher = (async () => {
+        while (watching && !sawAtCtrlC) {
+          sawAtCtrlC = atCtrlC.test(await term.screen());
+          await new Promise((done) => setTimeout(done, 50));
+        }
+      })();
       await term.interrupt();
       // Typed ahead: the shell runs it once `yes` has stopped.
       await term.type("echo YES$((40+2))DONE");
       await term.waitFor("YES42DONE", { timeout: 60_000, message: "the command typed after Ctrl-C" });
       r.promptMs = Math.round(performance.now() - t1);
+      watching = false;
+      await watcher;
+      r.clearedNotice = sawAtCtrlC;
     } finally {
       r = { ...r, ...mem.stop() };
     }
     const screen = await term.screen();
     r.skippedNotice = skipped.test(screen);
-    r.clearedNotice = atCtrlC.test(screen);
+    r.clearedNotice = Boolean(r.clearedNotice) || atCtrlC.test(screen);
     results.yesInterrupt = r;
     console.log("yes then Ctrl-C", JSON.stringify(r));
     await app.shot("yes-interrupted");
