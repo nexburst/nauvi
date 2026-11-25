@@ -575,7 +575,11 @@ mod tests {
         );
         assert_eq!(
             path,
-            home.join(".claude/skills/nauvi").display().to_string()
+            home.join(".claude")
+                .join("skills")
+                .join("nauvi")
+                .display()
+                .to_string()
         );
         let (what, ..) = give_skill(&Cli::Claude, "claude", "Look".into(), &homes);
         assert_eq!(what, "current");

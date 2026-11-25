@@ -360,10 +360,9 @@ mod tests {
             skills_root(claude, h, None),
             Path::new("/home/me/.claude/skills")
         );
-        assert_eq!(
-            skills_root(claude, h, Some(Path::new("/cfg/claude"))),
-            Path::new("/cfg/claude/skills")
-        );
+        // An absolute path on this platform (`C:\…` on Windows).
+        let cfg = std::env::temp_dir().join("cfg-claude");
+        assert_eq!(skills_root(claude, h, Some(&cfg)), cfg.join("skills"));
         // A relative CLAUDE_CONFIG_DIR is not used.
         assert_eq!(
             skills_root(claude, h, Some(Path::new("rel"))),
