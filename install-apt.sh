@@ -85,7 +85,10 @@ nauvi_install_apt() {
   mkdir -m 700 "$GNUPGHOME"
 
   say "Fetching the nauvi apt key from $url"
-  curl -fsSL --proto '=https,http' "$url/nauvi.gpg" -o "$tmp/nauvi.asc" || die "could not download $url/nauvi.gpg"
+  # https only, also after redirects; plain http only for a test repository.
+  proto='=https'
+  [ -z "${NAUVI_APT_URL:-}" ] || proto='=https,http'
+  curl -fsSL --proto "$proto" --proto-redir "$proto" "$url/nauvi.gpg" -o "$tmp/nauvi.asc" || die "could not download $url/nauvi.gpg"
   gpg --batch --quiet --dearmor -o "$tmp/nauvi.gpg" "$tmp/nauvi.asc" 2>/dev/null \
     || die "$url/nauvi.gpg is not a PGP key"
   # Every primary key in the file must be a trusted one, and there must be one.
