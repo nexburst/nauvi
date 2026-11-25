@@ -227,3 +227,46 @@ test("the dock height is remembered", async ({ page }) => {
   await page.getByTestId("detail-panel").getByRole("button", { name: "Logs", exact: true }).click();
   await expect.poll(async () => Math.round((await dock.boundingBox())!.height)).toBe(after);
 });
+
+test("a restored view that watches nothing does not keep the overview's status (#459)", async ({ page }) => {
+  const fake = await openApp(page, (cluster, f) => {
+    cluster.settings.contexts["kind-dev"] = {
+      view: "port-forwards",
+      namespaces: [],
+      typed_namespaces: [],
+      prometheus: "",
+      display_name: "",
+      color: "",
+      default_namespace: "",
+      shell_cwd: "",
+      last_used: 0,
+      hide_metrics: false,
+      mode: "normal",
+      mode_source: { file: "", given: "", context: "" },
+    };
+    // The overview, shown until discovery restores the view, never goes Live.
+    f.failNext("cmdOverviewStart", "the overview feed failed");
+    // Discovery answers only once the overview's error is on screen.
+    const ipc = (window as unknown as { __TAURI_INTERNALS__: { invoke: (...a: unknown[]) => Promise<unknown> } })
+      .__TAURI_INTERNALS__;
+    const invoke = ipc.invoke;
+    ipc.invoke = async (...a: unknown[]) => {
+      if (a[0] === "cmd_discover") {
+        await new Promise<void>((done) => {
+          const t = setInterval(() => {
+            if (!document.querySelector('[role="alert"]')) return;
+            clearInterval(t);
+            done();
+          }, 20);
+        });
+      }
+      return invoke(...a);
+    };
+  });
+  await expect(activeKind(page)).toHaveAccessibleName("Port Forwards");
+  await expect(page.getByTestId("connection-status")).toHaveText("Live");
+  // Nor its error: discovery just got an answer.
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await fake.calls("cmdOverviewStart")).toHaveLength(1);
+  expect(fake.errors).toEqual([]);
+});
