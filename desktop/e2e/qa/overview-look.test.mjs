@@ -94,7 +94,10 @@ describe("Overview look (#480)", { timeout: 10 * 60_000 }, () => {
         await app.js(`document.querySelector(".overview").scrollTo(0, 0)`);
         await new Promise((r) => setTimeout(r, 600));
         await app.shot(`overview-${w}-${theme}`);
-        await app.js(`document.querySelector('.overview section[aria-label="Capacity"]')?.scrollIntoView({ block: "start" })`);
+        // Scroll the view only: scrollIntoView would scroll the window too.
+        await app.js(`const o = document.querySelector(".overview");
+          const c = o.querySelector('section[aria-label="Capacity"]');
+          if (c) o.scrollTo(0, c.getBoundingClientRect().top - o.getBoundingClientRect().top + o.scrollTop - 12);`);
         await new Promise((r) => setTimeout(r, 600));
         await app.shot(`overview-${w}-${theme}-capacity`);
       });
