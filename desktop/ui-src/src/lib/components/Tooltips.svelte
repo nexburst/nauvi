@@ -5,9 +5,10 @@
   /**
    * One tooltip for the whole window (#483): any element's `title` shows
    * here, styled like the app, after a short wait under the pointer or at
-   * once on keyboard focus. While the pointer is on the element its
-   * `title` is set aside (in `data-tip-title`), so the engine does not
-   * show its own as well; it is put back when the pointer leaves.
+   * once on keyboard focus. While the tip shows under the pointer, the
+   * element's `title` is set aside (in `data-tip-title`), so the engine
+   * does not show its own as well (it waits longer than this one); it is
+   * put back when the tip hides.
    */
 
   const STASH = "data-tip-title";
@@ -40,21 +41,24 @@
     if (!el.hasAttribute("title")) el.setAttribute("title", t);
   }
 
+  /** Hide the tip; the pointer stays on `anchor`, so it shows again only on another element. */
   function hide() {
     if (timer) clearTimeout(timer);
     timer = null;
+    if (anchor) restore(anchor);
     if (text) lastHidden = Date.now();
     text = "";
     pos = { x: -9999, y: -9999 };
   }
 
-  function show(el: Element, delay: number) {
+  function show(el: Element, delay: number, setAside: boolean) {
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = null;
       if (anchor !== el || !el.isConnected) return;
       const t = tipText(el);
       if (!t) return;
+      if (setAside) stash(el);
       text = t;
     }, delay);
   }
@@ -71,9 +75,8 @@
   });
 
   function leave() {
-    if (anchor) restore(anchor);
-    anchor = null;
     hide();
+    anchor = null;
   }
 
   function onover(e: PointerEvent) {
@@ -82,8 +85,7 @@
     leave();
     if (!el) return;
     anchor = el;
-    stash(el);
-    show(el, tipDelay(Date.now(), lastHidden));
+    show(el, tipDelay(Date.now(), lastHidden), true);
   }
 
   function onfocusin(e: FocusEvent) {
@@ -92,13 +94,21 @@
     if (!el || !el.matches(":focus-visible")) return;
     const t = el.getAttribute("title") ?? el.getAttribute(STASH);
     if (!t) return;
-    if (anchor && anchor !== el) leave();
-    anchor = el;
-    show(el, 0);
+    queueMicrotask(() => {
+      if (anchor && anchor !== el) leave();
+      anchor = el;
+      // The title stays: it is the accessible name of some buttons.
+      show(el, 0, false);
+    });
   }
 
+  // Focus moves synchronously while Svelte removes a focused element, in
+  // the middle of an update: the state changes wait for it to end.
   function onfocusout(e: FocusEvent) {
-    if (e.target === anchor && !(e.target as Element).hasAttribute(STASH)) leave();
+    const el = e.target;
+    queueMicrotask(() => {
+      if (el === anchor) leave();
+    });
   }
 
   const onkey = (e: KeyboardEvent) => {

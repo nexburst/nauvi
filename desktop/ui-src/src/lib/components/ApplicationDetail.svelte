@@ -35,7 +35,7 @@
 <aside data-testid="application-detail">
   <div class="header">
     <span class="title"><span class="muted">Application</span> {target.namespace}/{target.name}</span>
-    <button type="button" class="close" aria-label="Close details" onclick={() => selectApplication(null)}>✕</button>
+    <button type="button" class="close" aria-label="Close details" title="Close (Esc)" onclick={() => selectApplication(null)}>✕</button>
   </div>
 
   <div class="body">

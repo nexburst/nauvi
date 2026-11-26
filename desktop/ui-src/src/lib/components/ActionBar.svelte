@@ -62,8 +62,6 @@
 
   /** The everyday actions carry their name beside the icon (#483). */
   const LABELLED = new Set(["logs", "shell", "nodeShell", "edit"]);
-  /** The first destructive action starts the group set apart on the right. */
-  const firstDanger = $derived(items.find((a) => a.danger)?.id ?? "");
 
   const denied = (a: PanelAction<DockTabSpec>) => {
     const r = access.get(a.id);
@@ -110,36 +108,43 @@
   }
 </script>
 
+{#snippet action(a: PanelAction<DockTabSpec>)}
+  {@const reason = denied(a)}
+  <button
+    type="button"
+    class="icon"
+    class:labelled={LABELLED.has(a.id)}
+    class:danger={a.danger}
+    class:denied={!!reason}
+    data-tip={a.tip}
+    data-action={a.id}
+    {disabled}
+    aria-disabled={reason ? "true" : undefined}
+    aria-describedby={reason ? `deny-${a.id}` : undefined}
+    onclick={() => run(a)}
+    onmouseenter={(e) => showTip(a, e.currentTarget)}
+    onmouseleave={() => (tip = null)}
+    onfocus={(e) => showTip(a, e.currentTarget)}
+    onblur={() => (tip = null)}
+  >
+    <ActionIcon id={a.id} />
+    <span class={LABELLED.has(a.id) ? "word" : "sr"}>{a.label}</span>
+  </button>
+  <!-- Outside the button, so its text stays the label. -->
+  {#if reason}<span class="sr" id="deny-{a.id}">{reason}</span>{/if}
+{/snippet}
+
 {#if items.length > 0}
   <!-- The toolbar's buttons take the focus, not the toolbar. -->
   <!-- svelte-ignore a11y_interactive_supports_focus -->
   <div class="bar" role="toolbar" aria-label="Actions" bind:this={bar} {onkeydown}>
-    {#each items as a (a.id)}
-      {@const reason = denied(a)}
-      {#if a.id === firstDanger}<span class="gap" aria-hidden="true"></span>{/if}
-      <button
-        type="button"
-        class="icon"
-        class:labelled={LABELLED.has(a.id)}
-        class:danger={a.danger}
-        data-tip={a.tip}
-        class:denied={!!reason}
-        data-action={a.id}
-        {disabled}
-        aria-disabled={reason ? "true" : undefined}
-        aria-describedby={reason ? `deny-${a.id}` : undefined}
-        onclick={() => run(a)}
-        onmouseenter={(e) => showTip(a, e.currentTarget)}
-        onmouseleave={() => (tip = null)}
-        onfocus={(e) => showTip(a, e.currentTarget)}
-        onblur={() => (tip = null)}
-      >
-        <ActionIcon id={a.id} />
-        <span class={LABELLED.has(a.id) ? "word" : "sr"}>{a.label}</span>
-      </button>
-      <!-- Outside the button, so its text stays the label. -->
-      {#if reason}<span class="sr" id="deny-{a.id}">{reason}</span>{/if}
-    {/each}
+    {#each items.filter((a) => !a.danger) as a (a.id)}{@render action(a)}{/each}
+    {#if items.some((a) => a.danger)}
+      <!-- Delete and the like, together and apart on the right. -->
+      <span class="danger-group">
+        {#each items.filter((a) => a.danger) as a (a.id)}{@render action(a)}{/each}
+      </span>
+    {/if}
     {#if tip}
       <div class="tip" role="tooltip" data-testid="action-tip" bind:this={tipEl} style:left="{tipLeft}px">
         <span class="tip-label">{tip.a.tip}</span>
@@ -187,12 +192,14 @@
   .icon.labelled:hover {
     border-color: var(--border-strong);
   }
-  /* Delete and the like, apart from the rest. */
-  .gap {
-    margin: 4px 4px 4px auto;
-    width: 1px;
-    align-self: stretch;
-    background: var(--border);
+  /* Delete and the like, apart from the rest: on the right, after a rule
+     (on a line of their own, still on the right, when the bar wraps). */
+  .danger-group {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+    padding-left: 6px;
+    border-left: 1px solid var(--border);
   }
   .icon:focus-visible {
     outline: 2px solid var(--accent);

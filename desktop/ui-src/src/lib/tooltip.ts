@@ -15,7 +15,7 @@ export interface Box {
 export const TIP_GAP = 6;
 export const TIP_MARGIN = 4;
 /** The wait before a tip shows, and the shorter one right after another tip. */
-export const TIP_DELAY_MS = 450;
+export const TIP_DELAY_MS = 300;
 export const TIP_QUICK_MS = 60;
 /** How long after a tip hides the next one counts as "right after". */
 export const TIP_WARM_MS = 600;

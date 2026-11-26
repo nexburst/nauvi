@@ -81,7 +81,7 @@
         ><span class="muted">{target.resource.kind}</span>
         {#if target.namespace}{target.namespace}/<wbr />{/if}{target.name}</span
       >
-      <button type="button" class="close" aria-label="Close details" onclick={closeDetail}>✕</button>
+      <button type="button" class="close" aria-label="Close details" title="Close (Esc)" onclick={closeDetail}>✕</button>
     </div>
     <ActionBar {target} disabled={live.deleted} onEdit={() => (tab = "yaml")} />
   </div>
