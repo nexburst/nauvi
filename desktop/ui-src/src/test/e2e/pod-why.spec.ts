@@ -26,7 +26,23 @@ test("a crash-looping pod's panel leads with why, with its logs a click away", a
   expect(whyBox.y).toBeLessThan(metaBox.y);
   await page.screenshot({ path: test.info().outputPath("crashed.png") });
 
-  // Previous logs: the dock's log tab on that container's previous run.
+  // A crash loop's log is the run that crashed: Logs, on that container.
+  await expect(why(page).getByRole("button", { name: "Previous logs" })).toHaveCount(0);
+  await why(page).getByRole("button", { name: "Logs", exact: true }).click();
+  await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(1);
+  expect(await fake.lastCall("cmdStreamPodLogs")).toMatchObject({ container: "app", previous: false });
+});
+
+test("running again after a crash: Previous logs opens the run that crashed", async ({ page }) => {
+  const fake = await openApp(page, (cluster) => {
+    const d = cluster.details["v1/pods|demo/crashed"];
+    const c = d.pod.containers[0];
+    c.state = { state: "running", reason: "", message: "", exit_code: 0, since: "5s" };
+    c.ready = false;
+  });
+  await openKind(page, "Pods");
+  await row(page, "crashed").click();
+  await expect(why(page).getByTestId("pod-why-headline")).toHaveText("Container app ran out of memory and restarted");
   await why(page).getByRole("button", { name: "Previous logs" }).click();
   await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(1);
   expect(await fake.lastCall("cmdStreamPodLogs")).toMatchObject({ container: "app", previous: true });

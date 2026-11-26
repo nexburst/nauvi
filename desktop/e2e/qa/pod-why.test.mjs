@@ -4,8 +4,8 @@
 //   the panel leads with "Image … cannot be pulled: host registry.invalid
 //   not found" and the newest warning, without scrolling
 // - a crash-looping pod: "Container app keeps crashing", the last run's
-//   exit code and termination message, and Previous logs opens the dock on
-//   the run that crashed
+//   exit code and termination message, and Logs opens the dock on the run
+//   that crashed (while it waits to restart, that is the current log)
 // - a healthy demo pod has no such block
 //
 // Its pods live in a temporary namespace, with a Deployment of fillers
@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { deleteNamespace, kubectl, tempNamespace } from "../lib/cluster.mjs";
-import { logLines, pane } from "../lib/dock.mjs";
+import { logLines } from "../lib/dock.mjs";
 import { closePanel, setTheme, waitPanelTitle } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { pickNamespaces } from "../lib/table.mjs";
@@ -156,7 +156,7 @@ describe("why a pod is failing (#496)", { timeout: 15 * 60_000 }, () => {
     await shotBoth(app, "pull");
   });
 
-  it("a crash loop: the exit code, the termination message, Previous logs", T, async () => {
+  it("a crash loop: the exit code, the termination message, its logs", T, async () => {
     const { app } = s;
     // Wait for the crash loop itself (a first restart), not just a failed run.
     await app.waitFor(
@@ -170,26 +170,25 @@ describe("why a pod is failing (#496)", { timeout: 15 * 60_000 }, () => {
     const w = await app.waitFor(
       async () => {
         const x = await why(app);
-        return x?.termination ? x : null;
+        return x?.termination && x.headline === "Container app keeps crashing" ? x : null;
       },
       { timeout: 120_000, interval: 1000, message: "the crash in the panel" },
     );
     console.log(JSON.stringify(w, null, 2));
-    assert.match(w.headline, /^Container app (keeps crashing|exited with code 3)/);
+    assert.equal(w.headline, "Container app keeps crashing");
+    assert.match(w.last, /^Last run exited with code 3/);
     assert.equal(w.termination, "no DB_URL set");
     assert.ok(w.bottom <= w.viewport, "the block shows without scrolling the panel");
     assert.ok((await selectedRow(app))?.inView, "the selected row in view");
     await shotBoth(app, "crash");
 
-    await app.js(`Array.from(document.querySelectorAll('${WHY} button')).find((b) => b.textContent.trim() === "Previous logs")?.click()`);
+    await app.js(`Array.from(document.querySelectorAll('${WHY} button')).find((b) => b.textContent.trim() === "Logs")?.click()`);
     const id = `logs:${ns}/crash`;
     await app.waitFor(async () => (await logLines(app, id)).some((l) => l.includes("connecting to the database")), {
       timeout: 60_000,
-      message: "the previous run's log",
+      message: "the crashed run's log",
     });
-    const previous = await app.js(`return document.querySelector(arguments[0] + ' input[type="checkbox"]:checked') !== null`, pane(id));
-    assert.ok(previous, "the Previous box is checked");
-    await shotBoth(app, "crash-previous-logs");
+    await shotBoth(app, "crash-logs");
   });
 
   it("a healthy pod has no why", T, async () => {

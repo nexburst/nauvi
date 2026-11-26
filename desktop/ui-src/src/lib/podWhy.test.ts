@@ -96,15 +96,25 @@ describe("podWhy", () => {
     });
   });
 
-  it("a crash loop: the last run's exit and its termination message, previous logs offered", () => {
+  it("a crash loop: the last run's exit and its termination message", () => {
     const why = podWhy(pod([c(waiting("CrashLoopBackOff", "back-off 5m0s"), ended(1, "Error", "panic: no DB_URL\n"))]), []);
     expect(why).toMatchObject({
       headline: "Container app keeps crashing",
       reason: "CrashLoopBackOff",
       lastRun: "Last run exited with code 1, 2m ago",
       termination: "panic: no DB_URL",
-      previous: true,
+      detail: "",
+      // Its log is the run that crashed.
+      previous: false,
     });
+    // Between two runs: ended, not yet waiting.
+    const between = podWhy(pod([c(ended(3, "Error", "no DB_URL set"), ended(3), { restarts: 4 })]), []);
+    expect(between).toMatchObject({ headline: "Container app keeps crashing", lastRun: "Last run exited with code 3, 2m ago", previous: false });
+  });
+
+  it("running again after a crash, not ready: previous logs offered", () => {
+    const why = podWhy(pod([c(running, ended(1), { ready: false })]), []);
+    expect(why).toMatchObject({ headline: "Container app restarted after it exited with code 1, 2m ago", lastRun: "", previous: true });
   });
 
   it("out of memory reads as such", () => {

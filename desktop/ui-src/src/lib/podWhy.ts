@@ -23,7 +23,7 @@ export interface PodWhy {
   termination: string;
   /** The raw message the headline sums up, when it is longer. */
   detail: string;
-  /** A run before the current one ended: "Previous logs" has something. */
+  /** It runs again after a run that ended: "Previous logs" shows that run. */
   previous: boolean;
   /** The newest Warning event. */
   warning: RelatedEvent | null;
@@ -81,6 +81,8 @@ function containerHeadline(c: ContainerDetail): string {
     return `Container ${c.name} is waiting: ${s.reason}${s.message ? ` (${s.message})` : ""}`;
   }
   if (isTerminated(s)) {
+    // Between two runs of a crash loop (it restarts after a delay).
+    if (c.restarts > 0) return oom(s) ? `Container ${c.name} keeps running out of memory` : `Container ${c.name} keeps crashing`;
     if (oom(s)) return `Container ${c.name} was killed: out of memory`;
     return `Container ${c.name} ${endedText(s)}`;
   }
@@ -112,10 +114,12 @@ export function podWhy(pod: PodExtras, events: RelatedEvent[], verdict = ""): Po
       headline,
       container: c.name,
       reason: c.state.reason || (ended?.reason ?? ""),
-      lastRun: ended && ended !== c.state ? `Last run ${endedText(ended)}` : "",
+      lastRun: ended && !headline.includes(endedText(ended)) ? `Last run ${endedText(ended)}` : "",
       termination: ended && ended.message && !said(headline, ended.message) ? ended.message.trim() : "",
       detail: said(headline, message) ? "" : message,
-      previous: isTerminated(c.last_state),
+      // While it waits or has ended, its log is the run that ended; the
+      // previous run is worth a button only once it runs again.
+      previous: c.state.state === "running" && isTerminated(c.last_state),
       warning,
     };
   }
