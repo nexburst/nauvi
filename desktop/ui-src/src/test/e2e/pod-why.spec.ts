@@ -47,9 +47,21 @@ test("running again after a crash: Previous logs opens the run that crashed", as
   await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(1);
   expect(await fake.lastCall("cmdStreamPodLogs")).toMatchObject({ container: "app", previous: true });
   await expect(page.getByTestId("dock").getByRole("checkbox", { name: "Previous" })).toBeChecked();
+  // The ask is used up: a later tab of the pod (the row's Logs) starts as usual.
+  await page.getByRole("button", { name: "Close Logs: crashed" }).click();
+  await row(page, "crashed").hover();
+  await row(page, "crashed").getByTestId("row-logs").click();
+  await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(2);
+  expect(await fake.lastCall("cmdStreamPodLogs")).toMatchObject({ previous: false });
+  await expect(page.getByTestId("dock").getByRole("checkbox", { name: "Previous" })).not.toBeChecked();
+  await expect(page.getByTestId("dock").getByTestId("log-follow")).toHaveText("Following");
+  // Previous logs again, then Logs, with the tab open.
+  await why(page).getByRole("button", { name: "Previous logs" }).click();
+  await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(3);
+  expect(await fake.lastCall("cmdStreamPodLogs")).toMatchObject({ previous: true });
   // Logs, with the tab open: back to the current run.
   await why(page).getByRole("button", { name: "Logs", exact: true }).click();
-  await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(2);
+  await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(4);
   expect(await fake.lastCall("cmdStreamPodLogs")).toMatchObject({ container: "app", previous: false });
   await expect(page.getByTestId("dock").getByRole("checkbox", { name: "Previous" })).not.toBeChecked();
 });

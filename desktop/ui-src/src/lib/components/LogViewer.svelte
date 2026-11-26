@@ -40,7 +40,7 @@
   import type { PodTabRef } from "../dock";
   import { settings } from "../stores/settings.svelte";
   import { keyboard } from "../stores/keyboard.svelte";
-  import { logAsk } from "../stores/logAsk.svelte";
+  import { logAsk, takeLogAsk } from "../stores/logAsk.svelte";
   import { TAIL_OPTIONS } from "../settings";
   import { dateTime, zoneName } from "../timeZone";
 
@@ -988,7 +988,7 @@
   $effect(() => {
     if (!ready || started) return;
     started = true;
-    const a = untrack(() => ask);
+    const a = untrack(() => (pod ? takeLogAsk(cluster, pod.namespace, pod.name) : undefined));
     if (a && containers.some((c) => c.name === a.container)) {
       askSeen = a.seq;
       container = a.container;
@@ -1007,6 +1007,7 @@
     if (!a || a.seq <= askSeen || !started) return;
     askSeen = a.seq;
     untrack(() => {
+      if (pod) takeLogAsk(cluster, pod.namespace, pod.name);
       if (!containers.some((c) => c.name === a.container)) return;
       container = a.container;
       previous = a.previous;

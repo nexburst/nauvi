@@ -138,7 +138,7 @@ describe("podWhy", () => {
 
   it("an unschedulable pod: the scheduler's event in words", () => {
     const w = warn("FailedScheduling", "0/3 nodes are available: 3 Insufficient cpu. preemption: 0/3 nodes are available");
-    const why = podWhy(pod([c(waiting(""))], { phase: "Pending" }), [w]);
+    const why = podWhy(pod([c(waiting(""))], { phase: "Pending", node: "" }), [w]);
     expect(why?.headline).toBe("No node has enough CPU");
     expect(why?.container).toBe("");
     expect(why?.detail).toBe(w.message);
@@ -154,5 +154,25 @@ describe("podWhy", () => {
     const w = warn("Unhealthy", "Readiness probe failed: HTTP probe failed with statuscode: 503");
     expect(podWhy(pod([c(running, NONE, { ready: false })]), [w], "Not ready")?.headline).toBe("Readiness probe failed");
     expect(podWhy(pod([c(running, NONE, { ready: false })]), [], "Not ready")?.headline).toBe("Not ready");
+  });
+
+  it("a warning that something normal followed is history (#510 review)", () => {
+    const sched = warn("FailedScheduling", "0/3 nodes are available: 3 Insufficient cpu.");
+    // Scheduled after it, the image is being pulled: not "No node has enough CPU".
+    const pulling = pod([c(waiting("ContainerCreating"))], { phase: "Pending", node: "n" });
+    expect(podWhy(pulling, [normal("Pulling"), normal("Scheduled"), sched])).toBeNull();
+    // Even when it is the newest event, once the pod has a node.
+    expect(podWhy(pulling, [sched])).toBeNull();
+    // Still unscheduled: it is the reason.
+    expect(podWhy(pod([c(waiting(""))], { phase: "Pending", node: "" }), [sched])?.headline).toBe("No node has enough CPU");
+    // A probe that failed before the container started again: not the reason now.
+    const probe = warn("Unhealthy", "Readiness probe failed: 503");
+    const notReady = pod([c(running, NONE, { ready: false })]);
+    expect(podWhy(notReady, [normal("Started"), probe], "Not ready")?.headline).toBe("Not ready");
+    expect(podWhy(notReady, [probe, normal("Started")], "Not ready")?.headline).toBe("Readiness probe failed");
+    // By time when the events have one, whatever the order.
+    const old = { ...probe, time: 100 };
+    const started = { ...normal("Started"), time: 200 };
+    expect(podWhy(notReady, [old, started], "Not ready")?.warning).toBeNull();
   });
 });

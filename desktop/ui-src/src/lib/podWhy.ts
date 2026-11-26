@@ -102,9 +102,33 @@ const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
  * first. `verdict`: what the table says is wrong with the row ("" for
  * nothing), so a pod the table flags always gets an answer.
  */
+/**
+ * Warnings that still apply: a FailedScheduling is over once the pod has a
+ * node. `events` newest first.
+ */
+function liveWarnings(pod: PodExtras, events: RelatedEvent[]): RelatedEvent[] {
+  return events.filter((e) => e.type === "Warning" && !(e.reason === "FailedScheduling" && pod.node));
+}
+
+/**
+ * The newest warning if nothing normal happened after it (a Scheduled, a
+ * Pulled, a Started): otherwise it is history, not why the pod is in
+ * trouble now. By time when both have one, else by the list's order.
+ */
+function currentWarning(pod: PodExtras, events: RelatedEvent[]): RelatedEvent | null {
+  const w = liveWarnings(pod, events)[0];
+  if (!w) return null;
+  const at = events.indexOf(w);
+  const later = events.some((e, i) => e.type !== "Warning" && (e.time > 0 && w.time > 0 ? e.time > w.time : i < at));
+  return later ? null : w;
+}
+
 export function podWhy(pod: PodExtras, events: RelatedEvent[], verdict = ""): PodWhy | null {
-  const warning = events.find((e) => e.type === "Warning") ?? null;
   const c = failing(pod.containers);
+  // With a failing container the newest warning goes with it (a crash loop
+  // has Started events between its BackOffs); without one, only a warning
+  // nothing normal followed.
+  const warning = c ? (liveWarnings(pod, events)[0] ?? null) : currentWarning(pod, events);
   if (c) {
     const headline = containerHeadline(c);
     const ended = isTerminated(c.state) ? c.state : isTerminated(c.last_state) ? c.last_state : null;
