@@ -223,6 +223,11 @@
     min-width: 440px;
     max-width: 680px;
   }
+  /* The message needs the room more than the toggles' words (their
+     glyphs and tooltips stay). */
+  .filter:has(.error) .word {
+    display: none;
+  }
   .field {
     position: relative;
     flex: 1 1 220px;

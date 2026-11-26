@@ -111,15 +111,30 @@
   function leave() {
     hide();
     anchor = null;
+    dismissed = false;
   }
 
-  function onover(e: PointerEvent) {
+  /** A click put the tip of `anchor` away: it waits for the pointer to leave it. */
+  let dismissed = false;
+
+  // Driven by the pointer's own moves, not by `pointerover`: that one also
+  // fires when the page changes under a pointer at rest (a row opening, a
+  // list re-rendering), and a tip should not pop up then.
+  function onmove(e: PointerEvent) {
     const el = titled(e.target) ?? (stashed && e.target instanceof Node && stashed.el.contains(e.target) ? stashed.el : null);
-    if (el === anchor && anchor?.isConnected) return;
+    if (el && el === anchor && anchor.isConnected) {
+      if (!text && !timer && !dismissed) show(el, tipDelay(Date.now(), lastHidden), true);
+      return;
+    }
     leave();
     if (!el) return;
     anchor = el;
     show(el, tipDelay(Date.now(), lastHidden), true);
+  }
+
+  function ondown() {
+    dismissed = true;
+    hide();
   }
 
   function onfocusin(e: FocusEvent) {
@@ -157,8 +172,8 @@
   };
 
   onMount(() => {
-    document.addEventListener("pointerover", onover, true);
-    document.addEventListener("pointerdown", hide, true);
+    document.addEventListener("pointermove", onmove, true);
+    document.addEventListener("pointerdown", ondown, true);
     document.addEventListener("focusin", onfocusin, true);
     document.addEventListener("focusout", onfocusout, true);
     document.addEventListener("keydown", onkey, true);
@@ -166,8 +181,8 @@
     document.documentElement.addEventListener("pointerleave", leave);
   });
   onDestroy(() => {
-    document.removeEventListener("pointerover", onover, true);
-    document.removeEventListener("pointerdown", hide, true);
+    document.removeEventListener("pointermove", onmove, true);
+    document.removeEventListener("pointerdown", ondown, true);
     document.removeEventListener("focusin", onfocusin, true);
     document.removeEventListener("focusout", onfocusout, true);
     document.removeEventListener("keydown", onkey, true);
