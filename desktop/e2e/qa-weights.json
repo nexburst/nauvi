@@ -46,6 +46,7 @@
   "prometheus": 33,
   "reconnect": 58,
   "reconnect-drop": 62,
+  "reconnect-watchless": 60,
   "single-instance": 13,
   "smoke": 32,
   "startup": 65,

@@ -288,6 +288,19 @@ describe("area 1: an unreachable cluster", { timeout: 5 * 60_000 }, () => {
     console.log(`banner: ${text}; status: ${await app.statusText()}`);
     assert.match(text, /reach|connect/i);
     assert.equal(await app.statusState(), "error");
+    // #462: the tree's dot follows the header (red, not green), and the
+    // view under the banner says so instead of staying blank.
+    const dot = await app.js(
+      `return document.querySelector('[data-testid="cluster-node"][data-state="visible"] .dot')?.className ?? ""`,
+    );
+    assert.match(dot, /failed/, `the shown cluster's dot: ${dot}`);
+    const empty = await app.find(By.css('[data-testid="out-of-reach"]'));
+    assert.match(await app.js("return arguments[0].innerText", empty), /Cluster unreachable[\s\S]*Retry now/);
+    for (const theme of ["light", "dark"]) {
+      await setTheme(app, theme);
+      await app.shot(`out-of-reach-${theme}`);
+    }
+    await setTheme(app, null);
     // Each retry shows "Retrying…" (the first attempt said "Connecting…"), then fails.
     await app.js(`
       const el = document.querySelector('[data-testid="connection-status"]');
