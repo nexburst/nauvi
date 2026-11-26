@@ -56,12 +56,12 @@ test("a running pod whose container failed reads Error in the overview, as in th
     },
   });
   const problems = page.getByRole("region", { name: "Problem pods" });
-  const entry = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/half-failed" }) });
+  const entry = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/half-failed", exact: true }) });
   await expect(entry.locator(".reason")).toHaveText("Error");
   await expect(entry.locator(".reason")).toHaveClass(/error/);
   await expect(problems).not.toContainText("Not ready");
 
-  await entry.getByRole("button", { name: "demo/half-failed" }).click();
+  await entry.getByRole("button", { name: "demo/half-failed", exact: true }).click();
   await expect(row(page, "crashed")).toBeVisible();
   await fake.emitWatchBatch({ applied: [fake.podRow("demo", "half-failed", "Error", "0", "Error")] });
   await expect(row(page, "half-failed")).toHaveAttribute("data-problem", "Error");
@@ -130,7 +130,7 @@ test("capacity shows requests and usage against allocatable", async ({ page }) =
 
 test("a problem pod opens in the Pods view", async ({ page }) => {
   const fake = await openApp(page);
-  await page.getByRole("region", { name: "Problem pods" }).getByRole("button", { name: "demo/crashed" }).click();
+  await page.getByRole("region", { name: "Problem pods" }).getByRole("button", { name: "demo/crashed", exact: true }).click();
   await expect(page.getByRole("navigation").getByRole("button", { name: "Pods", exact: true })).toHaveClass(/active/);
   await expect
     .poll(async () => (await fake.calls("cmdGetResourceDetail")).at(-1))
@@ -211,19 +211,19 @@ test("a scoped Pods card is wide enough for a short namespace", async ({ page })
 test("a problem pod's card has its actions: Logs opens the dock, Describe the pod (#480)", async ({ page }) => {
   const fake = await openApp(page);
   const problems = page.getByRole("region", { name: "Problem pods" });
-  const crashed = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/crashed" }) });
-  const pending = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/db-0" }) });
+  const crashed = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/crashed", exact: true }) });
+  const pending = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/db-0", exact: true }) });
   // A pending pod has no logs yet: only Describe.
   await expect(pending.locator(".actions").getByRole("button")).toHaveText(["Describe"]);
   await expect(crashed.locator(".actions").getByRole("button")).toHaveText(["Logs", "Describe"]);
 
-  await crashed.getByRole("button", { name: "Logs" }).click();
+  await crashed.getByRole("button", { name: "Logs of demo/crashed" }).click();
   await expect(page.getByTestId("dock").getByRole("tab")).toHaveText(["Logs: crashed"]);
   await expect.poll(async () => (await fake.calls("cmdStreamPodLogs")).at(-1)?.name).toBe("crashed");
   // Still on the Overview.
   await expect(page.getByTestId("deck-headline")).toBeVisible();
 
-  await crashed.getByRole("button", { name: "Describe" }).click();
+  await crashed.getByRole("button", { name: "Describe demo/crashed" }).click();
   await expect(page.getByRole("navigation").getByRole("button", { name: "Pods", exact: true })).toHaveClass(/active/);
   await expect
     .poll(async () => (await fake.calls("cmdGetResourceDetail")).at(-1))

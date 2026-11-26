@@ -326,13 +326,19 @@
                   {#if podKind}
                     <div class="actions">
                       {#if p.status !== "Pending"}
-                        <button type="button" class="btn act" onclick={() => showLogs(p.namespace, p.name)}>
+                        <button
+                          type="button"
+                          class="btn act"
+                          aria-label={`Logs of ${p.namespace}/${p.name}`}
+                          onclick={() => showLogs(p.namespace, p.name)}
+                        >
                           <Icon name="logs" size={14} />Logs
                         </button>
                       {/if}
                       <button
                         type="button"
                         class="btn act"
+                        aria-label={`Describe ${p.namespace}/${p.name}`}
                         onclick={() => podKind && openObject(podKind, p.namespace, p.name)}
                       >
                         <Icon name="describe" size={14} />Describe
