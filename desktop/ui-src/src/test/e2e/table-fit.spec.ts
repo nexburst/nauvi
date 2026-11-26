@@ -177,6 +177,26 @@ test("a hovered row shows its logs, shell and YAML actions", async ({ page }) =>
   await expect(row(page, "web").getByTestId("row-shell")).toHaveCount(0);
 });
 
+test("the keyboard's row shows its quick actions too (#507)", async ({ page }) => {
+  await openApp(page);
+  await openKind(page, "Pods");
+  await page.mouse.move(0, 0);
+  await expect(rows(page).getByTestId("row-quick")).toHaveCount(0);
+  // Rows are in key order: crashed, db-0, web-1, ...
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("ArrowDown");
+  await expect(row(page, "db-0").getByTestId("row-quick").getByRole("button")).toHaveCount(3);
+  await expect(rows(page).getByTestId("row-quick")).toHaveCount(1);
+  await page.keyboard.press("j");
+  await expect(row(page, "web-1").getByTestId("row-quick")).toHaveCount(1);
+  await expect(row(page, "db-0").getByTestId("row-quick")).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath("focused.png") });
+
+  // Not once the focus leaves the table.
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await expect(rows(page).getByTestId("row-quick")).toHaveCount(0);
+});
+
 test("every row menu offers Edit YAML after the dock entries, with the keys (#494)", async ({ page }) => {
   await openApp(page);
   for (const [kind, name, first] of [

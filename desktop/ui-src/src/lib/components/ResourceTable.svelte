@@ -483,6 +483,9 @@
   });
   /** The row under the pointer, for its quick actions. */
   let hoverKey = $state<string | null>(null);
+  /** The grid has the DOM focus: the focused row shows its quick actions
+   *  too (#507), not only the one under the pointer. */
+  let gridFocused = $state(false);
 
   function quickVerb(e: MouseEvent, row: Row, verb: Verb) {
     e.stopPropagation();
@@ -640,6 +643,8 @@
     aria-multiselectable="true"
     aria-activedescendant={focusedIndex >= 0 ? rowId(focusedIndex) : undefined}
     bind:this={gridEl}
+    onfocusin={() => (gridFocused = true)}
+    onfocusout={(e) => (gridFocused = gridEl?.contains(e.relatedTarget as Node | null) ?? false)}
   >
     <div
       class="head"
@@ -837,11 +842,11 @@
               </div>
             {/each}
             <div class="td more" role="gridcell">
-              {#if entry.key === hoverKey}
-                <!-- The row's own actions on hover (#482), so the ⋮ menu is
-                     not the only way to them. Only under the pointer: they
-                     cover the end of the last cell, and the keyboard has
-                     L, S and E for them. -->
+              {#if entry.key === hoverKey || (gridFocused && i === focusedIndex)}
+                <!-- The row's own actions on hover (#482) and on the
+                     keyboard's row while the grid has the focus (#507), so
+                     the ⋮ menu is not the only way to them. Only on those
+                     rows: they cover the end of the last cell. -->
                 <RowQuickActions name={entry.row.name} items={quick} run={(e, verb) => quickVerb(e, entry.row, verb)} />
               {/if}
               <button
