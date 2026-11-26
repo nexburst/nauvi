@@ -3,9 +3,10 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, tick, untrack } from "svelte";
   import type { Snippet } from "svelte";
   import VirtualList from "./VirtualList.svelte";
+  import Icon from "../icons/Icon.svelte";
   import { saveLogs } from "../rawIpc";
   import { api, visibleCluster } from "../cluster";
   import type { ContainerDetail, LogContainer, LogEvent, WorkloadNotice } from "../bindings";
@@ -38,6 +39,7 @@
   import type { Hits } from "../logSearch";
   import type { PodTabRef } from "../dock";
   import { settings } from "../stores/settings.svelte";
+  import { keyboard } from "../stores/keyboard.svelte";
   import { TAIL_OPTIONS } from "../settings";
   import { dateTime, zoneName } from "../timeZone";
 
@@ -139,6 +141,7 @@
   // The Options menu (#492): what is not needed all the time.
   let optionsOpen = $state(false);
   let optionsEl = $state<HTMLElement | null>(null);
+  let optionsButton = $state<HTMLButtonElement | null>(null);
   // Which run is shown (#493): the container's status, read when the stream
   // starts and when it ends; `quiet` once a new stream has had time to log.
   let runContainer = $state.raw<ContainerDetail | undefined>(undefined);
@@ -765,11 +768,19 @@
     if (optionsOpen && optionsEl && !optionsEl.contains(e.target as Node)) optionsOpen = false;
   }
 
+  /** Escape in the menu or on its button closes it and gives the button focus. */
   function onOptionsKey(e: KeyboardEvent) {
     if (e.key === "Escape" && optionsOpen) {
       e.stopPropagation();
       optionsOpen = false;
+      optionsButton?.focus();
     }
+  }
+
+  /** Tabbing (or clicking) out of the button and menu closes it. */
+  function onOptionsFocusOut(e: FocusEvent) {
+    const to = e.relatedTarget as Node | null;
+    if (optionsOpen && to && optionsEl && !optionsEl.contains(to)) optionsOpen = false;
   }
 
   async function downloadLogs() {
@@ -1016,6 +1027,16 @@
     if (streaming) api(cluster).cmdStopLogs(ownStream).catch(() => {});
   });
 
+  // While the Options menu is open it takes its own keys (Esc), like the
+  // other menus: the app's shortcuts (Esc closes the panel) wait.
+  $effect(() => {
+    if (!optionsOpen) return;
+    untrack(() => (keyboard.menus += 1));
+    return () => {
+      untrack(() => (keyboard.menus -= 1));
+    };
+  });
+
   // A tab that is shown again renders what arrived while it was hidden.
   $effect(() => {
     if (!hidden && shownEnd < buf.end() && !raf) raf = requestAnimationFrame(flush);
@@ -1142,8 +1163,10 @@
       title={followTitle}
       onclick={onFollowClick}>{followLabel}</button
     >
-    <span class="options" bind:this={optionsEl}>
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <span class="options" bind:this={optionsEl} onkeydown={onOptionsKey} onfocusout={onOptionsFocusOut}>
       <button
+        bind:this={optionsButton}
         type="button"
         class="btn"
         class:active={optionsOpen}
@@ -1154,9 +1177,13 @@
           ? `Lines, time, timestamps, wrap, exclude, context, jump to time, clear (${optionsSet} changed)`
           : "Lines, time, timestamps, wrap, exclude, context, jump to time, clear"}
         onclick={() => (optionsOpen = !optionsOpen)}
-        >Options{#if optionsSet > 0}<span class="dot" aria-hidden="true">{optionsSet}</span>{/if} ▾</button
+        >Options{#if optionsSet > 0}<span class="dot" aria-hidden="true">{optionsSet}</span>{/if}<Icon
+          name="chevronDown"
+          size={13}
+          class="chev"
+        /></button
       >
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <!-- tabindex: a click on the menu's background keeps the focus in it. -->
       <div
         class="menu"
         class:open={optionsOpen}
@@ -1164,7 +1191,7 @@
         aria-label="Log options"
         data-testid="log-options"
         hidden={!optionsOpen}
-        onkeydown={onOptionsKey}
+        tabindex="-1"
       >
         <div class="menu-row">
           <span class="menu-label">Show</span>
@@ -1358,6 +1385,14 @@
   }
   .options {
     position: relative;
+  }
+  .options > .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .menu:focus {
+    outline: none;
   }
   .dot {
     display: inline-block;

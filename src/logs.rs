@@ -70,8 +70,9 @@ pub fn log_unavailable_text(message: &str, previous: bool) -> Option<String> {
         );
     }
     if let Some((_, reason)) = message.split_once("is waiting to start: ") {
-        let reason = reason.trim();
-        let reason = reason.split_whitespace().next().unwrap_or(reason);
+        // The whole reason: "ContainerCreating", or a phrase such as
+        // "trying and failing to pull image" (ImagePullBackOff).
+        let reason = reason.trim().trim_end_matches('.');
         return Some(format!(
             "The container has not started yet ({reason}), so it has no logs yet."
         ));
@@ -96,7 +97,12 @@ fn gone_line(line: &str, previous: bool) -> Option<LogUnavailable> {
 
 /// The error of a log request: [`LogUnavailable`] when the log is not there.
 fn log_error(e: kube::Error, previous: bool) -> anyhow::Error {
-    match log_unavailable_text(&e.to_string(), previous) {
+    // The API server's own message: `Display` adds the reason and code after it.
+    let message = match &e {
+        kube::Error::Api(status) => status.message.clone(),
+        other => other.to_string(),
+    };
+    match log_unavailable_text(&message, previous) {
         Some(text) => LogUnavailable(text).into(),
         None => e.into(),
     }
@@ -312,6 +318,30 @@ mod tests {
             Some("The container has not started yet (ContainerCreating), so it has no logs yet.")
         );
         assert_eq!(log_unavailable_text("pods \"x\" is forbidden", false), None);
+    }
+
+    #[test]
+    fn waiting_keeps_the_whole_reason_of_an_api_error() {
+        let api = kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
+            message: r#"container "app" in pod "web-1" is waiting to start: trying and failing to pull image"#.into(),
+            reason: "BadRequest".into(),
+            code: 400,
+            ..Default::default()
+        }));
+        let err = log_error(api, false);
+        assert_eq!(
+            err.downcast_ref::<LogUnavailable>().map(|g| g.0.as_str()),
+            Some("The container has not started yet (trying and failing to pull image), so it has no logs yet.")
+        );
+        let pulling =
+            r#"container "app" in pod "web-1" is waiting to start: image can't be pulled"#;
+        assert_eq!(
+            log_unavailable_text(pulling, false).as_deref(),
+            Some(
+                "The container has not started yet (image can't be pulled), so it has no logs yet."
+            )
+        );
     }
 
     #[test]

@@ -140,3 +140,43 @@ test("a restarted container that has not logged yet offers the run that crashed"
   await expect(offer).toHaveCount(0);
   expect(fake.errors).toEqual([]);
 });
+
+test("the Options menu by keyboard: Escape from the button or the menu, focus leaving it", async ({ page }) => {
+  const fake = await openApp(page);
+  await openKind(page, "Pods");
+  await row(page, "web-1").click();
+  await panel(page).getByRole("button", { name: "Logs", exact: true }).click();
+  await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(1);
+  const options = dock(page).getByRole("button", { name: "Log options" });
+  const menu = dock(page).getByTestId("log-options");
+
+  // Escape with the focus still on the button.
+  await options.click();
+  await expect(menu).toBeVisible();
+  await expect(options).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(options).toHaveAttribute("aria-expanded", "false");
+  // The dock stays open: Escape went to the menu only.
+  await expect(dock(page)).toBeVisible();
+
+  // Escape inside the menu gives the button its focus back.
+  await page.keyboard.press("Enter");
+  await expect(menu).toBeVisible();
+  await menu.getByTitle("Tail lines", { exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(options).toBeFocused();
+
+  // Focus moving out of the button and menu closes it.
+  await page.keyboard.press("Enter");
+  await expect(menu).toBeVisible();
+  await dock(page).getByRole("searchbox", { name: "Filter logs" }).focus();
+  await expect(menu).toBeHidden();
+
+  // A click on the menu's background keeps it open.
+  await options.click();
+  await menu.click({ position: { x: 4, y: 4 } });
+  await expect(menu).toBeVisible();
+  expect(fake.errors).toEqual([]);
+});
