@@ -1,4 +1,4 @@
-import { GiveUp, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
+import { GiveUp, clearStalled, markStalled, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
 import { Channel } from "@tauri-apps/api/core";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import type { WatchMessage } from "../bindings";
@@ -180,11 +180,14 @@ export class LiveTable {
         error: wait === null ? stoppedMessage(err.message) : err.message,
         status: err.status,
       };
+      // Not running: a wake or the network coming back restarts it (#526).
+      markStalled(w);
       this.#publishState();
       if (wait !== null) {
         w.retry = setTimeout(() => {
           if (this.#watches.get(key) !== w) return;
           this.#watches.delete(key);
+          clearStalled(w);
           void this.#startWatch(key);
         }, wait);
       }
@@ -206,6 +209,7 @@ export class LiveTable {
     w.done = true;
     api(visibleCluster()).cmdWatchStop(w.id).catch(() => {});
     w.id = null;
+    markStalled(w);
     w.status = {
       namespace: w.status.namespace,
       state: "failed",
@@ -218,6 +222,7 @@ export class LiveTable {
   #stopWatch(w: Watch) {
     w.done = true;
     w.giveUp.clear();
+    clearStalled(w);
     // A namespace selected again starts its retries over.
     this.#attempts.delete(w.key);
     if (w.retry) clearTimeout(w.retry);

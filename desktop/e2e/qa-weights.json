@@ -88,6 +88,7 @@
   "rbac-palette": 40,
   "reconnect": 58,
   "reconnect-drop": 58,
+  "reconnect-giveup": 420,
   "reconnect-watchless": 58,
   "row-menu": 20,
   "secret-copies": 34,

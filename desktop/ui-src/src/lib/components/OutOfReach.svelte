@@ -1,13 +1,19 @@
 <script lang="ts">
   // The empty state of a view while the cluster does not answer (#462):
   // the header's word for it, where to read why, and a way to try now.
+  import { onDestroy } from "svelte";
   import { refresh } from "../stores/app.svelte";
+  import { outOfReach } from "../stores/outOfReach.svelte";
 
   interface Props {
     /** The header status text ("Cluster unreachable", "Reconnecting…"). */
     title: string;
   }
   let { title }: Props = $props();
+
+  // Its Retry now replaces the banner's Retry (ErrorBanner.svelte).
+  outOfReach.shown += 1;
+  onDestroy(() => (outOfReach.shown -= 1));
 </script>
 
 <div class="out-of-reach" data-testid="out-of-reach">

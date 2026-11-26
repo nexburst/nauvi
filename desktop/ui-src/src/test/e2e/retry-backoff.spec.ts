@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { openApp, openKind, row } from "./helpers";
 
 // A cluster that stays unreachable: the start is retried with a growing
@@ -29,7 +30,7 @@ test("a start that keeps failing backs off, stops, and Refresh starts over", asy
   // The rest of the retries (20, 40, 60, 60, 60 s), then nothing more.
   for (let i = 0; i < 5; i++) await page.clock.runFor(61_000);
   await expect.poll(starts).toBe(8);
-  await expect(page.getByRole("alert")).toContainText("Stopped retrying. Refresh to try again.");
+  await expect(page.getByRole("alert")).toContainText("Stopped retrying.");
   await page.clock.runFor(10 * 60_000);
   expect(await starts()).toBe(8);
   // Two notices in all: the failure, and that retrying stopped.
@@ -57,7 +58,7 @@ test("an overview that keeps reconnecting is stopped after five minutes; Refresh
   await page.clock.runFor(61_000);
   await expect.poll(async () => (await fake.calls("cmdOverviewStop")).map((c) => c.id)).toEqual([id]);
   await expect(page.getByRole("alert")).toHaveText(
-    "Lost the connection to the cluster (https://x:6443). Stopped retrying. Refresh to try again.",
+    "Lost the connection to the cluster (https://x:6443). Stopped retrying.",
   );
   await expect(page.locator("header")).toContainText("Not connected");
 
@@ -89,6 +90,112 @@ test("a table whose watch keeps reconnecting is stopped too, and keeps its rows"
   await expect(page.getByRole("alert")).toContainText("retrying.");
   await page.clock.runFor(5 * 60_000 + 1_000);
   await expect.poll(async () => (await fake.calls("cmdWatchStop")).map((c) => c.id)).toContain(id);
-  await expect(page.getByRole("alert")).toContainText("Stopped retrying. Refresh to try again.");
+  await expect(page.getByRole("alert")).toContainText("Stopped retrying.");
   await expect(row(page, "crashed")).toBeVisible();
+});
+
+// After a sleep or a network change (#526): a feed that stopped retrying
+// starts again by itself, and the banner offers Retry meanwhile.
+
+const LOST = "Lost the connection to the cluster (https://x:6443); retrying.";
+const retryButton = (page: Page) => page.getByTestId("banner-retry");
+
+/** The Overview, Live, then reconnecting for five minutes until it stops. */
+async function givenUp(page: Page) {
+  await page.clock.install();
+  const fake = await openApp(page);
+  await expect(page.locator("header")).toContainText("Live");
+  await expect(retryButton(page)).toHaveCount(0);
+  await fake.emitOverviewState({ state: "reconnecting", error: LOST });
+  // Not connected: Retry is offered at once, not only once retrying stops.
+  await expect(retryButton(page)).toBeVisible();
+  await page.clock.runFor(5 * 60_000 + 1_000);
+  await expect(page.locator("header")).toContainText("Not connected");
+  await expect(page.getByRole("alert")).toHaveText("Lost the connection to the cluster (https://x:6443). Stopped retrying.");
+  return fake;
+}
+
+test("a stopped overview offers Retry in the banner, which starts it again", async ({ page }) => {
+  const fake = await givenUp(page);
+  const before = (await fake.calls("cmdOverviewStart")).length;
+  await retryButton(page).click();
+  await expect.poll(async () => (await fake.calls("cmdOverviewStart")).length).toBe(before + 1);
+  await expect(page.locator("header")).toContainText("Live");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(retryButton(page)).toHaveCount(0);
+});
+
+test("a stopped overview starts again when the network comes back", async ({ page }) => {
+  const fake = await givenUp(page);
+  const before = (await fake.calls("cmdOverviewStart")).length;
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(async () => (await fake.calls("cmdOverviewStart")).length).toBe(before + 1);
+  await expect(page.locator("header")).toContainText("Live");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("a sleep does not count toward giving up; a wake restarts a stopped overview, not a running one", async ({ page }) => {
+  await page.clock.install();
+  const fake = await openApp(page);
+  await expect(page.locator("header")).toContainText("Live");
+  const starts = async () => (await fake.calls("cmdOverviewStart")).length;
+  const first = await starts();
+  // Showing the window again, or the network coming back, while all is Live: no restart.
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await page.clock.runFor(30_000);
+  expect(await starts()).toBe(first);
+
+  // The laptop sleeps while the watch reconnects: the timers stop, the
+  // clock does not. The late tick says it slept, and the time asleep does
+  // not count toward giving up: the backend gets five more minutes.
+  await fake.emitOverviewState({ state: "reconnecting", error: LOST });
+  await page.clock.fastForward(20 * 60_000);
+  await page.clock.runFor(4 * 60_000);
+  expect(await fake.calls("cmdOverviewStop")).toEqual([]);
+  // Still not back: it stops, and the next sleep and wake start it again.
+  await page.clock.runFor(61_000);
+  await expect(page.locator("header")).toContainText("Not connected");
+  await page.clock.fastForward(20 * 60_000);
+  await page.clock.runFor(1_000);
+  await expect.poll(starts).toBe(first + 1);
+  await expect(page.locator("header")).toContainText("Live");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("a table that stopped retrying starts again when the window shows after a wake", async ({ page }) => {
+  await page.clock.install();
+  const fake = await openApp(page);
+  await openKind(page, "Pods");
+  await expect(row(page, "crashed")).toBeVisible();
+  await fake.emitWatchState({ state: "reconnecting", error: "Lost the connection to the cluster; retrying." });
+  await page.clock.runFor(5 * 60_000 + 1_000);
+  await expect(page.getByRole("alert")).toContainText("Stopped retrying.");
+  const before = (await fake.calls("cmdWatchStart")).length;
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect.poll(async () => (await fake.calls("cmdWatchStart")).length).toBeGreaterThan(before);
+  await expect(page.locator("header")).toContainText("Live");
+  await expect(row(page, "crashed")).toBeVisible();
+});
+
+test("a start that stopped retrying starts over from a fresh backoff on wake", async ({ page }) => {
+  await page.clock.install();
+  const fake = await openApp(page, (_cluster, f) => {
+    // The first start, its seven retries and the start on wake fail.
+    for (let i = 0; i < 9; i++) f.failNext("cmdOverviewStart", "Cannot reach the cluster at x");
+  });
+  const starts = async () => (await fake.calls("cmdOverviewStart")).length;
+  for (let i = 0; i < 8; i++) await page.clock.runFor(61_000);
+  await expect.poll(starts).toBe(8);
+  await expect(page.getByRole("alert")).toContainText("Stopped retrying.");
+  // The view's own Retry now is on screen: the banner offers no second one.
+  await expect(page.getByTestId("retry-now")).toBeVisible();
+  await expect(retryButton(page)).toHaveCount(0);
+
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect.poll(starts).toBe(9);
+  // Still down: retried again 5 s later, not after a minute.
+  await page.clock.runFor(5_500);
+  await expect.poll(starts).toBe(10);
+  await expect(page.locator("header")).toContainText("Live");
 });
