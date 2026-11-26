@@ -7,9 +7,10 @@ import {
   HIDDEN_METRICS,
   isNode,
   isPod,
-  minColumnsWidth,
   nodeReadyClass,
   shownColumns,
+  statusIcon,
+  cellWidth,
 } from "./columns";
 import type { Ctx, Metrics } from "./columns";
 
@@ -68,24 +69,7 @@ describe("columnsFor", () => {
     expect(columnsFor(k)).toBe(cols);
   });
 
-  it("gives wider tracks to name and message columns", () => {
-    const cols = columnsFor(
-      kindWith([
-        ["name", "text"],
-        ["message", "text"],
-        ["age", "age"],
-        ["x", "text"],
-      ]),
-    );
-    expect(cols.map((c) => c.width)).toEqual([
-      "minmax(140px, 3fr)",
-      "minmax(240px, 3fr)",
-      "64px",
-      "minmax(80px, 1fr)",
-    ]);
-  });
-
-  it("caps short columns in px, so the slack goes to Name (#384)", () => {
+  it("lets Name and message columns grow, and short columns never give way (#482)", () => {
     const cols = columnsFor(
       kindWith([
         ["name", "text"],
@@ -94,13 +78,51 @@ describe("columnsFor", () => {
         ["uptodate", "number"],
         ["status", "rollout"],
         ["age", "age"],
+        ["message", "text"],
+        ["x", "text"],
       ]),
     );
-    const [name, ns, ...short] = cols.map((c) => c.width);
-    expect(name).toBe("minmax(140px, 3fr)");
-    expect(ns).toBe("minmax(120px, 1fr)");
-    // No fr: they stop growing at their cap.
-    for (const w of short) expect(w).not.toMatch(/fr/);
+    const fit = Object.fromEntries(cols.map((c) => [c.key, c.fit]));
+    // The message takes the spare width before Name, Name before Namespace.
+    expect(fit.message.grow).toBeGreaterThan(fit.name.grow);
+    expect(fit.name.grow).toBeGreaterThan(fit.namespace.grow);
+    for (const k of ["ready", "uptodate", "status", "age", "x"]) expect(fit[k].grow, k).toBe(0);
+    // Short values are never cut; Name gives way last.
+    for (const k of ["ready", "uptodate", "status", "age"]) expect(fit[k].give, k).toBe(0);
+    expect(fit.name.give).toBeGreaterThan(fit.namespace.give);
+    expect(fit.namespace.give).toBeGreaterThan(fit.x.give);
+    // Generated names keep their end when cut.
+    expect(fit.name.middle).toBe(true);
+    expect(fit.namespace.middle).toBe(true);
+    expect(fit.x.middle).toBeFalsy();
+    // Age is as wide as its widest value from the start.
+    expect(fit.age.sample).toBe("23h59m");
+  });
+
+  it("gives a cell's width with what is drawn in it", () => {
+    const m = (t: string) => t.length * 7;
+    const [name, st, sq] = columnsFor(
+      kindWith([
+        ["name", "text"],
+        ["status", "status"],
+        ["containers", "containers"],
+      ]),
+    );
+    expect(cellWidth(name, "web-1", m)).toBe(20 + 35);
+    // The status icon and its gap.
+    expect(cellWidth(st, "Running", m)).toBe(20 + 20 + 49);
+    // One square per container.
+    expect(cellWidth(sq, "app=running sidecar=waiting", m)).toBe(20 + 2 * 13);
+  });
+
+  it("draws each status with an icon in its tone (#482)", () => {
+    expect(statusIcon("phase-Running")).toBe("ok");
+    expect(statusIcon("phase-Completed")).toBe("check");
+    expect(statusIcon("phase-Pending")).toBe("pending");
+    expect(statusIcon("phase-CrashLoopBackOff")).toBe("error");
+    expect(statusIcon("phase-Failed")).toBe("failed");
+    expect(statusIcon("phase-Init:0/1")).toBeNull();
+    expect(statusIcon("")).toBeNull();
   });
 
   it("sorts numeric cells by their leading number, unknown last", () => {
@@ -236,10 +258,6 @@ describe("columnsFor", () => {
     const owner = cols[1];
     expect(owner.link).toBe("owner");
     expect(owner.text(row(["web-1", "ReplicaSet/web-5d8f", ""]), ctx)).toBe("ReplicaSet/web-5d8f");
-  });
-
-  it("sums the columns' minimum widths", () => {
-    expect(minColumnsWidth([{ width: "64px" }, { width: "minmax(160px, 2.2fr)" }, { width: "1fr" }])).toBe(224);
   });
 
   it("tells pods and nodes apart from other kinds", () => {

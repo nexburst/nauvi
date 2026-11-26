@@ -9,6 +9,8 @@
     disabled?: boolean;
     /** Not offered because RBAC would refuse it (#340): says which permission is missing. */
     reason?: string;
+    /** The key that does the same on a focused row (#494), shown at the end. */
+    key?: string;
     run: () => void;
   }
 
@@ -96,7 +98,8 @@
       disabled={off(item)}
       title={item.reason || undefined}
       aria-describedby={item.reason ? `menu-deny-${i}` : undefined}
-      onclick={() => pick(item)}>{item.label}</button
+      onclick={() => pick(item)}
+      ><span class="label">{item.label}</span>{#if item.key}<kbd aria-hidden="true">{item.key}</kbd>{/if}</button
     >
     {#if item.reason}
       <div class="reason" role="none" id="menu-deny-{i}" data-testid="menu-reason">{item.reason}</div>
@@ -148,6 +151,24 @@
   button:focus-visible {
     background: var(--bg-hover);
     outline: none;
+  }
+  button {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .label {
+    flex: 1;
+    min-width: 0;
+  }
+  kbd {
+    font-family: var(--font-num);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    padding: 0 4px;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    line-height: 16px;
   }
   button:disabled {
     color: var(--text-muted);

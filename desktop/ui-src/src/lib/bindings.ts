@@ -1855,6 +1855,11 @@ export type KindSettings_Deserialize = {
 	 *  from before it have none, so those columns stay off.
 	 */
 	shown?: string[],
+	/**
+	 *  Widths in px the user dragged columns to, by column key (#482).
+	 *  Columns not in it fit their values.
+	 */
+	widths?: { [key in string]: number },
 };
 
 /**  What is remembered per kind (by kind id). */
@@ -1869,6 +1874,11 @@ export type KindSettings_Serialize = {
 	 *  from before it have none, so those columns stay off.
 	 */
 	shown: string[],
+	/**
+	 *  Widths in px the user dragged columns to, by column key (#482).
+	 *  Columns not in it fit their values.
+	 */
+	widths: { [key in string]: number },
 };
 
 /**

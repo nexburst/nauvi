@@ -36,7 +36,10 @@ describe("targets", () => {
 
 describe("needsDialog / isDestructive", () => {
   it("runs a harmless single action right away", () => {
-    expect(needsDialog(action("restart"), one)).toBe(false);
+    expect(needsDialog(action("cordon"), one)).toBe(false);
+  });
+  it("always asks before a restart, wherever it comes from (#494)", () => {
+    expect(needsDialog(action("restart"), one)).toBe(true);
   });
   it("asks for destructive actions, actions with input and bulk actions", () => {
     expect(needsDialog(action("delete", { destructive: true }), one)).toBe(true);
@@ -125,7 +128,7 @@ describe("sameResource", () => {
 });
 
 describe("panelActions", () => {
-  it("puts the dock entries first, Edit and Copy link before the destructive ones", () => {
+  it("puts the dock entries first, then Edit YAML, Copy link before the destructive ones", () => {
     const dock = [
       { label: "Logs", spec: "l" },
       { label: "Shell", spec: "s" },
@@ -135,13 +138,13 @@ describe("panelActions", () => {
       action("delete", { label: "Delete", destructive: true }),
       action("attach", { label: "Attach" }),
     ]);
-    expect(list.map((a) => a.id)).toEqual(["logs", "shell", "portForward", "attach", "edit", "link", "delete"]);
+    expect(list.map((a) => a.id)).toEqual(["logs", "shell", "edit", "portForward", "attach", "link", "delete"]);
     expect(list.map((a) => a.tip)).toEqual([
       "Logs",
       "Shell",
+      "Edit YAML",
       "Port forward",
       "Attach",
-      "Edit YAML",
       "Copy link",
       "Delete",
     ]);
@@ -154,6 +157,6 @@ describe("panelActions", () => {
       [],
       [action("nodeShell", { label: "Shell" }), action("drain", { label: "Drain…", destructive: true })],
     );
-    expect(list.map((a) => a.label)).toEqual(["Shell", "Edit", "Copy link", "Drain…"]);
+    expect(list.map((a) => a.label)).toEqual(["Shell", "Edit YAML", "Copy link", "Drain…"]);
   });
 });

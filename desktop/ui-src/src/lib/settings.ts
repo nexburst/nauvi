@@ -122,7 +122,7 @@ export const EMPTY_CONTEXT: ContextSettings = {
   mode: "normal",
   mode_source: { file: "", given: "", context: "" },
 };
-export const EMPTY_KIND: KindSettings = { sort_key: "", sort_desc: false, hidden: [], shown: [] };
+export const EMPTY_KIND: KindSettings = { sort_key: "", sort_desc: false, hidden: [], shown: [], widths: {} };
 
 /** What is wrong with a Prometheus Service typed in Settings ("" if nothing):
  *  empty (detect), `off`, or `namespace/service[:port]`. */

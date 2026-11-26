@@ -7,7 +7,7 @@
   import { app, kinds, openObject, switchNamespace } from "../stores/app.svelte";
   import { cellLink, type CellLink } from "../cellLinks";
   import { rowHeightPx } from "../preferences";
-  import { onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import VirtualList from "./VirtualList.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import Sparkline from "./Sparkline.svelte";
@@ -29,14 +29,19 @@
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove } from "../stores/keyboard.svelte";
   import type { ResourceKind } from "../bindings";
-  import { columnsFor, minColumnsWidth, shownColumns } from "../columns";
+  import { cellWidth, columnsFor, shownColumns, STATUS_ICON_PX, statusIcon } from "../columns";
   import type { Metrics, Row } from "../columns";
+  import { CELL_PAD, fitWidths, longest, middleCut, minTotal, sample, settle } from "../columnFit";
+  import type { Measure } from "../columnFit";
+  import { cached, measurerFor } from "../textMeasure";
+  import Icon from "../icons/Icon.svelte";
+  import type { IconName } from "../icons/icons";
   import type { KeyedStore } from "../stores/keyed.svelte";
   import type { Sort } from "../view";
   import { ListFilter } from "../stores/tableFilter.svelte";
   import { rawHay } from "../tableFilter";
   import { sortOf, withSort } from "../settings";
-  import { kindSettings, settings, updateSettings } from "../stores/settings.svelte";
+  import { kindSettings, settings, updateKind, updateSettings } from "../stores/settings.svelte";
   import { registerTableExport } from "../stores/tableExport.svelte";
   import { tableCsv } from "../csv";
 
@@ -84,11 +89,169 @@
   const shownExtra = $derived(kindSettings(kind.id).shown ?? []);
   const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics, shownExtra));
   // The checkbox, the columns, then the row's ⋮ menu (#382).
+  const CHECK_PX = 32;
   const MORE_PX = 28;
-  const template = $derived(["32px", ...columns.map((c) => c.width), `${MORE_PX}px`].join(" "));
+
+  // Fitted columns (#482): each as wide as its widest value and header,
+  // the spare width to Name, the long text columns giving way (Name last)
+  // when the table is short of room; what the user dragged a column to is
+  // remembered per kind. See columnFit.ts.
+  let gridW = $state(0);
+  let measureCell: Measure | null = null;
+  let measureHead: Measure | null = null;
+  /** Widest value (or header) per column key, px with padding. */
+  let naturals = $state.raw(new Map<string, number>());
+  /** The column being dragged, and to what width. */
+  let dragging = $state.raw<{ key: string; px: number } | null>(null);
+  const userWidths = $derived(kindSettings(kind.id).widths ?? {});
+  const fitInputs = $derived(
+    columns.map((c) => ({
+      fit: c.fit,
+      natural: naturals.get(c.key) ?? c.fit.min,
+      user: dragging?.key === c.key ? dragging.px : userWidths[c.key],
+    })),
+  );
+  const avail = $derived(Math.max(0, gridW - CHECK_PX - MORE_PX - gutter));
+  const widths = $derived(fitWidths(fitInputs, avail));
+  const template = $derived([CHECK_PX, ...widths, MORE_PX].map((w) => `${w}px`).join(" "));
   // Columns that don't fit (extra ones turned on, the detail panel open)
   // scroll sideways, the header with the rows, instead of being cut off.
-  const minWidth = $derived(32 + minColumnsWidth(columns) + MORE_PX);
+  const minWidth = $derived(CHECK_PX + Math.max(minTotal(fitInputs), widths.reduce((a, b) => a + b, 0)) + MORE_PX);
+  /** Where each column ends, px from the table's left edge: its resize handle. */
+  const edges = $derived(widths.reduce<number[]>((acc, w) => [...acc, (acc.at(-1) ?? CHECK_PX) + w], []));
+  /** The px left for a cell's text, per column. */
+  const textWidths = $derived(widths.map((w, i) => w - CELL_PAD - (columns[i]?.cls ? STATUS_ICON_PX : 0)));
+
+  // The widths follow the rows at most once a second, so a busy table does
+  // not measure on every watch batch; at once for new columns or the first rows.
+  /** Sort arrow and its gap, kept in the header's width so sorting does not cut it. */
+  const ARROW_PX = 13;
+  let fitAt = 0;
+  let fitTimer: ReturnType<typeof setTimeout> | undefined;
+  let fitRows = 0;
+  function measureWidths() {
+    fitAt = performance.now();
+    if (!measureCell || !measureHead) return;
+    const cell = measureCell;
+    const entries = sample(store.entries);
+    fitRows = entries.length;
+    const ctx = { metrics, now: untrack(() => now) };
+    const next = new Map<string, number>();
+    for (const col of columns) {
+      if (col.fit.min === col.fit.max) {
+        next.set(col.key, col.fit.min);
+        continue;
+      }
+      let w = measureHead(col.label) + CELL_PAD + ARROW_PX;
+      if (col.fit.sample) w = Math.max(w, CELL_PAD + cell(col.fit.sample));
+      for (const t of longest(entries.map((e) => col.text(e.row, ctx)))) w = Math.max(w, cellWidth(col, t, cell));
+      next.set(col.key, Math.ceil(w));
+    }
+    // A column narrowing a little keeps its width (no jitter).
+    const keys = [...next.keys()];
+    const kept = settle(
+      keys.map((k) => naturals.get(k) ?? 0),
+      keys.map((k) => next.get(k)!),
+    );
+    naturals = new Map(keys.map((k, i) => [k, kept[i]]));
+  }
+  $effect(() => {
+    const cols = columns;
+    const count = store.entries.length;
+    void store.entries;
+    untrack(() => {
+      const now = performance.now();
+      const urgent = cols.some((c) => !naturals.has(c.key)) || (fitRows === 0 && count > 0);
+      const wait = urgent ? 0 : Math.max(0, 1000 - (now - fitAt));
+      if (wait === 0) {
+        clearTimeout(fitTimer);
+        fitTimer = undefined;
+        measureWidths();
+      } else
+        fitTimer ??= setTimeout(() => {
+          fitTimer = undefined;
+          measureWidths();
+        }, wait);
+    });
+  });
+  onDestroy(() => clearTimeout(fitTimer));
+  onMount(() => {
+    const grid = gridEl;
+    if (!grid) return;
+    const measurers = () => {
+      measureCell = measurerFor(grid);
+      measureHead = measurerFor(grid.querySelector("button.th") ?? grid);
+    };
+    measurers();
+    measureWidths();
+    // Once the fonts are in, measure again in them.
+    let live = true;
+    void document.fonts?.ready.then(() => {
+      if (!live) return;
+      measurers();
+      cutMiddle.clear();
+      measureWidths();
+    });
+    const ro = new ResizeObserver(() => (gridW = grid.clientWidth));
+    ro.observe(grid);
+    gridW = grid.clientWidth;
+    return () => {
+      live = false;
+      ro.disconnect();
+    };
+  });
+
+  /** A cut generated name keeps its end (`logger-84…-x7k2p`). */
+  const cutMiddle = cached((text, width) => (measureCell ? middleCut(text, width, measureCell) : text));
+  /** What a cell shows and whether that is all of it. */
+  function shownText(i: number, text: string): { text: string; cut: boolean } {
+    const room = textWidths[i];
+    if (!measureCell || room === undefined || !text) return { text, cut: false };
+    if (columns[i].fit.middle) {
+      const shown = cutMiddle(text, room);
+      return { text: shown, cut: shown !== text };
+    }
+    return { text, cut: measureCell(text) > room };
+  }
+
+  // Resizing (#482): drag a header's right edge; double-click it to fit
+  // the column to its values, again to let it fit by itself.
+  const MIN_DRAG = 40;
+  const MAX_DRAG = 1200;
+  function saveWidth(key: string, px: number | null) {
+    const next = { ...userWidths };
+    if (px === null) delete next[key];
+    else next[key] = Math.round(Math.min(MAX_DRAG, Math.max(MIN_DRAG, px)));
+    updateKind(kind.id, { widths: next });
+  }
+  function startResize(e: PointerEvent, i: number) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture?.(e.pointerId);
+    const key = columns[i].key;
+    const x0 = e.clientX;
+    const w0 = widths[i];
+    const move = (ev: PointerEvent) => {
+      dragging = { key, px: Math.round(Math.min(MAX_DRAG, Math.max(MIN_DRAG, w0 + ev.clientX - x0))) };
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+      if (dragging) saveWidth(key, dragging.px);
+      dragging = null;
+    };
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  }
+  function fitColumn(i: number) {
+    const col = columns[i];
+    if (userWidths[col.key] !== undefined) saveWidth(col.key, null);
+    else saveWidth(col.key, naturals.get(col.key) ?? col.fit.min);
+  }
   let scrollLeft = $state(0);
   // svelte-ignore state_referenced_locally
   let sort = $state.raw<Sort | null>(sortOf(kindSettings(kind.id)));
@@ -205,6 +368,9 @@
     openMenuAt(r.right, r.bottom, row);
   }
 
+  /** The keys of registry actions that have one (keys.ts). */
+  const ACTION_KEYS: Partial<Record<string, string>> = { restart: "⇧R", delete: "Del" };
+
   // Right-click menu, built from the same registry as the detail panels.
   let menu = $state.raw<{ x: number; y: number; title: string; items: MenuItem[] } | null>(null);
 
@@ -227,20 +393,25 @@
       title = row.namespace ? `${row.namespace}/${row.name}` : row.name;
       const keys = kind.columns.map((c) => c.key);
       prefetchLink(kind.resource, row.namespace, row.name);
-      // Logs and Shell open dock tabs; the rest come from the action registry.
+      // Logs and Shell open dock tabs, then the YAML editor (#494); the
+      // rest come from the action registry. Each with its key, so the menu
+      // teaches the keys.
       items = [
         ...dockMenuFor(kind.resource, row.namespace, row.name).map((d) => ({
           id: d.label === "Shell" ? "shell" : "logs",
           label: d.label,
+          key: d.label === "Shell" ? "S" : "L",
           run: () => openDockTab(d.spec),
         })),
+        { id: "edit", label: "Edit YAML", key: "E", run: () => verbOn(row, "edit") },
         // A nauvi:// link to the object (#299).
         { label: "Copy link", run: () => void copyLink(kind.resource, row.namespace, row.name) },
         // For the user's own agent (docs/ux-standard.md, section 10).
-        { label: "Copy as prompt", run: () => void copyPrompt(row) },
+        { label: "Copy as prompt", key: "A", run: () => void copyPrompt(row) },
         ...kind.actions.map((a) => ({
           id: a.id,
           label: a.label,
+          key: ACTION_KEYS[a.id],
           danger: a.destructive,
           run: () =>
             requestAction(kind, [{ namespace: row.namespace, name: row.name }], a, replicasFromRow(row, keys)),
@@ -375,9 +546,33 @@
     }
   }
 
-  async function rowVerb(verb: "logs" | "shell" | "edit" | "restart" | "prompt") {
+  type Verb = "logs" | "shell" | "edit" | "restart" | "prompt";
+  function rowVerb(verb: Verb) {
     const row = (focusedEntry() ?? visible.find((e) => e.key === selectedKey))?.row;
-    if (!row) return;
+    if (row) void verbOn(row, verb);
+  }
+
+  /** The row's quick actions, shown on hover (#482): its dock tabs and its YAML. */
+  const quick = $derived.by(() => {
+    const dock = dockMenuFor(kind.resource, "", "x").map((d) => d.label);
+    const out: { verb: Verb; label: string; key: string; icon: IconName }[] = [];
+    if (dock.includes("Logs")) out.push({ verb: "logs", label: "Logs", key: "L", icon: "logs" });
+    if (dock.includes("Shell")) out.push({ verb: "shell", label: "Shell", key: "S", icon: "terminal" });
+    out.push({ verb: "edit", label: "Edit YAML", key: "E", icon: "edit" });
+    return out;
+  });
+  /** The row under the pointer, for its quick actions. */
+  let hoverKey = $state<string | null>(null);
+
+  function quickVerb(e: MouseEvent, row: Row, verb: Verb) {
+    e.stopPropagation();
+    if (!stillOwnCluster()) return;
+    focusedKey = row.key;
+    gridEl?.focus({ preventScroll: true });
+    void verbOn(row, verb);
+  }
+
+  async function verbOn(row: Row, verb: Verb) {
     if (verb === "prompt") return copyPrompt(row);
     if (verb === "edit") {
       const t = detail.target;
@@ -558,6 +753,21 @@
         </button>
       {/each}
       <div class="th more" role="columnheader" aria-label="Actions"></div>
+      <!-- The columns' right edges: drag to resize, double-click to fit
+           (#482). A pointer aid only, so not in the accessibility tree. -->
+      {#each columns as col, i (col.key)}
+        <div
+          class="resize"
+          class:active={dragging?.key === col.key}
+          aria-hidden="true"
+          data-testid="col-resize"
+          data-col={col.key}
+          title="Drag to resize, double-click to fit"
+          style:left="{edges[i] - 4}px"
+          onpointerdown={(e) => startResize(e, i)}
+          ondblclick={() => fitColumn(i)}
+        ></div>
+      {/each}
     </div>
 
     <VirtualList
@@ -601,6 +811,10 @@
               gridEl?.focus({ preventScroll: true });
             }}
             oncontextmenu={(e) => openMenu(e, entry.row)}
+            onpointerenter={() => (hoverKey = entry.key)}
+            onpointerleave={() => {
+              if (hoverKey === entry.key) hoverKey = null;
+            }}
           >
             <div class="td check" role="gridcell" title={entry.row.problem || undefined}>
               <input
@@ -614,16 +828,27 @@
                 onchange={() => {}}
               />
             </div>
-            {#each columns as col (col.key)}
+            {#each columns as col, c (col.key)}
               {@const text = col.text(entry.row, { metrics, now })}
               {@const spark = col.spark?.(entry.row, { metrics, now })}
               {@const link = cellLink(kinds.all, kind, col, text, entry.row.namespace)}
+              {@const cls = col.cls?.(entry.row) ?? ""}
+              {@const shown = col.draw ? { text, cut: false } : shownText(c, text)}
+              <!-- The whole value in the tooltip when the cell cuts it (#482). -->
               <div
-                class="td {col.cls?.(entry.row) ?? ''}"
+                class="td {cls}"
+                class:cut={shown.cut}
                 role="gridcell"
-                title={col.title?.(entry.row, settings.current.time_zone) ||
-                  (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : text)}
+                title={shown.cut
+                  ? text
+                  : col.title?.(entry.row, settings.current.time_zone) ||
+                    (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : undefined)}
               >
+                {#if col.cls}
+                  <!-- The state as an icon too, not by colour alone (#482). -->
+                  {@const icon = statusIcon(cls)}
+                  <span class="st-icon">{#if icon}<Icon name={icon} size={14} />{/if}</span>
+                {/if}
                 {#if link && col.link === "owner"}
                   <!-- The owner's name is the link (#378). Out of the tab order
                        like the rows: the grid has the focus. -->
@@ -635,7 +860,7 @@
                     title={link.title}
                     onmousedown={noMiddle}
                     onauxclick={swallow}
-                    onclick={(e) => follow(e, link)}>{text}</button
+                    onclick={(e) => follow(e, link)}>{shown.text}</button
                   >
                 {:else if link}
                   <!-- A namespace or node: the text stays the row's (a click on
@@ -643,7 +868,7 @@
                        after it, shown on hover and focus, leads to what it
                        names (#382). -->
                   <span class="linked"
-                    ><span class="linked-text">{text}</span><button
+                    ><span class="linked-text">{shown.text}</span><button
                       type="button"
                       class="link-icon"
                       tabindex="-1"
@@ -685,11 +910,28 @@
                 {:else if col.draw === "rollout"}
                   <RolloutStatus word={text} />
                 {:else}
-                  {text}{#if spark}<Sparkline values={spark} />{/if}
+                  {shown.text}{#if spark}<Sparkline values={spark} />{/if}
                 {/if}
               </div>
             {/each}
             <div class="td more" role="gridcell">
+              {#if entry.key === hoverKey || i === focusedIndex}
+                <!-- The row's own actions on hover (#482), so the ⋮ menu is
+                     not the only way to them. -->
+                <div class="quick" data-testid="row-quick">
+                  {#each quick as q (q.verb)}
+                    <button
+                      type="button"
+                      class="quick-btn"
+                      tabindex="-1"
+                      data-testid="row-{q.verb}"
+                      aria-label="{q.label} of {entry.row.name}"
+                      title="{q.label} ({q.key})"
+                      onclick={(e) => quickVerb(e, entry.row, q.verb)}><Icon name={q.icon} size={15} /></button
+                    >
+                  {/each}
+                </div>
+              {/if}
               <button
                 type="button"
                 class="more-btn"
@@ -777,6 +1019,7 @@
     box-shadow: inset 3px 0 0 var(--accent);
   }
   .head {
+    position: relative;
     display: grid;
     height: 28px;
     flex-shrink: 0;
@@ -828,16 +1071,15 @@
   .tr:hover {
     --row-bg: var(--bg-hover);
   }
-  /* A status cell leads with a dot of its colour (the phase-* classes). */
-  .td[class*="phase-"]::before {
-    content: "";
-    display: inline-block;
-    width: 6px;
-    height: 6px;
-    margin-right: 7px;
-    border-radius: 50%;
-    background: currentColor;
-    vertical-align: 1px;
+  /* A status cell leads with an icon in its colour (the phase-* classes);
+     14 px and a 6 px gap: STATUS_ICON_PX. */
+  .st-icon {
+    display: inline-flex;
+    width: 14px;
+    height: 14px;
+    margin-right: 6px;
+    vertical-align: -2.5px;
+    --icon-stroke: 2;
   }
   .tr.clickable {
     cursor: pointer;
@@ -992,6 +1234,70 @@
   }
   .th.more {
     cursor: default;
+  }
+  /* A column's right edge in the header: a thin line on hover, the cursor
+     says it resizes. */
+  .resize {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 9px;
+    cursor: col-resize;
+    touch-action: none;
+    z-index: 1;
+  }
+  .resize::after {
+    content: "";
+    position: absolute;
+    left: 4px;
+    top: 6px;
+    bottom: 6px;
+    width: 1px;
+    background: var(--border);
+  }
+  .resize:hover::after,
+  .resize.active::after {
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    left: 3.5px;
+    background: var(--accent);
+  }
+  /* The row's quick actions sit over the end of the last cells, in the
+     row's tint, only while it is hovered or focused. */
+  .td.more {
+    overflow: visible;
+  }
+  .quick {
+    position: absolute;
+    right: 100%;
+    top: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 2px 0 14px;
+    background:
+      linear-gradient(var(--row-bg, transparent), var(--row-bg, transparent)),
+      var(--bg);
+    /* Fades in over the cell it covers. */
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 12px);
+    mask-image: linear-gradient(to right, transparent, #000 12px);
+  }
+  .quick-btn {
+    all: unset;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 22px;
+    border-radius: 5px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .quick-btn:hover {
+    color: var(--accent);
+    background: var(--bg-hover);
   }
   .more-btn {
     all: unset;
