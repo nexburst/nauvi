@@ -103,7 +103,7 @@ describe("table filter: matches what the rows show", { timeout: 10 * 60_000 }, (
     await app.openDetail("Pods", ns, SHORT);
     await app.filter(HASH);
     await app.waitFor(async () => (await tableData(app)).rows.length === 1, { message: "the long pod alone" });
-    const cell = await app.waitFor(longCell, { message: "the long pod's name cell" });
+    const cell = await app.waitFor(() => longCell(app), { message: "the long pod's name cell" });
     if (!/\bcut\b/.test(cell.cls)) {
       // Too much room to cut it: the mark is for cut cells only.
       assert.ok(!/\bhit\b/.test(cell.cls), "an uncut cell is not marked");
