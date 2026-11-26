@@ -420,6 +420,43 @@
     }
   });
 
+  // The selected row in view (#496): when a link (Overview, a related
+  // object) selects it, once its row has arrived, and when the table gets
+  // shorter (the dock opens) while it was in view. Once per selection, so
+  // the user can scroll away from it.
+  let shownKey: string | null = null;
+  $effect(() => {
+    const key = selectedKey;
+    if (!key) {
+      shownKey = null;
+      return;
+    }
+    const index = visibleKeys.indexOf(key);
+    if (index < 0 || shownKey === key) return;
+    shownKey = key;
+    untrack(() => list?.scrollToIndex(index, rowInView(index) ? "auto" : "center"));
+  });
+  /** Row `index` is (wholly) inside the scroller. */
+  function rowInView(index: number, height = scrollEl?.clientHeight ?? 0) {
+    if (!scrollEl) return false;
+    const top = index * ROW_HEIGHT - scrollEl.scrollTop;
+    return top >= 0 && top + ROW_HEIGHT <= height;
+  }
+  $effect(() => {
+    const el = scrollEl;
+    if (!el) return;
+    let height = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      const before = height;
+      height = el.clientHeight;
+      if (height >= before || !selectedKey) return;
+      const index = visibleKeys.indexOf(selectedKey);
+      if (index >= 0 && rowInView(index, before) && !rowInView(index)) list?.scrollToIndex(index);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  });
+
   function focusRow(index: number) {
     const key = visibleKeys[index];
     if (key === undefined) return;
