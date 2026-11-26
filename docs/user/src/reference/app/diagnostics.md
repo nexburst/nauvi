@@ -11,13 +11,17 @@ and what arrives meanwhile counts as unread. **Clear all** empties it.
 
 - A view that **cannot start** is retried with a growing wait (5, 10, 20, 40
   seconds, then every minute). After about five minutes it stops, and the
-  error says "Stopped retrying. Refresh to try again." Refresh, a context
-  switch or opening the view again starts over. The error is one
+  error says "Stopped retrying." with a **Retry** button. Retry (the same as
+  Refresh), a context switch or opening the view again starts over. The error is one
   notification, however many retries it took.
 - A view that **was live and lost its connection** shows Reconnecting while
   the app tries again (every second at first, every ten at most). After five
   minutes of that without a break it is stopped the same way, and what it
   showed stays on screen, dimmed.
+- **After a sleep or a network change** nauvi tries again by itself: when the
+  computer wakes up, when the network (or a VPN) comes back, or when you show
+  its window again, every view that stopped or is waiting starts over. Time
+  spent asleep does not count toward the five minutes.
 - Logs, terminals and port forwards are not part of this: they keep their
   own connections.
 

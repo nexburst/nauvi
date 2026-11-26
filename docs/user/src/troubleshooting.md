@@ -68,7 +68,10 @@ nauvi could not reach the API server.
   environment for cluster traffic: set `proxy-url` in the kubeconfig or a
   proxy in the cluster's **Settings → Network** ([Use a proxy](how-to/proxy.md)).
 - A view retries by itself for about five minutes, then says "Stopped
-  retrying. Refresh to try again."; press `F5` after fixing the cause.
+  retrying." with a **Retry** button (the same as Refresh, `F5`). nauvi also
+  tries again by itself when your computer wakes up, when the network or VPN
+  comes back, or when you show its window again; time asleep does not count
+  toward the five minutes.
 
 ## A certificate problem
 

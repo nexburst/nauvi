@@ -49,7 +49,9 @@ volume is.
 - **Environment** lists each variable with its value and where it comes from:
   a literal, a ConfigMap key (with its source), a pod field, or every key of
   an `envFrom` ConfigMap (with its prefix). Nothing is read until you open
-  the list.
+  the list. **Environment (N)** counts the variables the container gets; with
+  `envFrom` it says, for example, `2 + 1 source` until you open the list,
+  which reads the source's keys.
 - **Secret values are hidden.** Env values from Secrets, and literal values
   that look like secrets, show as `••••` until you click **Reveal** on that
   row; **Hide** and closing the list drop them again. Without permission to
@@ -59,7 +61,9 @@ volume is.
 - The panel has the pod's live logs (pick the container, or the previous
   instance of a crashed one) and an interactive terminal.
 - CPU and memory charts against requests and limits
-  ([Metrics](metrics.md)).
+  ([Metrics](metrics.md)). With no usage data yet, **Usage** is one line;
+  hover it for why (metrics-server has no sample yet, or where Prometheus was
+  looked for).
 
 ### Events
 
@@ -67,7 +71,8 @@ Events show the reason in words ("Failed scheduling", "Back-off
 restarting"; hover it for the raw reason) and how often it happened ("821
 times, last 41s ago"). A short summary in bold comes first ("No node fits: 1
 node short of CPU, 2 nodes short of memory"), with the full message under
-it. A message nauvi does not know how to sum up shows on its own.
+it. A message nauvi does not know how to sum up shows on its own. Long
+messages wrap and are folded to a few lines; **Show all** shows the rest.
 
 ## The last-applied annotation
 
