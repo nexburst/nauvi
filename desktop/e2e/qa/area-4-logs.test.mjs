@@ -257,7 +257,7 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
     await (await checkbox(app, id, "Wrap")).click();
   });
 
-  it("Follow keeps the newest line in view; off, the view stays put", T, async () => {
+  it("Following keeps the newest line in view; scrolled up, the view stays put", T, async () => {
     const { app } = s;
     const atBottom = (sc) => sc.height - sc.top - sc.client < 40;
     await app.waitFor(async () => atBottom(await scroller(app, id)), { message: "following at the bottom" });
@@ -265,14 +265,16 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
     await sleep(2000);
     const later = await scroller(app, id);
     assert.ok(later.height > before.height && atBottom(later), "still at the bottom as lines arrive");
-    await (await followButton(app, id)).click();
+    // Scrolled up to read (#492: no separate Follow switch; the one control
+    // pauses): new lines come in below without moving the view.
+    await app.js(`const s = document.querySelector(arguments[0] + ' [data-testid="log-output"] .scroller'); s.scrollTop = Math.max(0, s.scrollTop - 400);`, pane(id));
     await sleep(500);
     const fixed = await scroller(app, id);
     await sleep(3000);
     const after = await scroller(app, id);
     assert.ok(after.height > fixed.height, "lines keep arriving");
-    assert.equal(after.top, fixed.top, "the scroll position does not move with Follow off");
-    await (await followButton(app, id)).click();
+    assert.equal(after.top, fixed.top, "the scroll position does not move while scrolled up");
+    assert.equal(await (await followButton(app, id)).getText(), "Following", "still live");
     // Following again once back at the bottom.
     await app.js(`document.querySelector(arguments[0] + ' [data-testid="log-output"] .scroller').scrollTop = 1e9`, pane(id));
     await sleep(2000);

@@ -52,7 +52,7 @@ impl std::error::Error for LogUnavailable {}
 /// it is one of those that say the log is not there (#493); `None` for any
 /// other error. `previous`: the request asked for the previous run.
 pub fn log_unavailable_text(message: &str, previous: bool) -> Option<String> {
-    if message.contains("unable to retrieve container logs for") {
+    if message.contains(RUNTIME_LOG_GONE.trim_end()) {
         return Some(if previous {
             "The logs of the previous run are no longer on the node: Kubernetes keeps only the \
              last finished run, and the container runtime may already have removed it."
@@ -79,6 +79,21 @@ pub fn log_unavailable_text(message: &str, previous: bool) -> Option<String> {
     None
 }
 
+/// How the kubelet starts the body it answers (with a 200) when the
+/// runtime no longer has a container's log file.
+const RUNTIME_LOG_GONE: &str = "unable to retrieve container logs for ";
+
+/// Whether `line`, the first of a log, is the kubelet saying the log is gone
+/// rather than a line of it: `unable to retrieve container logs for
+/// containerd://<id>` and nothing else (#493).
+fn gone_line(line: &str, previous: bool) -> Option<LogUnavailable> {
+    let id = line.trim_end().strip_prefix(RUNTIME_LOG_GONE)?;
+    if !id.contains("://") || id.contains(char::is_whitespace) {
+        return None;
+    }
+    log_unavailable_text(line, previous).map(LogUnavailable)
+}
+
 /// The error of a log request: [`LogUnavailable`] when the log is not there.
 fn log_error(e: kube::Error, previous: bool) -> anyhow::Error {
     match log_unavailable_text(&e.to_string(), previous) {
@@ -95,9 +110,17 @@ pub async fn get_pod_logs(
     opts: &LogOptions,
 ) -> Result<String> {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
-    pods.logs(name, &opts.to_params(false))
+    let text = pods
+        .logs(name, &opts.to_params(false))
         .await
-        .map_err(|e| log_error(e, opts.previous))
+        .map_err(|e| log_error(e, opts.previous))?;
+    let mut lines = text.lines();
+    if let (Some(first), None) = (lines.next(), lines.next()) {
+        if let Some(gone) = gone_line(first, opts.previous) {
+            return Err(gone.into());
+        }
+    }
+    Ok(text)
 }
 
 /// Stream a pod's logs, calling `on_line` for each line. Runs until the
@@ -136,7 +159,13 @@ where
         .await
         .map_err(|e| log_error(e, opts.previous))?
         .lines();
+    let mut first = true;
     while let Some(line) = lines.try_next().await? {
+        if std::mem::take(&mut first) {
+            if let Some(gone) = gone_line(&line, opts.previous) {
+                return Err(gone.into());
+            }
+        }
         on_line(line);
     }
     Ok(())
@@ -160,7 +189,13 @@ pub async fn stream_pod_logs_into(
         .await
         .map_err(|e| log_error(e, opts.previous))?
         .lines();
+    let mut first = true;
     while let Some(line) = lines.try_next().await? {
+        if std::mem::take(&mut first) {
+            if let Some(gone) = gone_line(&line, opts.previous) {
+                return Err(gone.into());
+            }
+        }
         if tx.send(line).await.is_err() {
             break;
         }
@@ -277,6 +312,20 @@ mod tests {
             Some("The container has not started yet (ContainerCreating), so it has no logs yet.")
         );
         assert_eq!(log_unavailable_text("pods \"x\" is forbidden", false), None);
+    }
+
+    #[test]
+    fn gone_line_is_only_the_kubelet_answer() {
+        let body = "unable to retrieve container logs for containerd://38505ea6f0ae";
+        assert!(gone_line(body, true).is_some());
+        assert!(gone_line(&format!("{body}\n"), true).is_some());
+        // A log line that happens to start the same way is a log line.
+        assert!(gone_line(
+            "unable to retrieve container logs for my app, retrying",
+            false
+        )
+        .is_none());
+        assert!(gone_line("hello", false).is_none());
     }
 
     #[test]

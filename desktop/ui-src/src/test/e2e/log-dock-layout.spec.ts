@@ -103,6 +103,14 @@ test("Previous names the run and its exit code; a finished run is not followed",
   await page.evaluate(() => window.__fake.emitLogEnd(""));
   await expect(pane(page, id).getByTestId("log-line")).toHaveText(["FATAL: out of memory", "[end of the previous run]"]);
 
+  // A previous run that is gone: the sentence, without an end marker.
+  await pane(page, id).getByRole("checkbox", { name: "Previous" }).uncheck();
+  await pane(page, id).getByRole("checkbox", { name: "Previous" }).check();
+  await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(4);
+  const gone = "The logs of the previous run are no longer on the node: Kubernetes keeps only the last finished run, and the container runtime may already have removed it.";
+  await page.evaluate((m) => window.__fake.emitLogEnd(m), gone);
+  await expect(pane(page, id).getByTestId("log-line")).toHaveText([gone]);
+
   // Off again: the current run, followed.
   await pane(page, id).getByRole("checkbox", { name: "Previous" }).uncheck();
   await expect(follow).toBeEnabled();

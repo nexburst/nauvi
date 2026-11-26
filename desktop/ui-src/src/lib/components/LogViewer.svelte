@@ -144,6 +144,8 @@
   let runContainer = $state.raw<ContainerDetail | undefined>(undefined);
   let runToken = 0;
   let quiet = $state(false);
+  /** The stream in use reported an error. */
+  let streamFailed = false;
   let quietTimer: ReturnType<typeof setTimeout> | undefined;
   // Where the last Download went: shown in the header for SAVED_NOTE_MS,
   // apart from the line count that every batch updates (#178).
@@ -623,10 +625,12 @@
         onNotice(e);
         break;
       case "error":
+        streamFailed = true;
         appendLog(e.message, "error-text");
         break;
       case "done":
-        appendLog(previous ? "[end of the previous run]" : "[stream ended]", "muted");
+        // A previous run that could not be read has no end to mark.
+        if (!(previous && streamFailed)) appendLog(previous ? "[end of the previous run]" : "[stream ended]", "muted");
         // The run ended or was read whole: its status has changed.
         void loadRun();
         break;
@@ -648,6 +652,7 @@
     prefixHits = new Map();
     truncatedNote = "";
     void loadRun();
+    streamFailed = false;
     quiet = false;
     clearTimeout(quietTimer);
     quietTimer = setTimeout(() => (quiet = true), QUIET_MS);
