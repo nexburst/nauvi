@@ -184,36 +184,46 @@ pub fn pod_images(pods: &[Pod]) -> Vec<RunningImage> {
     merge_pending(out)
 }
 
-/// A pod that has not started yet has no digest: its image joins the one
-/// entry with a digest and the same reference, if there is exactly one.
-fn merge_pending(images: Vec<RunningImage>) -> Vec<RunningImage> {
+/// A pod that has not started yet has no digest. Its use joins the one
+/// entry with a digest and the same reference, if there is exactly one and
+/// it already runs in the pod's namespace (a rollout in progress); a tag
+/// elsewhere in the cluster may name another build, so it stays apart.
+fn merge_pending(mut images: Vec<RunningImage>) -> Vec<RunningImage> {
     let mut by_ref: BTreeMap<String, Vec<usize>> = BTreeMap::new();
     for (i, img) in images.iter().enumerate() {
         if !img.digest.is_empty() {
             by_ref.entry(normalize(&img.reference)).or_default().push(i);
         }
     }
-    let mut out: Vec<Option<RunningImage>> = images.into_iter().map(Some).collect();
-    for i in 0..out.len() {
-        let target = match out[i].as_ref() {
-            Some(img) if img.digest.is_empty() => match by_ref.get(&img.key).map(Vec::as_slice) {
-                Some(&[t]) => t,
-                _ => continue,
-            },
-            _ => continue,
-        };
-        let Some(pending) = out[i].take() else {
+    let namespaces: Vec<Vec<String>> = images
+        .iter()
+        .map(|img| {
+            img.uses
+                .iter()
+                .map(|u| u.workload.namespace.clone())
+                .collect()
+        })
+        .collect();
+    for i in 0..images.len() {
+        if !images[i].digest.is_empty() {
+            continue;
+        }
+        let Some(&[target]) = by_ref.get(&images[i].key).map(Vec::as_slice) else {
             continue;
         };
-        if let Some(t) = out[target].as_mut() {
-            for u in pending.uses {
-                if !t.uses.contains(&u) {
-                    t.uses.push(u);
-                }
+        let uses = std::mem::take(&mut images[i].uses);
+        let (moved, kept): (Vec<_>, Vec<_>) = uses
+            .into_iter()
+            .partition(|u| namespaces[target].contains(&u.workload.namespace));
+        images[i].uses = kept;
+        for u in moved {
+            if !images[target].uses.contains(&u) {
+                images[target].uses.push(u);
             }
         }
     }
-    out.into_iter().flatten().collect()
+    images.retain(|img| !img.uses.is_empty());
+    images
 }
 
 #[cfg(test)]
@@ -224,6 +234,28 @@ mod tests {
         let text = include_str!("testdata/pods.json");
         let v: serde_json::Value = serde_json::from_str(text).unwrap();
         serde_json::from_value(v["items"].clone()).unwrap()
+    }
+
+    #[test]
+    fn a_pending_pod_joins_its_image_only_in_its_own_namespace() {
+        let mut list = pods();
+        // A pending nginx pod in another namespace: no digest yet.
+        let mut other = list[2].clone();
+        other.metadata.namespace = Some("elsewhere".into());
+        other.metadata.owner_references = None;
+        other.metadata.name = Some("lonely".into());
+        list.push(other);
+        let images = pod_images(&list);
+        let nginx: Vec<_> = images
+            .iter()
+            .filter(|i| i.reference == "nginx:1.27")
+            .collect();
+        assert_eq!(nginx.len(), 2, "{images:?}");
+        // The pending pod of the Deployment (shop) joined the digest row.
+        assert_eq!(nginx[0].digest, "sha256:1111");
+        assert!(nginx[0].uses.iter().all(|u| u.workload.namespace == "shop"));
+        assert_eq!(nginx[1].digest, "");
+        assert_eq!(nginx[1].uses[0].workload.name, "lonely");
     }
 
     #[test]
