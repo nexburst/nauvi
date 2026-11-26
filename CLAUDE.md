@@ -1,7 +1,9 @@
 # Contributing to nauvi
 
 Guide for people and coding agents. `AGENTS.md` is a symlink to this file.
-User-facing docs are in `README.md`; the plan is the roadmap issue #24.
+User-facing docs are in `docs/user/` (published at
+https://nexburst.github.io/nauvi/docs/, see "Website" below); `README.md` is
+short and links to them. The plan is the roadmap issue #24.
 Why things are the way they are: `docs/decisions/`. Setting up (or
 recovering) a development machine: `docs/dev-setup.md`.
 
@@ -36,6 +38,9 @@ recovering) a development machine: `docs/dev-setup.md`.
   release, checked against its `SHA256SUMS`). `scripts/test-install/` runs
   them against fake releases (`fixtures.sh`; `test.sh`, `test.ps1`), in CI
   too.
+- `site/` (the landing page) and `docs/user/` (the user docs, mdBook):
+  the website, built by `scripts/site/build.py` and published by
+  `.github/workflows/pages.yml` (see "Website").
 - `scripts/dev/`: `capped.sh` (run a command under a memory ceiling),
   `clean-worktrees.sh` (remove merged agent worktrees) and `check-old-name.sh`
   (the project's old name appears nowhere but `docs/decisions/0008`).
@@ -59,6 +64,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo test -p nauvi-desktop export_typescript_bindings   # then commit bindings.ts if it changed
+python3 scripts/site/build.py --check                    # the website (needs mdBook), see "Website"
 
 cd desktop/ui-src
 npm ci
@@ -68,7 +74,8 @@ npm test             # Vitest unit tests
 npx playwright test  # app tests in Chromium against the fake backend
 ```
 
-On Linux the Rust checks need the WebKitGTK libraries listed in the README.
+On Linux the Rust checks need the WebKitGTK libraries listed in
+`docs/user/src/contributing/build.md`.
 Playwright needs a browser once: `npx playwright install chromium` (add
 `--with-deps` to install its system libraries too).
 
@@ -153,6 +160,36 @@ harness; `desktop/e2e/README.md` has the details and the helper list.
   unpaused; at most 45 s locally, `QA_PAUSE_MAX_MS`); it skips without
   access to Docker.
 
+## Website
+
+https://nexburst.github.io/nauvi/ is the landing page (`site/`), and
+`/docs/` the user docs (`docs/user/`, Markdown built with mdBook), in one
+version per release (`/docs/v0.2.0/`), `/docs/latest/` and `/docs/dev/`
+(main). See the header of `.github/workflows/pages.yml` for how it is
+published next to the apt repository on the `gh-pages` branch.
+
+- Build and check it: `python3 scripts/site/build.py --check` (mdBook from
+  `MDBOOK` or `PATH`; the version CI pins is in `pages.yml`), then
+  `python3 -m http.server -d target/site 8000`. `--check` fails if a link or
+  an `#anchor` between pages does not resolve, if a README link to the site
+  or the repository does not, or if `README.md` or
+  `docs/user/src/how-to/install.md` do not show every install command of
+  `site/install.json`, the one source of the landing page's commands.
+- New pages go in `docs/user/src/SUMMARY.md`. Write for someone new to
+  nauvi: what the page lets you do first, plain short sentences, the names
+  the UI uses (`docs/ux-standard.md`).
+- The CLI reference (`docs/user/src/reference/cli/`) is generated from
+  `src/args.rs` by `src/cli_docs.rs`; `cargo test --workspace` fails when it
+  is stale. Regenerate it with
+  `NAUVI_WRITE_CLI_DOCS=1 cargo test --bin nauvi cli_reference`. A new
+  command goes in a group of `GROUPS` there.
+- Screenshots (`docs/user/src/img/`, used by the docs and the landing page)
+  come from the kind demo cluster:
+  `QA_SITE_IMG_DIR=$PWD/docs/user/src/img desktop/e2e/qa.sh site-screenshots`.
+- The app's Help → Documentation opens the docs of its own version
+  (`docs_url` in `desktop/src/diagnostics.rs`), so page paths are links:
+  keep them, or leave a page that points to the new place.
+
 ## Cluster tests
 
 - kind only. `bash scripts/test-cluster/setup.sh` creates the cluster
@@ -226,9 +263,11 @@ set it to the measured value plus 15% and open an issue about the gap.
   `desktop/src/commands/mod.rs`, `desktop/ui-src/src/test/fake/index.ts` and
   `desktop/ui-src/src/lib/registry.ts`. Put the rest in a file of your own
   area (a command module, a `fake/<module>.ts`, a component).
-- Leave `README.md` out of feature PRs: the coordinator collects the user
-  docs of a wave in one separate docs PR. Put what the README should say in
-  your PR body.
+- Leave `docs/user/` (and `README.md`) out of feature PRs: the coordinator
+  collects the user docs of a wave in one separate docs PR. Put what the
+  docs should say, and on which page, in your PR body. The generated CLI
+  reference (`docs/user/src/reference/cli/`) is the exception: regenerate
+  it whenever `src/args.rs` changes (see "Website").
 - Name scratch files uniquely (prefix them with your issue number). Agents
   share a scratch directory, and a generic `pr.md` has been overwritten by
   another agent and pushed as the wrong PR body.

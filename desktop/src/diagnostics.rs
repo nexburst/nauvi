@@ -10,13 +10,30 @@ use std::sync::OnceLock;
 
 /// The repository, for the Help menu's links.
 pub(crate) const REPO_URL: &str = "https://github.com/nexburst/nauvi";
-/// Help → Documentation.
-pub(crate) const DOCS_URL: &str = "https://github.com/nexburst/nauvi#readme";
+/// The docs on the website (#468): one folder per release (`v0.2.0/`), and
+/// `dev/` for main.
+pub(crate) const DOCS_SITE: &str = "https://nexburst.github.io/nauvi/docs/";
 
 /// The app's version (Cargo's, the same as `tauri.conf.json`'s).
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// The commit it was built from (`build.rs`), or "unknown".
 pub(crate) const COMMIT: &str = env!("NAUVI_COMMIT");
+
+/// A page of the docs for the running app: its release's version of the
+/// docs, or `dev/` for a debug build. `page` is relative to the docs' start
+/// (`""` for the start page, `how-to/mcp.html`).
+pub(crate) fn docs_url(page: &str) -> String {
+    docs_url_for(VERSION, cfg!(debug_assertions), page)
+}
+
+fn docs_url_for(version: &str, debug_build: bool, page: &str) -> String {
+    let folder = if debug_build {
+        "dev".to_string()
+    } else {
+        format!("v{version}")
+    };
+    format!("{DOCS_SITE}{folder}/{page}")
+}
 
 /// The facts in About and in the copied diagnostics.
 #[derive(Debug, Clone, Serialize, Type)]
@@ -193,6 +210,22 @@ fn os_version() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn docs_links_open_the_running_version() {
+        assert_eq!(
+            docs_url_for("0.2.0", false, ""),
+            "https://nexburst.github.io/nauvi/docs/v0.2.0/"
+        );
+        assert_eq!(
+            docs_url_for("0.2.0-1", false, "how-to/mcp.html"),
+            "https://nexburst.github.io/nauvi/docs/v0.2.0-1/how-to/mcp.html"
+        );
+        assert_eq!(
+            docs_url_for("0.2.0", true, "how-to/mcp.html"),
+            "https://nexburst.github.io/nauvi/docs/dev/how-to/mcp.html"
+        );
+    }
 
     #[test]
     fn reads_the_os_release_name() {

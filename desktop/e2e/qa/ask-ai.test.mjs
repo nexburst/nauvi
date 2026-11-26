@@ -399,11 +399,11 @@ describe("Ask AI without an AI CLI on PATH", { timeout: 10 * 60_000 }, () => {
     await app.shot("no-cli");
   });
 
-  it("the help link opens the README's AI section", T, async () => {
+  it("the help link opens the docs' AI page", T, async () => {
     const { app } = s;
     await (await app.find(By.xpath("//*[@data-testid='ask-ai-dialog']//button[normalize-space()='AI assistants and nauvi']"))).click();
-    await app.waitFor(async () => app.profile.opened().some((u) => u.includes("#use-nauvi-from-an-ai-assistant-mcp")), {
-      message: "the README link",
+    await app.waitFor(async () => app.profile.opened().some((u) => /^https:\/\/nexburst\.github\.io\/nauvi\/docs\/[^/]+\/reference\/app\/ask-ai\.html$/.test(u)), {
+      message: "the docs link (#468)",
     });
   });
 });

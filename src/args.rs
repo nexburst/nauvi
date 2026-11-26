@@ -62,6 +62,7 @@ pub enum Commands {
     Describe {
         /// `<kind>/<name>`, or the kind followed by the name
         target: String,
+        /// The object's name, when the kind is given on its own
         name: Option<String>,
         /// Namespace (default: the context's namespace)
         #[arg(short, long)]
@@ -147,6 +148,7 @@ pub enum Commands {
     Scale {
         /// `<kind>/<name>`, e.g. `deploy/web`
         target: String,
+        /// The new number of replicas
         #[arg(long)]
         replicas: i32,
         /// Namespace (default: `default`)
@@ -157,15 +159,23 @@ pub enum Commands {
     Restart {
         /// `<kind>/<name>`, e.g. `deploy/web`
         target: String,
+        /// Namespace (default: `default`)
         #[arg(short, long)]
         namespace: Option<String>,
     },
     /// Mark a node unschedulable
-    Cordon { node: String },
+    Cordon {
+        /// The node's name
+        node: String,
+    },
     /// Mark a node schedulable again
-    Uncordon { node: String },
+    Uncordon {
+        /// The node's name
+        node: String,
+    },
     /// Cordon a node and evict its pods (respects PodDisruptionBudgets)
     Drain {
+        /// The node's name
         node: String,
         /// Give up after this many seconds
         #[arg(long, default_value_t = 300)]
@@ -178,6 +188,7 @@ pub enum Commands {
     Trigger {
         /// `cronjob/<name>`
         target: String,
+        /// Namespace (default: `default`)
         #[arg(short, long)]
         namespace: Option<String>,
     },
@@ -185,6 +196,7 @@ pub enum Commands {
     Suspend {
         /// `cronjob/<name>`
         target: String,
+        /// Namespace (default: `default`)
         #[arg(short, long)]
         namespace: Option<String>,
     },
@@ -192,6 +204,7 @@ pub enum Commands {
     Resume {
         /// `cronjob/<name>`
         target: String,
+        /// Namespace (default: `default`)
         #[arg(short, long)]
         namespace: Option<String>,
     },
@@ -207,6 +220,7 @@ pub enum Commands {
     Delete {
         /// `<kind>/<name>`
         target: String,
+        /// Namespace (default: `default`)
         #[arg(short, long)]
         namespace: Option<String>,
         /// Grace period 0, for pods stuck terminating (pods only)
@@ -307,6 +321,7 @@ pub enum Commands {
     /// shell exits)
     #[command(name = "node-shell")]
     NodeShell {
+        /// The node's name
         node: String,
         /// Namespace of the privileged pod; it must allow privileged pods
         #[arg(short, long, default_value = nauvi::node_shell::NODE_SHELL_NAMESPACE)]
@@ -339,6 +354,7 @@ pub enum HelmCommand {
     },
     /// Show one release: its status, values, manifest, notes or history
     Get {
+        /// The release's name
         release: String,
         #[arg(value_enum, default_value_t = HelmSection::All)]
         section: HelmSection,

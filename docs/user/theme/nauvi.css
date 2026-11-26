@@ -1,0 +1,129 @@
+/* The docs in nauvi's colours (tokens.css): mdBook's variables for every
+   theme of its picker, the system fonts, and the version switcher and
+   banner of version.js. */
+html.light,
+html.rust,
+html.navy,
+html.coal,
+html.ayu {
+  --bg: var(--n-bg);
+  --fg: var(--n-text);
+  --sidebar-bg: var(--n-bg-sunken);
+  --sidebar-fg: var(--n-text);
+  --sidebar-non-existant: var(--n-muted);
+  --sidebar-active: var(--n-accent);
+  --sidebar-spacer: var(--n-border);
+  --sidebar-header-border-color: var(--n-accent);
+  --scrollbar: var(--n-border-strong);
+  --icons: var(--n-muted);
+  --icons-hover: var(--n-accent);
+  --links: var(--n-accent);
+  --inline-code-color: var(--n-text);
+  --theme-popup-bg: var(--n-bg-raised);
+  --theme-popup-border: var(--n-border);
+  --theme-hover: var(--n-bg-hover);
+  --quote-bg: var(--n-bg-raised);
+  --quote-border: var(--n-border);
+  --warning-border: var(--n-brass);
+  --table-border-color: var(--n-border);
+  --table-header-bg: var(--n-bg-hover);
+  --table-alternate-bg: var(--n-bg-raised);
+  --searchbar-border-color: var(--n-border-strong);
+  --searchbar-bg: var(--n-bg-raised);
+  --searchbar-fg: var(--n-text);
+  --searchbar-shadow-color: transparent;
+  --searchresults-header-fg: var(--n-muted);
+  --searchresults-border-color: var(--n-border);
+  --searchresults-li-bg: var(--n-bg-raised);
+  --search-mark-bg: var(--n-brass-soft);
+  --blockquote-note-color: var(--n-accent);
+  --blockquote-tip-color: var(--n-accent);
+  --blockquote-important-color: var(--n-brass);
+  --blockquote-warning-color: var(--n-brass);
+  --blockquote-caution-color: var(--n-red);
+  --mono-font: ui-monospace, "SF Mono", "Cascadia Mono", "DejaVu Sans Mono", Menlo, Consolas, monospace;
+}
+
+html {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", Ubuntu, Cantarell, sans-serif;
+}
+body {
+  font-family: inherit;
+  background: var(--bg);
+}
+
+/* Code: the app's code colours; the highlighter's own background is
+   replaced so both themes match. */
+pre > code.hljs,
+pre > code {
+  background: var(--n-code-bg) !important;
+  color: var(--n-code-text);
+  border: 1px solid var(--n-border);
+  border-radius: 6px;
+}
+:not(pre) > code {
+  background: var(--n-bg-hover);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+
+.content img {
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--n-border);
+  border-radius: 8px;
+}
+
+/* Screenshots: <img class="shot-light"> and <img class="shot-dark"> pairs,
+   one shown per theme. */
+.content img.shot-dark { display: none; }
+html.navy .content img.shot-dark,
+html.coal .content img.shot-dark,
+html.ayu .content img.shot-dark { display: block; }
+html.navy .content img.shot-light,
+html.coal .content img.shot-light,
+html.ayu .content img.shot-light { display: none; }
+
+.sidebar .sidebar-scrollbox > .chapter > li.chapter-item > .chapter-link-wrapper > a strong,
+.chapter li.part-title {
+  color: var(--n-brass);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.78em;
+}
+
+.menu-title {
+  font-weight: 600;
+}
+
+/* The version switcher (version.js) in the menu bar. */
+.nauvi-version {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 6px;
+}
+.nauvi-version select {
+  font: inherit;
+  font-size: 0.85em;
+  color: var(--n-text);
+  background: var(--n-bg-raised);
+  border: 1px solid var(--n-border-strong);
+  border-radius: 6px;
+  padding: 2px 6px;
+  max-width: 11em;
+}
+
+/* The banner on pages of an older version or of main. */
+.nauvi-banner {
+  margin: 0 0 1em;
+  padding: 0.6em 0.9em;
+  border: 1px solid var(--n-brass);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: var(--n-brass-soft);
+  color: var(--n-text);
+}
+.nauvi-banner a {
+  font-weight: 600;
+}

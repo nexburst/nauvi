@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- For 16 to 48 px: the cell, its bar, one letter and the knot. -->
+  <rect x="48" y="48" width="928" height="928" rx="212" fill="#0f131a"/>
+  <rect x="136" y="232" width="76" height="560" rx="38" fill="#5cd6c6"/>
+  <path d="M368 716 V492 a152 152 0 0 1 304 0 V716" fill="none" stroke="#e3e8f0" stroke-width="124" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="738" y="730" width="116" height="116" rx="14" transform="rotate(45 796 788)" fill="#d8ab63"/>
+</svg>

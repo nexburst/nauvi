@@ -16,18 +16,19 @@ use tauri_plugin_opener::OpenerExt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Type)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum HelpItem {
-    /// The README, in the browser.
+    /// The docs of this version, in the browser.
     Documentation,
     /// A new GitHub issue with the diagnostics filled in.
     ReportBug,
     /// The folder with the app log, in the file manager.
     LogFolder,
-    /// The README's section on AI assistants and `nauvi mcp` (#376).
+    /// The docs' page on Ask AI and AI assistants (#376, #466).
     AiAssistants,
 }
 
-/// The README's section on `nauvi mcp`.
-const AI_DOCS_URL: &str = "https://github.com/nexburst/nauvi#use-nauvi-from-an-ai-assistant-mcp";
+/// The docs' page on Ask AI, its skill and `nauvi mcp`, relative to the
+/// docs' start (`docs/user/src/reference/app/ask-ai.md`).
+const AI_DOCS_PAGE: &str = "reference/app/ask-ai.html";
 
 /// Do what `item` says. The URLs and the folder are fixed here: the page
 /// only names the item.
@@ -35,10 +36,10 @@ pub(crate) fn open<R: Runtime>(app: &AppHandle<R>, item: HelpItem) -> Result<(),
     let opener = app.opener();
     match item {
         HelpItem::Documentation => opener
-            .open_url(crate::diagnostics::DOCS_URL, None::<&str>)
+            .open_url(crate::diagnostics::docs_url(""), None::<&str>)
             .map_err(|e| format!("Could not open the documentation in the browser: {e}")),
         HelpItem::AiAssistants => opener
-            .open_url(AI_DOCS_URL, None::<&str>)
+            .open_url(crate::diagnostics::docs_url(AI_DOCS_PAGE), None::<&str>)
             .map_err(|e| format!("Could not open the documentation in the browser: {e}")),
         HelpItem::ReportBug => opener
             .open_url(crate::diagnostics::bug_report_url(), None::<&str>)

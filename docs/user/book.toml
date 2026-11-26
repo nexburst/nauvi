@@ -1,0 +1,26 @@
+# The user docs (#468), built with mdBook (the version pinned in
+# .github/workflows/pages.yml). Build the whole site, landing page included,
+# with `python3 scripts/site/build.py`; it runs mdBook on this folder.
+[book]
+title = "nauvi docs"
+authors = ["nauvi contributors"]
+language = "en"
+src = "src"
+
+[output.html]
+default-theme = "light"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/nexburst/nauvi"
+edit-url-template = "https://github.com/nexburst/nauvi/edit/main/docs/user/{path}"
+additional-css = ["theme/tokens.css", "theme/nauvi.css"]
+additional-js = ["theme/version.js"]
+smart-punctuation = true
+no-section-label = true
+
+[output.html.search]
+enable = true
+limit-results = 20
+use-boolean-and = true
+
+[output.html.print]
+enable = false
