@@ -5,6 +5,7 @@ import { installFakeBackend } from "./fake-backend";
 import { defaultCluster } from "./fixtures/cluster";
 import { plainInputs } from "../lib/plainInputs";
 import { suppressEngineMenu } from "../lib/engineMenu";
+import { retryOnWake } from "../lib/stores/wakeRetry";
 import { forwardUiErrors } from "../lib/uiErrors";
 import { setChartPinned } from "../lib/stores/chart.svelte";
 
@@ -26,4 +27,6 @@ plainInputs(document.body);
 suppressEngineMenu(window);
 // Uncaught errors go to the app log (#208).
 forwardUiErrors(window);
+// A feed that stopped retrying starts again on a wake or when the network comes back (#526).
+retryOnWake(window, document);
 mount(App, { target: document.getElementById("app")! });

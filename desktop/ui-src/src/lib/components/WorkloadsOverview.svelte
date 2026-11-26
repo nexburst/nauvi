@@ -4,7 +4,14 @@
 </script>
 
 <script lang="ts">
-  import { GiveUp, reconnectStoppedMessage, retryDelay, stoppedMessage } from "../retry";
+  import {
+    GiveUp,
+    clearStalled,
+    markStalled,
+    reconnectStoppedMessage,
+    retryDelay,
+    stoppedMessage,
+  } from "../retry";
   import { onDestroy, untrack } from "svelte";
   import { Channel } from "@tauri-apps/api/core";
   import { api, visibleCluster } from "../cluster";
@@ -23,6 +30,8 @@
   let attempts = 0;
   /** Stops a feed that has been reconnecting for five minutes (lib/retry.ts). */
   const giveUp = new GiveUp();
+  /** Marks this feed stalled while it is not running, for a wake to restart it (#526). */
+  const stall = {};
   /** Ages are recomputed in the UI; nothing is re-requested. */
   const AGE_TICK_MS = 15_000;
 
@@ -65,10 +74,12 @@
       setStatus(false, "Reconnecting…");
       setError(s.error);
       // The backend reconnects for as long as it is asked to: after five
-      // minutes of this, stop the feed and say so. Refresh starts it again.
+      // minutes of this, stop the feed and say so. Retry, Refresh or a
+      // wake starts it again.
       const error = s.error;
       giveUp.arm(() => {
         stop();
+        markStalled(stall);
         setStatus(false, "Not connected");
         setError(reconnectStoppedMessage(error));
       });
@@ -79,6 +90,7 @@
 
   function stop() {
     giveUp.clear();
+    clearStalled(stall);
     if (retry) clearTimeout(retry);
     retry = null;
     const id = feed;
@@ -105,6 +117,7 @@
       const err = clusterError(e);
       setStatus(false, err.status);
       // Wait longer each time, and stop after a few minutes: Refresh starts over.
+      markStalled(stall);
       const wait = retryDelay(++attempts);
       setError(wait === null ? stoppedMessage(err.message) : err.message);
       if (wait !== null) retry = setTimeout(() => start(namespaces, true), wait);
