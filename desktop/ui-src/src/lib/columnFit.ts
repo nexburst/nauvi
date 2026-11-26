@@ -26,8 +26,8 @@ export interface Fit {
   sample?: string;
 }
 
-/** The horizontal padding of a cell (10 px each side). */
-export const CELL_PAD = 20;
+/** The horizontal padding of a cell (8 px each side). */
+export const CELL_PAD = 16;
 
 /** A column's input to `fitWidths`. */
 export interface FitInput {

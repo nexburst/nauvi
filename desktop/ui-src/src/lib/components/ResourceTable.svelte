@@ -29,11 +29,9 @@
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove } from "../stores/keyboard.svelte";
   import type { ResourceKind } from "../bindings";
-  import { cellWidth, columnsFor, shownColumns, STATUS_ICON_PX, statusIcon } from "../columns";
+  import { columnsFor, shownColumns, statusIcon } from "../columns";
   import type { Metrics, Row } from "../columns";
-  import { CELL_PAD, fitWidths, longest, middleCut, minTotal, sample, settle } from "../columnFit";
-  import type { Measure } from "../columnFit";
-  import { cached, measurerFor } from "../textMeasure";
+  import { MAX_DRAG, MIN_DRAG, TableFit } from "../stores/tableFit.svelte";
   import Icon from "../icons/Icon.svelte";
   import RowQuickActions, { type Quick } from "./RowQuickActions.svelte";
   import type { KeyedStore } from "../stores/keyed.svelte";
@@ -95,143 +93,51 @@
   // Fitted columns (#482): each as wide as its widest value and header,
   // the spare width to Name, the long text columns giving way (Name last)
   // when the table is short of room; what the user dragged a column to is
-  // remembered per kind. See columnFit.ts.
-  let gridW = $state(0);
-  let measureCell: Measure | null = null;
-  let measureHead: Measure | null = null;
-  /** Widest value per column key, px with padding. */
-  let naturals = $state.raw(new Map<string, number>());
-  /** Header label widths per column key, px with padding. */
-  let heads = $state.raw(new Map<string, number>());
-  /** The sort arrow and its gap: room in the sorted column's header only. */
-  const ARROW_PX = 13;
-  /** What a column's content asks for: its widest value or its header. */
-  function naturalOf(key: string): number | undefined {
-    const cells = naturals.get(key);
-    if (cells === undefined) return undefined;
-    return Math.max(cells, (heads.get(key) ?? 0) + (sort?.key === key ? ARROW_PX : 0));
-  }
-  /** The column being dragged, and to what width. */
-  let dragging = $state.raw<{ key: string; px: number } | null>(null);
+  // remembered per kind. See tableFit.svelte.ts and columnFit.ts.
   const userWidths = $derived(kindSettings(kind.id).widths ?? {});
-  const fitInputs = $derived(
-    columns.map((c) => ({
-      fit: c.fit,
-      natural: naturalOf(c.key) ?? c.fit.min,
-      user: dragging?.key === c.key ? dragging.px : userWidths[c.key],
-    })),
-  );
-  const avail = $derived(Math.max(0, gridW - CHECK_PX - MORE_PX - gutter));
-  const widths = $derived(fitWidths(fitInputs, avail));
-  const template = $derived([CHECK_PX, ...widths, MORE_PX].map((w) => `${w}px`).join(" "));
+  const fit = new TableFit({
+    columns: () => columns,
+    rows: () => visible,
+    ctx: () => ({ metrics, now: untrack(() => now) }),
+    sortKey: () => sort?.key,
+    userWidths: () => userWidths,
+  });
+  const template = $derived([CHECK_PX, ...fit.widths, MORE_PX].map((w) => `${w}px`).join(" "));
   // Columns that don't fit (extra ones turned on, the detail panel open)
   // scroll sideways, the header with the rows, instead of being cut off.
-  const minWidth = $derived(CHECK_PX + Math.max(minTotal(fitInputs), widths.reduce((a, b) => a + b, 0)) + MORE_PX);
+  const minWidth = $derived(CHECK_PX + fit.total + MORE_PX);
   /** Where each column ends, px from the table's left edge: its resize handle. */
-  const edges = $derived(widths.reduce<number[]>((acc, w) => [...acc, (acc.at(-1) ?? CHECK_PX) + w], []));
-  /** The px left for a cell's text, per column. */
-  const textWidths = $derived(widths.map((w, i) => w - CELL_PAD - (columns[i]?.cls ? STATUS_ICON_PX : 0)));
-
-  // The widths follow the rows at most every FIT_MS, so a busy table does
-  // not measure on every watch batch; at once for new columns or the first rows.
-  const FIT_MS = 300;
-  let fitAt = 0;
-  let fitTimer: ReturnType<typeof setTimeout> | undefined;
-  let fitRows = 0;
-  function measureWidths() {
-    fitAt = performance.now();
-    if (!measureCell || !measureHead) return;
-    const cell = measureCell;
-    const entries = sample(visible);
-    fitRows = entries.length;
-    const ctx = { metrics, now: untrack(() => now) };
-    const next = new Map<string, number>();
-    const nextHeads = new Map<string, number>();
-    for (const col of columns) {
-      if (col.fit.min === col.fit.max) {
-        next.set(col.key, col.fit.min);
-        continue;
-      }
-      nextHeads.set(col.key, measureHead(col.label) + CELL_PAD);
-      let w = 0;
-      if (col.fit.sample) w = Math.max(w, CELL_PAD + cell(col.fit.sample));
-      for (const t of longest(entries.map((e) => col.text(e.row, ctx)))) w = Math.max(w, cellWidth(col, t, cell));
-      next.set(col.key, Math.ceil(w));
-    }
-    // A column narrowing a little keeps its width (no jitter).
-    const keys = [...next.keys()];
-    const kept = settle(
-      keys.map((k) => naturals.get(k) ?? 0),
-      keys.map((k) => next.get(k)!),
-    );
-    naturals = new Map(keys.map((k, i) => [k, kept[i]]));
-    heads = nextHeads;
-  }
+  const edges = $derived(fit.widths.reduce<number[]>((acc, w) => [...acc, (acc.at(-1) ?? CHECK_PX) + w], []));
   $effect(() => {
-    const cols = columns;
-    const count = visible.length;
+    // The shown rows, the columns or the metrics changed.
+    void columns;
     void visible;
-    // The metric columns follow their values too.
     void metrics;
-    untrack(() => {
-      const now = performance.now();
-      const urgent = cols.some((c) => !naturals.has(c.key)) || (fitRows === 0 && count > 0);
-      const wait = urgent ? 0 : Math.max(0, FIT_MS - (now - fitAt));
-      if (wait === 0) {
-        clearTimeout(fitTimer);
-        fitTimer = undefined;
-        measureWidths();
-      } else
-        fitTimer ??= setTimeout(() => {
-          fitTimer = undefined;
-          measureWidths();
-        }, wait);
-    });
+    untrack(() => fit.changed());
   });
-  onDestroy(() => clearTimeout(fitTimer));
+  onDestroy(() => fit.stop());
   onMount(() => {
     const grid = gridEl;
     if (!grid) return;
-    const measurers = () => {
-      measureCell = measurerFor(grid);
-      measureHead = measurerFor(grid.querySelector("button.th") ?? grid);
-    };
-    measurers();
-    measureWidths();
+    fit.attach(grid);
     // Once the fonts are in, measure again in them.
     let live = true;
-    void document.fonts?.ready.then(() => {
-      if (!live) return;
-      measurers();
-      cutMiddle.clear();
-      measureWidths();
-    });
-    const ro = new ResizeObserver(() => (gridW = grid.clientWidth));
+    void document.fonts?.ready.then(() => live && fit.attach(grid));
+    const ro = new ResizeObserver(() => (fit.avail = Math.max(0, grid.clientWidth - CHECK_PX - MORE_PX - gutter)));
     ro.observe(grid);
-    gridW = grid.clientWidth;
     return () => {
       live = false;
       ro.disconnect();
     };
   });
-
-  /** A cut generated name keeps its end (`logger-84…-x7k2p`). */
-  const cutMiddle = cached((text, width) => (measureCell ? middleCut(text, width, measureCell) : text));
-  /** What a cell shows and whether that is all of it. */
-  function shownText(i: number, text: string): { text: string; cut: boolean } {
-    const room = textWidths[i];
-    if (!measureCell || room === undefined || !text) return { text, cut: false };
-    if (columns[i].fit.middle) {
-      const shown = cutMiddle(text, room);
-      return { text: shown, cut: shown !== text };
-    }
-    return { text, cut: measureCell(text) > room };
-  }
+  $effect(() => {
+    // The scrollbar's gutter is taken from the columns' width.
+    void gutter;
+    if (gridEl) fit.avail = Math.max(0, gridEl.clientWidth - CHECK_PX - MORE_PX - gutter);
+  });
 
   // Resizing (#482): drag a header's right edge; double-click it to fit
   // the column to its values, again to let it fit by itself.
-  const MIN_DRAG = 40;
-  const MAX_DRAG = 1200;
   function saveWidth(key: string, px: number | null) {
     const next = { ...userWidths };
     if (px === null) delete next[key];
@@ -246,16 +152,16 @@
     el.setPointerCapture?.(e.pointerId);
     const key = columns[i].key;
     const x0 = e.clientX;
-    const w0 = widths[i];
+    const w0 = fit.widths[i];
     const move = (ev: PointerEvent) => {
-      dragging = { key, px: Math.round(Math.min(MAX_DRAG, Math.max(MIN_DRAG, w0 + ev.clientX - x0))) };
+      fit.dragging = { key, px: Math.round(Math.min(MAX_DRAG, Math.max(MIN_DRAG, w0 + ev.clientX - x0))) };
     };
     const up = () => {
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", up);
       el.removeEventListener("pointercancel", up);
-      if (dragging) saveWidth(key, dragging.px);
-      dragging = null;
+      if (fit.dragging) saveWidth(key, fit.dragging.px);
+      fit.dragging = null;
     };
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", up);
@@ -264,7 +170,7 @@
   function fitColumn(i: number) {
     const col = columns[i];
     if (userWidths[col.key] !== undefined) saveWidth(col.key, null);
-    else saveWidth(col.key, naturalOf(col.key) ?? col.fit.min);
+    else saveWidth(col.key, fit.natural(col.key) ?? col.fit.min);
   }
   let scrollLeft = $state(0);
   // svelte-ignore state_referenced_locally
@@ -772,7 +678,7 @@
       {#each columns as col, i (col.key)}
         <div
           class="resize"
-          class:active={dragging?.key === col.key}
+          class:active={fit.dragging?.key === col.key}
           aria-hidden="true"
           data-testid="col-resize"
           data-col={col.key}
@@ -847,7 +753,7 @@
               {@const spark = col.spark?.(entry.row, { metrics, now })}
               {@const link = cellLink(kinds.all, kind, col, text, entry.row.namespace)}
               {@const cls = col.cls?.(entry.row) ?? ""}
-              {@const shown = col.draw ? { text, cut: false } : shownText(c, text)}
+              {@const shown = col.draw ? { text, cut: false } : fit.shown(c, text)}
               <!-- The whole value in the tooltip when the cell cuts it (#482). -->
               <div
                 class="td {cls}"
@@ -1038,7 +944,7 @@
     min-width: 0;
     overflow: hidden;
     text-align: left;
-    padding: 0 10px;
+    padding: 0 8px;
     background: transparent;
     border: none;
     color: var(--text-muted);
@@ -1139,7 +1045,7 @@
     white-space: nowrap;
   }
   .td {
-    padding: 0 10px;
+    padding: 0 8px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;

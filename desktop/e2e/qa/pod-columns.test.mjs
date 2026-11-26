@@ -66,7 +66,13 @@ async function ownerLink(app) {
   await scrollTable(app);
   return app.find(By.css('[data-testid="resource-row"] [data-testid="owner-link"]'));
 }
-const textOf = (app, el) => app.js("return arguments[0].textContent.trim()", el);
+/** The whole text of a cell's content: a cut cell (#482) has it as its name. */
+const textOf = (app, el) =>
+  app.js(
+    `const cell = arguments[0].closest('[role="gridcell"]');
+     return cell?.getAttribute("aria-label") ?? arguments[0].textContent.trim();`,
+    el,
+  );
 
 describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
   let ns;

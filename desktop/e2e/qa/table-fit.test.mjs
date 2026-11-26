@@ -209,9 +209,14 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
     await app.shot("hover-dark");
     await (await row.findElement(By.css('[data-testid="row-edit"]'))).click();
     await waitPanelTitle(app, `${ns}/${name}`);
+    // A pod's panel scrolls to its YAML editor.
     await app.waitFor(
-      () => app.js(`return document.querySelector('aside [role="tab"][aria-selected="true"]')?.textContent.trim() === "YAML"`),
-      { message: "the YAML tab" },
+      () =>
+        app.js(`const e = document.querySelector('[data-testid="detail-panel"] [data-testid="yaml-editor"]');
+                if (!e) return false;
+                const r = e.getBoundingClientRect();
+                return r.top < innerHeight && r.bottom > 0;`),
+      { message: "the YAML editor in view" },
     );
     await closePanel(app);
   });

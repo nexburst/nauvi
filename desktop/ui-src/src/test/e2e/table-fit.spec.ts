@@ -69,7 +69,7 @@ test("at 1280 px Name gives way last, keeping its end; short columns are whole",
   await expect(rows(page)).toHaveCount(7);
   // The node and namespace columns gave way before Name.
   const name = nameCell(page, CANARY);
-  await expect(name).toHaveText(/^payments-worker-canary.*-x7k2p$/);
+  await expect(name).toHaveText(/^payments-worker-canar.*-x7k2p$/);
   await expect(rowOf(page, CANARY).getByRole("gridcell", { name: NODE })).toHaveClass(/\bcut\b/);
   for (const n of ["Ready", "Status", "Restarts", "Age"]) {
     const i = await grid(page)

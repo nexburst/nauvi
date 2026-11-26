@@ -112,7 +112,7 @@ function fitFor(def: ColumnDef): Fit {
   // header are, and are never cut.
   if (def.kind === "number" || def.key === "ready" || def.key === "restarts")
     return { min: 48, max: 120, grow: 0, give: 0 };
-  if (def.kind === "owner") return { min: 160, max: 360, grow: 0, give: 1, middle: true };
+  if (def.kind === "owner") return { min: 180, max: 360, grow: 0, give: 1, middle: true };
   if (def.kind === "containers") return { min: 72, max: 260, grow: 0, give: 1 };
   if (def.kind === "rollout") return { min: 96, max: 220, grow: 0, give: 0 };
   // "CrashLoopBackOff" behind its icon; a longer reason is cut, with the

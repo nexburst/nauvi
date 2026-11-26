@@ -221,9 +221,11 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
    * another scenario never sorts first.
    */
   const shopRow = ({ name, prefix }) => {
+    // A cut cell (#482) by its name, the whole value.
     const cell = (cond) => `[*[@role='gridcell'][${cond}]]`;
-    const nameCell = name ? cell(`normalize-space()=${xq(name)}`) : cell(`starts-with(normalize-space(), ${xq(prefix)})`) + cell("normalize-space()='Running'");
-    return By.xpath(`//*[@data-testid='resource-row']${cell(`normalize-space()=${xq(shop)}`)}${nameCell}`);
+    const is = (v) => `normalize-space()=${xq(v)} or @aria-label=${xq(v)}`;
+    const nameCell = name ? cell(is(name)) : cell(`starts-with(normalize-space(), ${xq(prefix)}) or starts-with(@aria-label, ${xq(prefix)})`) + cell("normalize-space()='Running'");
+    return By.xpath(`//*[@data-testid='resource-row']${cell(is(shop))}${nameCell}`);
   };
   const clickShopRow = async (which) => (await s.app.find(shopRow(which), { timeout: 60_000 })).findElement(By.xpath("./*[@role='gridcell'][2]")).then((c) => c.click());
   const shopRowMenu = async (which) => (await s.app.find(shopRow(which), { timeout: 60_000 })).findElement(By.css('[data-testid="row-menu"]')).then((b) => b.click());

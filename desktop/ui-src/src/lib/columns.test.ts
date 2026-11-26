@@ -108,11 +108,11 @@ describe("columnsFor", () => {
         ["containers", "containers"],
       ]),
     );
-    expect(cellWidth(name, "web-1", m)).toBe(20 + 35);
+    expect(cellWidth(name, "web-1", m)).toBe(16 + 35);
     // The status icon and its gap.
-    expect(cellWidth(st, "Running", m)).toBe(20 + 20 + 49);
+    expect(cellWidth(st, "Running", m)).toBe(16 + 20 + 49);
     // One square per container.
-    expect(cellWidth(sq, "app=running sidecar=waiting", m)).toBe(20 + 2 * 13);
+    expect(cellWidth(sq, "app=running sidecar=waiting", m)).toBe(16 + 2 * 13);
   });
 
   it("draws each status with an icon in its tone (#482)", () => {
