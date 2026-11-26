@@ -103,10 +103,10 @@ function fitFor(def: ColumnDef): Fit {
   }
   // Name takes the spare width (#384, #482) and gives way last; the end of
   // a cut name stays, where generated names differ.
-  if (def.key === "name") return { min: 240, max: 640, grow: 2, give: 3, middle: true };
+  if (def.key === "name") return { min: 232, max: 640, grow: 2, give: 3, middle: true };
   // Then the places it runs in.
   if (def.key === "namespace" || def.key === "node" || def.key === "nominated")
-    return { min: 88, max: 320, grow: 1, give: 2, middle: true };
+    return { min: 84, max: 320, grow: 1, give: 2, middle: true };
   if (def.key === "message") return { min: 240, max: 100000, grow: 3, give: 1 };
   // Short values ("1/1", "12", "Running") are as wide as they and their
   // header are, and are never cut.
