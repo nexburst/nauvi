@@ -34,7 +34,7 @@ function app(name: string, over: Partial<Application> = {}): Application {
 function entries(list: Application[]): Entry<AppRow>[] {
   return list.map((a) => {
     const row = appRow(a);
-    return { key: row.key, row, hay: Object.values(row).map((v) => String(v).toLowerCase()).join("\0") };
+    return { key: row.key, row };
   });
 }
 

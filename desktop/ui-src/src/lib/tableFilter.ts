@@ -122,6 +122,12 @@ export function shownText(cells: readonly number[]): ShownText {
   return { raw: (r) => entry(r).raw, lower: (r) => entry(r).lower };
 }
 
+/** Indexes into `row.cells` of the `shown` columns, in the kind's column
+ *  definitions `defs` (columns the UI fills itself have empty cells). */
+export function shownCells(defs: readonly { key: string }[], shown: readonly { key: string }[]): number[] {
+  return shown.map((c) => defs.findIndex((d) => d.key === c.key)).filter((i) => i >= 0);
+}
+
 /**
  * Whether a cell cut in the middle (#482) matches a plain filter only in
  * the part it does not show: the table marks it, so the row shows why it is

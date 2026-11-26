@@ -38,8 +38,8 @@
   import RowQuickActions, { type Quick } from "./RowQuickActions.svelte";
   import type { KeyedStore } from "../stores/keyed.svelte";
   import type { Sort } from "../view";
-  import { activeFilter, ListFilter } from "../stores/tableFilter.svelte";
-  import { cutHit, shownText } from "../tableFilter";
+  import { activeFilter, ListFilter, shownHay } from "../stores/tableFilter.svelte";
+  import { cutHit } from "../tableFilter";
   import { sortOf, withSort } from "../settings";
   import { kindSettings, settings, updateKind, updateSettings } from "../stores/settings.svelte";
   import { registerTableExport } from "../stores/tableExport.svelte";
@@ -185,13 +185,16 @@
   // a metric / age column) the metrics or clock change.
   // The toolbar filter (#219): text, match case or a regex in the worker.
   // It matches what the rows show (#512): name, namespace and the cells of
-  // the shown columns; a regex runs again when the columns change.
-  const cellIndexes = $derived(columns.map((c) => kind.columns.findIndex((d) => d.key === c.key)).filter((i) => i >= 0));
-  const hay = $derived(shownText(cellIndexes));
-  const filter = new ListFilter(() => (void hay, store.entries), {
+  // the shown columns; a regex runs again when the shown columns change,
+  // not on each metrics refresh.
+  const hay = shownHay(
+    () => kind.columns,
+    () => columns,
+  );
+  const filter = new ListFilter(() => (void hay.current, store.entries), {
     key: (e) => e.key,
-    lower: (e) => hay.lower(e.row),
-    text: (e) => hay.raw(e.row),
+    lower: (e) => hay.current.lower(e.row),
+    text: (e) => hay.current.raw(e.row),
   });
   // The clock is read untracked there: an age tick redraws the Age cells only.
   const rows = visibleRows(

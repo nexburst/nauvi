@@ -42,13 +42,6 @@ describe("KeyedStore", () => {
     expect(keys(s)).toEqual([]);
   });
 
-  it("precomputes a lowercase search haystack over every field", () => {
-    const s = store();
-    s.applyBatch({ snapshot: true, applied: [r("Web-1", "RUNNING")], deleted: [] });
-    expect(s.entries[0].hay).toContain("web-1");
-    expect(s.entries[0].hay).toContain("running");
-  });
-
   it("publishes a new array per batch and never mutates the old one", () => {
     const s = store();
     s.applyBatch({ snapshot: true, applied: [r("a")], deleted: [] });

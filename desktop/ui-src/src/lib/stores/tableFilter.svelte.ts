@@ -4,8 +4,8 @@
 import { untrack } from "svelte";
 import { app } from "./app.svelte";
 import { settings, updateSettings } from "./settings.svelte";
-import { compileFilter, filterKey, nameMatches, NO_FILTER } from "../tableFilter";
-import type { CompiledFilter } from "../tableFilter";
+import { compileFilter, filterKey, nameMatches, NO_FILTER, shownCells, shownText } from "../tableFilter";
+import type { CompiledFilter, ShownText } from "../tableFilter";
 import { LogSearcher } from "../logSearch";
 import { EMPTY_HISTORY, forget, normalizeHistory, remember, toggleStar } from "../searchHistory";
 import type { SavedSearch, SearchHistory } from "../searchHistory";
@@ -47,6 +47,26 @@ export function filterError(): string {
 /** Keep the filter when opening `name` from elsewhere only if its row would show. */
 export function filterKeeps(name: string): boolean {
   return nameMatches(activeFilter(), name) === true;
+}
+
+/**
+ * What a resource table's filter matches (#512, `shownText`), for the
+ * columns `shown` of the kind's `defs`. It changes only when the shown
+ * columns do: the table's columns are rebuilt on every metrics refresh, and
+ * a new text would run a regex again over every row.
+ */
+export function shownHay(
+  defs: () => readonly { key: string }[],
+  shown: () => readonly { key: string }[],
+): { readonly current: ShownText } {
+  // A string: an equal one does not wake what depends on it.
+  const sig = $derived(shownCells(defs(), shown()).join(","));
+  const hay = $derived(shownText(sig ? sig.split(",").map(Number) : []));
+  return {
+    get current() {
+      return hay;
+    },
+  };
 }
 
 // ---- History ----
