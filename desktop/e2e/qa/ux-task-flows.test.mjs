@@ -430,7 +430,7 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     await app.setValue(await app.find(By.css('[role=dialog] input[aria-label="Namespace"]')), shop);
     await app.waitFor(async () => (await values()).includes("greeting: hello"), { message: "the chart's values" });
     await click('[data-testid="deploy-preview"]');
-    await app.waitFor(async () => /Dry run of/.test(await summary()), { timeout: 120_000, message: "the install dry run" });
+    await app.waitFor(async () => /Dry run:/.test(await summary()), { timeout: 120_000, message: "the install dry run" });
     await app.shot("8-install-dry-run");
     await click('[data-testid="deploy-confirm"]');
     step("8. Helm install and upgrade", 4, 1);
@@ -444,8 +444,8 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
        e.setValue(e.getValue().replace('greeting: hello', 'greeting: hola'));`,
     );
     await click('[data-testid="deploy-preview"]');
-    await app.waitFor(async () => /Dry run of/.test(await summary()), { timeout: 120_000, message: "the upgrade dry run" });
-    // #497: the headline says "nothing changed" above a diff that changes greeting.
+    await app.waitFor(async () => /Dry run:/.test(await summary()), { timeout: 120_000, message: "the upgrade dry run" });
+    // #497: the headline names the ConfigMap whose greeting the diff changes.
     await app.shot("8-upgrade-dry-run");
     await click('[data-testid="deploy-confirm"]');
     step("8. Helm install and upgrade", 4, 1);

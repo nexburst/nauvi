@@ -317,7 +317,12 @@ async fn body(client: &Client, server: &RepoServer, ns: &str) -> Result<()> {
     ensure!(dry.secrets_hidden && dry.manifest.contains(REDACTED));
     ensure!(!dry.manifest.contains("not-a-real-secret"));
     ensure!(dry.resources.len() == 3, "{:?}", dry.resources);
-    ensure!(dry.summary.contains("nothing changed"), "{}", dry.summary);
+    ensure!(
+        dry.summary == "Dry run: 3 objects would be created. Nothing has been applied yet",
+        "{}",
+        dry.summary
+    );
+    ensure!(dry.previous_manifest.is_empty());
     ensure!(Api::<Namespace>::all(client.clone())
         .get_opt(ns)
         .await?
@@ -397,6 +402,37 @@ async fn body(client: &Client, server: &RepoServer, ns: &str) -> Result<()> {
     // The diff the app shows: same redaction on both sides.
     ensure!(current.manifest.contains("greeting: \"hi\""));
     ensure!(current.manifest.contains(REDACTED) && dry.manifest.contains(REDACTED));
+    // The summary compares the same two manifests (#497).
+    ensure!(
+        dry.previous_manifest.trim() == current.manifest.trim(),
+        "{}\n---\n{}",
+        dry.previous_manifest,
+        current.manifest
+    );
+    ensure!(
+        dry.summary
+            == format!(
+                "Dry run: 2 of 3 objects would change (ConfigMap {rel}-config, Deployment {rel}-app). \
+                 Nothing has been applied yet"
+            ),
+        "{}",
+        dry.summary
+    );
+    // The same values again: nothing would change.
+    let same = helm_upgrade(
+        &target,
+        &HelmDeployRequest {
+            version: "0.1.0".into(),
+            values: install.values.clone(),
+            ..upgrade.clone()
+        },
+    )
+    .await?;
+    ensure!(
+        same.summary == "Dry run: none of the 3 objects would change. Nothing has been applied yet",
+        "{}",
+        same.summary
+    );
 
     // The upgrade: the edited values replace the old ones.
     let up = helm_upgrade(

@@ -1703,6 +1703,11 @@ export type HelmDeployResult = {
 	 *  Secret values hidden unless revealed.
 	 */
 	manifest: string,
+	/**
+	 *  An upgrade's dry run: the release's current manifest, hidden like
+	 *  `manifest`, which `summary` compares it with. Empty otherwise.
+	 */
+	previous_manifest: string,
 	secrets_hidden: boolean,
 	resources: HelmResource[],
 	dry_run: boolean,

@@ -6,7 +6,10 @@ use super::command::release_failure;
 use super::command::{check_namespace, run_helm_with_input, HelmTarget};
 use super::decode::StoredRelease;
 use super::repo::check_word;
-use super::{check_release_name, manifest_resources, redact_manifest, HelmResource, HelmStorage};
+use super::{
+    check_release_name, manifest_changes, manifest_resources, redact_manifest, HelmResource,
+    HelmStorage, ManifestChanges,
+};
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +55,9 @@ pub struct HelmDeployResult {
     /// The rendered manifest (without hooks, like a stored release's);
     /// Secret values hidden unless revealed.
     pub manifest: String,
+    /// An upgrade's dry run: the release's current manifest, hidden like
+    /// `manifest`, which `summary` compares it with. Empty otherwise.
+    pub previous_manifest: String,
     pub secrets_hidden: bool,
     pub resources: Vec<HelmResource>,
     pub dry_run: bool,
@@ -125,21 +131,89 @@ fn deploy_args(
     args
 }
 
-fn result_from(out: &str, req: &HelmDeployRequest, mode: Mode) -> Result<HelmDeployResult> {
+/// "ConfigMap a, Service b and 2 more".
+fn object_names(objects: &[HelmResource]) -> String {
+    const SHOWN: usize = 3;
+    let mut text = objects
+        .iter()
+        .take(SHOWN)
+        .map(|r| format!("{} {}", r.kind, r.name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if objects.len() > SHOWN {
+        text.push_str(&format!(" and {} more", objects.len() - SHOWN));
+    }
+    text
+}
+
+fn count(n: usize) -> String {
+    format!("{n} object{}", if n == 1 { "" } else { "s" })
+}
+
+/// A dry run's line: what applying it would do to each object (an install
+/// compares with nothing), and that nothing is applied yet.
+fn dry_run_summary(c: &ManifestChanges) -> String {
+    let mut parts = Vec::new();
+    if !c.changed.is_empty() {
+        parts.push(format!(
+            "{} of {} would change ({})",
+            c.changed.len(),
+            count(c.total),
+            object_names(&c.changed)
+        ));
+    }
+    if c.created.len() == c.total && c.total > 0 && c.changed.is_empty() && c.deleted.is_empty() {
+        parts.push(format!("{} would be created", count(c.total)));
+    } else if !c.created.is_empty() {
+        parts.push(format!(
+            "{} would be created ({})",
+            count(c.created.len()),
+            object_names(&c.created)
+        ));
+    }
+    if !c.deleted.is_empty() {
+        parts.push(format!(
+            "{} would be deleted ({})",
+            count(c.deleted.len()),
+            object_names(&c.deleted)
+        ));
+    }
+    if parts.is_empty() {
+        parts.push(match c.total {
+            0 => "the chart renders no objects".to_string(),
+            1 => "the object would not change".to_string(),
+            n => format!("none of the {n} objects would change"),
+        });
+    }
+    format!(
+        "Dry run: {}. Nothing has been applied yet",
+        parts.join(", ")
+    )
+}
+
+/// `previous`: an upgrade's dry run, the release's current manifest.
+fn result_from(
+    out: &str,
+    req: &HelmDeployRequest,
+    mode: Mode,
+    previous: &str,
+) -> Result<HelmDeployResult> {
     let r: StoredRelease =
         serde_json::from_str(out).context("cannot read the release helm printed")?;
-    let (manifest, secrets_hidden) = if req.reveal {
-        (r.manifest.clone(), false)
-    } else {
-        redact_manifest(&r.manifest)
+    let hide = |m: &str| {
+        if req.reveal {
+            (m.to_string(), false)
+        } else {
+            redact_manifest(m)
+        }
     };
+    let (manifest, secrets_hidden) = hide(&r.manifest);
+    let (previous_manifest, previous_hidden) = hide(previous);
     let resources = manifest_resources(&r.manifest, &req.namespace);
     let what = format!("{}/{}", req.namespace, req.name);
     let summary = match (req.dry_run, mode) {
-        (true, _) => format!(
-            "Dry run of {what}: {} objects, nothing changed",
-            resources.len()
-        ),
+        // Compared unhidden, so a changed Secret value counts.
+        (true, _) => dry_run_summary(&manifest_changes(previous, &r.manifest, &req.namespace)),
         (false, Mode::Install) => format!("Installed {what} (revision {})", r.version),
         (false, Mode::Upgrade) => format!("Upgraded {what} to revision {}", r.version),
     };
@@ -153,7 +227,8 @@ fn result_from(out: &str, req: &HelmDeployRequest, mode: Mode) -> Result<HelmDep
         app_version: r.chart.metadata.app_version,
         notes: r.info.notes,
         manifest,
-        secrets_hidden,
+        previous_manifest,
+        secrets_hidden: secrets_hidden || previous_hidden,
         resources,
         dry_run: req.dry_run,
         summary,
@@ -186,7 +261,34 @@ async fn deploy(
             };
             anyhow!("{verb} of {} failed: {why}", req.name)
         })?;
-    result_from(&out, req, mode)
+    // What the upgrade's dry run is compared with: the release's current
+    // manifest, from the same storage.
+    let previous = if mode == Mode::Upgrade && req.dry_run {
+        let mut get: Vec<String> = vec![
+            "get".into(),
+            "manifest".into(),
+            req.name.clone(),
+            "--namespace".into(),
+            req.namespace.clone(),
+        ];
+        get.extend(target.args());
+        let mut text = run_helm_with_input(&get, None, Some(req.storage))
+            .await
+            .map_err(|e| {
+                anyhow!(
+                    "{verb} of {} failed: cannot read its current manifest: {}",
+                    req.name,
+                    release_failure(&format!("{e:#}"), &req.namespace, &req.name, req.storage)
+                )
+            })?;
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text
+    } else {
+        String::new()
+    };
+    result_from(&out, req, mode, &previous)
 }
 
 /// Helm's error without its `INSTALLATION FAILED: ` / `UPGRADE FAILED: `
@@ -298,21 +400,82 @@ mod tests {
             dry_run: true,
             ..req()
         };
-        let r = result_from(&out, &dry, Mode::Install).unwrap();
+        let r = result_from(&out, &dry, Mode::Install, "").unwrap();
         assert_eq!(
             (r.revision, r.status.as_str(), r.chart_version.as_str()),
             (1, "pending-install", "0.2.0")
         );
         assert!(r.secrets_hidden && !r.manifest.contains("hunter2"));
         assert_eq!(r.resources.len(), 1);
-        assert_eq!(r.summary, "Dry run of apps/web: 1 objects, nothing changed");
+        assert_eq!(
+            r.summary,
+            "Dry run: 1 object would be created. Nothing has been applied yet"
+        );
+        assert!(r.previous_manifest.is_empty());
+        // An upgrade's dry run, compared with the current manifest; the
+        // changed Secret value counts though both sides hide it.
+        let before = "---\napiVersion: v1\nkind: Secret\nmetadata:\n  name: s\nstringData:\n  password: old\n";
+        let r = result_from(&out, &dry, Mode::Upgrade, before).unwrap();
+        assert_eq!(
+            r.summary,
+            "Dry run: 1 of 1 object would change (Secret s). Nothing has been applied yet"
+        );
+        assert!(r.secrets_hidden && !r.previous_manifest.contains("old"));
         let shown = HelmDeployRequest {
             reveal: true,
             ..req()
         };
-        let r = result_from(&out, &shown, Mode::Upgrade).unwrap();
+        let r = result_from(&out, &shown, Mode::Upgrade, "").unwrap();
         assert!(!r.secrets_hidden && r.manifest.contains("hunter2"));
         assert_eq!(r.summary, "Upgraded apps/web to revision 1");
+    }
+
+    #[test]
+    fn dry_run_summary_says_what_would_change() {
+        let obj = |kind: &str, name: &str| HelmResource {
+            api_version: "v1".into(),
+            kind: kind.into(),
+            namespace: "ns".into(),
+            name: name.into(),
+        };
+        let summary = |changed: Vec<HelmResource>,
+                       created: Vec<HelmResource>,
+                       deleted: Vec<HelmResource>,
+                       total| {
+            dry_run_summary(&ManifestChanges {
+                created,
+                changed,
+                deleted,
+                total,
+            })
+        };
+        let end = ". Nothing has been applied yet";
+        assert_eq!(
+            summary(vec![obj("ConfigMap", "cfg")], vec![], vec![], 3),
+            format!("Dry run: 1 of 3 objects would change (ConfigMap cfg){end}")
+        );
+        assert_eq!(
+            summary(vec![], vec![], vec![], 3),
+            format!("Dry run: none of the 3 objects would change{end}")
+        );
+        assert_eq!(
+            summary(vec![], vec![], vec![], 1),
+            format!("Dry run: the object would not change{end}")
+        );
+        assert_eq!(
+            summary(vec![], vec![obj("A", "a"), obj("B", "b")], vec![], 2),
+            format!("Dry run: 2 objects would be created{end}")
+        );
+        let many: Vec<_> = (1..=5)
+            .map(|i| obj("ConfigMap", &format!("c{i}")))
+            .collect();
+        assert_eq!(
+            summary(many, vec![obj("Service", "s")], vec![obj("Job", "j")], 6),
+            format!(
+                "Dry run: 5 of 6 objects would change (ConfigMap c1, ConfigMap c2, ConfigMap c3 and 2 more), \
+                 1 object would be created (Service s), 1 object would be deleted (Job j){end}"
+            )
+        );
     }
 
     #[test]
