@@ -372,6 +372,7 @@ mod tests {
                 message: "0/2 nodes are available: Insufficient memory.".into(),
                 count: 3,
                 age: "2m".into(),
+                time: 0,
             }],
             pod: PodExtras {
                 phase: "Pending".into(),

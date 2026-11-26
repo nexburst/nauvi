@@ -57,8 +57,8 @@ describe("capacityBars", () => {
     const [cpu, mem, pods] = capacityBars(capacity);
     expect(cpu.text).toBe("1.2 / 8 requested (15%)");
     expect(cpu.usage).toBe("900m used (11%)");
-    expect(mem.text).toBe("3Gi / 16Gi requested (19%)");
-    expect(mem.usage).toBe("4Gi used (25%)");
+    expect(mem.text).toBe("3 GiB / 16 GiB requested (19%)");
+    expect(mem.usage).toBe("4 GiB used (25%)");
     expect(pods.text).toBe("105 / 110 (95%)");
     expect(pods.high).toBe(true);
     expect(cpu.high).toBe(false);
@@ -70,7 +70,7 @@ describe("capacityBars", () => {
     expect(cpu.limitPercent).toBe(25);
     expect(cpu.overcommitted).toBe(false);
     // 20Gi of limits on 16Gi: overcommitted, the marker stops at the end.
-    expect(mem.limits).toBe("20Gi limits (125%)");
+    expect(mem.limits).toBe("20 GiB limits (125%)");
     expect(mem.limitPercent).toBe(100);
     expect(mem.overcommitted).toBe(true);
     expect(pods.limits).toBe("");
@@ -85,7 +85,7 @@ describe("capacityBars", () => {
   it("says how many containers have no limit, and marks the limits partial", () => {
     const [cpu, mem] = capacityBars({ ...capacity, cpu_unlimited_containers: 1, memory_unlimited_containers: 14 });
     expect(cpu.limits).toBe("2 limits (25%) · 1 container without a limit");
-    expect(mem.limits).toBe("20Gi limits (125%) · 14 containers without a limit");
+    expect(mem.limits).toBe("20 GiB limits (125%) · 14 containers without a limit");
     expect(cpu.partial).toBe(true);
     expect(cpu.limitPercent).toBe(25);
     expect(capacityBars(capacity)[0].partial).toBe(false);

@@ -33,7 +33,7 @@ describe("metrics add-ons", () => {
 
   it("formats a node's disk use", () => {
     const d = { name: "n", mountpoint: "/", used_bytes: 12.5 * 1024 ** 3, size_bytes: 50 * 1024 ** 3 };
-    expect(diskText(d)).toBe("25% · 12.5Gi / 50Gi");
+    expect(diskText(d)).toBe("25% · 12.5 GiB / 50 GiB");
     expect(diskPercent({ ...d, size_bytes: 0 })).toBe(0);
   });
 });

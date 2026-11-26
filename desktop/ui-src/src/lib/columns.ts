@@ -1,6 +1,6 @@
 import type { ColumnDef, NodeDisk, NodeUsage, PodUsage, ResourceKind, ResourceRow, Spark, TimeZone } from "./bindings";
 import { diskPercent, diskText } from "./metricsAddons";
-import { createdAt, formatAge, formatCpu, formatMemory } from "./format";
+import { cpuCores, createdAt, formatAge, formatCpu, formatMemory } from "./format";
 import { columnOn } from "./settings";
 import { containersSummary, parseContainers, worstRank } from "./containerStates";
 import { rolloutRank, rolloutTitle } from "./rolloutStatus";
@@ -42,8 +42,8 @@ export interface Column {
   /** Values of the cell's sparkline, oldest first (metric columns only). */
   spark?(row: Row, ctx: Ctx): readonly number[];
   /** The cell's tooltip, when it is not the cell's text (the Age column's
-   *  creation time, #380). */
-  title?(row: Row, zone: TimeZone): string;
+   *  creation time, #380; CPU in cores, #484). */
+  title?(row: Row, zone: TimeZone, ctx: Ctx): string;
   /** Whether the column has anything to show; shown when missing. */
   shown?(metrics: Metrics): boolean;
   /** Off until the user turns it on in the column chooser (#378). */
@@ -160,6 +160,10 @@ function column(def: ColumnDef, index: number): Column {
           const m = c.metrics.pods.get(r.key);
           return m ? formatCpu(m.cpu_millicores) : "—";
         },
+        title: (r, _zone, c) => {
+          const m = c.metrics.pods.get(r.key);
+          return m ? cpuCores(m.cpu_millicores) : "";
+        },
         sort: (r, c) => c.metrics.pods.get(r.key)?.cpu_millicores ?? -1,
         spark: (r, c) => c.metrics.sparks.get(r.key)?.cpu ?? NO_SPARK,
         shown: notHidden,
@@ -185,6 +189,12 @@ function column(def: ColumnDef, index: number): Column {
             formatCpu(m.cpu_millicores) +
             (m.cpu_capacity_millicores ? " / " + formatCpu(m.cpu_capacity_millicores) : "")
           );
+        },
+        title: (r, _zone, c) => {
+          const m = c.metrics.nodes.get(r.name);
+          if (!m) return "";
+          const cap = m.cpu_capacity_millicores ? ` of ${cpuCores(m.cpu_capacity_millicores)}` : "";
+          return `${cpuCores(m.cpu_millicores)}${cap}`;
         },
         sort: (r, c) => c.metrics.nodes.get(r.name)?.cpu_millicores ?? -1,
         spark: (r, c) => c.metrics.sparks.get(r.name)?.cpu ?? NO_SPARK,

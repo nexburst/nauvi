@@ -274,9 +274,9 @@ fn problem(pod: &PodSummary, now: i64) -> Option<String> {
     match pod.state {
         PodState::WaitingError | PodState::Failed => Some(pod.status.clone()),
         PodState::Running if !pod.ready => Some(not_ready_reason(&pod.status)),
-        PodState::Pending if pod.created > 0 && now - pod.created > PENDING_TOO_LONG_SECS => {
-            Some(format!("Pending for {}m", (now - pod.created) / 60))
-        }
+        PodState::Pending if pod.created > 0 && now - pod.created > PENDING_TOO_LONG_SECS => Some(
+            format!("Pending for {}", crate::human::duration(now - pod.created)),
+        ),
         _ => None,
     }
 }
@@ -565,7 +565,7 @@ mod tests {
                 ("crashed", "CrashLoopBackOff"),
                 ("evicted", "Evicted"),
                 ("half-failed", "Error"),
-                ("stuck", "Pending for 60m"),
+                ("stuck", "Pending for 1h"),
                 ("unready", "Not ready"),
             ]
         );
