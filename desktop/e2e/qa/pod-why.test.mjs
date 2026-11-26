@@ -179,7 +179,8 @@ describe("why a pod is failing (#496)", { timeout: 15 * 60_000 }, () => {
     assert.match(w.last, /^Last run exited with code 3/);
     assert.equal(w.termination, "no DB_URL set");
     assert.ok(w.bottom <= w.viewport, "the block shows without scrolling the panel");
-    assert.ok((await selectedRow(app))?.inView, "the selected row in view");
+    // The panel can load before the table has drawn the selection.
+    await app.waitFor(async () => (await selectedRow(app))?.inView, { timeout: 20_000, message: "the selected row in view" });
     await shotBoth(app, "crash");
 
     await app.js(`Array.from(document.querySelectorAll('${WHY} button')).find((b) => b.textContent.trim() === "Logs")?.click()`);
