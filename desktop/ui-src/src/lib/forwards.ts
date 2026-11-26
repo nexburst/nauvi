@@ -34,11 +34,17 @@ export function looksLikeWeb(remote: string, name = ""): boolean {
 }
 
 /**
- * Whether "Open in browser when it starts" starts checked: the user's last
- * choice, else on for ports that look like HTTP (#498).
+ * Whether "Open in browser when it starts" starts checked: what the user
+ * last chose for this sort of port (web-like or not, `remembered`), else on
+ * for ports that look like HTTP (#498).
  */
-export function defaultOpenInBrowser(remembered: boolean | null, remote: string, name = ""): boolean {
-  return remembered ?? looksLikeWeb(remote, name);
+export function defaultOpenInBrowser(
+  remembered: (web: boolean) => boolean | null,
+  remote: string,
+  name = "",
+): boolean {
+  const web = looksLikeWeb(remote, name);
+  return remembered(web) ?? web;
 }
 
 const KINDS: Record<string, ForwardKind> = {

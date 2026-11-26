@@ -28,14 +28,26 @@
         if (!forwardDialog.remote && servicePorts.length > 0) {
           const p = servicePorts[0];
           forwardDialog.remote = String(p.port);
-          if (!forwardDialog.openTouched) {
-            forwardDialog.openInBrowser = defaultOpenInBrowser(rememberedOpenInBrowser(), forwardDialog.remote, p.name);
-          }
         }
       })
       .catch(() => {
         // Typing the port still works.
       });
+  });
+
+  // The chosen Service port's name, for what "Open in browser" remembers.
+  $effect(() => {
+    const remote = forwardDialog.remote;
+    forwardDialog.portName = servicePorts.find((p) => String(p.port) === remote)?.name ?? "";
+  });
+
+  // A new forward's "Open in browser" follows the port (as typed, or the
+  // Service's) until the user sets it; an edit keeps the saved choice.
+  $effect(() => {
+    const remote = forwardDialog.remote;
+    const name = forwardDialog.portName;
+    if (!forwardDialog.target || forwardDialog.editId || forwardDialog.openTouched) return;
+    forwardDialog.openInBrowser = defaultOpenInBrowser(rememberedOpenInBrowser, remote, name);
   });
 
   function onkeydown(e: KeyboardEvent) {

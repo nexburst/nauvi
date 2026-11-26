@@ -63,10 +63,17 @@ describe("open in browser (#498)", () => {
   });
 
   it("follows the user's last choice once there is one", () => {
-    expect(defaultOpenInBrowser(null, "80")).toBe(true);
-    expect(defaultOpenInBrowser(null, "5432")).toBe(false);
-    expect(defaultOpenInBrowser(false, "80")).toBe(false);
-    expect(defaultOpenInBrowser(true, "5432")).toBe(true);
+    const none = () => null;
+    expect(defaultOpenInBrowser(none, "80")).toBe(true);
+    expect(defaultOpenInBrowser(none, "5432")).toBe(false);
+    expect(defaultOpenInBrowser(none, "8001", "http")).toBe(true);
+    // Remembered per sort of port: web-like, or not.
+    const offForWeb = (web: boolean) => (web ? false : null);
+    expect(defaultOpenInBrowser(offForWeb, "80")).toBe(false);
+    expect(defaultOpenInBrowser(offForWeb, "5432")).toBe(false);
+    const onForOthers = (web: boolean) => (web ? null : true);
+    expect(defaultOpenInBrowser(onForOthers, "5432")).toBe(true);
+    expect(defaultOpenInBrowser(onForOthers, "80")).toBe(true);
   });
 });
 

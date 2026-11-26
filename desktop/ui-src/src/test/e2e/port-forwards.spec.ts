@@ -127,7 +127,7 @@ test("the context menu starts a Service forward on a chosen port", async ({ page
   await row(page, "api").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Port forward…" }).click();
   await d.getByLabel("Service port").selectOption("9090");
-  // The last choice is remembered, for any port.
+  // 9090 is a web port too: checked (the untouched default was not remembered).
   await expect(d.getByLabel("Open in browser")).toBeChecked();
   await d.getByLabel("Local port").fill("9000");
   await d.getByTestId("forward-confirm").click();
@@ -167,6 +167,49 @@ test("an unchecked Open in browser is remembered for the next forward (#498)", a
   await expect(page.getByTestId("forwards-lifetime")).toHaveText(
     "Forwards are saved per cluster. Each keeps running until you stop it, disconnect its cluster, close this window or quit nauvi.",
   );
+  expect(fake.errors).toEqual([]);
+});
+
+test("an untouched default is not remembered: after a non-web forward, port 80/http still opens (#498)", async ({
+  page,
+}) => {
+  const fake = await openApp(page);
+  // A deployment forward on 5432, the checkbox left as it was (off).
+  await openKind(page, "Deployments");
+  await row(page, "web").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Port forward…" }).click();
+  const d = dialog(page);
+  await d.getByLabel("Remote port").fill("5432");
+  await expect(d.getByLabel("Open in browser")).not.toBeChecked();
+  // Typing a web port name follows the port's default.
+  await d.getByLabel("Remote port").fill("http");
+  await expect(d.getByLabel("Open in browser")).toBeChecked();
+  await d.getByLabel("Remote port").fill("5432");
+  await expect(d.getByLabel("Open in browser")).not.toBeChecked();
+  await d.getByTestId("forward-confirm").click();
+  await expect(d).toHaveCount(0);
+  expect((await fake.lastCall("cmdPortforwardSave")).forward).toMatchObject({ remote: "5432", open_in_browser: false });
+
+  // A Service on 80/http: still checked.
+  await openKind(page, "Services");
+  await row(page, "api").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Port forward…" }).click();
+  await expect(d.getByLabel("Service port")).toHaveValue("80");
+  await expect(d.getByLabel("Open in browser")).toBeChecked();
+  await d.getByRole("button", { name: "Cancel" }).click();
+
+  // An unchecked web port is remembered for web ports only.
+  await row(page, "api").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Port forward…" }).click();
+  await expect(d.getByLabel("Service port")).toHaveValue("80");
+  await d.getByLabel("Open in browser").uncheck();
+  await d.getByTestId("forward-confirm").click();
+  await expect(d).toHaveCount(0);
+  await row(page, "api").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Port forward…" }).click();
+  await expect(d.getByLabel("Service port")).toHaveValue("80");
+  await expect(d.getByLabel("Open in browser")).not.toBeChecked();
+  await d.getByRole("button", { name: "Cancel" }).click();
   expect(fake.errors).toEqual([]);
 });
 
@@ -245,5 +288,37 @@ test("disconnecting a cluster in the tree takes its forwards off Port Forwards a
   await page.clock.install();
   await node("kind-dev").hover();
   await node("kind-dev").getByRole("button", { name: "Disconnect kind-dev" }).click();
+  await expect(other).toHaveCount(0, { timeout: 1000 });
+});
+
+test("the header chip's Disconnect takes the cluster's forwards off Port Forwards at once too (#498)", async ({
+  page,
+}) => {
+  await openApp(page, (cluster) => {
+    cluster.backgroundForwards = [
+      {
+        cluster: "kind-dev",
+        forward: {
+          id: "pf-bg",
+          saved_id: "fwd-bg",
+          target: { kind: "service", namespace: "demo", name: "web" },
+          remote: "80",
+          remote_port: 80,
+          local_port: 40080,
+          url: "http://127.0.0.1:40080",
+          started_at: 1,
+          status: { pod: "web-1", connections: 0, total_connections: 0, last_error: "" },
+        },
+      },
+    ];
+  });
+  const node = (id: string) => page.locator(`[data-testid="cluster-node"][data-cluster="${id}"]`);
+  await node("prod").getByRole("button", { name: "prod", exact: true }).click();
+  await expect(node("prod")).toHaveAttribute("data-state", "visible");
+  await openForwardsView(page);
+  const other = page.locator('[data-testid="forward-row-other"][data-cluster="kind-dev"]');
+  await expect(other).toContainText("http://127.0.0.1:40080");
+  const chip = page.getByTestId("cluster-chip").filter({ hasText: "kind-dev" });
+  await chip.getByRole("button", { name: "Disconnect kind-dev" }).click();
   await expect(other).toHaveCount(0, { timeout: 1000 });
 });
