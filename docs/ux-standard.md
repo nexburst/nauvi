@@ -159,6 +159,55 @@ Deliberately not followed: a built-in chat or a resold model (Lens Prism), a
 bring-your-own-key assistant that stores keys (k8sgpt keeps them in plain
 text), writing into other tools' config files (the entry is shown to copy).
 
+## 11. The look: type, headings, icons
+
+nauvi read like a terminal report: monospace capitals for every label, no
+clear order of importance (#480). These are the rules since then; the
+tokens are in `desktop/ui-src/src/app.css`, the icons in
+`desktop/ui-src/src/lib/icons/`.
+
+**Type roles.** Every word is in the UI font (`--font-ui`: the system font
+on macOS and Windows, Inter, bundled, elsewhere). Monospace (`--font-num`)
+only where characters must line up or be copied exactly: numbers in table
+columns, IDs and hashes, YAML, logs, terminals, key hints (`kbd`). Big
+figures on cards use the UI font with tabular numbers.
+
+| Role | Token | Use |
+| --- | --- | --- |
+| Headline | `--text-2xl` (26px), semibold | the one sentence a view leads with ("2 pods need a look") |
+| View title | `--text-xl` (20px), semibold | a view's name, when it shows one |
+| Section heading | `--text-lg` (15px), semibold, `--text` | "Problem pods", "Capacity" |
+| Body | `--text-md` (14px) / `--text-base` (13px) | text, rows of lists and cards |
+| Label | `--text-sm` (12px), medium or semibold, `--text-muted` | card labels, `.eyebrow` group names, buttons |
+| Caption | `--text-xs` (11px) | units, counts in badges, footnotes |
+
+- Headings and labels are in sentence case. No `text-transform: uppercase`
+  and no letter-spacing on labels: capitals make everything shout at the
+  same level.
+- One headline per view; colour carries meaning only (green running, amber
+  waiting, red needs you, teal yours to act on), never decoration.
+
+**Icons.** One set, `lib/icons/icons.ts`: line icons on a 24-unit grid,
+drawn as paths with the text colour and `--icon-stroke`, rendered by
+`<Icon name="…" />`. No icon font and no runtime dependency. Sizes are
+`--icon-sm` (14), `--icon` (16, the default) and `--icon-lg` (20). The same
+thing has the same icon everywhere (a pod is always `pod`; a state is `ok`,
+`pending`, `error`, `failed`, `warning`). An icon beside text is decoration
+(`aria-hidden`); an icon alone on a button needs the button's
+`aria-label` or the icon's `title`. Add icons to the set, never inline SVG
+in a component (the brand mark and the sonar are drawings, not icons).
+
+**Cards.** What needs a decision is a card (`--bg-card`, a hairline,
+`--radius-card`, `--shadow-card`) with its action on it ("Logs",
+"Describe"), not a line of text to find a link in. Figures are stat cards:
+the label above, the number (24px, tabular) beside its icon.
+
+| The standard | nauvi |
+| --- | --- |
+| A clear hierarchy: one headline, real headings, quiet labels. | **has since this change** on the Overview and the top bar; the sidebar (#481) and the tables (#482) follow |
+| One icon set across the app. | **has since this change** (`lib/icons`), used by the top bar and the Overview |
+| The thing to do is on the item, not one click away. | **has since this change** on the Overview's problem pods |
+
 ## What this change implements
 
 1. Verbs on the focused row: `L` logs, `S` shell, `E` or `Y` YAML, `Shift+R`
