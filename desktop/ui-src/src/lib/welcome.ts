@@ -51,6 +51,14 @@ export function noContexts(sources: readonly SourceInfo[]): NoContexts {
   return "empty";
 }
 
+/** The header status while there is no context, or `null` to leave it as it is. */
+export function noContextsStatus(why: NoContexts): string | null {
+  if (why === "missing") return "No kubeconfig";
+  if (why === "unreadable") return "Kubeconfig error";
+  if (why === "empty") return "No contexts";
+  return null;
+}
+
 /** Whether a banner message is the "no kubeconfig found" the welcome says itself. */
 export function isNoKubeconfig(message: string): boolean {
   return message.includes("No kubeconfig found (");

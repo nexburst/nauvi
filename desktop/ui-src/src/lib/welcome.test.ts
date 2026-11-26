@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { SourceInfo } from "./bindings";
-import { addedSources, isNoKubeconfig, lookedAt, MISSING_FILE, nextSteps, noContexts, shouldWelcome, tips } from "./welcome";
+import {
+  addedSources,
+  isNoKubeconfig,
+  lookedAt,
+  MISSING_FILE,
+  nextSteps,
+  noContexts,
+  noContextsStatus,
+  shouldWelcome,
+  tips,
+} from "./welcome";
 
 const source = (s: Partial<SourceInfo>): SourceInfo => ({
   path: "/home/me/.kube/config",
@@ -41,6 +51,10 @@ describe("welcome", () => {
       "unreadable",
     );
     expect(noContexts([source({ files: 1 })])).toBe("empty");
+    expect(noContextsStatus("missing")).toBe("No kubeconfig");
+    expect(noContextsStatus("unreadable")).toBe("Kubeconfig error");
+    expect(noContextsStatus("empty")).toBe("No contexts");
+    expect(noContextsStatus("reading")).toBeNull();
     expect(isNoKubeconfig("Could not discover the cluster's resource types: No kubeconfig found (looked at /x; KUBECONFIG is not set).")).toBe(true);
     expect(isNoKubeconfig("Cannot use the kubeconfig: bad YAML")).toBe(false);
   });

@@ -95,7 +95,7 @@ describe("first run: a kubeconfig that cannot be read", { timeout: 10 * 60_000 }
     assert.ok(looked.includes(bad), "the file's path");
     assert.doesNotMatch(looked, /the file does not exist/);
     assert.doesNotMatch(text, /No kubeconfig found/);
-    assert.notEqual(await app.statusText(), "No kubeconfig");
+    assert.equal(await app.statusText(), "Kubeconfig error");
     console.log(`banner: ${await bannerText(app)}`);
     const fits = await app.js(
       `const el = document.querySelector('[data-testid="welcome-looked"]'); return el.scrollWidth <= el.clientWidth;`,

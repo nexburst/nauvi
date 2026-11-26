@@ -3,7 +3,7 @@
   import type { ContextInfo } from "../bindings";
   import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
   import { isMacPlatform } from "../keys";
-  import { addedSources, lookedAt, MISSING_FILE, nextSteps, noContexts } from "../welcome";
+  import { addedSources, lookedAt, MISSING_FILE, nextSteps, noContexts, noContextsStatus } from "../welcome";
   import { app, currentContextName, setStatus, setView, switchContext } from "../stores/app.svelte";
   import { catalog, loadSources } from "../stores/catalog.svelte";
   import { openHelpItem } from "../stores/help.svelte";
@@ -44,7 +44,8 @@
 
   // With no kubeconfig there is no cluster to ask: the header says why.
   $effect(() => {
-    if (none && why === "missing") setStatus(false, "No kubeconfig");
+    const status = none ? noContextsStatus(why) : null;
+    if (status) setStatus(false, status);
   });
 
   const nameOf = (c: ContextInfo) => displayName(c, contextSettings(c.name));

@@ -113,7 +113,8 @@ test("a kubeconfig that cannot be read says so and keeps its error, instead of '
   await expect(welcome(page).getByRole("heading", { level: 2 })).toHaveText("nauvi could not read your kubeconfig");
   await expect(page.getByTestId("welcome-looked")).toContainText("did not find expected key at line 3 column 1");
   await expect(welcome(page)).not.toContainText("No kubeconfig found");
-  await expect(page.locator("header").first()).not.toContainText("No kubeconfig");
+  await expect(page.locator("header").first()).toContainText("Kubeconfig error");
+  await expect(page.locator("header").first()).not.toContainText("Connecting");
   // The real error stays in the banner.
   await expect(page.getByRole("alert")).toContainText(BAD);
   // A long error wraps inside the card.
