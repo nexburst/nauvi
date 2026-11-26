@@ -46,6 +46,7 @@ mod pod_env;
 mod pod_printer;
 mod problems;
 mod rbac;
+mod rebase;
 mod related;
 mod related_crd;
 mod related_local;
