@@ -52,13 +52,16 @@ ${request(4)}
 let ns;
 let draServed = false;
 
-/** The labels of the sidebar entries under the heading `title`, and whether each is greyed out. */
+/** The labels of the sidebar entries under the heading `title`, and whether each is greyed out (every "More" opened, #481). */
 function section(app, title) {
   return app.js(
-    `const h = Array.from(document.querySelectorAll("nav h4")).find((h) => h.textContent === arguments[0]);
+    `const closed = document.querySelectorAll('[data-testid="sidebar-more"][aria-expanded="false"]');
+     // Opened now, listed on the next call (the caller waits for a non-empty list).
+     if (closed.length > 0) return (closed.forEach((b) => b.click()), []);
+     const h = Array.from(document.querySelectorAll("nav h4")).find((h) => h.textContent === arguments[0]);
      const out = [];
      for (let el = h?.nextElementSibling; el && el.tagName !== "H4"; el = el.nextElementSibling)
-       if (el.tagName === "BUTTON") out.push({ label: el.textContent.trim(), absent: el.classList.contains("absent") });
+       if (el.tagName === "BUTTON" && el.classList.contains("kind")) out.push({ label: el.textContent.trim(), absent: el.classList.contains("absent") });
      return out;`,
     title,
   );
