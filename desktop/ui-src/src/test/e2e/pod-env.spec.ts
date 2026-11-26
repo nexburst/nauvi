@@ -6,9 +6,13 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { openApp, openKind, row } from "./helpers";
 import type { Fake } from "./helpers";
+import { envCount } from "../../lib/podEnv";
+import { POD_ENV } from "../fixtures/pod-env";
 
 const panel = (page: Page) => page.locator("aside");
 const card = (page: Page) => panel(page).getByRole("region", { name: "Container app" });
+/** The Environment list's summary: its number changes once the values load (#525). */
+const envTitle = (page: Page) => card(page).locator("summary").filter({ hasText: /^Environment \(/ });
 const envRow = (page: Page, name: string) => card(page).locator(`[data-testid="env-row"][data-name="${name}"]`);
 
 async function openEnv(page: Page): Promise<Fake> {
@@ -18,7 +22,7 @@ async function openEnv(page: Page): Promise<Fake> {
   await expect(panel(page).locator(".title")).toHaveText("demo/web-1");
   // Nothing is loaded before the list is opened.
   expect(await fake.calls("cmdPodEnv")).toHaveLength(0);
-  await card(page).getByText("Environment (2)").click();
+  await envTitle(page).click();
   await expect(card(page).getByTestId("env-list")).toBeVisible();
   return fake;
 }
@@ -78,8 +82,8 @@ test("a Secret value is revealed one key at a time and hidden again", async ({ p
   // Revealed again, then the list is closed and reopened: hidden again.
   await db.getByRole("button", { name: "Reveal DB_PASSWORD" }).click();
   await expect(db.getByTestId("env-value")).toHaveText("hunter2");
-  await card(page).getByText("Environment (2)").click();
-  await card(page).getByText("Environment (2)").click();
+  await envTitle(page).click();
+  await envTitle(page).click();
   await expect(envRow(page, "DB_PASSWORD").getByTestId("env-value")).toHaveText("••••");
   await expect(page.locator("body")).not.toContainText("hunter2");
 });
@@ -169,9 +173,34 @@ test("when the values cannot be loaded, the names are still listed", async ({ pa
   await openKind(page, "Pods");
   await row(page, "web-1").click();
   await fake.failNext("cmdPodEnv", "Not allowed: your account lacks permission for this action.");
-  await card(page).getByText("Environment (2)").click();
+  await envTitle(page).click();
   await expect(card(page).getByTestId("env-load-error")).toContainText("Not allowed");
   await expect(card(page).getByTestId("env-list")).toContainText("DB_PASSWORD");
   await card(page).getByRole("button", { name: "Try again" }).click();
   await expect(envRow(page, "MODE").getByTestId("env-value")).toHaveText("production");
+});
+
+test("with envFrom, the title counts the variables the list shows (#525)", async ({ page }) => {
+  const fake = await openApp(page, (cluster) => {
+    const app = cluster.details["v1/pods|demo/web-1"].pod.containers.find((c) => c.name === "app")!;
+    app.env.push({ name: "CFG_*", source: "configmap:settings" }, { name: "*", source: "secret:api-keys" });
+  });
+  await openKind(page, "Pods");
+  await row(page, "web-1").click();
+  // Before the values load, the sources are counted apart.
+  const summary = card(page).locator("summary").filter({ hasText: "Environment" });
+  await expect(summary).toHaveText("Environment (2 + 2 sources)");
+  expect(await fake.calls("cmdPodEnv")).toHaveLength(0);
+  await summary.click();
+  await expect(card(page).getByTestId("env-list")).toBeVisible();
+  const { from, env } = POD_ENV["demo/web-1/app"];
+  const n = envCount(from, env);
+  await expect(summary).toHaveText(`Environment (${n})`);
+  // As many as the list shows, overridden ones aside.
+  const shown = card(page).locator('[data-testid="env-row"]');
+  const overridden = shown.filter({ hasText: "(overridden)" });
+  expect((await shown.count()) - (await overridden.count())).toBe(n);
+  // Closed again, the number stays.
+  await summary.click();
+  await expect(summary).toHaveText(`Environment (${n})`);
 });

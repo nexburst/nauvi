@@ -182,7 +182,9 @@ test("with Prometheus, a workload panel charts its 1h range", async ({ page }) =
   // A workload without Prometheus series falls back to the live history.
   await page.getByTestId("detail-panel").getByRole("button", { name: "Close details" }).click();
   await row(page, "api").click();
-  await expect(page.getByTestId("detail-panel").getByTestId("usage-note")).toContainText(
-    "no CPU and memory samples for the pods of this Deployment in the last 1h",
+  // No samples either way: one line, with why in its tooltip (#513).
+  await expect(page.getByTestId("detail-panel").getByTestId("usage-empty")).toHaveAttribute(
+    "title",
+    /no CPU and memory samples for the pods of this Deployment in the last 1h/,
   );
 });

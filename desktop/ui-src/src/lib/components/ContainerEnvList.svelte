@@ -4,6 +4,7 @@
   import type { ContainerEnv, EnvInfo, EnvValue } from "../bindings";
   import { envSourceText } from "../containers";
   import {
+    envCount,
     envGroupTitle,
     envRowId,
     envShownValue,
@@ -23,7 +24,15 @@
     pod,
     container,
     names,
-  }: { namespace: string; pod: string; container: string; names: EnvInfo[] } = $props();
+    onCount,
+  }: {
+    namespace: string;
+    pod: string;
+    container: string;
+    names: EnvInfo[];
+    /** The number of variables, once loaded (#525). */
+    onCount?: (n: number) => void;
+  } = $props();
 
   let env = $state.raw<ContainerEnv | null>(null);
   let loadError = $state("");
@@ -46,6 +55,7 @@
       const next = await api(visibleCluster()).cmdPodEnv(namespace, pod, container);
       if (gen !== generation) return;
       env = next;
+      onCount?.(envCount(next.from, next.env));
       revealed = new Map();
       rowError = new Map();
     } catch (e) {

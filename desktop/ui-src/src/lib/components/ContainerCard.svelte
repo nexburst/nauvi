@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { ContainerDetail } from "../bindings";
   import ContainerEnvList from "./ContainerEnvList.svelte";
+  import { envTitle } from "../podEnv";
   import {
     envSourceText,
     envSummary,
@@ -41,6 +42,8 @@
   /** The Environment list is open: its values are loaded (and dropped
    *  again when it closes). */
   let envOpen = $state(false);
+  /** The number of variables, once the list has loaded them (#525). */
+  let envLoaded = $state<number | null>(null);
 </script>
 
 {#snippet longValue(key: string, text: string)}
@@ -168,10 +171,16 @@
 
   {#if c.env.length > 0}
     <details ontoggle={(e) => (envOpen = (e.currentTarget as HTMLDetailsElement).open)}>
-      <summary>Environment ({c.env.length})</summary>
+      <summary>{envTitle(c.env, envLoaded)}</summary>
       {#if pod}
         {#if envOpen}
-          <ContainerEnvList namespace={pod.namespace} pod={pod.name} container={c.name} names={c.env} />
+          <ContainerEnvList
+            namespace={pod.namespace}
+            pod={pod.name}
+            container={c.name}
+            names={c.env}
+            onCount={(n) => (envLoaded = n)}
+          />
         {/if}
       {:else}
         <ul>

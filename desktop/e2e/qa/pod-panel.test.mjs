@@ -7,6 +7,9 @@
 //   kubectl describe" puts the describe text on the clipboard (WebKitGTK
 //   only lets a page write it during the click: the text comes from the
 //   backend after it)
+// - #525: a container with an envFrom ConfigMap (3 keys) and 2 env
+//   variables: "Environment (2 + 1 source)" until the list is opened,
+//   then "Environment (5)", as many as the list shows
 //
 // Its pod lives in a temporary namespace.
 
@@ -34,6 +37,28 @@ spec:
   containers:
     - name: app
       image: registry.invalid/inventory-api:1.2.3
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data: { A: "1", B: "2", C: "3" }
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: envy
+spec:
+  terminationGracePeriodSeconds: 0
+  containers:
+    - name: app
+      image: busybox:1.36
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "3600"]
+      envFrom: [{ configMapRef: { name: app-config } }]
+      env:
+        - { name: MODE, value: production }
+        - { name: LEVEL, value: debug }
 `;
 
 const frame = (app) =>
@@ -219,5 +244,31 @@ describe("pod panel follow-ups (#513)", { timeout: 15 * 60_000 }, () => {
     assert.match(text, /^Name:\s+pull$/m);
     assert.match(text, new RegExp(`^Namespace:\\s+${ns}$`, "m"));
     assert.match(text, /registry\.invalid\/inventory-api:1\.2\.3/);
+  });
+
+  it("Environment (N) counts the variables of an envFrom source (#525)", T, async () => {
+    const { app } = s;
+    await closePanel(app);
+    await app.openDetail("Pods", ns, "envy");
+    const summary = () =>
+      app.js(`const s = Array.from(document.querySelectorAll('${PANEL} section[aria-label="Container app"] summary'))
+        .find((x) => x.textContent.trim().startsWith("Environment"));
+        return s ? { text: s.textContent.trim(), rows: s.parentElement.querySelectorAll('[data-testid="env-row"]').length } : null;`);
+    const before = await app.waitFor(summary, { message: "the Environment summary" });
+    console.log(`before: ${JSON.stringify(before)}`);
+    assert.equal(before.text, "Environment (2 + 1 source)");
+    await app.js(`Array.from(document.querySelectorAll('${PANEL} section[aria-label="Container app"] summary'))
+      .find((x) => x.textContent.trim().startsWith("Environment")).click()`);
+    const after = await app.waitFor(
+      async () => {
+        const x = await summary();
+        return x?.rows >= 5 && x.text === "Environment (5)" ? x : null;
+      },
+      { timeout: 20_000, message: `Environment (5) with 5 rows (${JSON.stringify(await summary())})` },
+    );
+    console.log(`after: ${JSON.stringify(after)}`);
+    assert.equal(after.rows, 5);
+    await scrollPanelTo(app, 'section[aria-label="Container app"]');
+    await shotBoth(app, "env-count");
   });
 });
