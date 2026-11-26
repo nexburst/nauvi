@@ -4,7 +4,7 @@
 
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { openApp } from "./helpers";
+import { openApp, showAllKinds } from "./helpers";
 
 /** The labels of the sidebar buttons under the heading `title`. */
 function section(page: Page, title: string): Promise<string[]> {
@@ -14,7 +14,7 @@ function section(page: Page, title: string): Promise<string[]> {
       (h) => h.textContent === title,
     )?.nextElementSibling;
     while (el && el.tagName !== "H4") {
-      if (el.tagName === "BUTTON") out.push(el.textContent!.trim());
+      if (el.tagName === "BUTTON" && el.classList.contains("kind")) out.push(el.textContent!.trim());
       el = el.nextElementSibling;
     }
     return out;
@@ -28,6 +28,7 @@ test("admission policies are under Config, DRA kinds under Device Resources", as
   page,
 }) => {
   await openApp(page);
+  await showAllKinds(page);
   const config = await section(page, "Config");
   expect(config).toEqual(
     expect.arrayContaining([
@@ -65,6 +66,7 @@ test("kinds the cluster does not serve are greyed out in their group", async ({
         k.resource.kind !== "ValidatingAdmissionPolicyBinding",
     );
   });
+  await showAllKinds(page);
   expect(await section(page, "Device Resources")).toEqual([
     "Device Classes",
     "Resource Claims",

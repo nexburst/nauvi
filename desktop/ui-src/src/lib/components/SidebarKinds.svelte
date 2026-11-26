@@ -190,15 +190,18 @@
 {#snippet item(e: Entry, opts: { pin?: number; nested?: boolean } = {})}
   {@const denied = !!e.kind && kinds.denied.has(e.kind.id)}
   {@const b = problems.byKind[e.view]}
+  <!-- A pinned copy: its section's entry is the one marked as open. -->
+  {@const copy = !!opts.pin && e.view !== "overview"}
   <button
     type="button"
     class="kind"
     class:nested={opts.nested}
-    class:active={app.view === e.view}
+    class:active={app.view === e.view && !copy}
+    class:here={app.view === e.view && copy}
     class:denied
     class:absent={!!e.absent}
     data-view={e.view}
-    aria-label={opts.pin && e.view !== "overview" ? `${e.aria ?? e.label} (pinned)` : e.aria}
+    aria-label={copy ? `${e.aria ?? e.label} (pinned)` : e.aria}
     aria-disabled={!!e.absent || (denied && !canOpenDenied(e.kind!))}
     title={e.absent ?? (denied ? deniedReason(e.kind!) : e.kind ? kindTitle(e.kind) : e.label)}
     onclick={() => open(e)}
@@ -296,7 +299,7 @@
      pinned, then each section's common kinds, the rest under "More". -->
 <div class="kinds" data-testid="sidebar-kinds">
   {#if overview}
-    {@render item(ofView("overview"), { pin: 1 })}
+    {@render item(ofView("overview"))}
   {/if}
 
   {#if pinned.length > 0}
@@ -348,7 +351,7 @@
   /* Section heads: a word in the UI font, sentence case, with a chevron
      that turns when the section is closed (#383, #481). */
   h4 {
-    margin: 12px 0 2px;
+    margin: 8px 0 1px;
     font: inherit;
   }
   button.section {
@@ -420,7 +423,7 @@
     color: var(--text-muted);
     border: none;
     border-radius: 6px;
-    padding: 5px 8px;
+    padding: 4px 8px;
     font-size: var(--text-base);
     cursor: pointer;
     transition:
@@ -446,23 +449,33 @@
   button.kind.nested {
     padding-left: 22px;
   }
+  /* Long names wrap onto a second line; past that they end in an ellipsis
+     (the full name is in the tooltip). */
   .label {
     flex: 1;
     min-width: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
     line-height: 18px;
   }
-  /* The key that opens a pinned view (1-9). */
+  /* The key that opens a pinned view (1-9): shown on hover or focus. */
   .key {
     flex-shrink: 0;
     min-width: 10px;
     font-family: var(--font-num);
     font-size: var(--text-xs);
     color: var(--text-muted);
-    opacity: 0.6;
+    opacity: 0;
     text-align: right;
+    transition: opacity 120ms ease;
+  }
+  button.kind:hover .key,
+  button.kind:focus-visible .key {
+    opacity: 0.7;
   }
   /* "N more" / "Fewer": quieter than a kind, in line with the labels. */
   button.more {
@@ -482,8 +495,13 @@
     color: var(--text);
     font-weight: var(--weight-semibold);
   }
-  button.kind.active :global(.icon) {
+  button.kind.active :global(.icon),
+  button.kind.here :global(.icon) {
     color: var(--accent);
+  }
+  /* A pinned copy of the open view: its section's entry carries the mark. */
+  button.kind.here {
+    font-weight: var(--weight-semibold);
   }
   button.active::before {
     content: "";

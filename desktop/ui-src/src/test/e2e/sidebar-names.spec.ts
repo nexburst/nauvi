@@ -4,7 +4,7 @@
 
 import { expect, test } from "@playwright/test";
 import type { Locator } from "@playwright/test";
-import { openApp } from "./helpers";
+import { openApp, showAllKinds } from "./helpers";
 
 const LONG = "Extraordinarily Long Custom Resource Kind Names That Go On And On";
 
@@ -28,6 +28,7 @@ test("long kind names wrap inside the sidebar, longer ones end in an ellipsis", 
       "Extraordinarily Long Custom Resource Kind Names That Go On And On";
   });
   const nav = page.getByRole("navigation");
+  await showAllKinds(page);
   await nav.evaluate((n) => n.querySelectorAll("details").forEach((d) => (d.open = true)));
 
   const bindings = nav.getByRole("button", { name: "Validating Admission Policy Bindings", exact: true });
@@ -52,8 +53,10 @@ test("long kind names wrap inside the sidebar, longer ones end in an ellipsis", 
 test("every kind in the sidebar has its own name", async ({ page }) => {
   await openApp(page);
   const nav = page.getByRole("navigation");
+  await showAllKinds(page);
   await nav.evaluate((n) => n.querySelectorAll("details").forEach((d) => (d.open = true)));
-  const labels = await nav.locator("button.kind .label").allTextContents();
+  // Each kind once in its section; what is pinned is a copy at the top.
+  const labels = await nav.locator("[data-group] button.kind .label").allTextContents();
   expect(labels.length).toBeGreaterThan(40);
   expect(labels.filter((l, i) => labels.indexOf(l) !== i)).toEqual([]);
   for (const name of ["Component Statuses", "Node Metrics", "Pod Metrics", "CSI Storage Capacities"]) {

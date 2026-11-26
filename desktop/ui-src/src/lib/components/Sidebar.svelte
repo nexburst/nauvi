@@ -86,7 +86,7 @@
           class="lens"
           type="text"
           placeholder={chart.pinned ? "Filter kinds…" : "Kind: po, deploy, secrets…"}
-          aria-label={chart.pinned ? "Filter kinds" : "Find a kind"}
+          aria-label="Find a kind"
           data-testid={chart.pinned ? "sidebar-filter" : "chart-lens"}
           onkeydown={onLensKey}
         />
@@ -150,7 +150,7 @@
 
 <style>
   nav {
-    width: 232px;
+    width: 220px;
     flex-shrink: 0;
     background: var(--bg-sunken);
     border-right: 1px solid var(--border);

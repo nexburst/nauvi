@@ -6,14 +6,15 @@ test("the sidebar is built from discovery", async ({ page }) => {
   const nav = page.getByRole("navigation");
 
   await expect(nav.getByRole("heading")).toHaveText([
+    "Pinned",
     "Workloads",
     "Network",
     "Config",
     "Storage",
     "Cluster",
+    "Helm",
     "Access Control",
     "Device Resources",
-    "Helm",
     "Custom Resources",
     "Other",
   ]);

@@ -29,6 +29,8 @@ test("the engine's menu opens only in text fields, the YAML editor and the termi
 
   expect(await engineMenuOn(page, page.getByRole("button", { name: "Refresh" }))).toBe(false);
   expect(await engineMenuOn(page, page.getByRole("navigation"))).toBe(false);
+  // A kind there may have opened its own menu (pin, #481): close it.
+  if (await page.getByRole("menu").isVisible()) await page.keyboard.press("Escape");
   expect(await engineMenuOn(page, page.locator("#table-filter"))).toBe(true);
   // A row opens the app's own menu instead.
   expect(await engineMenuOn(page, row(page, "web"))).toBe(false);

@@ -16,16 +16,14 @@ export const SECTIONS: { category: Category; title: string }[] = [
 
 /**
  * The kinds shown without opening "More", by Kind, in this order. A
- * section not listed here shows every kind; one listed with none (Device
- * Resources) keeps them all under "More".
+ * section not listed here (Storage, Cluster, Access Control: few kinds,
+ * all in use) shows every kind; one listed with none (Device Resources)
+ * keeps them all under "More".
  */
 export const COMMON: Partial<Record<Category, string[]>> = {
   workloads: ["Pod", "Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"],
   network: ["Service", "Ingress"],
   config: ["ConfigMap", "Secret", "HorizontalPodAutoscaler"],
-  storage: ["PersistentVolumeClaim", "PersistentVolume", "StorageClass"],
-  cluster: ["Node", "Namespace", "Event"],
-  access: ["ServiceAccount", "Role", "RoleBinding", "ClusterRole", "ClusterRoleBinding"],
   devices: [],
 };
 

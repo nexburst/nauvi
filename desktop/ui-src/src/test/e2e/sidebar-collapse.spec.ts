@@ -40,7 +40,7 @@ test("sections collapse and expand, by click or keyboard, and stay so after a re
 test("everything collapsed but Workloads fits an 800 px window", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
   await openApp(page, (cluster) => {
-    cluster.settings.collapsed_sections = ["network", "config", "storage", "cluster", "access", "devices", "helm", "custom", "other"];
+    cluster.settings.collapsed_sections = ["pinned", "network", "config", "storage", "cluster", "access", "devices", "helm", "custom", "other"];
   });
   await expect(kinds(page).getByRole("button", { name: "Pods", exact: true })).toBeVisible();
   const body = page.locator(".chart-body");
