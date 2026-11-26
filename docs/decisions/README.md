@@ -14,6 +14,6 @@ Add a new file instead of rewriting an old one when a decision changes.
 | [0005](0005-test-cluster-kind-only.md) | Test clusters are kind only |
 | [0006](0006-mcp-server.md) | `nauvi mcp`: read-only by default, Secret values never returned, output capped |
 | [0007](0007-multi-cluster.md) | Many clusters per window: one session per (window, cluster), commands name their cluster, idle disconnect after 10 min |
-| [0008](0008-rename-to-nauvi.md) | The project is called nauvi (renamed before the first release) |
+| [0008](0008-rename-to-nauvi.md) | The project is called nauvi |
 | [0009](0009-context-modes.md) | Read-only and protected contexts: one gate every mutating command declares, port-forwards allowed |
 | [0010](0010-ask-ai-skill.md) | Ask AI writes a `nauvi` agent skill (kubectl + nauvi CLI) instead of passing MCP; `nauvi mcp` is opt-in |
