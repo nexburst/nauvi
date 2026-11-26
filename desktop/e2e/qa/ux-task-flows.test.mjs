@@ -215,6 +215,18 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     await s.app.js(`document.querySelector('button[aria-label="Close details"]')?.click()`);
     await sleep(300);
   };
+  /**
+   * The row of `name` (or, with `prefix`, a Running pod whose name starts
+   * with it) in the shop namespace, so a terminating `checkout` pod of
+   * another scenario never sorts first.
+   */
+  const shopRow = ({ name, prefix }) => {
+    const cell = (cond) => `[*[@role='gridcell'][${cond}]]`;
+    const nameCell = name ? cell(`normalize-space()=${xq(name)}`) : cell(`starts-with(normalize-space(), ${xq(prefix)})`) + cell("normalize-space()='Running'");
+    return By.xpath(`//*[@data-testid='resource-row']${cell(`normalize-space()=${xq(shop)}`)}${nameCell}`);
+  };
+  const clickShopRow = async (which) => (await s.app.find(shopRow(which), { timeout: 60_000 })).findElement(By.xpath("./*[@role='gridcell'][2]")).then((c) => c.click());
+  const shopRowMenu = async (which) => (await s.app.find(shopRow(which), { timeout: 60_000 })).findElement(By.css('[data-testid="row-menu"]')).then((b) => b.click());
   const typeFilter = async (text) => {
     const f = await s.app.find(By.css('input[aria-label="Filter"]'));
     await s.app.setValue(f, "");
@@ -275,10 +287,11 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     await app.shot("3-previous");
     // A live log to follow and search.
     await typeFilter("checkout");
-    await (await app.find(By.xpath("//*[@data-testid='resource-row'][1]"))).click();
+    await clickShopRow({ prefix: "checkout-" });
     await panelAction("logs");
-    const live = (await dockPaneIds(app)).find((p) => p.startsWith(`logs:${shop}/checkout-`));
-    assert.ok(live, "a log tab for a checkout pod");
+    const live = await app.waitFor(async () => (await dockPaneIds(app)).find((p) => p.startsWith(`logs:${shop}/checkout-`)), {
+      message: "a log tab for a checkout pod",
+    });
     const search = await app.find(By.css(`${pane(live)} input[placeholder^="Filter logs"]`));
     await search.click();
     await search.sendKeys("ERROR");
@@ -291,14 +304,14 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
 
   it("4. opens a shell in it", T, async () => {
     const { app } = s;
-    if (!(await app.js(`return document.querySelector('[data-testid=detail-panel] .title')?.textContent ?? ""`)).includes("checkout-")) {
+    if (!(await app.js(`return document.querySelector('[data-testid=detail-panel] .title')?.textContent ?? ""`)).includes(`${shop}/checkout-`)) {
       await berth("po");
       await typeFilter("checkout");
-      await (await app.find(By.xpath("//*[@data-testid='resource-row'][1]"))).click();
+      await clickShopRow({ prefix: "checkout-" });
     }
     await panelAction("shell");
     step("4. Shell", 1);
-    const id = (await app.waitFor(async () => (await dockPaneIds(app)).find((p) => p.startsWith("shell:")))) ?? "";
+    const id = (await app.waitFor(async () => (await dockPaneIds(app)).find((p) => p.startsWith(`shell:${shop}/checkout-`)))) ?? "";
     const t = terminal(app, paneTerminal(id));
     await t.waitFor(/[#$] $/m).catch(() => {});
     await t.type("cat /www/index.html\n");
@@ -312,7 +325,7 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     await typeFilter("checkout");
     step("5. Deployment: YAML, scale, restart", 1, 1);
     // Scale from the row's ⋮ menu.
-    await click('[data-testid="resource-row"] [data-testid="row-menu"]');
+    await shopRowMenu({ name: "checkout" });
     await app.shot("5-row-menu");
     const items = await app.js(`return [...document.querySelectorAll('[data-testid="context-menu"] [role=menuitem]')].map((e) => e.textContent.trim())`);
     await menuItem("Scale…");
@@ -322,17 +335,23 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     step("5. Deployment: YAML, scale, restart", 3, 1);
     await app.waitFor(() => kubectl(["-n", shop, "get", "deploy", "checkout", "-o", "jsonpath={.spec.replicas}"]) === "3");
     // Restart from the same menu.
-    await click('[data-testid="resource-row"] [data-testid="row-menu"]');
+    await shopRowMenu({ name: "checkout" });
     await menuItem("Rollout restart");
     step("5. Deployment: YAML, scale, restart", 2);
     await app.shot("5-restarted");
     // Editing during the rollout ends in "This object changed on the server
     // since you loaded it" (#486): let the rollout finish first.
+    // First the restart itself (its restartedAt annotation), then the rollout.
+    await app.waitFor(
+      () =>
+        kubectl(["-n", shop, "get", "deploy", "checkout", "-o", "jsonpath={.spec.template.metadata.annotations.kubectl\\.kubernetes\\.io/restartedAt}"]) !== "",
+      { timeout: 30_000, message: "the restartedAt annotation" },
+    );
     kubectl(["-n", shop, "rollout", "status", "deploy/checkout", "--timeout=180s"]);
     await sleep(2000);
     // Edit: the row menu has no Edit (#486), so open the panel and its pencil.
     assert.ok(!items.includes("Edit"), "the row menu now offers Edit: update #486's table");
-    await (await app.find(By.xpath("//*[@data-testid='resource-row'][1]//*[@role='gridcell'][2]"))).click();
+    await clickShopRow({ name: "checkout" });
     await panelAction("edit");
     step("5. Deployment: YAML, scale, restart", 2);
     const editor = await app.find(byTestId("yaml-editor"));
@@ -353,7 +372,7 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     await tidy();
     await berth("svc");
     await typeFilter("checkout");
-    await click('[data-testid="resource-row"] [data-testid="row-menu"]');
+    await shopRowMenu({ name: "checkout" });
     await menuItem("Port forward…");
     step("6. Port-forward a Service", 3, 1);
     await app.shot("6-dialog");
