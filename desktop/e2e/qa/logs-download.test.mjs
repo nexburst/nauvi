@@ -59,11 +59,11 @@ describe("log download", { timeout: 10 * 60_000 }, () => {
     const layout = () =>
       app.js(
         `const t = arguments[0];
-         const h = document.querySelector(t + ' .logs-header').getBoundingClientRect();
+         const h = document.querySelector(t + ' [data-testid="log-toolbar"]').getBoundingClientRect();
          const o = document.querySelector(t + ' [data-testid="log-output"]').getBoundingClientRect();
          const n = document.querySelector(t + ' [data-testid="log-saved"]');
          return { headerH: Math.round(h.height), outputY: Math.round(o.top), note: n.textContent, noteH: Math.round(n.getBoundingClientRect().height),
-                  lines: Number((document.querySelector(t + ' .logs-options > span.muted')?.textContent ?? "").replace(/[^0-9]/g, "")) };`,
+                  lines: Number((document.querySelector(t + ' [data-testid="log-status"]')?.textContent ?? "").replace(/[^0-9]/g, "")) };`,
         tab,
       );
     // Compare against the header without a note: the first test's note goes after 10 s.

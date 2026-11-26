@@ -4,6 +4,8 @@
   import { problems } from "../stores/problems.svelte";
   import { viewLabel } from "../berths";
   import { chart, closeChart, setChartPinned } from "../stores/chart.svelte";
+  import { viewIcon } from "../kindIcons";
+  import Icon from "../icons/Icon.svelte";
   import ClusterTree from "./ClusterTree.svelte";
   import SidebarKinds from "./SidebarKinds.svelte";
 
@@ -17,10 +19,16 @@
       void tick().then(() => lens?.focus());
     }
   });
+  // Kept open as a column: G goes to its filter.
+  let focused = chart.focusNonce;
+  $effect(() => {
+    if (chart.focusNonce === focused) return;
+    focused = chart.focusNonce;
+    void tick().then(() => lens?.select());
+  });
 
-  /** Empty lens: only what is likely wanted. Typing or Tab unrolls every kind. */
+  /** Summoned with an empty lens: what needs a look comes first. */
   const short = $derived(!chart.pinned && chart.lens.trim() === "");
-  const COMMON = ["Pod", "Deployment", "Service", "ConfigMap", "Secret", "Ingress", "Node", "Event"];
   interface Entry {
     view: string;
     label: string;
@@ -32,12 +40,6 @@
     return { view, label: viewLabel(view, kinds.all), code: k?.short_names[0] ?? "", count: problems.byKind[view]?.count };
   };
   const needsLook = $derived(Object.keys(problems.byKind).map(entry));
-  // Each kind once: what needs a look is not repeated under Common.
-  const common = $derived(
-    COMMON.map((kind) => kinds.all.find((k) => k.resource.kind === kind && !k.crd))
-      .filter((k) => !!k && !problems.byKind[k.id])
-      .map((k) => entry(k!.id)),
-  );
 
   function onLensKey(e: KeyboardEvent) {
     if (e.key === "Enter") {
@@ -51,37 +53,66 @@
       }
       // Otherwise the first entry the lens leaves on the chart.
       const first = nav?.querySelector<HTMLButtonElement>(
-        '.quick button, [data-testid="sidebar-kinds"] button:not([aria-disabled="true"])',
+        '.quick button, [data-testid="sidebar-kinds"] button.kind:not([aria-disabled="true"])',
       );
       first?.click();
       e.preventDefault();
     } else if (e.key === "Escape") {
-      closeChart();
+      if (chart.pinned) {
+        // The column's filter: Escape clears it, then gives the keyboard back.
+        if (chart.lens) chart.lens = "";
+        else lens?.blur();
+      } else closeChart();
       e.stopPropagation();
     }
   }
 </script>
 
 <!-- The chart: the cluster tree (ADR 0007) with the shown cluster's kinds
-     inside its node. Summoned over the sheet from the wake, or pinned as a
-     column. Without kubeconfig contexts (in-cluster): just the kinds. -->
+     inside its node. Summoned over the sheet from the rail, or kept open
+     as a column (the sidebar, expanded: #481). Without kubeconfig contexts
+     (in-cluster): just the kinds. -->
 {#if chart.pinned || chart.open}
   {#if !chart.pinned}
     <button type="button" class="scrim" aria-label="Close the chart" tabindex="-1" onclick={closeChart}></button>
   {/if}
-  <nav bind:this={nav} class:floating={!chart.pinned} data-testid="chart">
-    {#if !chart.pinned}
-      <div class="chart-head">
+  <nav bind:this={nav} class:floating={!chart.pinned} data-testid="chart" aria-label="Kinds">
+    <div class="chart-head">
+      <label class="find">
+        <Icon name="search" size={14} />
         <input
           bind:this={lens}
           bind:value={chart.lens}
           class="lens"
           type="text"
-          placeholder="Kind: po, deploy, secrets…"
+          placeholder={chart.pinned ? "Filter kinds…" : "Find a kind: po, deploy…"}
           aria-label="Find a kind"
-          data-testid="chart-lens"
+          data-testid={chart.pinned ? "sidebar-filter" : "chart-lens"}
           onkeydown={onLensKey}
         />
+        {#if chart.pinned && chart.lens}
+          <button
+            type="button"
+            class="clear"
+            aria-label="Clear the filter"
+            title="Clear the filter (Escape)"
+            onclick={() => {
+              chart.lens = "";
+              lens?.focus();
+            }}><Icon name="close" size={12} /></button
+          >
+        {/if}
+      </label>
+      {#if chart.pinned}
+        <button
+          type="button"
+          class="tool"
+          aria-label="Collapse the sidebar"
+          title="Collapse the sidebar to icons"
+          data-testid="chart-unpin"
+          onclick={() => setChartPinned(false)}><Icon name="sidebarCollapse" size={16} /></button
+        >
+      {:else}
         <button
           type="button"
           class="btn"
@@ -89,26 +120,21 @@
           title="Keep the kinds as a column beside the sheet"
           onclick={() => setChartPinned(true)}>Keep open</button
         >
-      </div>
-    {/if}
-    {#if short}
+      {/if}
+    </div>
+    {#if short && needsLook.length > 0}
       <div class="quick" data-testid="chart-quick">
-        {#snippet group(title: string, list: Entry[])}
-          {#if list.length > 0}
-            <section>
-              <h4 class="eyebrow">{title}</h4>
-              {#each list as e (e.view)}
-                <button type="button" class:trouble={!!e.count} onclick={() => setView(e.view)}>
-                  <span class="label">{e.label}</span>
-                  {#if e.count}<span class="count">{e.count}</span>{/if}
-                  {#if e.code}<span class="code">{e.code}</span>{/if}
-                </button>
-              {/each}
-            </section>
-          {/if}
-        {/snippet}
-        {@render group("Needs a look", needsLook)}
-        {@render group("Common", common)}
+        <section>
+          <h4 class="eyebrow">Needs a look</h4>
+          {#each needsLook as e (e.view)}
+            <button type="button" class="trouble" onclick={() => setView(e.view)}>
+              <Icon name={viewIcon(e.view, kinds.all)} size={16} />
+              <span class="label">{e.label}</span>
+              {#if e.count}<span class="count">{e.count}</span>{/if}
+              {#if e.code}<span class="code">{e.code}</span>{/if}
+            </button>
+          {/each}
+        </section>
       </div>
       <p class="all eyebrow">All {kinds.all.length} kinds</p>
     {/if}
@@ -124,7 +150,7 @@
 
 <style>
   nav {
-    width: 200px;
+    width: 220px;
     flex-shrink: 0;
     background: var(--bg-sunken);
     border-right: 1px solid var(--border);
@@ -133,7 +159,7 @@
     min-height: 0;
   }
   .chart-body {
-    padding: 12px 8px;
+    padding: 4px 8px 16px;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -141,7 +167,7 @@
     min-height: 0;
   }
 
-  /* Summoned: the chart unrolls over the sheet, every kind in columns. */
+  /* Summoned: the chart unrolls over the sheet. */
   .scrim {
     position: absolute;
     inset: 0;
@@ -179,38 +205,94 @@
       opacity: 0;
     }
   }
+  /* The filter (or the drawer's lens) and the button that folds the column. */
   .chart-head {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 10px 12px 10px 20px;
-    border-bottom: 1px solid var(--border);
+    gap: 6px;
+    padding: 10px 8px 8px;
     flex-shrink: 0;
+  }
+  nav.floating .chart-head {
+    padding: 12px 12px 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .find {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 6px 0 8px;
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: var(--bg);
+    color: var(--text-muted);
+    cursor: text;
+  }
+  .find:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
   }
   .lens {
     flex: 1;
     min-width: 0;
     background: transparent;
     border: none;
-    border-bottom: 1px solid var(--border-strong);
     color: var(--text);
-    font-family: var(--font-num);
-    font-size: 14px;
-    padding: 6px 2px;
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    padding: 0;
     outline: none;
   }
-  .lens:focus {
-    border-bottom-color: var(--accent);
+  .lens::placeholder {
+    color: var(--text-muted);
+  }
+  nav.floating .lens {
+    font-size: var(--text-md);
+  }
+  .clear,
+  .tool {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .clear {
+    width: 20px;
+    height: 20px;
+    padding: 0;
+  }
+  .tool {
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+  }
+  .clear:hover,
+  .tool:hover {
+    background: var(--bg-hover);
+    color: var(--text);
+  }
+  .tool:focus-visible,
+  .clear:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
   nav.floating .chart-body {
     padding: 6px 8px 20px;
   }
-  /* The short chart: three columns of what is most likely wanted. */
+  /* What needs a look, above every kind. */
   .quick {
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 12px 12px 4px;
+    padding: 12px 8px 4px;
     flex-shrink: 0;
   }
   .quick section {
@@ -225,14 +307,14 @@
   }
   .quick section button {
     display: flex;
-    align-items: baseline;
-    gap: 8px;
+    align-items: center;
+    gap: 9px;
     padding: 5px 8px;
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: 6px;
     color: var(--text);
-    font-size: 13px;
+    font-size: var(--text-base);
     text-align: left;
     cursor: pointer;
   }
@@ -256,6 +338,9 @@
     font-weight: 600;
     color: var(--red);
   }
+  .quick .trouble {
+    color: var(--red);
+  }
   .quick .trouble .label {
     color: var(--red);
   }
@@ -265,10 +350,9 @@
     color: var(--text-muted);
   }
   .all {
-    margin: 8px 12px 0;
-    padding: 10px 8px 0;
+    margin: 8px 16px 0;
+    padding: 10px 0 0;
     border-top: 1px solid var(--border);
     flex-shrink: 0;
   }
-
 </style>

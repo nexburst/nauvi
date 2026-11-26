@@ -18,6 +18,12 @@ const search = (page: Page) => logs(page).getByRole("searchbox", { name: /^(Filt
 const count = (page: Page) => logs(page).getByTestId("log-match-count");
 const toggle = (page: Page, title: string) => logs(page).getByTitle(title, { exact: true });
 
+/** Open the log tab's Options menu (#492): tail, since, timestamps, wrap, exclude, context, jump, clear. */
+async function openOptions(page: Page) {
+  const button = page.getByTestId("dock").getByRole("button", { name: "Log options" });
+  if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
+}
+
 async function openPodLogs(page: Page): Promise<Fake> {
   await page.setViewportSize({ width: 1280, height: 800 });
   const fake = await openApp(page);
@@ -140,7 +146,7 @@ test("a regex over 50,000 lines does not block the page", async ({ page }) => {
   const fake = await openPodLogs(page);
   const batch = Array.from({ length: 10_000 }, (_, i) => `req ${i} status ${i % 100 === 0 ? 500 : 200}`);
   for (let k = 0; k < 5; k++) await fake.emitLogLines(batch);
-  await expect(logs(page).locator(".logs-options")).toContainText("50,000+ lines");
+  await expect(logs(page).getByTestId("log-status")).toContainText("50,000+ lines");
   await toggle(page, "Regular expression").click();
   const t0 = Date.now();
   await search(page).fill("status 5\\d\\d$");
@@ -157,8 +163,9 @@ test("Jump to time scrolls to the first line at or after it", async ({ page }) =
     (_, i) => `${new Date(base + i * 1000).toISOString().replace(".000Z", ".123456789Z")} tick ${i}`,
   );
   await fake.emitLogLines(lines);
-  await expect(logs(page).locator(".logs-options")).toContainText("600 lines");
+  await expect(logs(page).getByTestId("log-status")).toContainText("600 lines");
 
+  await openOptions(page);
   const jump = logs(page).getByRole("textbox", { name: "Jump to time" });
   await jump.fill("10:05:00");
   await jump.press("Enter");
@@ -186,6 +193,7 @@ test("Jump to time scrolls to the first line at or after it", async ({ page }) =
 test("Jump to time without timestamps says to turn them on", async ({ page }) => {
   const fake = await openPodLogs(page);
   await fake.emitLogLines(LINES);
+  await openOptions(page);
   const jump = logs(page).getByRole("textbox", { name: "Jump to time" });
   await jump.fill("10:00");
   await jump.press("Enter");
@@ -231,19 +239,21 @@ test("stepping to a match turns Follow off and keeps the match in view", async (
   await toggle(page, "Highlight the matches and keep the other lines, instead of filtering").click();
   await search(page).fill("hit");
   await expect(count(page)).toHaveText("20 matches");
-  const followBox = logs(page).getByLabel("Follow");
-  await expect(followBox).toBeChecked();
+  const followBox = logs(page).getByTestId("log-follow");
+  await expect(followBox).toHaveAttribute("aria-pressed", "true");
   await search(page).press("Shift+Enter");
   await expect(count(page)).toHaveText("20 of 20");
-  await expect(followBox).not.toBeChecked();
+  await expect(followBox).toHaveAttribute("aria-pressed", "false");
+  await expect(followBox).toHaveText("Follow");
   const current = logs(page).locator('[data-testid="log-line"].current');
   await expect(current).toHaveText("line 1900 hit");
   // More lines come in: the view stays at the match.
   await fake.emitLogLines(Array.from({ length: 500 }, (_, i) => `more ${i}`));
-  await expect(logs(page).locator(".logs-options")).toContainText("2,500 lines");
+  await expect(logs(page).getByTestId("log-status")).toContainText("2,500 lines");
   await expect(current).toBeInViewport();
   // Follow on again: back to the newest line.
-  await followBox.check();
+  await followBox.click();
+  await expect(followBox).toHaveText("Following");
   await expect(logLines(page).filter({ hasText: "more 499" })).toBeInViewport();
   expect(fake.errors).toEqual([]);
 });
@@ -318,7 +328,7 @@ test("a regex search stays right as lines come in and the buffer is trimmed", as
   await expect(count(page)).toHaveText("600 matches");
   // 60,000 is over the cap (+10%): the oldest 10,000 were trimmed, here and
   // in the worker. A new search runs over lines 10,000 to 59,999.
-  await expect(logs(page).locator(".logs-options")).toContainText("50,000+ lines");
+  await expect(logs(page).getByTestId("log-status")).toContainText("50,000+ lines");
   await search(page).fill("req [15]\\d{4} status 500$");
   await expect(count(page)).toHaveText("200 matches");
   // Following: the newest match is at the bottom, highlighted whole.

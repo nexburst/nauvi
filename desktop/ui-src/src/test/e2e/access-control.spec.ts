@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { column, openApp, openKind, row } from "./helpers";
+import { column, openApp, openKind, row, showAllKinds } from "./helpers";
 
 const panel = (page: Page) => page.locator("aside");
 const group = (page: Page, title: string) => panel(page).getByRole("region", { name: title, exact: true });
@@ -19,7 +19,8 @@ test("Access Control has the RBAC kinds, in Lens's order", async ({ page }) => {
     "Cluster Role Bindings",
     "Role Bindings",
   ]);
-  // The other kinds Lens shows moved out of "Other".
+  // The other kinds Lens shows moved out of "Other" (some under "More").
+  await showAllKinds(page);
   for (const label of ["Pod Disruption Budgets", "Priority Classes", "Leases", "Ingress Classes", "Definitions"]) {
     await expect(nav.getByRole("button", { name: label, exact: true })).toBeVisible();
   }

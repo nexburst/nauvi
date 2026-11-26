@@ -19,6 +19,12 @@ const panel = (page: Page) => page.getByTestId("detail-panel");
 const logs = (page: Page) => page.getByTestId("dock");
 const logLines = (page: Page) => logs(page).getByTestId("log-line");
 
+/** Open the log tab's Options menu (#492): tail, since, timestamps, wrap, exclude, context, jump, clear. */
+async function openOptions(page: Page) {
+  const button = page.getByTestId("dock").getByRole("button", { name: "Log options" });
+  if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
+}
+
 test("the pod panel shows details; its Logs button starts the stream with the right args", async ({ page }) => {
   const fake = await openPod(page);
   await expect(panel(page).locator(".card .image").filter({ hasText: "nginx:1.27" })).toBeVisible();
@@ -39,9 +45,9 @@ test("the pod panel shows details; its Logs button starts the stream with the ri
     // Its own channel (#115).
     onEvent: expect.stringMatching(/^__CHANNEL__:\d+$/),
   });
-  expect(await fake.calls("cmdGetResourceDetail")).toEqual([
-    { resource: expect.objectContaining({ kind: "Pod", group: "" }), namespace: "demo", name: "web-1" },
-  ]);
+  // The panel's, then the tab's: which run of the container it shows (#493).
+  const detailCall = { resource: expect.objectContaining({ kind: "Pod", group: "" }), namespace: "demo", name: "web-1" };
+  await expect.poll(() => fake.calls("cmdGetResourceDetail")).toEqual([detailCall, detailCall]);
 
   await fake.emitLogLines(["hello", "world"]);
   await expect(logLines(page)).toHaveText(["hello", "world"]);
@@ -55,9 +61,11 @@ test("changing an option restarts the stream; lines of the old stream are droppe
   await fake.emitLogLines(["from the first stream"]);
   await expect(logLines(page)).toHaveText(["from the first stream"]);
 
+  await openOptions(page);
   await logs(page).getByTitle("Tail lines").selectOption("1000");
   await logs(page).getByTitle("Since").selectOption("3600");
-  await logs(page).getByTitle("Container").selectOption("init-db");
+  await logs(page).getByTitle("Container", { exact: true }).selectOption("init-db");
+  await openOptions(page);
   await logs(page).getByLabel("Timestamps").check();
   await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(5);
   const last = await fake.lastCall("cmdStreamPodLogs");
@@ -97,12 +105,15 @@ test("pause holds new lines back until resume", async ({ page }) => {
   await fake.emitLogLines(["one"]);
   await expect(logLines(page)).toHaveText(["one"]);
 
-  await logs(page).getByRole("button", { name: "Pause" }).click();
+  // One control for Follow and Pause (#492).
+  await logs(page).getByRole("button", { name: "Following" }).click();
   await fake.emitLogLines(["two", "three"]);
   await expect(logs(page).getByText("paused · 3 lines")).toBeVisible();
   await expect(logLines(page)).toHaveText(["one"]);
 
-  await logs(page).getByRole("button", { name: "Resume" }).click();
+  await expect(logs(page).getByRole("button", { name: "Paused" })).toBeVisible();
+  await logs(page).getByRole("button", { name: "Paused" }).click();
+  await expect(logs(page).getByRole("button", { name: "Following" })).toBeVisible();
   await expect(logLines(page)).toHaveText(["one", "two", "three"]);
   await expect(logs(page).getByText("3 lines", { exact: true })).toBeVisible();
   // Pausing does not touch the stream itself.

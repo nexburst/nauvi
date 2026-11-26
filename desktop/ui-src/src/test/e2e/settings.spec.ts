@@ -159,8 +159,12 @@ test("the Settings page sets the theme and the log defaults", async ({ page }) =
   await row(page, "web-1").click();
   await page.getByTestId("detail-panel").getByRole("button", { name: "Logs", exact: true }).click();
   const logs = page.getByTestId("dock");
+  await logs.getByRole("button", { name: "Log options" }).click();
   await expect(logs.getByRole("checkbox", { name: "Timestamps" })).toBeChecked();
   await expect(logs.getByTitle("Tail lines")).toHaveValue("1000");
+  // Close the Options menu: while a menu is open it keeps the keys (Esc).
+  await page.keyboard.press("Escape");
+  await expect(logs.getByTestId("log-options")).toBeHidden();
   await expect.poll(async () => (await fake.lastCall("cmdStreamPodLogs")).tailLines).toBe(1000);
 
   // Dark, from the keyboard shortcut this time.

@@ -67,12 +67,12 @@ const statusCluster = (app) =>
 const sections = (app) =>
   app.js(
     `return Object.fromEntries(Array.from(document.querySelectorAll('[data-testid="sidebar-kinds"] h4 button.section'),
-       (b) => [b.firstChild.textContent.trim(), b.getAttribute("aria-expanded")]))`,
+       (b) => [b.querySelector(".title").textContent.trim(), b.getAttribute("aria-expanded")]))`,
   );
 const toggle = (app, title) =>
   app.js(
     `const b = Array.from(document.querySelectorAll('[data-testid="sidebar-kinds"] h4 button.section'))
-       .find((b) => b.firstChild.textContent.trim() === arguments[0]);
+       .find((b) => b.querySelector(".title").textContent.trim() === arguments[0]);
      if (!b) return false;
      b.scrollIntoView({ block: "center" });
      b.click();
@@ -136,10 +136,10 @@ describe("collapsible sidebar and long context names", { timeout: 15 * 60_000 },
 
   it("collapses every section but Workloads, by click and keyboard, and fits 800 px", T, async () => {
     const { app } = s;
-    for (const title of COLLAPSE.slice(1)) assert.ok(await toggle(app, title), `the ${title} head`);
+    for (const title of COLLAPSE.filter((t) => t !== "Network")) assert.ok(await toggle(app, title), `the ${title} head`);
     // Network by the keyboard: focus its head and press Enter.
     const head = await app.js(
-      `return Array.from(document.querySelectorAll('[data-testid="sidebar-kinds"] h4 button.section')).find((b) => b.firstChild.textContent.trim() === "Network")`,
+      `return Array.from(document.querySelectorAll('[data-testid="sidebar-kinds"] h4 button.section')).find((b) => b.querySelector(".title").textContent.trim() === "Network")`,
     );
     await app.js("arguments[0].focus()", head);
     await app.driver.actions().sendKeys(Key.ENTER).perform();

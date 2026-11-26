@@ -157,6 +157,15 @@ export function closeTab(tabs: DockTab[], active: string | null, id: string): { 
   return { tabs: next, active: next[Math.min(i, next.length - 1)]?.id ?? null };
 }
 
+/** Share of the window a log tab opens the dock to while the user has not
+ *  sized it (#492): at 1280x800 about 15 lines under the toolbar. */
+export const LOG_DOCK_SHARE = 0.45;
+
+/** The height a log tab opens an unsized dock to: never lower than now. */
+export function logDockHeight(current: number, windowHeight: number, keepAbove: number): number {
+  return clampHeight(Math.max(current, windowHeight * LOG_DOCK_SHARE), windowHeight - keepAbove);
+}
+
 /** The dock height for a drag to `clientY`, kept between the minimum and `max`. */
 export function clampHeight(height: number, max: number): number {
   return Math.round(Math.max(DOCK_MIN_HEIGHT, Math.min(height, Math.max(DOCK_MIN_HEIGHT, max))));

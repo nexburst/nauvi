@@ -3,6 +3,8 @@
   import { berthCode, idCode, pinnable, viewLabel, BERTHS_MAX } from "../berths";
   import { chart, setChartPinned, toggleBerth, toggleChart } from "../stores/chart.svelte";
   import { problems } from "../stores/problems.svelte";
+  import { viewIcon } from "../kindIcons";
+  import Icon from "../icons/Icon.svelte";
 
   /** A berth whose kind this cluster does not serve stays, dimmed. */
   const known = (view: string) => berthCode(view, kinds.all) !== "?";
@@ -30,101 +32,88 @@
       }}
     >
       <span class="key" aria-hidden="true">{n}</span>
+      <Icon name={viewIcon(view, kinds.all)} size={18} />
       <span class="code">{known(view) ? berthCode(view, kinds.all) : idCode(view)}</span>
       {#if badge}
         {#key badge.count}<span class="pip" aria-hidden="true">{badge.count}</span>{/key}
       {/if}
     </button>
     {#if view !== "overview"}
-      <button type="button" class="drop" aria-label={`Remove the ${label} berth`} title="Remove this berth" onclick={() => toggleBerth(view)}
+      <button type="button" class="drop" aria-label={`Remove the ${label} berth`} title="Unpin" onclick={() => toggleBerth(view)}
         >✕</button
       >
     {/if}
   </div>
 {/snippet}
 
-<!-- The berths: the places kept at hand, by their kubectl names. Fixed
-     width, at most nine, each removable; only the user adds one. -->
-<div class="berths" class:slim={chart.pinned} role="group" aria-label="Berths" data-testid="berths">
-  <!-- With the kinds kept open as a column, that column is the way around:
-       only the handle that floats it again is left. -->
-  {#if !chart.pinned}
+<!-- The berths: the sidebar collapsed to a rail of icons (#481), with the
+     places kept at hand (pinned). Fixed width, at most nine, each
+     removable; only the user adds one. Kept open as a column, the sidebar
+     is the way around and the rail is gone. -->
+{#if !chart.pinned}
+  <div class="berths" role="group" aria-label="Berths" data-testid="berths">
     {@render berth("overview", 1)}
     {#each chart.berths as view, i (view)}
       {@render berth(view, i + 2)}
     {/each}
-  {/if}
-  {#if adrift && !chart.pinned}
-    <!-- Where you are, without a berth: one click (or P) keeps it. -->
-    {#key chart.fullNonce}
-      <button
-        type="button"
-        class="adrift"
-        class:full={chart.berths.length >= BERTHS_MAX}
-        aria-label={`Keep ${viewLabel(here, kinds.all)} in a berth`}
-        title={chart.berths.length >= BERTHS_MAX
-          ? `All ${BERTHS_MAX} berths are taken: remove one first`
-          : `Keep ${viewLabel(here, kinds.all)} at hand (P)`}
-        data-testid="berth-keep"
-        onclick={() => toggleBerth(here)}
-      >
-        <span class="code">{berthCode(here, kinds.all)}</span>
-        <span class="plus" aria-hidden="true">+</span>
-      </button>
-    {/key}
-  {/if}
-  <span class="gap"></span>
-  {#if chart.pinned}
-    <button
-      type="button"
-      class="tool"
-      aria-label="Float the chart"
-      title="Hide the column of kinds: open it with G instead"
-      data-testid="chart-unpin"
-      onclick={() => setChartPinned(false)}
-    >
-      <svg viewBox="0 0 8 16" width="8" height="16" aria-hidden="true"><path d="M6 3L2 8l4 5" /></svg>
-    </button>
-  {:else}
+    {#if adrift}
+      <!-- Where you are, without a berth: one click (or P) keeps it. -->
+      {#key chart.fullNonce}
+        <button
+          type="button"
+          class="adrift"
+          class:full={chart.berths.length >= BERTHS_MAX}
+          aria-label={`Keep ${viewLabel(here, kinds.all)} in a berth`}
+          title={chart.berths.length >= BERTHS_MAX
+            ? `All ${BERTHS_MAX} pins are taken: unpin one first`
+            : `Pin ${viewLabel(here, kinds.all)} here (P)`}
+          data-testid="berth-keep"
+          onclick={() => toggleBerth(here)}
+        >
+          <Icon name={viewIcon(here, kinds.all)} size={18} />
+          <span class="code">{berthCode(here, kinds.all)}</span>
+          <span class="plus" aria-hidden="true">+</span>
+        </button>
+      {/key}
+    {/if}
+    <span class="gap"></span>
     <button
       type="button"
       class="tool"
       class:on={chart.open}
-      aria-label="Chart of kinds"
+      aria-label="All kinds"
       aria-expanded={chart.open}
       title="Every kind of this cluster (G)"
       data-testid="chart-toggle"
       onclick={toggleChart}
     >
-      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+      <svg class="compass" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
         <circle cx="12" cy="12" r="9" />
         <path class="needle" d="M15.5 8.5l-2 5-5 2 2-5z" />
       </svg>
+      <span class="tool-label" aria-hidden="true">All kinds</span>
       <span class="key" aria-hidden="true">G</span>
     </button>
-  {/if}
-</div>
+    <button
+      type="button"
+      class="expand"
+      aria-label="Expand the sidebar"
+      title="Keep every kind open as a column"
+      data-testid="sidebar-expand"
+      onclick={() => setChartPinned(true)}><Icon name="sidebarExpand" size={16} /></button
+    >
+  </div>
+{/if}
 
 <style>
   .berths {
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
-    width: 48px;
+    width: 56px;
     background: var(--bg-sunken);
     border-right: 1px solid var(--border);
     overflow: hidden;
-  }
-  .berths.slim {
-    width: 14px;
-  }
-  .berths.slim .tool {
-    flex: 1;
-    border-top: none;
-    color: var(--text-muted);
-  }
-  .berths.slim .gap {
-    display: none;
   }
   button {
     background: transparent;
@@ -150,17 +139,18 @@
     justify-content: center;
     gap: 3px;
     width: 100%;
-    height: 46px;
+    height: 50px;
   }
   .berth:hover {
     background: var(--bg-hover);
     color: var(--text);
   }
+  /* Under the icon, kubectl's short name: the narrow form of its name. */
   .code {
     font-family: var(--font-num);
-    font-size: 11.5px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-size: 10.5px;
+    font-weight: 500;
+    line-height: 1;
   }
   /* Its number: the key that goes there. */
   .key {
@@ -195,6 +185,9 @@
     opacity: 0.4;
   }
   .pip {
+    position: absolute;
+    top: 4px;
+    right: 6px;
     min-width: 16px;
     padding: 0 4px;
     border-radius: 8px;
@@ -254,7 +247,11 @@
     color: var(--accent);
   }
   .plus {
-    font-size: 11px;
+    position: absolute;
+    top: 2px;
+    right: 5px;
+    font-size: 12px;
+    font-weight: 600;
     line-height: 1;
     color: var(--accent);
   }
@@ -276,20 +273,46 @@
   .gap {
     flex: 1;
   }
+  /* Every kind, labelled (#490): where the rest of the cluster is. */
   .tool {
     position: relative;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 44px;
+    gap: 3px;
+    height: 54px;
     border-top: 1px solid var(--border);
     color: var(--accent);
+  }
+  .tool-label {
+    font-size: 10.5px;
+    font-weight: var(--weight-semibold);
+    line-height: 1;
+    white-space: nowrap;
+  }
+  .tool .key {
+    top: 4px;
+    left: auto;
+    right: 6px;
+  }
+  .expand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+  }
+  .expand:hover {
+    background: var(--bg-hover);
+    color: var(--text);
   }
   .tool:hover,
   .tool.on {
     background: var(--accent-soft);
   }
-  .tool svg {
+  .tool .compass {
     fill: none;
     stroke: currentColor;
     stroke-width: 1.5;

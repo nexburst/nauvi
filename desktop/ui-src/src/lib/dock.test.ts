@@ -4,6 +4,7 @@ import {
   DOCK_MIN_HEIGHT,
   clampHeight,
   closeTab,
+  logDockHeight,
   dockMenuFor,
   localShellNamespace,
   localShellTitle,
@@ -122,5 +123,14 @@ describe("clampHeight", () => {
     expect(clampHeight(2000, 800)).toBe(800);
     // A tiny window still gets the minimum.
     expect(clampHeight(300, 50)).toBe(DOCK_MIN_HEIGHT);
+  });
+});
+
+describe("logDockHeight", () => {
+  it("opens an unsized dock to 45% of the window, never lower than it is (#492)", () => {
+    expect(logDockHeight(240, 800, 160)).toBe(360);
+    expect(logDockHeight(500, 800, 160)).toBe(500);
+    // Leaves the room above, as a drag does.
+    expect(logDockHeight(240, 300, 160)).toBe(140);
   });
 });

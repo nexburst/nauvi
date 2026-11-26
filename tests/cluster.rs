@@ -236,6 +236,27 @@ async fn get_logs_specific_container() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
+async fn get_logs_previous_without_restart_is_said_plainly() -> Result<()> {
+    // demo/multi never restarts: no previous run, said in words (#493).
+    let client = connect().await?;
+    let opts = LogOptions {
+        container: Some("app".into()),
+        previous: true,
+        ..LogOptions::default()
+    };
+    let err = match get_pod_logs(&client, "demo", "multi", &opts).await {
+        Ok(logs) => anyhow::bail!("expected no previous run, got {logs:?}"),
+        Err(e) => e,
+    };
+    let gone = err
+        .downcast_ref::<nauvi::LogUnavailable>()
+        .ok_or_else(|| anyhow::anyhow!("not a LogUnavailable: {err:#}"))?;
+    ensure!(gone.0.contains("no previous run"), "{}", gone.0);
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
 async fn get_logs_previous_container_of_crashed_pod() -> Result<()> {
     let client = connect().await?;
     let opts = LogOptions {

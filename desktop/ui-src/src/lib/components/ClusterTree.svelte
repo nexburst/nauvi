@@ -23,6 +23,8 @@
   import { shownContexts } from "../hidden";
   import ExecPrompt from "./catalog/ExecPrompt.svelte";
   import SidebarKinds from "./SidebarKinds.svelte";
+  import Icon from "../icons/Icon.svelte";
+  import { kindIcon } from "../kindIcons";
 
   // Every kubeconfig context, by source (ADR 0007). Nothing is asked of a
   // cluster until its node is expanded or selected.
@@ -91,7 +93,7 @@
         aria-expanded={open}
         aria-label={`${open ? "Collapse" : "Expand"} ${label(id)}`}
         title={open ? "Collapse" : isVisible ? "Expand" : "Expand: connects in the background"}
-        onclick={() => void toggleNode(id)}>{open ? "▾" : "▸"}</button
+        onclick={() => void toggleNode(id)}><Icon name="chevronDown" size={12} class="chevron" /></button
       >
       <button
         type="button"
@@ -167,13 +169,15 @@
           <p class="note error" data-testid="cluster-node-error">{n.error}</p>
           <button type="button" class="btn retry" onclick={() => void connectNode(id)}>Retry</button>
         {:else if n.state === "connected" && n.kinds}
-          <button type="button" class="kind" onclick={() => void showNode(id, "overview")}>Overview</button>
+          <button type="button" class="kind" onclick={() => void showNode(id, "overview")}
+            ><Icon name="dashboard" size={16} /><span class="kind-label">Overview</span></button
+          >
           {#each sectionsOf(n.kinds) as s (s.title)}
             <details>
-              <summary>{s.title}</summary>
+              <summary><Icon name="chevronRight" size={12} class="chevron" />{s.title}</summary>
               {#each s.kinds as k (k.id)}
                 <button type="button" class="kind sub" title={k.label} onclick={() => void showNode(id, k.id)}
-                  >{k.label}</button
+                  ><Icon name={kindIcon(k)} size={16} /><span class="kind-label">{k.label}</span></button
                 >
               {/each}
             </details>
@@ -194,7 +198,7 @@
         aria-expanded={!closed}
         title={g.title}
         onclick={() => toggleGroup(g.source)}
-        ><span aria-hidden="true">{closed ? "▸" : "▾"}</span> {g.label}</button
+        ><Icon name="chevronDown" size={12} class="chevron" /><span class="group-label">{g.label}</span></button
       >
       {#if !closed}
         {#each g.contexts as ctx (ctx.name)}
@@ -216,18 +220,40 @@
     flex-direction: column;
     gap: 1px;
   }
+  /* A kubeconfig source: a quiet label in the UI font (#481), the file's
+     name as the cluster tree's top level. */
   .group-title {
-    margin-top: 6px;
-    padding: 4px 6px;
-    font-family: var(--font-num);
-    font-size: 10px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.12em;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 8px;
+    padding: 3px 6px;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     color: var(--text-muted);
+    min-width: 0;
+  }
+  .group-label {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .group-title:hover {
+    background: transparent;
+  }
+  .group-title :global(.chevron),
+  .chevron :global(.chevron),
+  summary :global(.chevron) {
+    opacity: 0.7;
+    transition: transform 140ms var(--ease-out);
+  }
+  .group-title[aria-expanded="false"] :global(.chevron),
+  .chevron[aria-expanded="false"] :global(.chevron) {
+    transform: rotate(-90deg);
+  }
+  details[open] > summary :global(.chevron) {
+    transform: rotate(90deg);
   }
   .group:first-child .group-title {
     margin-top: 0;
@@ -252,10 +278,11 @@
   }
   .chevron {
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 18px;
-    padding: 5px 0;
-    font-size: 11px;
-    text-align: center;
+    padding: 7px 0;
   }
   .name {
     flex: 1;
@@ -343,7 +370,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    padding-left: 10px;
+    padding-left: 4px;
     min-width: 0;
   }
   .note {
@@ -359,22 +386,39 @@
     margin: 0 8px 6px;
   }
   .kind {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 9px;
     width: 100%;
     box-sizing: border-box;
-    padding: 5px 10px;
-    font-size: 13px;
+    padding: 5px 8px;
+    font-size: var(--text-base);
+    color: var(--text);
+  }
+  .kind :global(.icon) {
+    color: var(--text-muted);
+  }
+  .kind-label {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .kind.sub {
-    padding-left: 22px;
+    padding-left: 20px;
   }
   summary {
-    padding: 5px 10px;
-    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
     color: var(--text-muted);
     cursor: pointer;
+    list-style: none;
+  }
+  summary::-webkit-details-marker {
+    display: none;
   }
 </style>

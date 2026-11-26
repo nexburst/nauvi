@@ -40,7 +40,7 @@ test("the note survives new log lines and goes after 10 s", async ({ page }) => 
   }
   await expect(logLines(page)).toHaveCount(5);
   await expect(note(page)).toHaveText(`Saved to Downloads/${filename}`);
-  await expect(logs(page).locator(".logs-options")).toContainText("5 lines");
+  await expect(logs(page).getByTestId("log-status")).toHaveText("5 lines");
 
   await page.clock.runFor(5_000);
   await expect(note(page)).toHaveText("");
@@ -51,7 +51,7 @@ test("a long file name stays on one line and does not move the log list", async 
   const fake = await openPodLogs(page);
   await fake.emitLogLines(["one"]);
   await expect(logLines(page)).toHaveCount(1);
-  const header = logs(page).locator(".logs-header");
+  const header = logs(page).getByTestId("log-toolbar");
   const output = logs(page).getByTestId("log-output");
   const before = { header: await header.boundingBox(), output: await output.boundingBox() };
 
