@@ -2697,6 +2697,8 @@ export type SettingsPatch_Deserialize = {
 	kubectl_match?: boolean | null,
 	/**  The whole list of collapsed sidebar sections (#383). */
 	collapsed_sections?: string[] | null,
+	/**  The whole list of sidebar sections with "More" open (#481). */
+	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
 };
@@ -2730,6 +2732,8 @@ export type SettingsPatch_Serialize = {
 	kubectl_match?: boolean | null,
 	/**  The whole list of collapsed sidebar sections (#383). */
 	collapsed_sections?: string[] | null,
+	/**  The whole list of sidebar sections with "More" open (#481). */
+	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
 };
@@ -2815,6 +2819,11 @@ export type Settings_Deserialize = {
 	 *  `network`, `helm`, `custom`...). Empty: every section open.
 	 */
 	collapsed_sections?: string[],
+	/**
+	 *  The sidebar sections whose less-used kinds ("More") the user opened
+	 *  (#481), by the same ids. Empty: only the common kinds show.
+	 */
+	open_more_sections?: string[],
 	/**
 	 *  Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
 	 *  (the first known one found on `PATH`).
@@ -2908,6 +2917,11 @@ export type Settings_Serialize = {
 	 *  `network`, `helm`, `custom`...). Empty: every section open.
 	 */
 	collapsed_sections: string[],
+	/**
+	 *  The sidebar sections whose less-used kinds ("More") the user opened
+	 *  (#481), by the same ids. Empty: only the common kinds show.
+	 */
+	open_more_sections: string[],
 	/**
 	 *  Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
 	 *  (the first known one found on `PATH`).
