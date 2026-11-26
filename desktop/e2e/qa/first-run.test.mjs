@@ -3,6 +3,9 @@
 //   own HOME), first run: the welcome screen says "No kubeconfig found",
 //   where nauvi looked, and offers Add a kubeconfig; no banner, the header
 //   says "No kubeconfig"
+// - a kubeconfig that is not valid YAML: "nauvi could not read your
+//   kubeconfig" with the parser's error under its path, the real error in
+//   the banner, not "No kubeconfig found"
 // - first run with kind: the welcome screen lists the test kubeconfig and
 //   its context; opening it shows the Overview with the tips strip; ✕ hides
 //   the tips for good; settings.json remembers both; a restart opens on the
@@ -15,6 +18,9 @@
 //   repositories and no empty table (skipped without helm)
 
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { byTestId, CONTEXT, xq } from "../lib/app.mjs";
@@ -70,6 +76,32 @@ describe("first run: no kubeconfig at all", { timeout: 10 * 60_000 }, () => {
     assert.equal(await app.statusText(), "No kubeconfig");
     await app.find(By.css('[data-testid="welcome"] input[aria-label="Kubeconfig file or folder"]'));
     await bothThemes(app, "no-kubeconfig");
+  });
+});
+
+describe("first run: a kubeconfig that cannot be read", { timeout: 10 * 60_000 }, () => {
+  const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-485-"));
+  const bad = join(dir, "config");
+  writeFileSync(bad, "apiVersion: v1\nkind: Config\nclusters: [\n  - name: broken\n    cluster: {server: https://x\n");
+  after(() => rmSync(dir, { recursive: true, force: true }));
+  const s = appSession("first-run-unreadable", { kubeconfig: bad, firstRun: true });
+
+  it("says it could not read the kubeconfig, and why, not that there is none", T, async () => {
+    const { app } = s;
+    const text = await waitText(app, "welcome", /could not read your kubeconfig/, "the welcome's unreadable state", 60_000);
+    console.log(`welcome: ${text}`);
+    const looked = await textOf(app, "welcome-looked");
+    console.log(`looked: ${looked}`);
+    assert.ok(looked.includes(bad), "the file's path");
+    assert.doesNotMatch(looked, /the file does not exist/);
+    assert.doesNotMatch(text, /No kubeconfig found/);
+    assert.notEqual(await app.statusText(), "No kubeconfig");
+    console.log(`banner: ${await bannerText(app)}`);
+    const fits = await app.js(
+      `const el = document.querySelector('[data-testid="welcome-looked"]'); return el.scrollWidth <= el.clientWidth;`,
+    );
+    assert.ok(fits, "the error wraps inside the card");
+    await bothThemes(app, "unreadable");
   });
 });
 

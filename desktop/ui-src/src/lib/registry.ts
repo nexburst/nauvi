@@ -16,7 +16,7 @@ import { HELM_VIEW } from "./helm";
 import { HELM_CHARTS_VIEW } from "./helmCharts";
 import { isWatchless } from "./health";
 import { WORKLOADS_VIEW } from "./workloads";
-import { WELCOME_VIEW } from "./welcome";
+import { isNoKubeconfig, WELCOME_VIEW } from "./welcome";
 import { startTips, tips } from "./stores/welcome.svelte";
 import TipsStrip from "./components/TipsStrip.svelte";
 import Welcome from "./components/Welcome.svelte";
@@ -116,7 +116,7 @@ export const VIEWS: View[] = [
 /** Above the view. */
 export const BANNERS: Slot[] = [
   // The welcome screen says itself that there is no kubeconfig (#485).
-  slot(ErrorBanner, { when: () => !(app.view === WELCOME_VIEW && app.contexts.length === 0) }),
+  slot(ErrorBanner, { when: () => !(app.view === WELCOME_VIEW && isNoKubeconfig(app.error)) }),
   slot(ActionNotice),
   slot(UpdateBanner),
   slot(NodeShellLeftovers),

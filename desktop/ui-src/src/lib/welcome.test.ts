@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SourceInfo } from "./bindings";
-import { addedSources, lookedAt, nextSteps, shouldWelcome, tips } from "./welcome";
+import { addedSources, isNoKubeconfig, lookedAt, MISSING_FILE, nextSteps, noContexts, shouldWelcome, tips } from "./welcome";
 
 const source = (s: Partial<SourceInfo>): SourceInfo => ({
   path: "/home/me/.kube/config",
@@ -32,6 +32,17 @@ describe("welcome", () => {
       { path: "/k/c.yaml", found: "3 contexts", ok: true },
     ]);
     expect(addedSources([source({}), source({ kind: "folder", path: "/k/" })]).map((s) => s.path)).toEqual(["/k/"]);
+  });
+
+  it("tells a missing kubeconfig from one that cannot be read or has no context", () => {
+    expect(noContexts([])).toBe("reading");
+    expect(noContexts([source({ error: MISSING_FILE }), source({ path: "/b", error: MISSING_FILE })])).toBe("missing");
+    expect(noContexts([source({ error: MISSING_FILE }), source({ path: "/b", error: "Cannot use the kubeconfig: bad YAML" })])).toBe(
+      "unreadable",
+    );
+    expect(noContexts([source({ files: 1 })])).toBe("empty");
+    expect(isNoKubeconfig("Could not discover the cluster's resource types: No kubeconfig found (looked at /x; KUBECONFIG is not set).")).toBe(true);
+    expect(isNoKubeconfig("Cannot use the kubeconfig: bad YAML")).toBe(false);
   });
 
   it("names the platform's keys", () => {

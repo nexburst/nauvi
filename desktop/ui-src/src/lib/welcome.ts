@@ -34,6 +34,28 @@ export function lookedAt(sources: readonly SourceInfo[]): Looked[] {
     }));
 }
 
+/** What the catalog says when a kubeconfig file is not there (`src/catalog`). */
+export const MISSING_FILE = "the file does not exist";
+
+/**
+ * Why there is no context, for the welcome's headline: no file at all
+ * (`missing`), a file that could not be read (`unreadable`), files without
+ * a context (`empty`), or not known until the sources are read (`reading`).
+ */
+export type NoContexts = "reading" | "missing" | "unreadable" | "empty";
+
+export function noContexts(sources: readonly SourceInfo[]): NoContexts {
+  if (sources.length === 0) return "reading";
+  if (sources.every((s) => s.error === MISSING_FILE)) return "missing";
+  if (sources.some((s) => s.error && s.error !== MISSING_FILE)) return "unreadable";
+  return "empty";
+}
+
+/** Whether a banner message is the "no kubeconfig found" the welcome says itself. */
+export function isNoKubeconfig(message: string): boolean {
+  return message.includes("No kubeconfig found (");
+}
+
 /** The files nauvi was asked to read besides the default ones (added in the catalog). */
 export function addedSources(sources: readonly SourceInfo[]): SourceInfo[] {
   return sources.filter((s) => s.kind !== "kubeconfig");

@@ -3,7 +3,7 @@
   import type { ContextInfo } from "../bindings";
   import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
   import { isMacPlatform } from "../keys";
-  import { addedSources, lookedAt, nextSteps } from "../welcome";
+  import { addedSources, lookedAt, MISSING_FILE, nextSteps, noContexts } from "../welcome";
   import { app, currentContextName, setStatus, setView, switchContext } from "../stores/app.svelte";
   import { catalog, loadSources } from "../stores/catalog.svelte";
   import { openHelpItem } from "../stores/help.svelte";
@@ -30,6 +30,8 @@
   const looked = $derived(lookedAt(catalog.sources));
   const added = $derived(addedSources(catalog.sources));
   const none = $derived(app.contexts.length === 0);
+  /** Why there is no context: only a missing file is "no kubeconfig". */
+  const why = $derived(noContexts(catalog.sources));
   const contexts = $derived.by(() => {
     const visible = app.contexts.filter((c) => !isHidden(c.name));
     const { pinned, others } = orderContexts(visible, settings.current.favourites);
@@ -42,7 +44,7 @@
 
   // With no kubeconfig there is no cluster to ask: the header says why.
   $effect(() => {
-    if (none) setStatus(false, "No kubeconfig");
+    if (none && why === "missing") setStatus(false, "No kubeconfig");
   });
 
   const nameOf = (c: ContextInfo) => displayName(c, contextSettings(c.name));
@@ -59,7 +61,21 @@
   <div class="column">
     <div class="intro">
       <p class="eyebrow">Welcome to nauvi</p>
-      {#if none}
+      {#if none && why === "unreadable"}
+        <h2>nauvi could not read your kubeconfig</h2>
+        <p class="lead">
+          Below is what went wrong with each file. Fix it, or add another kubeconfig: nauvi notices changes
+          to the files and shows their clusters at once.
+        </p>
+      {:else if none && why === "empty"}
+        <h2>Your kubeconfig has no contexts</h2>
+        <p class="lead">
+          nauvi read the files below, and none of them names a cluster to connect to. Add a kubeconfig that
+          does, and nauvi shows its clusters at once.
+        </p>
+      {:else if none && why === "reading"}
+        <h2>Looking for your kubeconfig…</h2>
+      {:else if none}
         <h2>No kubeconfig found</h2>
         <p class="lead">
           nauvi reads the same kubeconfig as <code>kubectl</code> and found none. Add one below, and nauvi
@@ -79,7 +95,7 @@
       <ul class="files" data-testid="welcome-looked">
         {#each looked as l (l.path)}
           <li>
-            <span class="mark" class:ok={l.ok}><Icon name={l.ok ? "check" : "warning"} size={14} /></span>
+            <span class="mark" class:ok={l.ok} class:bad={!l.ok && l.found !== MISSING_FILE}><Icon name={l.ok ? "check" : "warning"} size={14} /></span>
             <code class="path" title={l.path}>{l.path}</code>
             <span class="found">{l.found}</span>
           </li>
@@ -223,6 +239,7 @@
   }
   .files li {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
     min-width: 0;
@@ -238,13 +255,20 @@
   }
   .path {
     min-width: 0;
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* An error can be long: it wraps under the path instead of running out. */
   .found {
-    flex-shrink: 0;
+    flex: 1 1 200px;
+    min-width: 0;
+    overflow-wrap: anywhere;
     color: var(--text-muted);
+  }
+  .mark.bad {
+    color: var(--red);
   }
   .note code {
     white-space: nowrap;

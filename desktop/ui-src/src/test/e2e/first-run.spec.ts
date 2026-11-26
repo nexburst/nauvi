@@ -63,11 +63,12 @@ test("a later start, or a settings file from before, opens where it ended", asyn
 test("with no kubeconfig, the welcome says where nauvi looked and how to add one", async ({ page }) => {
   const fake = await openApp(
     page,
-    (cluster) => {
+    (cluster, fake) => {
       cluster.contexts = [];
       cluster.catalog.sources = [
         { path: "/home/user/.kube/config", kind: "kubeconfig", contexts: 0, files: 0, error: "the file does not exist" },
       ];
+      fake.failNext("cmdDiscover", "No kubeconfig found (looked at /home/user/.kube/config; KUBECONFIG is not set).");
     },
     { waitForKinds: false },
   );
@@ -88,6 +89,36 @@ test("with no kubeconfig, the welcome says where nauvi looked and how to add one
   await expect(page.getByTestId("welcome-clusters").getByRole("button")).toHaveCount(1);
   await expect(welcome(page).getByRole("heading", { level: 2 })).toHaveText("Pick a cluster to start");
   expect(fake.errors).toEqual([]);
+});
+
+test("a kubeconfig that cannot be read says so and keeps its error, instead of 'No kubeconfig found'", async ({ page }) => {
+  const BAD = "Cannot use the kubeconfig: /home/user/.kube/config: did not find expected key at line 3 column 1";
+  await openApp(
+    page,
+    (cluster, fake) => {
+      cluster.contexts = [];
+      cluster.catalog.sources = [
+        {
+          path: "/home/user/.kube/config",
+          kind: "kubeconfig",
+          contexts: 0,
+          files: 0,
+          error: "did not find expected key at line 3 column 1 while parsing a block mapping that started at line 1 column 1",
+        },
+      ];
+      fake.failNext("cmdDiscover", "Cannot use the kubeconfig: /home/user/.kube/config: did not find expected key at line 3 column 1");
+    },
+    { waitForKinds: false },
+  );
+  await expect(welcome(page).getByRole("heading", { level: 2 })).toHaveText("nauvi could not read your kubeconfig");
+  await expect(page.getByTestId("welcome-looked")).toContainText("did not find expected key at line 3 column 1");
+  await expect(welcome(page)).not.toContainText("No kubeconfig found");
+  await expect(page.locator("header").first()).not.toContainText("No kubeconfig");
+  // The real error stays in the banner.
+  await expect(page.getByRole("alert")).toContainText(BAD);
+  // A long error wraps inside the card.
+  const fits = await page.getByTestId("welcome-looked").evaluate((el) => el.scrollWidth <= el.clientWidth);
+  expect(fits).toBe(true);
 });
 
 test("a filter carried over from another kind says so, and Clear filter brings the rows back", async ({ page }) => {

@@ -56,7 +56,11 @@ describe("settings survive a restart", { timeout: 15 * 60_000 }, () => {
       timeout: 30_000,
       message: "Deployments active after the restart",
     });
+    // The profile starts with "{}" (#485): check what the app wrote.
     assert.ok(existsSync(app.profile.settingsPath), `${app.profile.settingsPath} exists`);
+    const written = app.profile.settings();
+    assert.ok(Object.values(written?.contexts ?? {}).some((c) => c.last_used > 0), "the app wrote the context's last use");
+    assert.ok(Object.values(written?.contexts ?? {}).some((c) => c.view === "apps/v1/deployments"), "and the view");
     console.log(`settings.json: ${JSON.stringify(app.profile.settings())}`);
   });
 
