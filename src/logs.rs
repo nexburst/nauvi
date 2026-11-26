@@ -84,15 +84,91 @@ pub fn log_unavailable_text(message: &str, previous: bool) -> Option<String> {
 /// runtime no longer has a container's log file.
 const RUNTIME_LOG_GONE: &str = "unable to retrieve container logs for ";
 
-/// Whether `line`, the first of a log, is the kubelet saying the log is gone
-/// rather than a line of it: `unable to retrieve container logs for
+/// The container id in `line` when it has the form of the kubelet's answer
+/// for a log that is gone: `unable to retrieve container logs for
 /// containerd://<id>` and nothing else (#493).
-fn gone_line(line: &str, previous: bool) -> Option<LogUnavailable> {
+fn gone_id(line: &str) -> Option<&str> {
     let id = line.trim_end().strip_prefix(RUNTIME_LOG_GONE)?;
-    if !id.contains("://") || id.contains(char::is_whitespace) {
+    (id.contains("://") && !id.contains(char::is_whitespace)).then_some(id)
+}
+
+/// Whether `id` is the `containerID` of a run of `container` (any
+/// container when `None`) in the pod's status: the current run or the last
+/// finished one, of a container, init container or ephemeral container.
+/// The workload writes its log but not its pod's status, so it cannot make
+/// one of its lines pass for the kubelet's answer by naming a made-up id
+/// (#520).
+fn status_has_container_id(pod: &Pod, container: Option<&str>, id: &str) -> bool {
+    let Some(status) = &pod.status else {
+        return false;
+    };
+    [
+        &status.container_statuses,
+        &status.init_container_statuses,
+        &status.ephemeral_container_statuses,
+    ]
+    .into_iter()
+    .flatten()
+    .flatten()
+    .filter(|c| container.is_none_or(|name| c.name == name))
+    .any(|c| {
+        let last = c.last_state.as_ref().and_then(|s| s.terminated.as_ref());
+        let finished = c.state.as_ref().and_then(|s| s.terminated.as_ref());
+        c.container_id.as_deref() == Some(id)
+            || [last, finished]
+                .into_iter()
+                .flatten()
+                .any(|t| t.container_id.as_deref() == Some(id))
+    })
+}
+
+/// Whether `id`, from a line shaped as the kubelet's answer, names a run of
+/// the container in the pod's status; `false` when the pod cannot be read.
+async fn id_in_status(pods: &Api<Pod>, name: &str, opts: &LogOptions, id: &str) -> bool {
+    match pods.get(name).await {
+        Ok(pod) => status_has_container_id(&pod, opts.container.as_deref(), id),
+        Err(_) => false,
+    }
+}
+
+/// The kubelet's answer for a log that is gone, as [`LogUnavailable`], when
+/// `line` is the whole log, has its form and `confirm` (the id) holds.
+async fn gone_line<C, Fut>(line: &str, previous: bool, confirm: C) -> Option<LogUnavailable>
+where
+    C: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let id = gone_id(line)?;
+    if !confirm(id.to_string()).await {
         return None;
     }
     log_unavailable_text(line, previous).map(LogUnavailable)
+}
+
+/// The first lines of a log stream to pass on, or the [`LogUnavailable`]
+/// error when the stream is only the kubelet's answer for a log that is
+/// gone. A first line of that form is held until the next line (then it was
+/// a log line) or the end of the stream (then its id is checked with
+/// `confirm`): the kubelet ends the stream after its answer (#520).
+async fn stream_head<S, C, Fut>(lines: &mut S, previous: bool, confirm: C) -> Result<Vec<String>>
+where
+    S: futures::Stream<Item = std::io::Result<String>> + Unpin,
+    C: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    let Some(first) = lines.try_next().await? else {
+        return Ok(Vec::new());
+    };
+    if gone_id(&first).is_none() {
+        return Ok(vec![first]);
+    }
+    match lines.try_next().await? {
+        Some(second) => Ok(vec![first, second]),
+        None => match gone_line(&first, previous, confirm).await {
+            Some(gone) => Err(gone.into()),
+            None => Ok(vec![first]),
+        },
+    }
 }
 
 /// The error of a log request: [`LogUnavailable`] when the log is not there.
@@ -122,7 +198,8 @@ pub async fn get_pod_logs(
         .map_err(|e| log_error(e, opts.previous))?;
     let mut lines = text.lines();
     if let (Some(first), None) = (lines.next(), lines.next()) {
-        if let Some(gone) = gone_line(first, opts.previous) {
+        let confirm = |id: String| async move { id_in_status(&pods, name, opts, &id).await };
+        if let Some(gone) = gone_line(first, opts.previous, confirm).await {
             return Err(gone.into());
         }
     }
@@ -165,13 +242,11 @@ where
         .await
         .map_err(|e| log_error(e, opts.previous))?
         .lines();
-    let mut first = true;
+    let confirm = |id: String| async move { id_in_status(&pods, name, opts, &id).await };
+    for line in stream_head(&mut lines, opts.previous, confirm).await? {
+        on_line(line);
+    }
     while let Some(line) = lines.try_next().await? {
-        if std::mem::take(&mut first) {
-            if let Some(gone) = gone_line(&line, opts.previous) {
-                return Err(gone.into());
-            }
-        }
         on_line(line);
     }
     Ok(())
@@ -195,13 +270,13 @@ pub async fn stream_pod_logs_into(
         .await
         .map_err(|e| log_error(e, opts.previous))?
         .lines();
-    let mut first = true;
-    while let Some(line) = lines.try_next().await? {
-        if std::mem::take(&mut first) {
-            if let Some(gone) = gone_line(&line, opts.previous) {
-                return Err(gone.into());
-            }
+    let confirm = |id: String| async move { id_in_status(&pods, name, opts, &id).await };
+    for line in stream_head(&mut lines, opts.previous, confirm).await? {
+        if tx.send(line).await.is_err() {
+            return Ok(());
         }
+    }
+    while let Some(line) = lines.try_next().await? {
         if tx.send(line).await.is_err() {
             break;
         }
@@ -344,18 +419,121 @@ mod tests {
         );
     }
 
+    const GONE: &str = "unable to retrieve container logs for containerd://38505ea6f0ae";
+
+    fn yes(_: String) -> std::future::Ready<bool> {
+        std::future::ready(true)
+    }
+
+    fn no(_: String) -> std::future::Ready<bool> {
+        std::future::ready(false)
+    }
+
     #[test]
-    fn gone_line_is_only_the_kubelet_answer() {
-        let body = "unable to retrieve container logs for containerd://38505ea6f0ae";
-        assert!(gone_line(body, true).is_some());
-        assert!(gone_line(&format!("{body}\n"), true).is_some());
+    fn gone_id_is_only_the_kubelet_form() {
+        assert_eq!(gone_id(GONE), Some("containerd://38505ea6f0ae"));
+        assert_eq!(
+            gone_id(&format!("{GONE}\n")),
+            Some("containerd://38505ea6f0ae")
+        );
         // A log line that happens to start the same way is a log line.
-        assert!(gone_line(
-            "unable to retrieve container logs for my app, retrying",
-            false
+        assert_eq!(
+            gone_id("unable to retrieve container logs for my app, retrying"),
+            None
+        );
+        assert_eq!(gone_id("hello"), None);
+    }
+
+    #[tokio::test]
+    async fn gone_line_needs_the_id_confirmed() {
+        assert!(gone_line(GONE, true, yes).await.is_some());
+        // The workload printed the line itself, with an id of no run (#520).
+        assert!(gone_line(GONE, true, no).await.is_none());
+        assert!(gone_line("hello", false, yes).await.is_none());
+        // The id passed to `confirm` is the one in the line.
+        let seen = std::sync::Mutex::new(String::new());
+        let _ = gone_line(GONE, false, |id| {
+            *seen.lock().unwrap() = id;
+            std::future::ready(false)
+        })
+        .await;
+        assert_eq!(*seen.lock().unwrap(), "containerd://38505ea6f0ae");
+    }
+
+    fn lines(v: &[&str]) -> impl futures::Stream<Item = std::io::Result<String>> + Unpin {
+        futures::stream::iter(
+            v.iter()
+                .map(|l| Ok(l.to_string()))
+                .collect::<Vec<std::io::Result<String>>>(),
         )
-        .is_none());
-        assert!(gone_line("hello", false).is_none());
+    }
+
+    #[tokio::test]
+    async fn stream_head_reports_only_a_confirmed_lone_answer() {
+        // The kubelet's answer, alone, with an id of the pod's status.
+        let err = stream_head(&mut lines(&[GONE]), false, yes)
+            .await
+            .unwrap_err();
+        assert!(err.downcast_ref::<LogUnavailable>().is_some(), "{err:#}");
+        // The same line, but its id is not in the status: a log line.
+        let head = stream_head(&mut lines(&[GONE]), false, no).await.unwrap();
+        assert_eq!(head, vec![GONE.to_string()]);
+        // Followed by more lines: the workload's own output, never checked.
+        let confirm = |_: String| async { panic!("checked a line that has a next one") };
+        let mut s = lines(&[GONE, "secret work", "more"]);
+        let head = stream_head(&mut s, false, confirm).await.unwrap();
+        assert_eq!(head, vec![GONE.to_string(), "secret work".to_string()]);
+        assert_eq!(s.try_next().await.unwrap().as_deref(), Some("more"));
+        // Ordinary logs and an empty one.
+        let head = stream_head(&mut lines(&["a", "b"]), false, yes)
+            .await
+            .unwrap();
+        assert_eq!(head, vec!["a".to_string()]);
+        assert!(stream_head(&mut lines(&[]), false, yes)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    fn pod_with_status(status: serde_json::Value) -> Pod {
+        serde_json::from_value(serde_json::json!({
+            "metadata": { "name": "web-1" },
+            "status": status,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn container_id_must_be_a_run_in_the_status() {
+        let pod = pod_with_status(serde_json::json!({
+            "containerStatuses": [{
+                "name": "app", "image": "x", "imageID": "", "ready": true, "restartCount": 1,
+                "containerID": "containerd://now",
+                "state": { "running": {} },
+                "lastState": { "terminated": { "exitCode": 1, "containerID": "containerd://before" } },
+            }, {
+                "name": "sidecar", "image": "x", "imageID": "", "ready": true, "restartCount": 0,
+                "containerID": "containerd://side",
+            }],
+            "initContainerStatuses": [{
+                "name": "init", "image": "x", "imageID": "", "ready": false, "restartCount": 0,
+                "state": { "terminated": { "exitCode": 0, "containerID": "containerd://init" } },
+            }],
+        }));
+        let has = |c: Option<&str>, id: &str| status_has_container_id(&pod, c, id);
+        assert!(has(Some("app"), "containerd://now"));
+        assert!(has(Some("app"), "containerd://before"));
+        assert!(has(Some("init"), "containerd://init"));
+        assert!(has(None, "containerd://side"));
+        // Another container's id, or one that is in no status.
+        assert!(!has(Some("app"), "containerd://side"));
+        assert!(!has(Some("app"), "containerd://38505ea6f0ae"));
+        assert!(!has(None, "containerd://made-up"));
+        assert!(!status_has_container_id(
+            &pod_with_status(serde_json::json!({})),
+            None,
+            "containerd://now"
+        ));
     }
 
     #[test]

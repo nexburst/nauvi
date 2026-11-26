@@ -281,6 +281,49 @@ async fn get_logs_previous_container_of_crashed_pod() -> Result<()> {
     Ok(())
 }
 
+// A workload whose whole log is the kubelet's "log is gone" line, with an id
+// of no run of it, still shows that line: it is a log line (#520).
+#[tokio::test]
+#[ignore]
+async fn a_spoofed_log_gone_line_is_a_log_line() -> Result<()> {
+    in_temp_ns("it-log-spoof", |client, ns| async move {
+        let line = "unable to retrieve container logs for containerd://0123456789abcdef";
+        let pods: Api<Pod> = Api::namespaced(client.clone(), &ns);
+        let pod: Pod = serde_json::from_value(serde_json::json!({
+            "apiVersion": "v1", "kind": "Pod", "metadata": { "name": "spoof" },
+            "spec": {
+                "restartPolicy": "Never",
+                "terminationGracePeriodSeconds": 0,
+                "containers": [{
+                    "name": "c", "image": "busybox:1.36",
+                    "command": ["sh", "-c", format!("echo '{line}'")]
+                }]
+            }
+        }))?;
+        pods.create(&PostParams::default(), &pod).await?;
+        eventually("pod spoof Succeeded", TIMEOUT, || async {
+            Ok(pod_phase(&client, &ns, "spoof")
+                .await?
+                .filter(|p| p == "Succeeded")
+                .map(|_| ()))
+        })
+        .await?;
+        let opts = LogOptions::default();
+        let logs = get_pod_logs(&client, &ns, "spoof", &opts).await?;
+        ensure!(logs.trim_end() == line, "{logs:?}");
+        // The follow stream ends with the container: the line alone.
+        let mut lines = Vec::new();
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            stream_pod_logs(&client, &ns, "spoof", &opts, |l| lines.push(l)),
+        )
+        .await??;
+        ensure!(lines == vec![line.to_string()], "{lines:?}");
+        Ok(())
+    })
+    .await
+}
+
 #[tokio::test]
 #[ignore]
 async fn stream_logs_yields_lines() -> Result<()> {
