@@ -15,7 +15,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { By, Key } from "selenium-webdriver";
 import { deleteNamespace, kubectl, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { logLines, logStatus, openPodLogs, pane } from "../lib/dock.mjs";
+import { followButton, logLines, logStatus, openLogOptions, openPodLogs, pane } from "../lib/dock.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { resizeWindow } from "../lib/window.mjs";
@@ -263,6 +263,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
 
   it("Jump to time goes to the first line at or after it; without timestamps it says so", T, async () => {
     const { app } = s;
+    await openLogOptions(app, id);
     const jump = await app.find(By.css(`${pane(id)} input[aria-label="Jump to time"]`));
     await app.setValue(jump, "10:00");
     await jump.sendKeys(Key.ENTER);
@@ -287,8 +288,9 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
     const ms = (t) => Date.parse(t.slice(0, 23) + "Z");
     const mid = new Date((ms(a) + ms(b)) / 2).toISOString();
     // Scroll away (the bottom), then jump.
-    await (await app.find(By.xpath(`//*[@data-tab='${id}']//label[normalize-space()='Follow']/input`))).click();
+    await (await followButton(app, id)).click();
     await app.js(`document.querySelector(arguments[0] + ' [data-testid="log-output"] .scroller').scrollTop = 1e9`, pane(id));
+    await openLogOptions(app, id);
     await app.setValue(jump, mid);
     await (await app.find(By.xpath(`//*[@data-tab='${id}']//form//button[normalize-space()='Go']`))).click();
     const jumped = await app.waitFor(
@@ -307,7 +309,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
     assert.ok(jumped.inView, "in view");
     assert.equal(await text(app, id, "log-jump-note"), "");
     await shots(app, "jumped");
-    await (await app.find(By.xpath(`//*[@data-tab='${id}']//label[normalize-space()='Follow']/input`))).click();
+    await (await followButton(app, id)).click();
   });
 
   it("a busy pod: a regex over 50,000+ lines answers, a catastrophic one is stopped, the page stays usable", { timeout: 360_000 }, async () => {
@@ -368,8 +370,8 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       console.log(`Shift+Enter went to match ${at}`);
       // #272: stepping turned Follow off, so the busy stream does not
       // scroll the match away (nor do trims of the oldest lines).
-      const followBox = await app.find(By.xpath(`//*[@data-tab='${sid}']//label[normalize-space()='Follow']/input`));
-      assert.equal(await followBox.isSelected(), false, "Follow is off after stepping");
+      const followBox = await followButton(app, sid);
+      assert.equal(await followBox.getAttribute("aria-pressed"), "false", "Follow is off after stepping");
       // Wait for a trim above the match (its number drops), not a fixed
       // time: the busy pod writes more than the 50,000-line buffer in about
       // 3 s on CI, after which the match itself is trimmed away (#317).
@@ -407,8 +409,11 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
       assert.ok(fps2.fps >= 5, `the page kept drawing while the regex ran (${fps2.fps.toFixed(1)} fps)`);
       // Still usable: Pause answers, and a new search works.
       const t2 = Date.now();
-      await (await app.find(By.xpath(`//*[@data-tab='${sid}']//button[normalize-space()='Pause']`))).click();
-      await app.find(By.xpath(`//*[@data-tab='${sid}']//button[normalize-space()='Resume']`));
+      // Following -> Paused (#492): after the step it reads "Follow"; one
+      // click follows, the next pauses.
+      if ((await followBox.getText()).trim() === "Follow") await followBox.click();
+      await followBox.click();
+      await app.find(By.xpath(`//*[@data-tab='${sid}']//button[normalize-space()='Paused']`));
       const clickMs = Date.now() - t2;
       assert.ok(clickMs < 3000, `Pause answered in ${clickMs} ms`);
       await shots(app, "busy-too-slow");
@@ -417,7 +422,7 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
         timeout: 30_000,
         message: "a new search after the slow one",
       });
-      await (await app.find(By.xpath(`//*[@data-tab='${sid}']//button[normalize-space()='Resume']`))).click();
+      await (await followButton(app, sid)).click();
     } finally {
       kubectl(["-n", ns, "delete", "pod", "qa-search-spam", "--wait=false"]);
     }

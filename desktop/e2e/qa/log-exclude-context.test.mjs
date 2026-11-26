@@ -15,7 +15,7 @@ import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { CONTEXT } from "../lib/app.mjs";
 import { deleteNamespace, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { logLines, logStatus, openPodLogs, pane } from "../lib/dock.mjs";
+import { logLines, logStatus, openLogOptions, openPodLogs, pane } from "../lib/dock.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { resizeWindow } from "../lib/window.mjs";
@@ -52,7 +52,11 @@ const ID = () => `logs:${ns}/qa-grep`;
 
 const button = (app, title) => app.find(By.css(`${pane(ID())} button[title=${JSON.stringify(title)}]`));
 const filterBox = (app) => app.find(By.css(`${pane(ID())} input[aria-label="Filter logs"]`));
-const excludeBox = (app) => app.find(By.css(`${pane(ID())} input[aria-label="Exclude lines"]`));
+// In the Options menu (#492): opened first.
+const excludeBox = async (app) => {
+  await openLogOptions(app, ID());
+  return app.find(By.css(`${pane(ID())} input[aria-label="Exclude lines"]`));
+};
 
 function text(app, testid) {
   return app.js(

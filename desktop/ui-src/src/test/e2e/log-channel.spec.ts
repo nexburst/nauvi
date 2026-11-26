@@ -30,6 +30,7 @@ test("raw lines keep multi-byte characters and empty lines", async ({ page }) =>
 test("a restarted stream gets a new channel; the old one is ignored", async ({ page }) => {
   const fake = await openPodLogs(page);
   const first = await fake.lastStreamId();
+  await logs(page).getByRole("button", { name: "Log options" }).click();
   await logs(page).getByRole("checkbox", { name: "Timestamps" }).check();
   await expect.poll(() => fake.calls("cmdStreamPodLogs")).toHaveLength(2);
   const calls = await fake.calls("cmdStreamPodLogs");

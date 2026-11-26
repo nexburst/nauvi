@@ -1,6 +1,5 @@
 <script lang="ts">
   import ClusterLabel from "./ClusterLabel.svelte";
-  import { contextText } from "../dockContext";
   import type { ContextLink, ContextPart } from "../dockContext";
   import { app, currentContextName, kinds, openObject, setNamespaces } from "../stores/app.svelte";
   import { contextLabel } from "../stores/catalog.svelte";
@@ -30,7 +29,7 @@
 </script>
 
 <div class="context" data-testid="dock-context">
-  <span class="text" title={contextText(parts)}
+  <span class="text"
     >{#each parts as p, i (i)}{#if p.link}{@const l = p.link}<button
           type="button"
           class="link"
@@ -62,8 +61,6 @@
   .text {
     min-width: 0;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
   .on {
     display: inline-flex;

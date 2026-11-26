@@ -22,6 +22,7 @@ test("pod logs name the pod, container, namespace and since; the names open the 
   const line = contextOf(page, "logs:demo/web-1");
   await expect(line).toHaveText("Logs of pod web-1 in namespace demo, container app, from all time");
   // It follows the log options.
+  await pane(page, "logs:demo/web-1").getByRole("button", { name: "Log options" }).click();
   await pane(page, "logs:demo/web-1").getByTitle("Since", { exact: true }).selectOption("300");
   await expect(line).toHaveText("Logs of pod web-1 in namespace demo, container app, from the last 5m");
 
