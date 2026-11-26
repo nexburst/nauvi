@@ -24,6 +24,8 @@ test("an overview that cannot start: red dot, the banner and a state with Retry 
   const state = page.getByTestId("out-of-reach");
   await expect(state).toContainText("Cluster unreachable");
   await expect(state).toContainText("The banner above says what failed");
+  // Not dimmed with the stale view: it is what to read while the cluster is down.
+  await expect(page.locator(".view")).toHaveCSS("opacity", "1");
 
   // Retry now starts the feed again at once; the second start works.
   const before = (await fake.calls("cmdOverviewStart")).length;
@@ -69,6 +71,8 @@ test("Port Forwards checks the cluster every 10 s and says when it goes away and
   await expect(visibleDot(page)).toHaveClass(/failed/);
   // The forwards are local: their (empty) list stays.
   await expect(page.getByTestId("forwards-empty")).toBeVisible();
+  // A view with something stale in it is still dimmed.
+  await expect(page.locator(".view")).toHaveCSS("opacity", "0.55");
 
   await page.evaluate(() => (window.__fake.cluster.healthError = ""));
   await page.clock.runFor(10_000);

@@ -215,7 +215,9 @@
     min-width: 0;
     transition: opacity 300ms ease;
   }
-  .view.stale {
+  /* Not when it shows only the out-of-reach state (#462): nothing in it
+     is stale, and it is what to read while the cluster is down. */
+  .view.stale:not(:has(:global([data-testid="out-of-reach"]))) {
     opacity: 0.55;
   }
   .content {

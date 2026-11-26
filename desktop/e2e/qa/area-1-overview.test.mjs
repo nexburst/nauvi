@@ -296,6 +296,8 @@ describe("area 1: an unreachable cluster", { timeout: 5 * 60_000 }, () => {
     assert.match(dot, /failed/, `the shown cluster's dot: ${dot}`);
     const empty = await app.find(By.css('[data-testid="out-of-reach"]'));
     assert.match(await app.js("return arguments[0].innerText", empty), /Cluster unreachable[\s\S]*Retry now/);
+    // Not dimmed with the stale view (WebKitGTK must support :has()).
+    assert.equal(await app.js("return getComputedStyle(document.querySelector('.view')).opacity"), "1");
     for (const theme of ["light", "dark"]) {
       await setTheme(app, theme);
       await app.shot(`out-of-reach-${theme}`);
