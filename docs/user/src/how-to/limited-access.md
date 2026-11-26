@@ -17,7 +17,7 @@ all of them.
 
 nauvi asks the API server what you may do (RBAC) before it offers it:
 
-- **Kinds you aren't allowed to list** are greyed out in the drawer.
+- **Kinds you aren't allowed to list** are greyed out in the sidebar.
 - **Actions you aren't allowed to run** are greyed out in the row menu, the
   detail panel, the selection bar and the command palette, and the keyboard
   `Delete` refuses them. The tooltip names the missing permission, for

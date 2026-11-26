@@ -5,15 +5,15 @@ maps what you know from Lens to where it is in nauvi.
 
 | In Lens | In nauvi |
 | --- | --- |
-| The catalog of clusters | The **Cluster catalog** (grid button next to the context selector); the drawer's tree for connecting several at once |
-| The sidebar of resource kinds | The **drawer** (`G`), or keep it open as a column with **Keep open**; **berths** at the left edge for the kinds you use most |
-| Hotbar | Berths: up to nine places, keys `1`–`9` |
+| The catalog of clusters | The **Cluster catalog** (grid button next to the context selector); the sidebar's tree for connecting several at once |
+| The sidebar of resource kinds | The **sidebar**, with common kinds first and **Filter kinds…** (`G`); collapse it to a rail of icons |
+| Hotbar | Pins (right-click a kind → **Pin to top**): the Overview and up to eight kinds, keys `1`–`9` |
 | Adding a kubeconfig | Catalog → add a file, a folder (watched), or paste one |
 | Workloads overview | **Workloads → Overview** |
 | Pod logs, shell | `L` and `S` on the row, or the panel's header; both open in the **dock** |
 | Port forwarding | **Port forward…** on a pod, Service or workload; **Network → Port Forwards** for saved ones |
 | Edit resource | `E` on the row: YAML with server-side apply |
-| Helm releases and charts | **Helm** in the drawer: releases, charts, repositories |
+| Helm releases and charts | **Helm** in the sidebar: releases, charts, repositories |
 | Extensions | Not supported. Ask AI and `nauvi mcp` connect your own AI tools |
 | Metrics (Prometheus) | Found automatically, or set per cluster in Settings; metrics-server is enough for usage columns |
 | Lens account | None. nauvi needs no account and sends no telemetry |

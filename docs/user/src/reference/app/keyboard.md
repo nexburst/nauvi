@@ -8,9 +8,9 @@ list. On macOS, `Ctrl` in the shortcuts below is `⌘` where marked.
 | Key | What it does |
 | --- | --- |
 | `Ctrl+K` / `Cmd+K` | Command palette |
-| `G` | Open the drawer of kinds |
-| `1`–`9` | Go to a berth |
-| `P` | Add the current view as a berth |
+| `G` | Filter the kinds in the sidebar, or open all kinds when it is collapsed |
+| `1`–`9` | Go to the Overview (`1`) or a pinned kind |
+| `P` | Pin the current view |
 | `?` | List every shortcut |
 | `Ctrl+,` / `Cmd+,` | Settings |
 | `F5` or `Ctrl+R` (`⌘R`) | Refresh the current view (it never reloads the window) |
@@ -33,7 +33,14 @@ works on layouts where the backtick is a dead key.
 | `Shift+F10` | Open the row menu |
 | `/` | Focus the filter |
 | `Z` | Only the rows that need attention |
-| `L`, `S`, `E` / `Y`, `Shift+R`, `A` | Logs, shell, YAML, restart, copy as prompt ([verbs](navigation.md#verbs-on-the-focused-row)) |
+| `L`, `S`, `E` / `Y`, `Shift+R`, `A` | Logs, shell, Edit YAML, restart, copy as prompt ([verbs](navigation.md#verbs-on-the-focused-row)) |
+
+## In the sidebar filter
+
+| Key | What it does |
+| --- | --- |
+| `Enter` | Open the first matching kind, or the kind of a kubectl short name |
+| `Escape` | Clear the filter |
 
 ## In the filter box
 
@@ -47,6 +54,7 @@ works on layouts where the backtick is a dead key.
 | Key | What it does |
 | --- | --- |
 | `Enter` / `Shift+Enter` in the search box, `n` / `N` in the log | Next / previous match (with Highlight) |
+| `Escape` | Close the **Options** menu |
 
 ## In a terminal
 
