@@ -57,13 +57,16 @@ async function hover(app, css, want) {
   // Off it first, so the tip shows again after a theme switch.
   await app.driver.actions().move({ x: 2, y: 400 }).perform();
   await app.driver.actions().move({ origin: el }).perform();
-  return app.waitFor(
+  const t = await app.waitFor(
     async () => {
       const t = await tooltip(app);
       return want.test(t) ? t : false;
     },
     { message: `the tooltip of ${css} (${want})` },
   );
+  // Past its fade-in, for the screenshot.
+  await new Promise((r) => setTimeout(r, 250));
+  return t;
 }
 
 /** What `labels.spec.ts` checks in Chromium: visible buttons without a word or a tooltip with a name. */
