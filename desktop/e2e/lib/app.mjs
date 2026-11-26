@@ -294,7 +294,10 @@ export class App {
       await this.waitFor(
         () =>
           this.js(`
-            if (!document.querySelector('[data-testid="berths"]')) return false;
+            // The shell is up: the rail (berths), or the kinds already a
+            // column, which a 1280-px first launch starts with (#490) and
+            // which has no rail.
+            if (!document.querySelector('[data-testid="berths"], nav[data-testid="chart"]:not(.floating)')) return false;
             // Settings as one page ("All settings"), as the scenarios expect.
             localStorage.setItem("nauvi.settings.section", "all");
             if (document.querySelector("nav:not(.floating)")) return true;
