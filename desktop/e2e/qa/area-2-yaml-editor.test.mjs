@@ -313,7 +313,7 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     const changed = await app.js("return Array.from(document.querySelectorAll('[data-testid=\"detail-panel\"] .cm-changedLine'), (l) => l.textContent)");
     console.log(`unified changed lines: ${JSON.stringify(changed)}`);
     assert.ok(changed.some((l) => l.includes("line00: changed")), "the unified diff marks the change");
-    assert.match(await statusText(app), /Server-side validation passed/);
+    assert.match(await statusText(app), /The server accepted these changes in a test run/);
     const scrolls = async () =>
       app.js(`const all = Array.from(document.querySelectorAll('[data-testid="detail-panel"] .diff, [data-testid="detail-panel"] .diff *'));
               const s = all.find((x) => x.scrollHeight > x.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(x).overflowY));
