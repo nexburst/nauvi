@@ -14,7 +14,7 @@
   import { absentTitle, missingKinds } from "../sidebarExpected";
   import { chart, toggleBerth } from "../stores/chart.svelte";
   import { settings, updateSettings } from "../stores/settings.svelte";
-  import { BERTHS_MAX, pinnable, viewLabel } from "../berths";
+  import { BERTHS_MAX, DEFAULT_BERTHS, pinnable, viewLabel } from "../berths";
   import { kindIcon, viewIcon } from "../kindIcons";
   import { SECTIONS, kindNames, matches, normalizeFilter, splitCommon } from "../sidebarKinds";
   import type { IconName } from "../icons/icons";
@@ -134,8 +134,16 @@
 
   /** The views kept at hand (the berths, #481): pinned at the top. */
   const known = (view: string) => !view.startsWith("absent:") && viewLabel(view, kinds.all) !== view;
+  /**
+   * Shown once the user has chosen their own pins: the defaults (Pods,
+   * Deployments, Services) would only repeat the entries right below them.
+   * The rail shows them either way.
+   */
+  const ownPins = $derived(
+    chart.berths.length !== DEFAULT_BERTHS.length || chart.berths.some((v, i) => v !== DEFAULT_BERTHS[i]),
+  );
   const pinned = $derived(
-    chart.berths
+    (ownPins ? chart.berths : [])
       .filter(known)
       .map((v) => {
         const k = kinds.all.find((x) => x.id === v);

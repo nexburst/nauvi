@@ -107,13 +107,16 @@ test("G goes to the filter while the kinds are a column", async ({ page }) => {
 test("kinds are pinned to the top from their menu, open with their key, and unpinned", async ({ page }) => {
   await openApp(page);
   const pinned = page.getByTestId("sidebar-pinned");
-  // A new install keeps Pods, Deployments and Services at hand.
-  await expect(pinned.locator("button.kind .label")).toHaveText(["Pods", "Deployments", "Services"]);
+  // A new install keeps Pods, Deployments and Services at hand (on the
+  // rail and keys 2-4), but the column does not repeat them above their own entries.
+  await expect(pinned).toHaveCount(0);
 
   await kind(page, "Config Maps").click({ button: "right" });
   const menu = page.getByTestId("context-menu");
   await menu.getByRole("menuitem", { name: "Pin to top" }).click();
   await expect(pinned.getByRole("button", { name: "Config Maps (pinned)" })).toBeVisible();
+  // Now the pins are the user's own: all of them show.
+  await expect(pinned.locator("button.kind .label")).toHaveText(["Pods", "Deployments", "Services", "Config Maps"]);
   // Still in its own section too.
   await expect(kind(page, "Config Maps")).toBeVisible();
 
@@ -128,6 +131,13 @@ test("kinds are pinned to the top from their menu, open with their key, and unpi
   await pinned.getByRole("button", { name: "Config Maps (pinned)" }).click({ button: "right" });
   await page.getByTestId("context-menu").getByRole("menuitem", { name: "Unpin" }).click();
   await expect(pinned.getByRole("button", { name: "Config Maps (pinned)" })).toHaveCount(0);
+  // Back to the defaults: the section goes again.
+  await expect(pinned).toHaveCount(0);
+
+  // Unpinning a default makes the pins the user's own too.
+  await kind(page, "Services").click({ button: "right" });
+  await page.getByTestId("context-menu").getByRole("menuitem", { name: "Unpin" }).click();
+  await expect(pinned.locator("button.kind .label")).toHaveText(["Pods", "Deployments"]);
 });
 
 test("collapsed, the sidebar is a rail of icons with tooltips; expanded again, the column", async ({ page }) => {
@@ -169,6 +179,9 @@ test.describe("first launch (#490)", () => {
     await expect(filter(page)).toBeVisible();
     await expect(kind(page, "Deployments")).toBeVisible();
     await expect(page.getByTestId("berths")).toHaveCount(0);
+    // No "Pinned" copy of the default pins above their own entries.
+    await expect(page.getByTestId("sidebar-pinned")).toHaveCount(0);
+    await expect(kinds(page).getByRole("button", { name: "Pods (pinned)" })).toHaveCount(0);
   });
 
   test("a narrow window starts with the rail, its compass labelled, and remembers the choice", async ({ page }) => {

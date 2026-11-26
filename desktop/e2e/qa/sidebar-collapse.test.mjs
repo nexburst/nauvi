@@ -32,7 +32,7 @@ const PROD = ARN("payments-prod");
 const STAGING = ARN("payments-staging");
 const LONG = "team-platform-production-eu-west-1-cluster-blue-0123456789ab";
 assert.equal(LONG.length, 60);
-const COLLAPSE = ["Pinned", "Network", "Config", "Storage", "Cluster", "Access Control", "Device Resources", "Helm", "Custom Resources", "Other"];
+const COLLAPSE = ["Network", "Config", "Storage", "Cluster", "Access Control", "Device Resources", "Helm", "Custom Resources", "Other"];
 
 const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-383-"));
 

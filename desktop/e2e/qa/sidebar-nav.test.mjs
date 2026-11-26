@@ -4,14 +4,16 @@
 // - First launch: a fresh profile in a 1280-px window starts with the kinds
 //   as a column, in words, beside the sheet (not the rail of codes), with
 //   the filter at the top. Nothing pinned the column for it
-//   (`nauvi.chart.pinned` is unset).
+//   (`nauvi.chart.pinned` is unset), and the default pins are not repeated
+//   in a "Pinned" section above their own entries.
 // - Expanded: every kind has an icon; Workloads lists its common kinds,
 //   ReplicaSets waits under "1 more" until it is opened; Helm sits after
 //   Cluster, before Access Control.
 // - Filtered: "helm" leaves only the Helm section (no empty Network head);
 //   a word that matches nothing says so; Escape clears the filter.
-// - Pins: Config Maps pinned from its right-click menu shows under Pinned
-//   and opens with key 5; unpinned the same way.
+// - Pins: Config Maps pinned from its right-click menu makes the pins the
+//   user's own, so Pinned shows them all; it opens with key 5; unpinned the
+//   same way.
 // - Collapsed: the rail of icons with their short names, "All kinds" in
 //   words under the compass; G opens every kind over the sheet.
 // Screenshots: first launch, expanded, filtered, no match, collapsed and
@@ -69,12 +71,14 @@ describe("sidebar: icons, More, filter, pins, rail; the first launch", { timeout
       column: !!document.querySelector("nav:not(.floating) [data-testid=sidebar-kinds]"),
       rail: !!document.querySelector('[data-testid="berths"]'),
       filter: document.querySelector('[data-testid="sidebar-filter"]')?.placeholder ?? null,
+      pinnedSection: !!document.querySelector('[data-testid="sidebar-pinned"]'),
       width: innerWidth,
     }`);
     console.log(`first launch: ${JSON.stringify(state)}`);
     assert.equal(state.stored, null, "nothing pinned the column: the app chose it");
     assert.ok(state.column && !state.rail, "the kinds as a column, no rail");
     assert.equal(state.filter, "Filter kinds…");
+    assert.equal(state.pinnedSection, false, "the default pins are not repeated above their own entries");
     for (const label of ["Pods", "Deployments", "Services", "Config Maps", "Nodes", "Releases"]) await kindButton(app, label);
     await shots(app, "first-launch");
   });
@@ -132,6 +136,10 @@ describe("sidebar: icons, More, filter, pins, rail; the first launch", { timeout
     const pin = await app.find(By.xpath(`//*[@data-testid="context-menu"]//button[normalize-space()="Pin to top"]`));
     await pin.click();
     await app.find(By.css('[data-testid="sidebar-pinned"] button[aria-label="Config Maps (pinned)"]'));
+    const pins = await app.js(
+      `return Array.from(document.querySelectorAll('[data-testid="sidebar-pinned"] button.kind .label'), (l) => l.textContent.trim())`,
+    );
+    assert.deepEqual(pins, ["Pods", "Deployments", "Services", "Config Maps"], "the user's own pins, all shown");
     await app.js("document.activeElement?.blur()");
     await app.driver.actions().sendKeys("5").perform();
     await app.waitFor(
