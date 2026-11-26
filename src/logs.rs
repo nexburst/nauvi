@@ -145,29 +145,38 @@ where
     log_unavailable_text(line, previous).map(LogUnavailable)
 }
 
-/// The first lines of a log stream to pass on, or the [`LogUnavailable`]
-/// error when the stream is only the kubelet's answer for a log that is
-/// gone. A first line of that form is held until the next line (then it was
-/// a log line) or the end of the stream (then its id is checked with
-/// `confirm`): the kubelet ends the stream after its answer (#520).
-async fn stream_head<S, C, Fut>(lines: &mut S, previous: bool, confirm: C) -> Result<Vec<String>>
+/// The first lines of a log stream to pass on, then how the head ended:
+/// `Ok` to read on, or an error, the [`LogUnavailable`] one when the stream
+/// is only the kubelet's answer for a log that is gone. A first line of that
+/// form is held until the next line (then it was a log line) or the end of
+/// the stream (then its id is checked with `confirm`): the kubelet ends the
+/// stream after its answer (#520). When reading the next line fails, the
+/// held line is still passed on, before the error.
+async fn stream_head<S, C, Fut>(
+    lines: &mut S,
+    previous: bool,
+    confirm: C,
+) -> (Vec<String>, Result<()>)
 where
     S: futures::Stream<Item = std::io::Result<String>> + Unpin,
     C: FnOnce(String) -> Fut,
     Fut: std::future::Future<Output = bool>,
 {
-    let Some(first) = lines.try_next().await? else {
-        return Ok(Vec::new());
+    let first = match lines.try_next().await {
+        Ok(Some(first)) => first,
+        Ok(None) => return (Vec::new(), Ok(())),
+        Err(e) => return (Vec::new(), Err(e.into())),
     };
     if gone_id(&first).is_none() {
-        return Ok(vec![first]);
+        return (vec![first], Ok(()));
     }
-    match lines.try_next().await? {
-        Some(second) => Ok(vec![first, second]),
-        None => match gone_line(&first, previous, confirm).await {
-            Some(gone) => Err(gone.into()),
-            None => Ok(vec![first]),
+    match lines.try_next().await {
+        Ok(Some(second)) => (vec![first, second], Ok(())),
+        Ok(None) => match gone_line(&first, previous, confirm).await {
+            Some(gone) => (Vec::new(), Err(gone.into())),
+            None => (vec![first], Ok(())),
         },
+        Err(e) => (vec![first], Err(e.into())),
     }
 }
 
@@ -243,9 +252,11 @@ where
         .map_err(|e| log_error(e, opts.previous))?
         .lines();
     let confirm = |id: String| async move { id_in_status(&pods, name, opts, &id).await };
-    for line in stream_head(&mut lines, opts.previous, confirm).await? {
+    let (head, ended) = stream_head(&mut lines, opts.previous, confirm).await;
+    for line in head {
         on_line(line);
     }
+    ended?;
     while let Some(line) = lines.try_next().await? {
         on_line(line);
     }
@@ -271,11 +282,13 @@ pub async fn stream_pod_logs_into(
         .map_err(|e| log_error(e, opts.previous))?
         .lines();
     let confirm = |id: String| async move { id_in_status(&pods, name, opts, &id).await };
-    for line in stream_head(&mut lines, opts.previous, confirm).await? {
+    let (head, ended) = stream_head(&mut lines, opts.previous, confirm).await;
+    for line in head {
         if tx.send(line).await.is_err() {
             return Ok(());
         }
     }
+    ended?;
     while let Some(line) = lines.try_next().await? {
         if tx.send(line).await.is_err() {
             break;
@@ -471,28 +484,44 @@ mod tests {
     #[tokio::test]
     async fn stream_head_reports_only_a_confirmed_lone_answer() {
         // The kubelet's answer, alone, with an id of the pod's status.
-        let err = stream_head(&mut lines(&[GONE]), false, yes)
-            .await
-            .unwrap_err();
+        let (head, ended) = stream_head(&mut lines(&[GONE]), false, yes).await;
+        let err = ended.unwrap_err();
         assert!(err.downcast_ref::<LogUnavailable>().is_some(), "{err:#}");
+        assert!(head.is_empty());
         // The same line, but its id is not in the status: a log line.
-        let head = stream_head(&mut lines(&[GONE]), false, no).await.unwrap();
+        let (head, ended) = stream_head(&mut lines(&[GONE]), false, no).await;
+        assert!(ended.is_ok());
         assert_eq!(head, vec![GONE.to_string()]);
         // Followed by more lines: the workload's own output, never checked.
         let confirm = |_: String| async { panic!("checked a line that has a next one") };
         let mut s = lines(&[GONE, "secret work", "more"]);
-        let head = stream_head(&mut s, false, confirm).await.unwrap();
+        let (head, ended) = stream_head(&mut s, false, confirm).await;
+        assert!(ended.is_ok());
         assert_eq!(head, vec![GONE.to_string(), "secret work".to_string()]);
         assert_eq!(s.try_next().await.unwrap().as_deref(), Some("more"));
         // Ordinary logs and an empty one.
-        let head = stream_head(&mut lines(&["a", "b"]), false, yes)
-            .await
-            .unwrap();
+        let (head, ended) = stream_head(&mut lines(&["a", "b"]), false, yes).await;
+        assert!(ended.is_ok());
         assert_eq!(head, vec!["a".to_string()]);
-        assert!(stream_head(&mut lines(&[]), false, yes)
-            .await
-            .unwrap()
-            .is_empty());
+        let (head, ended) = stream_head(&mut lines(&[]), false, yes).await;
+        assert!(ended.is_ok() && head.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stream_head_passes_the_held_line_on_before_a_read_error() {
+        let broken = || std::io::Error::new(std::io::ErrorKind::ConnectionReset, "reset");
+        // The read after a held line fails: the line is kept, then the error.
+        let confirm = |_: String| async { panic!("checked a line whose next read failed") };
+        let mut s = futures::stream::iter(vec![Ok(GONE.to_string()), Err(broken())]);
+        let (head, ended) = stream_head(&mut s, false, confirm).await;
+        assert_eq!(head, vec![GONE.to_string()]);
+        let err = ended.unwrap_err();
+        assert!(err.downcast_ref::<LogUnavailable>().is_none(), "{err:#}");
+        assert!(format!("{err:#}").contains("reset"), "{err:#}");
+        // The first read fails: nothing to pass on, only the error.
+        let mut s = futures::stream::iter(vec![Err::<String, _>(broken())]);
+        let (head, ended) = stream_head(&mut s, false, yes).await;
+        assert!(head.is_empty() && ended.is_err());
     }
 
     fn pod_with_status(status: serde_json::Value) -> Pod {
