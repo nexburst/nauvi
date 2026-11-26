@@ -167,33 +167,40 @@
       </ul>
     {/if}
   </div>
+  <!-- Labelled toggles (#483): a glyph and a word; beside the inspector
+       only the glyph, the name stays in the tooltip. -->
   <button
     type="button"
     class="btn toggle"
     class:active={tableFilter.matchCase}
     aria-pressed={tableFilter.matchCase}
-    title="Match case"
+    title={tableFilter.matchCase ? "Match case: on (Aa ≠ aa)" : "Match case: off"}
     aria-label="Match case"
-    onclick={() => toggle("case")}>Aa</button
+    onclick={() => toggle("case")}><span class="glyph" aria-hidden="true">Aa</span><span class="word">Match case</span></button
   >
   <button
     type="button"
-    class="btn toggle mono"
+    class="btn toggle"
     class:active={tableFilter.regex}
     aria-pressed={tableFilter.regex}
-    title="Regular expression"
-    aria-label="Regular expression"
-    onclick={() => toggle("regex")}>.*</button
+    title={tableFilter.regex ? "Regular expression: on, the filter is a regex" : "Regular expression: off"}
+    aria-label="Regex (regular expression)"
+    onclick={() => toggle("regex")}><span class="glyph mono" aria-hidden="true">.*</span><span class="word">Regex</span></button
   >
   <button
     type="button"
     class="btn toggle star"
     class:active={starred}
     aria-pressed={starred}
-    title={starred ? "Unstar this search" : "Star this search: it stays in the suggestions"}
+    title={!canStar
+      ? "Star a search to keep it in the suggestions (type one first)"
+      : starred
+        ? "Starred: kept in the suggestions. Click to unstar."
+        : "Star this search: it stays in the suggestions"}
     aria-label="Star this search"
     disabled={!canStar}
-    onclick={() => starSearch(current)}>{starred ? "★" : "☆"}</button
+    onclick={() => starSearch(current)}
+    ><span class="glyph" aria-hidden="true">{starred ? "★" : "☆"}</span><span class="word">Star</span></button
   >
   {#if error}
     <span class="error" role="alert" data-testid="table-filter-error" title={error}>{error}</span>
@@ -208,13 +215,13 @@
     align-items: center;
     gap: 4px;
     flex: 1 1 0;
-    min-width: 230px;
-    max-width: 340px;
+    min-width: 360px;
+    max-width: 520px;
   }
   /* An invalid regex: room for the message (the toolbar may wrap). */
   .filter:has(.error) {
-    min-width: 320px;
-    max-width: 560px;
+    min-width: 440px;
+    max-width: 680px;
   }
   .field {
     position: relative;
@@ -230,6 +237,9 @@
       flex-basis: 96px;
       min-width: 96px;
     }
+    .word {
+      display: none;
+    }
   }
   .search {
     width: 100%;
@@ -239,9 +249,19 @@
     border-color: var(--red);
   }
   .toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     padding: 4px 8px;
     line-height: 1.2;
     flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .glyph {
+    font-weight: var(--weight-semibold);
+  }
+  .toggle:not(.active) .glyph {
+    color: var(--text-muted);
   }
   .toggle:disabled {
     opacity: 0.45;

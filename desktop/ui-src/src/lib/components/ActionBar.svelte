@@ -60,6 +60,11 @@
     return () => (live = false);
   });
 
+  /** The everyday actions carry their name beside the icon (#483). */
+  const LABELLED = new Set(["logs", "shell", "nodeShell", "edit"]);
+  /** The first destructive action starts the group set apart on the right. */
+  const firstDanger = $derived(items.find((a) => a.danger)?.id ?? "");
+
   const denied = (a: PanelAction<DockTabSpec>) => {
     const r = access.get(a.id);
     return r && !r.allowed ? r.reason : "";
@@ -111,10 +116,13 @@
   <div class="bar" role="toolbar" aria-label="Actions" bind:this={bar} {onkeydown}>
     {#each items as a (a.id)}
       {@const reason = denied(a)}
+      {#if a.id === firstDanger}<span class="gap" aria-hidden="true"></span>{/if}
       <button
         type="button"
         class="icon"
+        class:labelled={LABELLED.has(a.id)}
         class:danger={a.danger}
+        data-tip={a.tip}
         class:denied={!!reason}
         data-action={a.id}
         {disabled}
@@ -127,7 +135,7 @@
         onblur={() => (tip = null)}
       >
         <ActionIcon id={a.id} />
-        <span class="sr">{a.label}</span>
+        <span class={LABELLED.has(a.id) ? "word" : "sr"}>{a.label}</span>
       </button>
       <!-- Outside the button, so its text stays the label. -->
       {#if reason}<span class="sr" id="deny-{a.id}">{reason}</span>{/if}
@@ -165,6 +173,26 @@
   .icon:hover {
     color: var(--text);
     background: var(--bg-hover);
+  }
+  /* Logs, Shell, Edit: icon and name, in a light outline. */
+  .icon.labelled {
+    width: auto;
+    gap: 6px;
+    padding: 0 10px 0 8px;
+    color: var(--text);
+    border-color: var(--border);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+  .icon.labelled:hover {
+    border-color: var(--border-strong);
+  }
+  /* Delete and the like, apart from the rest. */
+  .gap {
+    margin: 4px 4px 4px auto;
+    width: 1px;
+    align-self: stretch;
+    background: var(--border);
   }
   .icon:focus-visible {
     outline: 2px solid var(--accent);

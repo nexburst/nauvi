@@ -1,6 +1,7 @@
 <script lang="ts">
   import { recentHours, recentKnots } from "../watch";
-  import { watch } from "../stores/watch.svelte";
+  import { toggleWatchPanel, watch } from "../stores/watch.svelte";
+  import { setView } from "../stores/app.svelte";
   import { settings } from "../stores/settings.svelte";
   import { hhmmss } from "../timeZone";
 
@@ -15,15 +16,34 @@
   const hourLabel = (start: number) => `${String(new Date(start).getHours()).padStart(2, "0")}h`;
   /** What the footer says while a knot is under the pointer. */
   let told = $state("");
+  /** The legend (#483), in the tooltip. */
+  const LEGEND = [
+    `Problem pods on this cluster, the last ${HOURS} hours:`,
+    "teal line: none",
+    "amber dip: some",
+    "brass diamond: a problem pod cleared",
+    "grey: the Overview was not open",
+    "Click for the watch log.",
+  ].join("\n");
+  const summary = $derived(
+    `Problem pods, last ${HOURS} hours: ${hours.filter((h) => h.mark === "rough").length} hours with some, ${knots.length} cleared. Open the watch log`,
+  );
+
+  function onclick() {
+    // The popover lives with the header pill, shown once the Overview ran.
+    if (watch.context) toggleWatchPanel("log");
+    else setView("overview");
+  }
 </script>
 
 <!-- The wake line: your last twelve hours on this cluster. Calm hours run
      level in teal, rough ones dip in amber, and every problem that cleared
      is a knot of brass where it happened. -->
-<span class="wake" data-testid="wake-line" role="img" aria-label={`The last ${HOURS} hours: ${knots.length} problems cleared`}>
+<button type="button" class="wake" data-testid="wake-line" title={LEGEND} aria-label={summary} {onclick}>
+  <span class="caption" data-testid="wake-caption">Problem pods, last {HOURS}h</span>
   <span class="line">
     {#each hours as h, i (h.start)}
-      <span class="hour {h.mark ?? 'none'}" title={`${hourLabel(h.start)}: ${h.mark ?? "not watched"}`}>
+      <span class="hour {h.mark ?? 'none'}">
         {#if i % 3 === 0}<span class="label" data-h={hourLabel(h.start)}></span>{/if}
       </span>
     {/each}
@@ -39,7 +59,7 @@
     <span class="now" style:left="{(Math.min(1, nowAt) * 100).toFixed(2)}%"></span>
   </span>
   {#if told}<span class="told" data-testid="wake-told">{told}</span>{/if}
-</span>
+</button>
 
 <style>
   .wake {
@@ -48,6 +68,25 @@
     min-width: 120px;
     display: flex;
     align-items: center;
+    gap: 8px;
+    /* A button that reads as part of the status line. */
+    background: transparent;
+    border: none;
+    padding: 0 4px;
+    margin: 0 -4px;
+    border-radius: 4px;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+  .wake:hover,
+  .wake:focus-visible {
+    background: var(--bg-hover);
+  }
+  .caption {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-family: var(--font-ui);
   }
   .line {
     position: relative;

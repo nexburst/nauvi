@@ -68,6 +68,8 @@
     fresh = false;
     scope.blips = toBlips(pods.problems, SCOPE_R);
     scope.healthy = pods.running;
+    scope.problems = pods.problems;
+    scope.total = pods.problems_total;
     if (gone.length === 0 || !prev?.pods) return;
     recovered = toBlips(prev.pods.problems, SCOPE_R).filter((b) => gone.includes(b.key));
     scope.recovered = recovered;
