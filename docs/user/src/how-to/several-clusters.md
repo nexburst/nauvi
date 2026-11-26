@@ -5,8 +5,8 @@ them apart, and open more windows.
 
 ## Connect more than one cluster
 
-Press `G` (or click the compass at the foot of the berths) to open the
-drawer. Its tree lists every context of your kubeconfig files, grouped by
+The sidebar's tree (when the sidebar is collapsed, click **All kinds** or
+press `G`) lists every context of your kubeconfig files, grouped by
 file. Nothing connects until you use it:
 
 - **expand** a cluster to connect it in the background and see its resource
@@ -17,8 +17,8 @@ Several clusters stay connected in one window. Tables and the Overview watch
 only the one shown. Logs, terminals and port forwards keep running when you
 show another cluster.
 
-The other clusters this window is connected to are chips next to the context
-selector: click one to show it, **✕** to disconnect it. **✕** on a cluster's
+The other clusters this window is connected to are chips after **Also
+connected:** next to the context selector: click one to show it, **✕** to disconnect it. **✕** on a cluster's
 row in the tree does the same and stops what runs there.
 
 ## Tell them apart

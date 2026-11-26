@@ -9,10 +9,13 @@ browser or a database client on your machine can reach it.
    Service.
 2. Right-click its row (or click **⋮**) and choose **Port forward…**, or use
    the button in its detail panel.
-3. Pick the Service port. Leave the local port empty to get a free one, or
-   type the one you want.
-4. Tick **https** if the target speaks TLS (the URL becomes `https://`), and
-   **Open in browser** to open the URL whenever the forward starts.
+3. Pick the Service port. Leave the local port empty to let nauvi pick one
+   (the same port when it is free and 1024 or more), or type the one you
+   want.
+4. Tick **https** if the target speaks TLS (the URL becomes `https://`).
+   **Open in browser when it starts** opens the URL whenever the forward
+   starts; it is on by default for web ports such as 80 or 8080, and then
+   follows your last choice.
 5. Tick **Start automatically** to start it each time you open this cluster.
 
 After the forward starts, a banner offers **Open** (the URL) and **Port
@@ -28,9 +31,12 @@ database client between queries) stay open.
 current pod and status; start, stop, edit and delete them there. Forwards
 are saved per cluster:
 
-- they keep running when you close panels or show another cluster;
-- they stop when you disconnect that cluster or close the window;
-- they come back stopped, or running if you ticked *Start automatically*.
+- each keeps running until you stop it, disconnect its cluster, close its
+  window or quit nauvi;
+- closing a panel or a dock tab, leaving the view or showing another
+  cluster does not stop it;
+- a stopped forward stays saved, and comes back stopped next time, or
+  running if you ticked *Start automatically*.
 
 A saved forward runs in one window at a time. Other windows on that context
 show "Running in another window" and can't start it until it is stopped

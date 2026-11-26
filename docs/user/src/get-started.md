@@ -29,10 +29,34 @@ download needs one extra click the first time
 
 Start **nauvi** from your applications menu (on Linux, `nauvi-desktop` from a
 terminal works too). nauvi reads the same kubeconfig as `kubectl`
-(`KUBECONFIG`, or `~/.kube/config`) and opens its current context. It never
-changes your kubeconfig.
+(`KUBECONFIG`, or `~/.kube/config`). It never changes your kubeconfig.
 
-The first view is the **Overview**: how many pods need a look, pod counts,
+The first time, nauvi opens on a **welcome screen**. It shows where nauvi
+looked (each kubeconfig file, and how many contexts it held) and your
+clusters, each with its server. Click **Open** next to one. The welcome
+screen does not come back once you leave it.
+
+For the first few starts, a line under the header shows the main keys: `G`
+every kind, `Ctrl+K` go anywhere, `/` filter the table, `?` all shortcuts.
+Its **✕** hides it for good.
+
+### No kubeconfig yet?
+
+The welcome screen then says **No kubeconfig found** and where nauvi looked.
+You can add a kubeconfig right there: a file, a folder, or a pasted one. Or
+let your cluster's tool write `~/.kube/config` for you:
+
+- `kind create cluster`
+- `aws eks update-kubeconfig --name <cluster>`
+- `gcloud container clusters get-credentials <cluster>`
+- `az aks get-credentials --resource-group <group> --name <cluster>`
+
+If the file is there but nauvi cannot read it, the screen says so and shows
+the error.
+
+### The Overview
+
+A cluster opens on its **Overview**: how many pods need a look, pod counts,
 CPU and memory against what is requested, and the newest warning events.
 
 <img class="shot-light" src="img/overview-light.png" alt="The Overview of the test cluster">
@@ -43,8 +67,10 @@ To use another context, click the context selector in the header, or press
 
 ## 3. Find the failing pod
 
-The Overview lists the problem pods; click one to open it. Or go to the Pods
-table: press `G`, type `po` and press Enter. The table updates by itself as
+The Overview lists the problem pods as cards: click one to open it, or
+click **Logs** on it to read its logs. Or go to the Pods table: click
+**Pods** in the sidebar on the left, or press `G`, type `po` and press
+Enter. The table updates by itself as
 pods change. Press `Z`, or click the warning mark in the toolbar, to keep
 only the rows that need attention.
 
@@ -57,23 +83,28 @@ is completed. Hover a square to see why.
 
 ## 4. Read its logs
 
-Select the pod with the arrow keys (or `j` and `k`) and press `L`, or click
-it and choose **Logs** in the panel's header. The logs open in a tab of the
+Select the pod with the arrow keys (or `j` and `k`) and press `L`. Or hover
+its row and click the logs icon, or click the row and then **Logs** in the
+panel's header. The logs open in a tab of the
 **dock**, at the bottom of the window, and keep streaming while you look at
 other things.
 
 <img class="shot-light" src="img/logs-light.png" alt="A pod's logs streaming in a dock tab">
 <img class="shot-dark" src="img/logs-dark.png" alt="A pod's logs streaming in a dock tab">
 
-For a container that crashed, pick its **previous** instance: that is the
-run that failed. Type in the search box to find text, and use **Highlight**
+The line above the log says which run you see, for example "previous run,
+exited with code 1, 30s ago". For a container that crashed, tick
+**Previous**: that is the run that failed. Type in the search box to find text, and use **Highlight**
 with `Enter` / `Shift+Enter` to step through the matches.
 [Logs](reference/app/logs.md) has the rest.
 
 ## 5. Look at its environment
 
-Click the pod to open its detail panel. It leads with what is wrong
-("CrashLoopBackOff · 12 restarts"), then shows one card per container: image,
+Click the pod to open its detail panel. For a pod that is failing, it starts
+with **Why it's failing**: what is wrong in plain words ("Container app
+keeps crashing"), the last run's exit code and message, the newest warning,
+and buttons for the logs and the events. Then it shows one card per
+container: image,
 command, requests and limits, mounts, and the environment. Open the
 **Environment** list to see each variable's value and where it comes from.
 Values from Secrets stay hidden until you click **Reveal** on a row.
