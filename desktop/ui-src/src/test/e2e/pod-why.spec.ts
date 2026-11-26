@@ -60,9 +60,14 @@ test("Events ↓ goes to the events, which follow the containers", async ({ page
   await row(page, "crashed").click();
   await why(page).getByRole("button", { name: "Events (1) ↓" }).click();
   await expect(panel(page).locator("table.events")).toBeInViewport();
-  const events = (await panel(page).locator("table.events").boundingBox())!;
-  const conditions = (await panel(page).locator("table.conditions").boundingBox())!;
-  expect(events.y).toBeLessThan(conditions.y);
+  // Before the conditions, in the panel's order (the smooth scroll may
+  // still move both while they are measured).
+  const before = await panel(page).evaluate((p) => {
+    const e = p.querySelector("table.events")!;
+    const c = p.querySelector("table.conditions")!;
+    return !!(e.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+  expect(before).toBe(true);
 });
 
 test("a healthy pod has no why", async ({ page }) => {
