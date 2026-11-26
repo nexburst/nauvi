@@ -22,13 +22,13 @@ pub(crate) enum HelpItem {
     ReportBug,
     /// The folder with the app log, in the file manager.
     LogFolder,
-    /// The docs' page on AI assistants and `nauvi mcp` (#376).
+    /// The docs' page on Ask AI and AI assistants (#376, #466).
     AiAssistants,
 }
 
-/// The docs' page on `nauvi mcp`, relative to the docs' start
-/// (`docs/user/src/how-to/mcp.md`).
-const AI_DOCS_PAGE: &str = "how-to/mcp.html";
+/// The docs' page on Ask AI, its skill and `nauvi mcp`, relative to the
+/// docs' start (`docs/user/src/reference/app/ask-ai.md`).
+const AI_DOCS_PAGE: &str = "reference/app/ask-ai.html";
 
 /// Do what `item` says. The URLs and the folder are fixed here: the page
 /// only names the item.

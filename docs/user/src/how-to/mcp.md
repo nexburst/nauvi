@@ -8,9 +8,13 @@ nauvi has no model of its own and stores no API key: it works with the
 coding agent you already have, which signs in itself. You need the `nauvi`
 CLI ([Install](install.md)).
 
+`nauvi mcp` is opt-in, for agents that don't read skills. Inside the app,
+[Ask AI](../reference/app/ask-ai.md) uses the `nauvi` skill instead and sets
+up no MCP server; the app never adds `nauvi mcp` to an agent for you.
+
 ## The easy way: copy it from the app
 
-In the desktop app, **Settings → Agents** shows the entry for Claude Code,
+In the desktop app, **Settings → Agents (MCP)** shows the entry for Claude Code,
 Codex, VS Code and the clients that share the `mcpServers` form (Cursor,
 Claude Desktop, Gemini CLI, Windsurf), pinned to the cluster on screen and
 ready to copy. It also has a short guide to paste into your agent's rules

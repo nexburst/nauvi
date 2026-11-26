@@ -44,7 +44,6 @@ export type DockTabSpec =
       namespace: string;
       cli: string;
       prompt: string;
-      allowWrites: boolean;
       title: string;
     };
 

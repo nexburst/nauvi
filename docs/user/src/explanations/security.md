@@ -42,8 +42,11 @@ See [Login commands](../reference/app/login-commands.md).
 - Local terminals and Ask AI get a temporary kubeconfig with one context,
   readable only by you on Linux and macOS, and deleted afterwards.
 - Ask AI runs only a known CLI on your `PATH` or the command you set, never
-  through a shell string, and gives it a read-only MCP server unless you
-  allow writes. What the CLI itself runs is up to its own approvals.
+  through a shell string. The CLI gets a shell and the `nauvi` skill, not a
+  read-only tool set: what it runs is up to its own approval prompts.
+  Read-only contexts refuse Ask AI; protected ones ask for the name.
+- The skill file is written only in the CLI's own skills folder, never
+  through a link, and a `SKILL.md` nauvi did not write is never changed.
 
 ## Links
 

@@ -6,7 +6,7 @@
   import { onDestroy, tick } from "svelte";
   import type { Snippet } from "svelte";
   import VirtualList from "./VirtualList.svelte";
-  import { commands } from "../bindings";
+  import { saveLogs } from "../rawIpc";
   import { api, visibleCluster } from "../cluster";
   import type { LogContainer, LogEvent, WorkloadNotice } from "../bindings";
   import { logChannel, sendAck } from "../logChannel";
@@ -718,7 +718,7 @@
         texts,
         now: new Date(),
       });
-      const path = await commands.cmdSaveLogs(filename, header + out.join("\n") + "\n");
+      const path = await saveLogs(filename, header + out.join("\n") + "\n");
       savedPath = path;
       clearTimeout(savedTimer);
       savedTimer = setTimeout(() => (savedPath = ""), SAVED_NOTE_MS);

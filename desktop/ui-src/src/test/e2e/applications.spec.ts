@@ -51,6 +51,30 @@ test("applications are listed with their rolled-up status, filtered and sorted",
   expect(fake.errors).toEqual([]);
 });
 
+test("the list updates on the feed's channel; a stopped feed's messages are ignored (#115)", async ({ page }) => {
+  const fake = await openApp(page);
+  await openApplications(page);
+  await expect(appRows(page)).toHaveCount(4);
+  const [first] = await fake.applicationsFeeds();
+  expect((await fake.lastCall("cmdApplicationsStart")).onEvent).toBeDefined();
+  await toggleNamespaces(page, "demo");
+  await expect(appRows(page)).toHaveCount(3);
+  // The old feed (all namespaces: 4 applications) still sends: nothing changes.
+  await fake.emitApplications(first.id);
+  await fake.emitFeedState("applications", { id: first.id, state: "reconnecting", error: "old feed" });
+  await expect(appRows(page)).toHaveCount(3);
+  await expect(page.locator("header")).toContainText("Live");
+  // The running feed pushes a new list, and its state shows.
+  await fake.setCluster((cluster) => {
+    cluster.applications = cluster.applications.filter((a) => a.name !== "migrate");
+  }, null);
+  await fake.emitApplications();
+  await expect(appRows(page)).toHaveCount(2);
+  await fake.emitFeedState("applications", { state: "reconnecting", error: "Lost the connection to the cluster; retrying." });
+  await expect(page.locator("header")).toContainText("Reconnecting");
+  expect(fake.errors).toEqual([]);
+});
+
 test("a row opens its workloads and Helm release", async ({ page }) => {
   await openApp(page);
   await openApplications(page);

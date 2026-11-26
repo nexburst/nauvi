@@ -22,6 +22,14 @@ kubeconfig files.
 **The watch** (the calm streak in the title bar) is kept in the app's local
 storage, per context.
 
+## Skill files for Ask AI
+
+On the first Ask AI with a CLI, nauvi writes the `nauvi` skill to
+`~/.claude/skills/nauvi/SKILL.md` (Claude Code) or
+`~/.agents/skills/nauvi/SKILL.md` (Codex, Gemini CLI), and updates it when
+nauvi updates. **Settings → AI** lists and removes them
+([Ask AI](../reference/app/ask-ai.md#the-nauvi-skill)).
+
 ## In the data folder
 
 The matching kubectl, if you downloaded one

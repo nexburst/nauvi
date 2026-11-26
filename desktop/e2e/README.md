@@ -14,7 +14,8 @@ with a fake backend are in `desktop/ui-src/src/test/`. Both suites use the same
   live in a temporary `e2e-*` namespace, which it deletes when it finishes.
 - `qa/*.test.mjs` are the QA scenarios, run by `qa.sh` (below).
 - `bench.mjs` is the 10k-row table benchmark (`ui-src/bench.html`) running in
-  the app's webview. It only reports numbers and never fails on slow ones.
+  the app's webview. integration.yml runs it on every PR and it fails when a
+  number is past its limit (see "Performance budgets" below).
 - `qa/idle-memory.test.mjs` reports the RSS and PSS of the core and the
   WebKitGTK processes after 30 s idle on the Overview (`artifacts/idle-memory.json`
   and the job summary), with the biggest mappings of each process. qa.yml
@@ -158,6 +159,23 @@ With `-f scenario='<names>'` the named scenarios run in one shard. A `report`
 job merges the shards: the report goes to the job summary, and the
 screenshots, page text and logs (`run-shard-N.log`) are the `qa-artifacts`
 artifact, as before.
+
+### Performance budgets
+
+Performance numbers measured in WebKitGTK fail CI when they pass a limit
+(#115). Each limit sits next to the numbers it was set from, with about
+2.5-4x headroom over the slowest CI runner seen; noisy numbers (frame max,
+the worst window, anything the cluster paces) are only reported.
+
+| Where | Runs | Checked |
+| --- | --- | --- |
+| `bench.mjs`, `BUDGET` | integration.yml, every PR (debug build) | 10k snapshot, batch apply+render mean and p95, frame p95, fps |
+| `qa/stream-perf.test.mjs`, `LOG_BUDGET`, `TERM_BUDGET`, `YES_BUDGET`, `WATCH_BUDGET` | qa.yml, nightly and on demand (release build with `-f scenario='stream-perf idle-memory'`) | 50k-line log burst, 10 MB in a pod terminal and a local shell, `yes` then Ctrl-C, 5k-pod watch snapshot |
+| `qa/idle-memory.test.mjs` | qa.yml | RSS and PSS after 30 s idle |
+
+`BENCH_BUDGET=off` and `QA_PERF_BUDGET=off` turn the checks off (the numbers
+are still reported). When a change makes something legitimately slower,
+raise the limit in the same PR and say why there.
 
 ## Running locally
 

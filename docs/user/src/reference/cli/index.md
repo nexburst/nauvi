@@ -50,7 +50,7 @@ blocked by a PodDisruptionBudget.
 
 | Page | Commands |
 | --- | --- |
-| [Look at resources](inspect.md) | `get`, `describe`, `yaml`, `pods`, `namespaces`, `nodes`, `watch`, `top` |
+| [Look at resources](inspect.md) | `problems`, `get`, `describe`, `yaml`, `pods`, `namespaces`, `nodes`, `watch`, `top` |
 | [Logs](logs.md) | `logs` |
 | [Shells, debugging and port forwards](shells.md) | `exec`, `attach`, `debug`, `node-shell`, `port-forward` |
 | [Actions](actions.md) | `scale`, `restart`, `cordon`, `uncordon`, `drain`, `evict`, `trigger`, `suspend`, `resume`, `delete`, `apply` |

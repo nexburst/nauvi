@@ -134,7 +134,6 @@ export function dockContext(spec: DockTabSpec, opts: LogOptions & { shellContain
       return [
         text("AI CLI on this machine (then your shell), kubectl pointed at namespace "),
         code(spec.namespace),
-        ...(spec.allowWrites ? [text(", with nauvi tools that can change the cluster")] : []),
       ];
   }
 }

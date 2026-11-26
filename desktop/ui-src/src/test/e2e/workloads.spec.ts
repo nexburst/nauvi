@@ -92,6 +92,31 @@ test("the overview follows the namespace selection, one feed at a time", async (
   await expect.poll(() => fake.workloadsFeeds()).toEqual([]);
 });
 
+test("each feed has its own channel: a stopped feed's messages are ignored (#115)", async ({ page }) => {
+  const fake = await openWorkloads2(page);
+  const [first] = await fake.workloadsFeeds();
+  expect((await fake.lastCall("cmdWorkloadsStart")).onEvent).toBeDefined();
+  await toggleNamespaces(page, "kube-system");
+  await expect(card(page, "Pod").locator(".total")).toHaveText("1");
+  // The old feed (all namespaces: 5 pods) still sends: nothing changes.
+  await fake.emitWorkloads(first.id);
+  await fake.emitFeedState("workloads", { id: first.id, state: "reconnecting", error: "old feed" });
+  await expect(card(page, "Pod").locator(".total")).toHaveText("1");
+  await expect(page.locator("header")).toContainText("Live");
+  // The running feed's state does show.
+  await fake.emitFeedState("workloads", { state: "reconnecting", error: "Lost the connection to the cluster; retrying." });
+  await expect(page.locator("header")).toContainText("Reconnecting");
+  await fake.emitFeedState("workloads", { state: "live" });
+  await expect(page.locator("header")).toContainText("Live");
+});
+
+async function openWorkloads2(page: Page) {
+  const fake = await openApp(page);
+  await openWorkloads(page);
+  await expect(card(page, "Pod").locator(".total")).toHaveText("5");
+  return fake;
+}
+
 test("a status count opens the kind's table filtered by that status", async ({ page }) => {
   await openApp(page);
   await openWorkloads(page);

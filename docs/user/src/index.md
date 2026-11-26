@@ -24,8 +24,8 @@ With nauvi you can:
 - look at **Helm** releases and charts, and install and upgrade with a dry run;
 - work with **several clusters** at once, each in its own colour, some of
   them read-only or protected;
-- **Ask AI**: open your own AI coding CLI about the object on screen, with a
-  read-only MCP server.
+- **Ask AI**: open your own AI coding CLI about the object on screen, with
+  the `nauvi` skill that teaches it how to look at a cluster.
 
 The `nauvi` CLI does much of the same from a terminal or a script: `nauvi
 get`, `logs`, `exec`, `port-forward`, `drain`, and `nauvi mcp` for AI

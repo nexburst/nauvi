@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 """Write the updater's latest.json (#30) from a release's assets.
 
-The release workflow's publish job runs this once every bundle is uploaded.
-tauri-action also uploads a latest.json, but each matrix job reads, extends
-and re-uploads it in parallel, so one platform can overwrite another's entry.
-Writing it here from all the .sig files at once is deterministic; when
-tauri-action's file is passed with --check, every entry it has must carry
-the same signature as ours.
+The release workflow's publish job runs this once the `sign` job has signed
+every update bundle (#245), from all the .sig files at once.
 
     updater_json.py --assets DIR --repo OWNER/REPO --tag vX.Y.Z \
-        [--check tauri-action-latest.json] --out DIR/latest.json
+        --out DIR/latest.json
 
 Fails if a platform the app supports has no signed update bundle.
 """
@@ -23,7 +19,7 @@ import sys
 
 # Target keys (as tauri-plugin-updater looks them up: `{os}-{arch}-{bundle}`,
 # then `{os}-{arch}`) and the asset that updates them. The plain
-# `{os}-{arch}` keys use what tauri-action picks: the AppImage, the
+# `{os}-{arch}` keys use what tauri-action used to pick: the AppImage, the
 # universal .app and the MSI.
 REQUIRED = {
     "linux-x86_64": "*.AppImage",
@@ -38,7 +34,8 @@ REQUIRED = {
     "windows-x86_64-msi": "*.msi",
     "windows-x86_64-nsis": "*-setup.exe",
 }
-# Added when the bundler signed them (the app then installs .deb updates).
+# Added when they are signed (the app then installs .deb updates); the
+# release signs the .deb and builds no .rpm.
 OPTIONAL = {
     "linux-x86_64-deb": "*.deb",
     "linux-x86_64-rpm": "*.rpm",
@@ -78,27 +75,11 @@ def build(assets_dir, repo, tag, version, notes, now):
     }
 
 
-def check_against(ours, theirs):
-    """tauri-action's entries must match ours; it may lack some (the race)."""
-    problems = []
-    for key, entry in (theirs.get("platforms") or {}).items():
-        mine = ours["platforms"].get(key)
-        if mine is None:
-            print(f"::warning::{key} is in tauri-action's latest.json but not a target here; left out")
-        elif entry.get("signature", "").strip() != mine["signature"]:
-            problems.append(f"{key}: tauri-action's signature differs from {mine['url']}.sig")
-    if theirs.get("version") not in (None, ours["version"]):
-        problems.append(f"version: tauri-action wrote {theirs.get('version')}, expected {ours['version']}")
-    lost = sorted(set(ours["platforms"]) - set(theirs.get("platforms") or {}))
-    return problems, lost
-
-
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--assets", required=True)
     p.add_argument("--repo", required=True)
     p.add_argument("--tag", required=True)
-    p.add_argument("--check")
     p.add_argument("--out", required=True)
     a = p.parse_args(argv)
 
@@ -106,17 +87,6 @@ def main(argv=None):
     notes = f"See https://github.com/{a.repo}/releases/tag/{a.tag}"
     now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     ours = build(a.assets, a.repo, a.tag, version, notes, now)
-
-    if a.check:
-        with open(a.check, encoding="utf-8") as f:
-            theirs = json.load(f)
-        problems, lost = check_against(ours, theirs)
-        if problems:
-            for msg in problems:
-                print(f"::error::latest.json mismatch: {msg}")
-            return 1
-        if lost:
-            print(f"::warning::tauri-action's latest.json lacked {', '.join(lost)} (parallel uploads); added them")
 
     with open(a.out, "w", encoding="utf-8") as f:
         json.dump(ours, f, indent=2)

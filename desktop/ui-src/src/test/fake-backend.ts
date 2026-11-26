@@ -44,8 +44,17 @@
  * called for each message (lines as a raw `ArrayBuffer`, the rest as JSON).
  * Terminal sessions do the same (`termChannels`, `sendTerm`): output as a
  * raw `ArrayBuffer`, `{ type: "closed" }` at the end. So do table watches,
- * detail watches and overview feeds (`sendWatch`, `sendDetail`,
- * `sendOverview` in `fake/state.ts`), with JSON messages.
+ * detail watches, overview, Workloads and Applications feeds (`sendWatch`,
+ * `sendDetail`, `sendOverview`, `sendWorkloads`, `sendApplications` in
+ * `fake/state.ts`), with JSON messages.
+ *
+ * ## Raw bytes
+ *
+ * A command that replies with raw bytes (`RawText` in Rust) returns an
+ * `ArrayBuffer` from its handler. One that takes a raw upload
+ * (`cmd_save_logs`, `lib/rawIpc.ts`) gets a `Uint8Array` as its payload:
+ * `RAW_UPLOADS` turns it into the named arguments its handler and `calls`
+ * see.
  *
  * ## Adding an event
  *
@@ -65,7 +74,9 @@ import { available } from "./fixtures/updates";
 import { prometheusFixture } from "./fixtures/usage";
 import { workloadsOverview } from "./fixtures/workloads";
 import { allHandlers } from "./fake";
-import { newState, sendDetail, sendOverview, sendTerm, sendWatch } from "./fake/state";
+import { newState, sendApplications, sendDetail, sendOverview, sendTerm, sendWatch, sendWorkloads } from "./fake/state";
+import { applicationsList } from "./fixtures/applications";
+import { parseRawUpload } from "../lib/rawIpc";
 import type { CommandName } from "./fake/state";
 
 export type { CommandName } from "./fake/state";
@@ -123,8 +134,14 @@ export interface FakeApi {
   emitOverviewState(state: WatchState & { id?: number }): Promise<void>;
   /** The Workloads overview feeds started and not stopped, with their namespaces. */
   workloadsFeeds(): { id: number; namespaces: string[] }[];
-  /** Recompute the Workloads overview of the latest feed from `cluster.rows` and send it. */
-  emitWorkloads(): Promise<void>;
+  /** Recompute the Workloads overview of feed `id` (default: the latest) from `cluster.rows` and send it. */
+  emitWorkloads(id?: number): Promise<void>;
+  /** The applications feeds started and not stopped, with their namespaces. */
+  applicationsFeeds(): { id: number; namespaces: string[] }[];
+  /** Recompute the applications list of feed `id` (default: the latest) and send it. */
+  emitApplications(id?: number): Promise<void>;
+  /** Send a state on a Workloads or applications feed's channel; `id` defaults to the latest feed. */
+  emitFeedState(feed: "workloads" | "applications", state: WatchState & { id?: number }): Promise<void>;
   /** Send lines on a log stream's channel; `streamId` defaults to the latest stream. */
   emitLogLines(lines: string[], streamId?: number): Promise<void>;
   /** Send tagged lines (merged streams: workloads, all containers of a pod). */
@@ -166,6 +183,12 @@ declare global {
   }
 }
 
+/** Commands sent a raw upload (`<head>\n<body>`), and the named arguments
+ *  it stands for, like the Rust side reads it. */
+const RAW_UPLOADS: Partial<Record<CommandName, (head: string, body: string) => CallArgs>> = {
+  cmdSaveLogs: (filename, content) => ({ filename, content }),
+};
+
 const toCamel = (cmd: string) => cmd.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase()) as CommandName;
 
 export function installFakeBackend(cluster: FakeCluster = defaultCluster()): FakeApi {
@@ -177,13 +200,21 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
 
   const opened: string[] = [];
 
-  async function handle(cmd: string, args: CallArgs | undefined): Promise<unknown> {
+  async function handle(cmd: string, payload: CallArgs | Uint8Array | undefined): Promise<unknown> {
     // tauri-plugin-opener's `openUrl` (Open in browser).
     if (cmd === "plugin:opener|open_url") {
-      opened.push(String(args?.url));
+      opened.push(String((payload as CallArgs | undefined)?.url));
       return null;
     }
     const name = toCamel(cmd);
+    const raw = RAW_UPLOADS[name];
+    if (raw && !(payload instanceof Uint8Array)) throw new Error(`fake backend: ${cmd} takes a raw upload (lib/rawIpc.ts)`);
+    let args: CallArgs | undefined;
+    if (payload instanceof Uint8Array) {
+      if (!raw) throw new Error(`fake backend: ${cmd} takes named arguments, not raw bytes`);
+      const { head, body } = parseRawUpload(payload);
+      args = raw(head, body);
+    } else args = payload;
     const handler = HANDLERS[name] as ((...a: unknown[]) => unknown) | undefined;
     if (!handler) throw new Error(`fake backend: no handler for ${cmd}`);
     let list = calls.get(name);
@@ -217,7 +248,7 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     ch?.onmessage(message);
   }
 
-  mockIPC((cmd, args) => handle(cmd, args as CallArgs | undefined), { shouldMockEvents: true });
+  mockIPC((cmd, args) => handle(cmd, args as CallArgs | Uint8Array | undefined), { shouldMockEvents: true });
   mockWindows(new URLSearchParams(location.search).get("window") ?? "main");
 
   const api: FakeApi = {
@@ -254,9 +285,18 @@ export function installFakeBackend(cluster: FakeCluster = defaultCluster()): Fak
     },
     emitOverviewState: async ({ id, ...s }) => sendOverview(st, id ?? st.lastOverview ?? -1, { type: "state", ...s }),
     workloadsFeeds: () => [...st.workloadsFeeds].map(([id, namespaces]) => ({ id, namespaces })),
-    emitWorkloads: () => {
-      const id = st.lastWorkloads ?? -1;
-      return events.workloadsUpdate.emit({ id, overview: workloadsOverview(cluster, st.workloadsFeeds.get(id) ?? []) });
+    emitWorkloads: async (feed) => {
+      const id = feed ?? st.lastWorkloads ?? -1;
+      sendWorkloads(st, id, { type: "update", overview: workloadsOverview(cluster, st.workloadsFeeds.get(id) ?? []) });
+    },
+    applicationsFeeds: () => [...st.applicationsFeeds].map(([id, namespaces]) => ({ id, namespaces })),
+    emitApplications: async (feed) => {
+      const id = feed ?? st.lastApplications ?? -1;
+      sendApplications(st, id, { type: "update", list: applicationsList(cluster, st.applicationsFeeds.get(id) ?? []) });
+    },
+    emitFeedState: async (feed, { id, ...s }) => {
+      if (feed === "workloads") sendWorkloads(st, id ?? st.lastWorkloads ?? -1, { type: "state", ...s });
+      else sendApplications(st, id ?? st.lastApplications ?? -1, { type: "state", ...s });
     },
     emitLogLines: async (lines, id) => sendLog(id, new TextEncoder().encode(lines.join("\n")).buffer as ArrayBuffer),
     emitTaggedLines: async (lines, id) => sendLog(id, { type: "tagged", data: lines }),

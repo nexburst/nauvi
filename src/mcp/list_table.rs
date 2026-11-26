@@ -2,7 +2,7 @@
 //! pods with a LAST column (the newest termination), then only the
 //! `columns` asked for, or the `compact` set.
 
-use super::problems::last_termination_cell;
+use crate::problems::last_termination_cell;
 use crate::resources::{self, align_columns, ResourceKind};
 use anyhow::{anyhow, Result};
 use kube::api::DynamicObject;

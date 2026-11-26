@@ -26,9 +26,10 @@ on one page. They hold:
   ([Update](../../how-to/update.md)).
 - **Local terminal**: "Offer a kubectl that matches the cluster"
   ([The dock](dock.md#matching-kubectl)).
-- **AI**: the custom command for [Ask AI](ask-ai.md).
-- **Agents**: the MCP entry and the agent guide
-  ([MCP](../../how-to/mcp.md)).
+- **AI**: the custom command for [Ask AI](ask-ai.md), and the `nauvi` skill
+  files it wrote, with **Remove**.
+- **Agents (MCP)**: the `nauvi mcp` entries for agents without skills, and
+  the agent guide ([MCP](../../how-to/mcp.md)).
 - **Prometheus**: install a small Prometheus ([Metrics](metrics.md)).
 - **Helm** repositories ([Helm](helm.md)).
 - **About**: the version and commit, and **Copy diagnostics**

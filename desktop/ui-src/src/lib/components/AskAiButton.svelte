@@ -13,8 +13,8 @@
     type="button"
     data-testid="ask-ai-header"
     title={one
-      ? `Ask your AI CLI about namespace ${one}, with the nauvi tools`
-      : "Ask your AI CLI about this cluster, with the nauvi tools"}
+      ? `Ask your AI CLI about namespace ${one}, with the nauvi skill`
+      : "Ask your AI CLI about this cluster, with the nauvi skill"}
     onclick={() => openAskAi()}
   >
     <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">

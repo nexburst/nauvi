@@ -27,6 +27,7 @@ export const GLOBAL_COMMANDS = [
   "cmdAddKubeconfigSource",
   "cmdAnswerExecCommand",
   "cmdAskAiSetup",
+  "cmdAskAiSkillRemove",
   "cmdAutostartEnabled",
   "cmdAutostartSet",
   "cmdCheckContext",

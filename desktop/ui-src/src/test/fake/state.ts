@@ -7,7 +7,7 @@
 import type { Channel } from "@tauri-apps/api/core";
 import type { commands } from "../../lib/bindings";
 import type { LinkRequest, LogMessage, ResourceKind, ResourceRef, ResourceRow, TermMessage } from "../../lib/bindings";
-import type { DetailState, OverviewMessage_Serialize, WatchMessage } from "../../lib/bindings";
+import type { ApplicationsMessage, DetailState, OverviewMessage_Serialize, WatchMessage, WorkloadsMessage } from "../../lib/bindings";
 import type { ClusterCommand } from "../../lib/cluster";
 import type { FakeCluster } from "../fixtures/cluster";
 
@@ -56,12 +56,17 @@ export interface FakeState {
   watchChannels: Map<string, Channel<WatchMessage>>;
   detailChannels: Map<string, Channel<DetailState>>;
   overviewChannels: Map<number, Channel<OverviewMessage_Serialize>>;
+  workloadsChannels: Map<number, Channel<WorkloadsMessage>>;
+  applicationsChannels: Map<number, Channel<ApplicationsMessage>>;
   /** Running overview feeds, and the id of the latest one. */
   overviewFeeds: Set<number>;
   lastOverview: number | null;
   /** Workloads overview feeds by id, with their namespaces. */
   workloadsFeeds: Map<number, string[]>;
   lastWorkloads: number | null;
+  /** Applications feeds by id, with their namespaces. */
+  applicationsFeeds: Map<number, string[]>;
+  lastApplications: number | null;
   /** Releases a `cmd_update_install` waiting half way through its download. */
   finishDownload: (() => void) | null;
   restarted: boolean;
@@ -95,10 +100,14 @@ export function newState(cluster: FakeCluster): FakeState {
     watchChannels: new Map(),
     detailChannels: new Map(),
     overviewChannels: new Map(),
+    workloadsChannels: new Map(),
+    applicationsChannels: new Map(),
     overviewFeeds: new Set(),
     lastOverview: null,
     workloadsFeeds: new Map(),
     lastWorkloads: null,
+    applicationsFeeds: new Map(),
+    lastApplications: null,
     finishDownload: null,
     restarted: false,
     link: null,
@@ -125,6 +134,16 @@ export function sendDetail(s: FakeState, id: string, message: DetailState) {
 /** One message on the channel of overview feed `id`. */
 export function sendOverview(s: FakeState, id: number, message: OverviewMessage_Serialize) {
   s.overviewChannels.get(id)?.onmessage(copy(message));
+}
+
+/** One message on the channel of Workloads overview feed `id`. */
+export function sendWorkloads(s: FakeState, id: number, message: WorkloadsMessage) {
+  s.workloadsChannels.get(id)?.onmessage(copy(message));
+}
+
+/** One message on the channel of applications feed `id`. */
+export function sendApplications(s: FakeState, id: number, message: ApplicationsMessage) {
+  s.applicationsChannels.get(id)?.onmessage(copy(message));
 }
 export const rowKey = (namespace: string, name: string) => (namespace ? `${namespace}/${name}` : name);
 

@@ -68,6 +68,26 @@ pub enum Commands {
         #[arg(short, long)]
         namespace: Option<String>,
     },
+    /// Only what is wrong, and why: crash-looping, failed, not ready or
+    /// pending pods, recent restarts, workloads short of replicas, failed
+    /// Jobs, not-ready Nodes, lost PVCs (the same findings as the MCP
+    /// `problems` tool)
+    Problems {
+        /// Only this namespace (default: all namespaces)
+        #[arg(short, long)]
+        namespace: Option<String>,
+        /// All namespaces (the default; accepted for kubectl habits)
+        #[arg(short = 'A', long, conflicts_with = "namespace")]
+        all_namespaces: bool,
+        /// Only these kinds (pods, deployments, statefulsets, daemonsets,
+        /// replicasets, jobs, nodes, persistentvolumeclaims); repeat or
+        /// separate with commas
+        #[arg(short, long = "kind", value_delimiter = ',', value_name = "KIND")]
+        kinds: Vec<String>,
+        /// At most this many rows
+        #[arg(long, default_value_t = nauvi::problems::DEFAULT_PROBLEMS)]
+        limit: usize,
+    },
     /// Serve the Model Context Protocol on stdio for AI assistants
     /// (read-only unless --allow-writes)
     Mcp {
@@ -78,8 +98,8 @@ pub enum Commands {
         #[arg(long)]
         allow_writes: bool,
         /// The kubeconfig file the context comes from in the app, for its
-        /// read-only or protected mode (the app passes it for Ask AI, whose
-        /// KUBECONFIG starts with a per-terminal file)
+        /// read-only or protected mode (for a client started from an app
+        /// terminal, whose KUBECONFIG starts with a per-terminal file)
         #[arg(long, value_name = "PATH", hide = true)]
         mode_file: Option<PathBuf>,
     },
@@ -366,6 +386,43 @@ mod tests {
     #[test]
     fn definition_is_valid() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn problems_takes_a_namespace_kinds_and_a_limit() {
+        match parse(&[
+            "problems",
+            "-n",
+            "demo",
+            "-k",
+            "pods,jobs",
+            "--kind",
+            "nodes",
+        ])
+        .command
+        {
+            Commands::Problems {
+                namespace,
+                kinds,
+                limit,
+                ..
+            } => {
+                assert_eq!(namespace.as_deref(), Some("demo"));
+                assert_eq!(kinds, ["pods", "jobs", "nodes"]);
+                assert_eq!(limit, nauvi::problems::DEFAULT_PROBLEMS);
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&["problems", "-A", "--limit", "7"]).command {
+            Commands::Problems {
+                namespace, limit, ..
+            } => {
+                assert_eq!(namespace, None);
+                assert_eq!(limit, 7);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(Cli::try_parse_from(["nauvi", "problems", "-A", "-n", "x"]).is_err());
     }
 
     #[test]

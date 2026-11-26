@@ -156,6 +156,9 @@ export interface FakeAskAi {
   nauvi: boolean;
   /** Why the custom command cannot run (`""`: it can). */
   customError: string;
+  /** The nauvi skill's state by place (`claude`, `agents`; default
+   *  `missing`): `current`, `outdated` or `foreign` (#466). */
+  skills?: Record<string, string>;
 }
 
 /** The kubectl download (#331) in the fake. */

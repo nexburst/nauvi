@@ -1,5 +1,6 @@
 //! Resource details, YAML get / apply, delete.
 
+use super::raw_body::RawText;
 use crate::state::mutation::Mutation;
 use crate::state::Cluster;
 use nauvi::actions::{self};
@@ -37,6 +38,8 @@ pub(crate) async fn cmd_get_related(
 }
 
 /// An object as YAML. Secret values stay hidden unless `reveal` is set.
+/// The YAML comes as raw UTF-8 (#115): decode it with `rawText` in
+/// `lib/rawIpc.ts`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_get_resource_yaml(
@@ -45,10 +48,11 @@ pub(crate) async fn cmd_get_resource_yaml(
     namespace: String,
     name: String,
     reveal: bool,
-) -> Result<String, String> {
+) -> Result<RawText, String> {
     let client = cluster.client().await?;
     resources::get_resource_yaml(&client, &resource, &namespace, &name, reveal)
         .await
+        .map(RawText)
         .map_err(|e| nauvi::error_text(&e))
 }
 

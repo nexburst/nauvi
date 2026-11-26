@@ -7,6 +7,21 @@ Commands that read the cluster and print what is there. None of them change anyt
 
 Every command also takes the [global options](index.md#global-options) (`--context`, `--kubeconfig`).
 
+## `nauvi problems`
+
+Only what is wrong, and why: crash-looping, failed, not ready or pending pods, recent restarts, workloads short of replicas, failed Jobs, not-ready Nodes, lost PVCs (the same findings as the MCP `problems` tool)
+
+```text
+nauvi problems [OPTIONS]
+```
+
+| Argument | What it does |
+| --- | --- |
+| `-n, --namespace <NAMESPACE>` | Only this namespace (default: all namespaces) |
+| `-A, --all-namespaces` | All namespaces (the default; accepted for kubectl habits) |
+| `-k, --kind <KIND>` | Only these kinds (pods, deployments, statefulsets, daemonsets, replicasets, jobs, nodes, persistentvolumeclaims); repeat or separate with commas |
+| `--limit <LIMIT>` | At most this many rows. Default: `50` |
+
 ## `nauvi get`
 
 List or show any resource type, including CRDs (like kubectl get)

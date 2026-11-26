@@ -24,7 +24,17 @@ pub(crate) const GROUPS: &[Group] = &[
         file: "inspect.md",
         title: "Look at resources",
         intro: "Commands that read the cluster and print what is there. None of them change anything.",
-        commands: &["get", "describe", "yaml", "pods", "namespaces", "nodes", "watch", "top"],
+        commands: &[
+            "problems",
+            "get",
+            "describe",
+            "yaml",
+            "pods",
+            "namespaces",
+            "nodes",
+            "watch",
+            "top",
+        ],
     },
     Group {
         file: "logs.md",
