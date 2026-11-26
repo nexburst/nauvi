@@ -144,7 +144,7 @@ describe("columnsFor", () => {
     expect(age.text(r, { metrics, now: 160_000 })).toBe("60s");
     expect(age.text(r, { metrics, now: 290_000 })).toBe("3m10s");
     expect(age.sort(r, ctx)).toBe(100);
-    expect(age.title?.(r, "utc")).toBe("Created 1970-01-01 00:01:40 UTC");
+    expect(age.title?.(r, "utc", ctx)).toBe("Created 1970-01-01 00:01:40 UTC");
   });
 
   it("merges pod metrics by namespace/name", () => {
@@ -155,7 +155,9 @@ describe("columnsFor", () => {
       ]),
     );
     expect(cpu.text(row(["", ""]), ctx)).toBe("250m");
-    expect(mem.text(row(["", ""]), ctx)).toBe("64Mi");
+    expect(mem.text(row(["", ""]), ctx)).toBe("64 MiB");
+    // The tooltip says the cores (#484).
+    expect(cpu.title?.(row(["", ""]), "utc", ctx)).toBe("250m (0.25 cores)");
     expect(cpu.sort(row(["", ""]), ctx)).toBe(250);
     const other = row(["", ""], { key: "demo/other" });
     expect(cpu.text(other, ctx)).toBe("—");
@@ -180,7 +182,8 @@ describe("columnsFor", () => {
     const node = row(["", ""], { key: "node-1", name: "node-1", namespace: "" });
     expect(cpu.text(node, ctx)).toBe("1.5 / 4");
     // Capacity 0 means unknown: no "/ ..." part.
-    expect(mem.text(node, ctx)).toBe("1Gi");
+    expect(mem.text(node, ctx)).toBe("1 GiB");
+    expect(cpu.title?.(node, "utc", ctx)).toBe("1.5 cores of 4 cores");
     expect(mem.sort(node, ctx)).toBe(1024 ** 3);
     expect(cpu.spark?.(node, ctx)).toEqual([900, 1500]);
     expect(mem.spark?.(node, ctx)).toEqual([3, 4]);
@@ -206,7 +209,7 @@ describe("columnsFor", () => {
     const c2: Ctx = { metrics: withDisks, now: 0 };
     expect(shownColumns(cols, [], withDisks).map((c) => c.key)).toEqual(["name", "disk"]);
     expect(shownColumns(cols, ["disk"], withDisks).map((c) => c.key)).toEqual(["name"]);
-    expect(disk.text(node, c2)).toBe("25% · 10Gi / 40Gi");
+    expect(disk.text(node, c2)).toBe("25% · 10 GiB / 40 GiB");
     expect(disk.sort(node, c2)).toBe(25);
     const other = row(["x", ""], { key: "node-2", name: "node-2", namespace: "" });
     expect(disk.text(other, c2)).toBe("—");

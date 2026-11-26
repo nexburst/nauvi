@@ -28,7 +28,12 @@ test("the engine's menu opens only in text fields, the YAML editor and the termi
   await openKind(page, "Deployments");
 
   expect(await engineMenuOn(page, page.getByRole("button", { name: "Refresh" }))).toBe(false);
-  expect(await engineMenuOn(page, page.getByRole("navigation"))).toBe(false);
+  // A kind in the sidebar opens the app's own menu (pin, #481), not the engine's.
+  const pods = page.getByRole("navigation").getByRole("button", { name: "Pods", exact: true });
+  expect(await engineMenuOn(page, pods)).toBe(false);
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
   expect(await engineMenuOn(page, page.locator("#table-filter"))).toBe(true);
   // A row opens the app's own menu instead.
   expect(await engineMenuOn(page, row(page, "web"))).toBe(false);

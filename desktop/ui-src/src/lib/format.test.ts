@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { ageRedrawMs, createdAt, formatAge, formatCpu, formatMemory, humanDuration } from "./format";
+import {
+  ageRedrawMs,
+  cpuCores,
+  createdAt,
+  eventTimes,
+  formatAge,
+  formatCpu,
+  formatDuration,
+  formatMemory,
+  humanDuration,
+} from "./format";
 
 describe("formatCpu", () => {
   it("uses millicores below one core", () => {
@@ -15,19 +25,66 @@ describe("formatCpu", () => {
   });
 });
 
+describe("cpuCores", () => {
+  it("says the cores behind millicores", () => {
+    expect(cpuCores(1)).toBe("0.001 cores");
+    expect(cpuCores(250)).toBe("0.25 cores");
+    expect(cpuCores(1000)).toBe("1 core");
+    expect(cpuCores(1500)).toBe("1.5 cores");
+  });
+});
+
 describe("formatMemory", () => {
-  it("keeps bytes below 1Ki", () => {
-    expect(formatMemory(0)).toBe("0B");
-    expect(formatMemory(1023)).toBe("1023B");
+  it("keeps bytes below 1 KiB", () => {
+    expect(formatMemory(0)).toBe("0 B");
+    expect(formatMemory(1023)).toBe("1023 B");
   });
-  it("uses binary units without trailing zeros", () => {
-    expect(formatMemory(1024)).toBe("1Ki");
-    expect(formatMemory(128 * 1024 * 1024)).toBe("128Mi");
-    expect(formatMemory(1.5 * 1024 ** 3)).toBe("1.5Gi");
-    expect(formatMemory(2 * 1024 ** 4)).toBe("2Ti");
+  it("uses binary units with a space, one decimal below 100", () => {
+    expect(formatMemory(1024)).toBe("1 KiB");
+    expect(formatMemory(512 * 1024)).toBe("512 KiB");
+    expect(formatMemory(5.5 * 1024 ** 2)).toBe("5.5 MiB");
+    expect(formatMemory(5.52 * 1024 ** 2)).toBe("5.5 MiB");
+    expect(formatMemory(128 * 1024 * 1024)).toBe("128 MiB");
+    expect(formatMemory(1.5 * 1024 ** 3)).toBe("1.5 GiB");
+    expect(formatMemory(2 * 1024 ** 4)).toBe("2 TiB");
   });
-  it("stops at Pi", () => {
-    expect(formatMemory(2048 * 1024 ** 5)).toBe("2048Pi");
+  it("stops at PiB", () => {
+    expect(formatMemory(2048 * 1024 ** 5)).toBe("2048 PiB");
+  });
+});
+
+describe("formatDuration", () => {
+  // The same cases as `human::duration` in src/human.rs.
+  const cases: [number, string][] = [
+    [-5, "0s"],
+    [0, "0s"],
+    [45, "45s"],
+    [60, "1m"],
+    [185, "3m 5s"],
+    [4 * 60 + 59, "4m 59s"],
+    [5 * 60 + 21, "5m"],
+    [12 * 60 + 40, "12m"],
+    [3600, "1h"],
+    [3 * 3600 + 5 * 60 + 59, "3h 5m"],
+    [12_382 * 60, "8d 14h"],
+    [2 * 86_400, "2d"],
+    [365 * 86_400 + 20 * 86_400 + 3 * 3600, "1y 20d"],
+  ];
+  it.each(cases)("%is reads %s", (secs, want) => {
+    expect(formatDuration(secs * 1000)).toBe(want);
+  });
+});
+
+describe("eventTimes", () => {
+  const now = 1_000_000_000_000;
+  it("says how often and when last", () => {
+    expect(eventTimes(821, now / 1000 - 41, now)).toBe("821 times, last 41s ago");
+    expect(eventTimes(1, now / 1000 - 3 * 3600, now)).toBe("3h ago");
+  });
+  it("falls back to the backend's age without a time", () => {
+    expect(eventTimes(3, 0, now, "2m")).toBe("3 times, last 2m ago");
+    expect(eventTimes(3, 0, now)).toBe("3 times");
+    expect(eventTimes(1, 0, now)).toBe("");
   });
 });
 

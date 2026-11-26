@@ -83,7 +83,7 @@ test("no more than eight berths: the ninth is refused", async ({ page }) => {
   await expect(row(page, "crashed")).toBeVisible();
   await page.keyboard.press("p");
   await expect(page.getByTestId("berth")).toHaveCount(9);
-  await expect(page.getByTestId("berth-keep")).toHaveAttribute("title", /remove one first/);
+  await expect(page.getByTestId("berth-keep")).toHaveAttribute("title", /unpin one first/);
 });
 
 test("the object can take the whole sheet and give it back", async ({ page }) => {

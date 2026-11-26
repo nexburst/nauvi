@@ -9,17 +9,25 @@ export function formatCpu(millicores: number): string {
   return millicores + "m";
 }
 
-/** Binary units ("128Mi"). */
+/** "0.25 cores", "1 core", for a tooltip next to `formatCpu`'s "250m". */
+export function cpuCores(millicores: number): string {
+  const cores = Math.round(millicores) / 1000;
+  return `${cores} ${cores === 1 ? "core" : "cores"}`;
+}
+
+/** Binary units with a space: "512 KiB", "5.5 MiB", "128 MiB", "900 B".
+ *  One decimal below 100 of a unit, whole numbers above. */
 export function formatMemory(bytes: number): string {
-  const units = ["B", "Ki", "Mi", "Gi", "Ti", "Pi"];
+  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
   let value = bytes;
   let unit = 0;
   while (value >= 1024 && unit < units.length - 1) {
     value /= 1024;
     unit++;
   }
-  if (unit === 0) return bytes + "B";
-  return value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "") + units[unit];
+  if (unit === 0) return `${bytes} B`;
+  const text = value < 100 ? value.toFixed(1).replace(/\.0$/, "") : Math.round(value).toString();
+  return `${text} ${units[unit]}`;
 }
 
 /**
@@ -59,6 +67,46 @@ export function humanDuration(ms: number): string {
   const years = Math.floor(days / 365);
   if (hours < 24 * 365 * 8) return two(years, "y", days % 365, "d");
   return `${years}y`;
+}
+
+/**
+ * A duration in ms for a sentence ("Pending for 8d 14h", "last 41s ago"): its
+ * two largest units with a space, "45s", "3m 5s", "3h 5m", "8d 14h",
+ * "1y 20d", the second left out when zero, and seconds from five minutes on
+ * ("5m"); never minutes over an hour. The
+ * same function as `human::duration` in `src/human.rs`. Table ages keep
+ * kubectl's form (`humanDuration`).
+ */
+export function formatDuration(ms: number): string {
+  let secs = Math.max(0, Math.trunc(ms / 1000));
+  const total = secs;
+  const units: [number, string][] = [
+    [365 * 86_400, "y"],
+    [86_400, "d"],
+    [3600, "h"],
+    [60, "m"],
+    [1, "s"],
+  ];
+  const i = units.findIndex(([size]) => secs >= size);
+  if (i < 0) return "0s";
+  const [size, unit] = units[i];
+  const first = `${Math.floor(secs / size)}${unit}`;
+  secs %= size;
+  const next = units[i + 1];
+  // From five minutes on, minutes are the smallest unit (src/human.rs).
+  if (next && next[0] === 1 && total >= 300) return first;
+  return next && Math.floor(secs / next[0]) > 0 ? `${first} ${Math.floor(secs / next[0])}${next[1]}` : first;
+}
+
+/**
+ * How often an event happened and when last: "821 times, last 41s ago",
+ * "41s ago" for one. `time` is unix seconds; without it (0) `fallback`, the
+ * backend's age, stands in.
+ */
+export function eventTimes(count: number, time: number, now: number, fallback = ""): string {
+  const ago = time > 0 ? `${formatDuration(now - time * 1000)} ago` : fallback ? `${fallback} ago` : "";
+  if (count <= 1) return ago;
+  return ago ? `${count} times, last ${ago}` : `${count} times`;
 }
 
 /**

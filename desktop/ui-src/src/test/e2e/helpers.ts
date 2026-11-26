@@ -161,7 +161,20 @@ export class Fake {
 
 /** Click a kind in the sidebar. */
 export async function openKind(page: Page, label: string) {
-  await page.getByRole("navigation").getByRole("button", { name: label, exact: true }).click();
+  const button = page.getByRole("navigation").getByRole("button", { name: label, exact: true });
+  // A less-used kind waits under its section's "More" (#481).
+  if ((await button.count()) === 0) await showAllKinds(page);
+  await button.click();
+}
+
+/** Open every section's "More", so every kind of the sidebar is listed (#481). */
+export async function showAllKinds(page: Page) {
+  const closed = page.getByTestId("sidebar-more").and(page.locator('[aria-expanded="false"]'));
+  while ((await closed.count()) > 0) {
+    const n = await closed.count();
+    await closed.first().click();
+    await expect(closed).toHaveCount(n - 1);
+  }
 }
 
 /** Data rows of the resource table (not the header). */

@@ -68,7 +68,8 @@ test("one row at 1280 px with the kinds kept open, the inspector open and a long
     c.details[`v1/pods|${ns}/web-1`] = { ...c.details["v1/pods|demo/web-1"], namespace: ns };
   });
   await openKind(page, "Pods");
-  await expect(page.getByTestId("berths")).toHaveClass(/slim/);
+  // Kept open as a column, the rail of berths is gone (#481).
+  await expect(page.getByTestId("berths")).toHaveCount(0);
   await toggleNamespaces(page, "qa-csv-mwoycuzth2c-a-much-longer-tail");
   await row(page, "web-1").click();
   await expect(page.getByTestId("detail-panel")).toBeVisible();

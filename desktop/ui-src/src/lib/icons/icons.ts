@@ -121,6 +121,118 @@ export const ICONS = {
   memory: [rect(3, 6.5, 18, 10, 1.5), "M7.5 10v3", "M12 10v3", "M16.5 10v3", "M6.5 16.5v3", "M12 16.5v3", "M17.5 16.5v3"],
   /** Lists, tables. */
   list: ["M9 6h11", "M9 12h11", "M9 18h11", `M4.5 6${DOT}`, `M4.5 12${DOT}`, `M4.5 18${DOT}`],
+
+  // The sidebar (#481): its controls, and one icon per kind of object
+  // (lib/kindIcons.ts says which kind takes which). A class of something
+  // (IngressClass, StorageClass...) is a `tag`, a binding a `link`.
+  /** Pin a kind to the top of the sidebar. */
+  pin: ["M9 3.5h6", "M10 3.5v5.5l-3.5 4.5h11L14 9V3.5", "M12 13.5v7"],
+  /** Filter a list. */
+  filter: ["M4 5h16l-6 7.5v5.5l-4 2v-7.5z"],
+  /** Collapse the sidebar to a rail of icons. */
+  sidebarCollapse: [rect(3.5, 4.5, 17, 15, 2), "M9 4.5v15", "M15.5 9.5L13 12l2.5 2.5"],
+  /** Expand the rail into the sidebar. */
+  sidebarExpand: [rect(3.5, 4.5, 17, 15, 2), "M9 4.5v15", "M13 9.5l2.5 2.5-2.5 2.5"],
+  /** Every kind of the cluster. */
+  compass: [circle(12, 12, 9), "M15.5 8.5l-2 5-5 2 2-5z"],
+  /** A cluster's Overview. */
+  dashboard: [rect(3.5, 3.5, 7, 9, 1.5), rect(13.5, 3.5, 7, 5, 1.5), rect(3.5, 15.5, 7, 5, 1.5), rect(13.5, 11.5, 7, 9, 1.5)],
+  /** Counts per kind (the Workloads overview). */
+  bars: ["M5.5 20V11", "M12 20V4.5", "M18.5 20v-6.5"],
+  /** Applications: workloads grouped by app. */
+  apps: [rect(3.5, 3.5, 7, 7, 2), rect(13.5, 3.5, 7, 7, 2), rect(3.5, 13.5, 7, 7, 2), circle(17, 17, 3.5)],
+  deployment: [rect(3.5, 8.5, 12, 12, 2), "M8.5 5.5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-.5"],
+  /** ReplicaSets, ReplicationControllers: copies of a pod. */
+  replicas: [rect(3.5, 3.5, 7, 7, 1.5), rect(13.5, 3.5, 7, 7, 1.5), rect(8.5, 13.5, 7, 7, 1.5)],
+  /** StatefulSets: pods that keep their data. */
+  database: [
+    "M5 6.5c0-1.7 3.1-3 7-3s7 1.3 7 3-3.1 3-7 3-7-1.3-7-3z",
+    "M5 6.5v11c0 1.7 3.1 3 7 3s7-1.3 7-3v-11",
+    "M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3",
+  ],
+  /** DaemonSets: a pod on every node. */
+  daemon: [rect(3.5, 15, 17, 5, 1.5), rect(5, 5.5, 5.5, 5.5, 1.2), rect(13.5, 5.5, 5.5, 5.5, 1.2)],
+  /** Jobs: run to completion. */
+  job: ["M8 5.5v13l10-6.5z"],
+  /** CronJobs: on a schedule. */
+  calendar: [rect(3.5, 5, 17, 15.5, 2), "M3.5 10h17", "M8 3v4", "M16 3v4"],
+  service: [
+    circle(12, 12, 2.8),
+    circle(12, 4.5, 1.8),
+    circle(5, 18, 1.8),
+    circle(19, 18, 1.8),
+    "M12 9.2V6.3",
+    "M9.8 13.7l-3.4 3.1",
+    "M14.2 13.7l3.4 3.1",
+  ],
+  ingress: ["M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4", "M3.5 12H14", "M10 8l4 4-4 4"],
+  /** Endpoints, EndpointSlices: where a Service sends traffic. */
+  target: [circle(12, 12, 8.5), circle(12, 12, 4.5), `M12 12${DOT}`],
+  /** Policies: NetworkPolicies, admission policies. */
+  shield: ["M12 3.5l7.5 3v5.3c0 4.4-3.1 7.7-7.5 8.9-4.4-1.2-7.5-4.5-7.5-8.9V6.5z"],
+  /** PodDisruptionBudgets: how many may go at once. */
+  shieldCheck: ["M12 3.5l7.5 3v5.3c0 4.4-3.1 7.7-7.5 8.9-4.4-1.2-7.5-4.5-7.5-8.9V6.5z", "M8.8 12l2.2 2.2 4.2-4.2"],
+  /** Port forwards: traffic both ways. */
+  forward: ["M4 8h13", "M14 4.5L17.5 8 14 11.5", "M20 16H7", "M10 12.5L6.5 16l3.5 3.5"],
+  /** ConfigMaps: a file of settings. */
+  file: ["M14 3.5H6.5a1 1 0 0 0-1 1v15a1 1 0 0 0 1 1h11a1 1 0 0 0 1-1V8z", "M14 3.5V8h4.5", "M9 12.5h6", "M9 16h6"],
+  secret: [circle(8, 15.5, 4), "M11 12.5l8.5-8.5", "M16.5 7l2.5 2.5", "M14 9.5l2 2"],
+  /** HorizontalPodAutoscalers: more or fewer pods. */
+  scale: ["M12 3.5v17", "M8.5 7L12 3.5 15.5 7", "M8.5 17l3.5 3.5 3.5-3.5", "M4 12h4", "M16 12h4"],
+  /** ResourceQuotas: a share of the whole. */
+  pie: [circle(12, 12, 8.5), "M12 3.5V12h8.5"],
+  /** LimitRanges: bounds per container. */
+  sliders: ["M4 7h8.5", "M17.5 7H20", circle(15, 7, 2.5), "M4 17h2.5", "M11.5 17H20", circle(9, 17, 2.5)],
+  /** PriorityClasses. */
+  flag: ["M5.5 21V3.5", "M5.5 4.5h12l-2.5 4 2.5 4h-12"],
+  /** A class of something: IngressClass, StorageClass, DeviceClass. */
+  tag: ["M3.5 12.2V4.5a1 1 0 0 1 1-1h7.7l8.3 8.3-8.7 8.7z", `M8 8${DOT}`],
+  /** Leases: held for a while. */
+  hourglass: [
+    "M6.5 3.5h11",
+    "M6.5 20.5h11",
+    "M7.5 3.5c0 4.5 9 5.5 9 8.5s-9 4-9 8.5",
+    "M16.5 3.5c0 4.5-9 5.5-9 8.5s9 4 9 8.5",
+  ],
+  /** Webhook configurations: called on every change. */
+  plug: ["M9 3.5v4", "M15 3.5v4", "M6.5 7.5h11v3a5.5 5.5 0 0 1-11 0z", "M12 16v4.5"],
+  /** PersistentVolumes: a disk. */
+  volume: [rect(3.5, 13, 17, 7, 2), `M7.5 16.5${DOT}`, "M4.5 13.5L7 5.5h10l2.5 8"],
+  /** PersistentVolumeClaims: a disk asked for. */
+  volumeClaim: [rect(3.5, 13, 17, 7, 2), `M7.5 16.5${DOT}`, "M12 3.5v6.5", "M9 7.5l3 3 3-3"],
+  /** Events: what happened. */
+  activity: ["M3.5 12h4l2.5-6.5 4 13 2.5-6.5h4"],
+  /** ServiceAccounts: who a pod acts as. */
+  user: [circle(12, 8, 3.8), "M4.5 20.5a7.5 7.5 0 0 1 15 0"],
+  /** Roles, ClusterRoles: what may be done. */
+  role: [rect(3.5, 5, 17, 14, 2), circle(9, 10.5, 2.2), "M5.8 16a3.5 3.5 0 0 1 6.4 0", "M14.5 10h3", "M14.5 13.5h3"],
+  /** Bindings: who gets a role. */
+  link: [
+    "M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1",
+    "M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1",
+  ],
+  /** Helm releases. */
+  helm: [
+    circle(12, 12, 6),
+    circle(12, 12, 2),
+    "M12 10V3",
+    "M12 14v7",
+    "M10 12H3",
+    "M14 12h7",
+    "M10.59 10.59L5.64 5.64",
+    "M13.41 13.41l4.95 4.95",
+    "M13.41 10.59l4.95-4.95",
+    "M10.59 13.41l-4.95 4.95",
+  ],
+  /** Helm charts: a package. */
+  package: [rect(3.5, 8, 17, 12.5, 1.5), "M3.5 8L6 3.5h12L20.5 8", "M12 3.5V8", "M9.5 12h5"],
+  /** CustomResourceDefinitions. */
+  braces: [
+    "M8.5 4C6.5 4 6 5 6 6.5v3c0 1.2-.8 2.5-2.2 2.5 1.4 0 2.2 1.3 2.2 2.5v3C6 19 6.5 20 8.5 20",
+    "M15.5 4c2 0 2.5 1 2.5 2.5v3c0 1.2.8 2.5 2.2 2.5-1.4 0-2.2 1.3-2.2 2.5v3c0 1.5-.5 2.5-2.5 2.5",
+  ],
+  /** Custom resources and kinds nauvi does not know. */
+  shapes: [circle(7.5, 7.5, 3.5), rect(13.5, 4, 7, 7, 1.2), "M12 20.5l-4.5-7h9z"],
 } satisfies Record<string, string[]>;
 
 export type IconName = keyof typeof ICONS;

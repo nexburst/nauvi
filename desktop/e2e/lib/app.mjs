@@ -282,10 +282,11 @@ export class App {
   }
 
   /**
-   * The app's default shell has no sidebar: the kinds are in a drawer (G).
-   * These helpers and scenarios drive the kinds, the cluster tree and their
-   * badges as a column, so every app is started with the drawer kept open
-   * ("Keep open", the classic layout), as the Playwright specs are. It is
+   * A window narrower than 1200 px starts with the sidebar collapsed to a
+   * rail, its kinds in a drawer (G); a wider one (the 1280 px QA window)
+   * with the kinds as a column (#490). These helpers and scenarios drive the
+   * kinds, the cluster tree and their badges as a column, so every app is
+   * made sure to have it ("Keep open"), as the Playwright specs are. It is
    * remembered in the profile; a restart finds it already open.
    */
   async #keepKindsOpen() {
@@ -390,13 +391,26 @@ export class App {
 
   /** The sidebar button of a kind (or Overview), by its label (in a span for kinds; a count or problem badge may follow it). */
   navButton(label) {
-    return By.xpath(
-      `//nav//*[@data-testid="sidebar-kinds"]//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)} or normalize-space(span[1])=${xq(label)}]`,
-    );
+    return By.xpath(this.#navXPath(label));
+  }
+
+  #navXPath(label) {
+    return `//nav//*[@data-testid="sidebar-kinds"]//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)} or normalize-space(span[1])=${xq(label)}]`;
   }
 
   /** Click a kind (or Overview) in the sidebar. */
   async nav(label) {
+    // A less-used kind waits under its section's "More" (#481): open them.
+    await this.waitFor(
+      () =>
+        this.js(
+          `if (document.evaluate(arguments[0], document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue) return true;
+           document.querySelectorAll('[data-testid="sidebar-more"][aria-expanded="false"]').forEach((b) => b.click());
+           return false;`,
+          this.#navXPath(label),
+        ),
+      { message: `the sidebar button "${label}"` },
+    );
     const button = await this.find(this.navButton(label));
     // The sidebar scrolls (more so with the dock open); WebKitGTK's driver
     // refuses to click a button that is only partly visible.

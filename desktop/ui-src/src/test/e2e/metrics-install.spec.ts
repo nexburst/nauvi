@@ -135,6 +135,6 @@ test("Settings offers a small Prometheus; after the install it is used and Nodes
   await page.keyboard.press("Escape");
   await openKind(page, "Pods");
   await openKind(page, "Nodes");
-  await expect.poll(() => column(page, "Disk")).toContain("43% · 21.5Gi / 50Gi");
+  await expect.poll(() => column(page, "Disk")).toContain("43% · 21.5 GiB / 50 GiB");
   expect(fake.errors).toEqual([]);
 });

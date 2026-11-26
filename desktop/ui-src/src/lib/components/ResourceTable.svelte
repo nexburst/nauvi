@@ -754,6 +754,7 @@
               {@const link = cellLink(kinds.all, kind, col, text, entry.row.namespace)}
               {@const cls = col.cls?.(entry.row) ?? ""}
               {@const shown = col.draw ? { text, cut: false } : fit.shown(c, text)}
+              {@const own = col.title?.(entry.row, settings.current.time_zone, { metrics, now })}
               <!-- The whole value in the tooltip when the cell cuts it (#482). -->
               <div
                 class="td {cls}"
@@ -762,8 +763,9 @@
                 aria-label={shown.text !== text ? text : undefined}
                 title={shown.cut
                   ? text
-                  : col.title?.(entry.row, settings.current.time_zone) ||
-                    (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : undefined)}
+                  : spark && spark.length > 1
+                    ? `${own || text}, trend since ${clockTime(metrics.since)}`
+                    : own || undefined}
               >
                 <!-- A state as an icon too, not by colour alone (#482). No
                      space between it and the text: STATUS_ICON_PX is all it takes. -->

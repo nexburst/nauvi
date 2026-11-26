@@ -172,6 +172,7 @@ pub fn summarize_events(items: impl IntoIterator<Item = Event>) -> Vec<RelatedEv
                     message: e.message.unwrap_or_default(),
                     count: i64::from(e.count.unwrap_or(1)),
                     age: age_of_secs(ts),
+                    time: ts,
                 },
             )
         })

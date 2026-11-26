@@ -205,6 +205,9 @@ pub(crate) struct Settings {
     /// The sidebar sections the user collapsed (#383), by id (`workloads`,
     /// `network`, `helm`, `custom`...). Empty: every section open.
     pub(crate) collapsed_sections: Vec<String>,
+    /// The sidebar sections whose less-used kinds ("More") the user opened
+    /// (#481), by the same ids. Empty: only the common kinds show.
+    pub(crate) open_more_sections: Vec<String>,
     /// Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
     /// (the first known one found on `PATH`).
     pub(crate) ask_ai_cli: String,
@@ -346,6 +349,7 @@ impl Default for Settings {
             searches: SearchHistory::default(),
             kubectl_match: false,
             collapsed_sections: Vec::new(),
+            open_more_sections: Vec::new(),
             ask_ai_cli: String::new(),
             ask_ai_command: String::new(),
         }
@@ -429,6 +433,9 @@ pub(crate) struct SettingsPatch {
     /// The whole list of collapsed sidebar sections (#383).
     #[specta(optional)]
     pub(crate) collapsed_sections: Option<Vec<String>>,
+    /// The whole list of sidebar sections with "More" open (#481).
+    #[specta(optional)]
+    pub(crate) open_more_sections: Option<Vec<String>>,
     #[specta(optional)]
     pub(crate) ask_ai_cli: Option<String>,
     #[specta(optional)]
@@ -494,6 +501,9 @@ impl Settings {
         }
         if let Some(v) = patch.collapsed_sections {
             self.collapsed_sections = unique_ids(v);
+        }
+        if let Some(v) = patch.open_more_sections {
+            self.open_more_sections = unique_ids(v);
         }
         if let Some(v) = patch.ask_ai_cli {
             self.ask_ai_cli = v.trim().to_string();
@@ -814,6 +824,23 @@ mod tests {
         assert!(parse("{}").unwrap().collapsed_sections.is_empty());
         let s = parse(r#"{"collapsed_sections":3,"theme":"light"}"#).unwrap();
         assert!(s.collapsed_sections.is_empty());
+        assert_eq!(s.theme, Theme::Light);
+    }
+
+    #[test]
+    fn open_more_sections_survive_a_restart() {
+        let mut s = Settings::default();
+        assert!(s.open_more_sections.is_empty());
+        s.apply(SettingsPatch {
+            open_more_sections: Some(vec!["config".into(), "".into(), "config".into()]),
+            ..Default::default()
+        });
+        assert_eq!(s.open_more_sections, ["config"]);
+        let saved = serde_json::to_string(&s).unwrap();
+        assert_eq!(parse(&saved).unwrap().open_more_sections, ["config"]);
+        assert!(parse("{}").unwrap().open_more_sections.is_empty());
+        let s = parse(r#"{"open_more_sections":"x","theme":"light"}"#).unwrap();
+        assert!(s.open_more_sections.is_empty());
         assert_eq!(s.theme, Theme::Light);
     }
 

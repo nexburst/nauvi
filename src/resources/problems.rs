@@ -74,7 +74,7 @@ fn pod_problem(v: &Value, created: i64, now: i64) -> String {
     match phase {
         "Running" if !ready => not_ready_reason(&printed_pod_status(v)),
         "Pending" if created > 0 && now - created > PENDING_TOO_LONG_SECS => {
-            format!("Pending for {}m", (now - created) / 60)
+            format!("Pending for {}", crate::human::duration(now - created))
         }
         _ => String::new(),
     }

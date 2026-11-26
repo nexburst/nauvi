@@ -89,7 +89,7 @@ test("the node charts come from Prometheus too", async ({ page }) => {
     "From Prometheus (monitoring/prometheus-k8s:web), last 1h.",
   );
   const mem = charts(page).getByTestId("usage-chart-memory");
-  await expect(mem.getByTestId("ref-allocatable")).toHaveText("allocatable 7Gi");
+  await expect(mem.getByTestId("ref-allocatable")).toHaveText("allocatable 7 GiB");
   expect((await mem.locator('polyline[data-series="node"]').getAttribute("points"))?.split(" ")).toHaveLength(120);
 });
 

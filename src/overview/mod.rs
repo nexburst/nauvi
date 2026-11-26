@@ -58,7 +58,7 @@ pub struct ProblemPod {
     pub name: String,
     /// As in the Pods table.
     pub status: String,
-    /// Why it is listed: the status, "Not ready" or "Pending for 12m".
+    /// Why it is listed: the status, "Not ready" or "Pending for 8d 14h".
     pub reason: String,
     pub restarts: i32,
     /// Unix seconds.

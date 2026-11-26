@@ -347,7 +347,7 @@ export function defaultCluster(): FakeCluster {
   ) => makeRow(kinds, kindId, ns, name, cells, created, problem);
   // Problems as the overview fixture lists them: crash-looping, pending for an hour.
   const podProblem = (status: string) =>
-    status === "CrashLoopBackOff" ? status : status === "Pending" ? "Pending for 60m" : "";
+    status === "CrashLoopBackOff" ? status : status === "Pending" ? "Pending for 1h" : "";
   const pod = (ns: string, name: string, status: string, restarts = "0", node = "node-1") =>
     row(
       "v1/pods",
@@ -525,7 +525,7 @@ export function defaultCluster(): FakeCluster {
             restarts: 12,
             created: ago(3600),
           },
-          { namespace: "demo", name: "db-0", status: "Pending", reason: "Pending for 60m", restarts: 0, created: ago(3600) },
+          { namespace: "demo", name: "db-0", status: "Pending", reason: "Pending for 1h", restarts: 0, created: ago(3600) },
         ],
         problems_total: 2,
       },
@@ -619,7 +619,7 @@ function podDetails(kinds: ResourceKind[]): Record<string, ResourceDetail> {
       { type: "Ready", status: "True", reason: "", message: "", age: "1h" },
       { type: "PodScheduled", status: "True", reason: "", message: "", age: "1h" },
     ],
-    events: [{ type: "Normal", reason: "Pulled", message: 'Container image "nginx:1.27" already present', count: 1, age: "1h" }],
+    events: [{ type: "Normal", reason: "Pulled", message: 'Container image "nginx:1.27" already present', count: 1, age: "1h", time: 0 }],
     pod: {
       ...NO_POD,
       phase: "Running",
@@ -684,7 +684,7 @@ function podDetails(kinds: ResourceKind[]): Record<string, ResourceDetail> {
   });
   const crashed = detail(pods, "demo", "crashed", {
     conditions: [{ type: "Ready", status: "False", reason: "ContainersNotReady", message: "containers with unready status: [app]", age: "14h" }],
-    events: [{ type: "Warning", reason: "BackOff", message: "Back-off restarting failed container app", count: 168, age: "2m" }],
+    events: [{ type: "Warning", reason: "BackOff", message: "Back-off restarting failed container app", count: 168, age: "2m", time: 0 }],
     pod: {
       ...NO_POD,
       phase: "Running",

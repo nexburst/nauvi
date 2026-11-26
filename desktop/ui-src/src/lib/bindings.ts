@@ -2393,7 +2393,7 @@ export type ProblemPod = {
 	name: string,
 	/**  As in the Pods table. */
 	status: string,
-	/**  Why it is listed: the status, "Not ready" or "Pending for 12m". */
+	/**  Why it is listed: the status, "Not ready" or "Pending for 8d 14h". */
 	reason: string,
 	restarts: number,
 	/**  Unix seconds. */
@@ -2463,6 +2463,11 @@ export type RelatedEvent = {
 	message: string,
 	count: number,
 	age: string,
+	/**
+	 *  When it last happened (unix seconds, 0 if unknown), so the UI can
+	 *  say "last 41s ago" and keep it fresh.
+	 */
+	time: number,
 };
 
 /**  A small table of related objects (or of plain rows: ports, taints). */
@@ -2707,6 +2712,8 @@ export type SettingsPatch_Deserialize = {
 	kubectl_match?: boolean | null,
 	/**  The whole list of collapsed sidebar sections (#383). */
 	collapsed_sections?: string[] | null,
+	/**  The whole list of sidebar sections with "More" open (#481). */
+	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
 };
@@ -2740,6 +2747,8 @@ export type SettingsPatch_Serialize = {
 	kubectl_match?: boolean | null,
 	/**  The whole list of collapsed sidebar sections (#383). */
 	collapsed_sections?: string[] | null,
+	/**  The whole list of sidebar sections with "More" open (#481). */
+	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
 };
@@ -2825,6 +2834,11 @@ export type Settings_Deserialize = {
 	 *  `network`, `helm`, `custom`...). Empty: every section open.
 	 */
 	collapsed_sections?: string[],
+	/**
+	 *  The sidebar sections whose less-used kinds ("More") the user opened
+	 *  (#481), by the same ids. Empty: only the common kinds show.
+	 */
+	open_more_sections?: string[],
 	/**
 	 *  Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
 	 *  (the first known one found on `PATH`).
@@ -2918,6 +2932,11 @@ export type Settings_Serialize = {
 	 *  `network`, `helm`, `custom`...). Empty: every section open.
 	 */
 	collapsed_sections: string[],
+	/**
+	 *  The sidebar sections whose less-used kinds ("More") the user opened
+	 *  (#481), by the same ids. Empty: only the common kinds show.
+	 */
+	open_more_sections: string[],
 	/**
 	 *  Ask AI's CLI (#376): `claude`, `codex`, `gemini`, `custom`, or `""`
 	 *  (the first known one found on `PATH`).
