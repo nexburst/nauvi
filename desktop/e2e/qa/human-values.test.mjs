@@ -91,13 +91,14 @@ describe("human-readable values (#484)", { timeout: 15 * 60_000 }, () => {
     const e = events.find((x) => x.raw === "FailedScheduling");
     assert.ok(e, "a FailedScheduling event");
     assert.equal(e.reason, "Failed scheduling");
-    // 1000 CPUs and 100Gi: no node has enough of either.
-    assert.equal(e.summary, "No node has enough CPU and memory");
+    // 1000 CPUs and 100Gi: no node has enough of either. With a tainted
+    // control-plane node (CI's two-node cluster) the taint is named too.
+    assert.match(e.summary, /^No node (has enough CPU and memory|fits: .*short of CPU and memory)/);
     assert.match(e.full, /^0\/\d+ nodes are available/);
     assert.match(e.seen, /^(\d+ times, last )?\d+[smhdy]( \d+[smhdy])? ago$/);
     await scrollPanelTo(app, "table.events");
     await shotBoth(app, "hungry-events");
-    assert.ok((await panelText(app)).includes("No node has enough CPU and memory"));
+    assert.ok((await panelText(app)).includes(e.summary));
   });
 
   it("the Pods table shows memory in MiB and CPU in cores in the tooltip", T, async (t) => {
@@ -131,7 +132,8 @@ describe("human-readable values (#484)", { timeout: 15 * 60_000 }, () => {
       web,
     );
     console.log(`cpu title: ${cpuTitle}`);
-    assert.match(cpuTitle, /^\d+(\.\d+)? cores?/);
+    // "250m (0.25 cores)"; an idle pod reads "0m (0 cores)".
+    assert.match(cpuTitle, /^\d+m? \(\d+(\.\d+)? cores?\)/);
     await shotBoth(app, "pods-memory");
   });
 });
