@@ -33,19 +33,51 @@ describe("eventSummary", () => {
       "No node has enough memory",
     );
   });
-  it("lists the reasons when nodes are ruled out for different ones", () => {
+  it("lists the reasons with their counts when nodes are ruled out for different ones", () => {
+    const sched = (body: string) => eventSummary("FailedScheduling", body);
     expect(
-      eventSummary(
-        "FailedScheduling",
+      sched(
         "0/3 nodes are available: 1 node(s) had untolerated taint {node-role.kubernetes.io/control-plane: }, 2 Insufficient cpu. preemption: 0/3 nodes are available: 1 Preemption is not helpful for scheduling, 2 No preemption victims found for incoming pod.",
       ),
-    ).toBe("No node fits: 2 nodes short of CPU, 1 node with taints the pod does not tolerate");
+    ).toBe("No node fits: 2 nodes short of CPU, 1 node has a taint the pod does not tolerate");
+    // CI's two-node kind cluster and default/hungry.
     expect(
-      eventSummary("FailedScheduling", "0/2 nodes are available: 2 node(s) didn't match Pod's node affinity/selector."),
-    ).toBe("No node fits: no match for the pod's node selector or affinity");
-    expect(eventSummary("FailedScheduling", "0/1 nodes are available: 1 node(s) were unschedulable.")).toBe(
-      "Every node is cordoned",
+      sched(
+        "0/2 nodes are available: 1 Insufficient cpu, 1 Insufficient memory, 1 node(s) had untolerated taint(s). preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+      ),
+    ).toBe("No node fits: 1 node short of CPU and memory, 1 node has a taint the pod does not tolerate");
+    // Different counts per resource are said per resource.
+    expect(sched("0/3 nodes are available: 1 Insufficient cpu, 2 Insufficient memory.")).toBe(
+      "No node fits: 1 node short of CPU, 2 nodes short of memory",
     );
+    expect(
+      sched(
+        "0/3 nodes are available: 1 node(s) were unschedulable, 2 node(s) didn't satisfy existing pods anti-affinity rules.",
+      ),
+    ).toBe("No node fits: 1 node is cordoned, 2 nodes do not meet the pod's (anti-)affinity rules");
+    expect(
+      sched("0/2 nodes are available: 1 Insufficient cpu, 1 node(s) had volume node affinity conflict."),
+    ).toBe("No node fits: 1 node short of CPU, 1 node cannot reach the pod's volumes (another zone)");
+  });
+  it("says every node only when the reason covers them all", () => {
+    const sched = (body: string) => eventSummary("FailedScheduling", body);
+    expect(sched("0/2 nodes are available: 2 node(s) didn't match Pod's node affinity/selector.")).toBe(
+      "No node matches the pod's node selector or affinity",
+    );
+    expect(sched("0/1 nodes are available: 1 node(s) were unschedulable.")).toBe("Every node is cordoned");
+    expect(sched("0/3 nodes are available: 3 node(s) had untolerated taint(s).")).toBe(
+      "Every node has a taint the pod does not tolerate",
+    );
+    expect(sched("0/3 nodes are available: 1 node(s) were unschedulable.")).toBe("No node fits: 1 node is cordoned");
+    expect(sched("0/3 nodes are available: 2 Insufficient memory.")).toBe("No node fits: 2 nodes short of memory");
+  });
+  it("leaves the message alone when any part of it is unknown", () => {
+    const sched = (body: string) => eventSummary("FailedScheduling", body);
+    expect(sched("0/3 nodes are available: 1 Insufficient cpu, 2 node(s) exceed max volume count.")).toBe("");
+    expect(
+      sched("0/3 nodes are available: 1 node(s) were unschedulable, 2 node(s) had something new."),
+    ).toBe("");
+    expect(sched("0/1 nodes are available: something without a count.")).toBe("");
   });
   it("names unbound volume claims and empty clusters", () => {
     expect(

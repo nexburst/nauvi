@@ -72,12 +72,14 @@ export function humanDuration(ms: number): string {
 /**
  * A duration in ms for a sentence ("Pending for 8d 14h", "last 41s ago"): its
  * two largest units with a space, "45s", "3m 5s", "3h 5m", "8d 14h",
- * "1y 20d", the second left out when zero; never minutes over an hour. The
+ * "1y 20d", the second left out when zero, and seconds from five minutes on
+ * ("5m"); never minutes over an hour. The
  * same function as `human::duration` in `src/human.rs`. Table ages keep
  * kubectl's form (`humanDuration`).
  */
 export function formatDuration(ms: number): string {
   let secs = Math.max(0, Math.trunc(ms / 1000));
+  const total = secs;
   const units: [number, string][] = [
     [365 * 86_400, "y"],
     [86_400, "d"],
@@ -91,6 +93,8 @@ export function formatDuration(ms: number): string {
   const first = `${Math.floor(secs / size)}${unit}`;
   secs %= size;
   const next = units[i + 1];
+  // From five minutes on, minutes are the smallest unit (src/human.rs).
+  if (next && next[0] === 1 && total >= 300) return first;
   return next && Math.floor(secs / next[0]) > 0 ? `${first} ${Math.floor(secs / next[0])}${next[1]}` : first;
 }
 

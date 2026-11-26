@@ -44,15 +44,54 @@ export function reasonWords(reason: string, message = ""): string {
     .join(" ");
 }
 
-/** What a scheduler predicate in "0/3 nodes are available: ..." means. */
-const SCHEDULER: { test: RegExp; what: string }[] = [
-  { test: /untolerated taint|had taints? that the pod didn't tolerate/i, what: "taints the pod does not tolerate" },
-  { test: /didn't match pod's node affinity|didn't match node selector/i, what: "no match for the pod's node selector or affinity" },
-  { test: /were unschedulable|unschedulable/i, what: "cordoned" },
-  { test: /didn't have free ports/i, what: "the pod's host ports in use" },
-  { test: /volume node affinity conflict/i, what: "its volumes in another zone" },
-  { test: /too many pods/i, what: "no room for more pods" },
-  { test: /didn't match pod (anti-)?affinity rules|pod anti-affinity/i, what: "pod affinity rules not met" },
+/**
+ * What a scheduler predicate in "0/3 nodes are available: ..." means, as
+ * phrases that read after a count ("1 node is cordoned", "2 nodes are
+ * cordoned") and for the case where it rules out every node.
+ */
+const SCHEDULER: { test: RegExp; one: string; many: string; all: string }[] = [
+  {
+    test: /untolerated taint|had taints? that the pod didn't tolerate/i,
+    one: "has a taint the pod does not tolerate",
+    many: "have taints the pod does not tolerate",
+    all: "Every node has a taint the pod does not tolerate",
+  },
+  {
+    test: /didn't match pod's node affinity|didn't match node selector/i,
+    one: "does not match the pod's node selector or affinity",
+    many: "do not match the pod's node selector or affinity",
+    all: "No node matches the pod's node selector or affinity",
+  },
+  {
+    test: /were unschedulable|was unschedulable/i,
+    one: "is cordoned",
+    many: "are cordoned",
+    all: "Every node is cordoned",
+  },
+  {
+    test: /didn't have free ports/i,
+    one: "has the pod's host ports in use",
+    many: "have the pod's host ports in use",
+    all: "Every node has the pod's host ports in use",
+  },
+  {
+    test: /volume node affinity conflict/i,
+    one: "cannot reach the pod's volumes (another zone)",
+    many: "cannot reach the pod's volumes (another zone)",
+    all: "No node can reach the pod's volumes (another zone)",
+  },
+  {
+    test: /^\d+ too many pods$/i,
+    one: "runs as many pods as it can",
+    many: "run as many pods as they can",
+    all: "Every node runs as many pods as it can",
+  },
+  {
+    test: /didn't match pod (anti-)?affinity rules|didn't satisfy existing pods anti-affinity rules/i,
+    one: "does not meet the pod's (anti-)affinity rules",
+    many: "do not meet the pod's (anti-)affinity rules",
+    all: "No node meets the pod's (anti-)affinity rules",
+  },
 ];
 
 /** Resource names in words: cpu → CPU, ephemeral-storage → ephemeral storage. */
@@ -80,44 +119,50 @@ function nodes(n: number): string {
   return `${n} ${n === 1 ? "node" : "nodes"}`;
 }
 
-/** "No node has enough CPU and memory" for the scheduler's message. */
+/**
+ * "No node has enough CPU and memory" for the scheduler's message. "" when
+ * any part of it is not one we know: a summary that leaves a reason out
+ * would say something false, so the raw message stands alone then.
+ */
 function schedulerSummary(message: string): string {
   if (/^no nodes available to schedule pods/i.test(message)) return "The cluster has no nodes to run the pod on";
   const m = /^0\/(\d+) nodes are available:\s*(.*)$/is.exec(message);
   if (!m) return "";
+  const total = Number(m[1]);
   // What comes after "preemption:" is about evicting other pods: noise here.
-  const body = m[2].split(/\.?\s*preemption:/i)[0].replace(/\.\s*$/, "");
-  if (/unbound immediate PersistentVolumeClaims/i.test(body)) return "A volume claim of the pod is not bound yet";
-  const short: string[] = [];
-  const parts: string[] = [];
-  const insufficient: string[] = [];
-  let insufficientNodes = 0;
+  const body = m[2].split(/\.?\s*preemption:/i)[0].replace(/\.\s*$/, "").trim();
+  if (/^pod has unbound immediate PersistentVolumeClaims$/i.test(body)) return "A volume claim of the pod is not bound yet";
+  // Nodes short of each resource, in the order the message names them.
+  const lacking = new Map<string, number>();
+  const known: { n: number; s: (typeof SCHEDULER)[number] }[] = [];
   for (const raw of body.split(/,\s*(?=\d+ )/)) {
     const item = raw.trim();
     const count = /^(\d+)\s+/.exec(item);
-    const n = count ? Number(count[1]) : 0;
-    const lack = /Insufficient\s+(\S+)/i.exec(item);
+    if (!count) return "";
+    const n = Number(count[1]);
+    const lack = /^\d+ Insufficient (\S+)$/i.exec(item);
     if (lack) {
       const r = resourceWords(lack[1]);
-      if (!insufficient.includes(r)) insufficient.push(r);
-      insufficientNodes = Math.max(insufficientNodes, n);
+      lacking.set(r, Math.max(lacking.get(r) ?? 0, n));
       continue;
     }
-    const known = SCHEDULER.find((s) => s.test.test(item));
-    if (known) {
-      parts.push(n ? `${nodes(n)} with ${known.what}` : known.what);
-      short.push(known.what);
-    }
+    const s = SCHEDULER.find((x) => x.test.test(item));
+    if (!s) return "";
+    known.push({ n, s });
   }
-  if (insufficient.length && !parts.length) return `No node has enough ${joinAnd(insufficient)}`;
-  if (!insufficient.length && parts.length === 1) {
-    const what = short[0];
-    return what === "cordoned" ? "Every node is cordoned" : `No node fits: ${what}`;
+  // One reason that rules out every node.
+  const counts = new Set(lacking.values());
+  if (!known.length && lacking.size && counts.size === 1 && counts.has(total)) {
+    return `No node has enough ${joinAnd([...lacking.keys()])}`;
   }
-  if (insufficient.length) {
-    const lacking = insufficientNodes ? `${nodes(insufficientNodes)} short of ${joinAnd(insufficient)}` : `not enough ${joinAnd(insufficient)}`;
-    parts.unshift(lacking);
-  }
+  if (!lacking.size && known.length === 1 && known[0].n === total) return known[0].s.all;
+  // Otherwise each reason with its count; resources short on as many nodes
+  // go together ("2 nodes short of CPU and memory").
+  const parts: string[] = [];
+  const byCount = new Map<number, string[]>();
+  for (const [r, n] of lacking) byCount.set(n, [...(byCount.get(n) ?? []), r]);
+  for (const [n, rs] of byCount) parts.push(`${nodes(n)} short of ${joinAnd(rs)}`);
+  for (const { n, s } of known) parts.push(`${nodes(n)} ${n === 1 ? s.one : s.many}`);
   return parts.length ? `No node fits: ${parts.join(", ")}` : "";
 }
 
