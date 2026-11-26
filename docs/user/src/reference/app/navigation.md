@@ -64,6 +64,8 @@ when you start with `>`.
 
 - `ns ` narrows it to namespaces, `ctx ` to contexts.
 - `win ` ("Open context in new window…") opens a context in a new window.
+- **Describe** opens the focused object's panel; **Copy kubectl describe**
+  copies its describe text (the same as `nauvi describe`).
 
 ## Back and forward
 
