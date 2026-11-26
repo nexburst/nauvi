@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { ForwardInfo, ResourceRef, SavedForward } from "./bindings";
 import {
+  defaultOpenInBrowser,
   forwardKindOf,
   forwardLabel,
   forwardRows,
   forwardsCount,
   forwardState,
   isLocalUrl,
+  looksLikeWeb,
   parseLocalPort,
   parseRemotePort,
   plannedUrl,
@@ -46,6 +48,27 @@ function info(
     },
   };
 }
+
+describe("open in browser (#498)", () => {
+  it("is on for ports that look like HTTP", () => {
+    for (const p of ["80", "443", "8080", "3000", "9090", "http", "https", "web", "http-api", "grpc-http"]) {
+      expect(looksLikeWeb(p), p).toBe(true);
+    }
+    for (const p of ["5432", "6379", "22", "metrics", "grpc", "postgres", ""]) {
+      expect(looksLikeWeb(p), p).toBe(false);
+    }
+    // A Service or container port's name counts.
+    expect(looksLikeWeb("8001", "http")).toBe(true);
+    expect(looksLikeWeb("5432", "tcp-postgresql")).toBe(false);
+  });
+
+  it("follows the user's last choice once there is one", () => {
+    expect(defaultOpenInBrowser(null, "80")).toBe(true);
+    expect(defaultOpenInBrowser(null, "5432")).toBe(false);
+    expect(defaultOpenInBrowser(false, "80")).toBe(false);
+    expect(defaultOpenInBrowser(true, "5432")).toBe(true);
+  });
+});
 
 describe("forward targets", () => {
   it("maps kinds that can be forwarded", () => {

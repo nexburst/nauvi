@@ -93,7 +93,11 @@ test("the context menu starts a Service forward on a chosen port", async ({ page
 
   const d = dialog(page);
   await expect(d).toContainText("svc/demo/api");
-  await expect(d).toContainText("switching context or quitting stops it.");
+  // The same words as the Port Forwards view (#498).
+  await expect(d.getByTestId("forward-lifetime")).toHaveText(
+    "Saved for this cluster in Network → Port Forwards. It keeps running until you stop it, disconnect its cluster, close this window or quit nauvi.",
+  );
+  await expect(d).toContainText("Leave empty to pick one for you (the same port when it is free and ≥ 1024).");
   // Only the TCP ports are offered, the first one picked.
   const select = d.getByLabel("Service port");
   await expect(select.locator("option")).toHaveText(["80/http → web", "9090/metrics → 9090"]);
@@ -112,15 +116,19 @@ test("the context menu starts a Service forward on a chosen port", async ({ page
     remote: "80",
     local_port: "9000",
     https: false,
-    open_in_browser: false,
+    // Port 80/http: opened in the browser unless unchecked (#498).
+    open_in_browser: true,
     auto_start: false,
   });
   await expect(page.getByText("Forwarding http://127.0.0.1:9000 → svc/demo/api:80")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__fake.opened())).toEqual(["http://127.0.0.1:9000"]);
 
   // The same local port again is refused, in plain words, inside the dialog.
   await row(page, "api").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Port forward…" }).click();
   await d.getByLabel("Service port").selectOption("9090");
+  // The last choice is remembered, for any port.
+  await expect(d.getByLabel("Open in browser")).toBeChecked();
   await d.getByLabel("Local port").fill("9000");
   await d.getByTestId("forward-confirm").click();
   await expect(d.getByRole("alert")).toHaveText(
@@ -132,6 +140,34 @@ test("the context menu starts a Service forward on a chosen port", async ({ page
   await expect(forwardRows(page)).toHaveCount(1);
   await expect(forwardRows(page).first()).toContainText("svc/demo/api");
   await expect(forwardRows(page).first()).toContainText("api-1");
+});
+
+test("an unchecked Open in browser is remembered for the next forward (#498)", async ({ page }) => {
+  const fake = await openApp(page);
+  await openKind(page, "Services");
+  await row(page, "api").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Port forward…" }).click();
+  const d = dialog(page);
+  await expect(d.getByLabel("Service port")).toHaveValue("80");
+  await expect(d.getByLabel("Open in browser")).toBeChecked();
+  await d.getByLabel("Open in browser").uncheck();
+  await d.getByTestId("forward-confirm").click();
+  await expect(d).toHaveCount(0);
+  expect((await fake.lastCall("cmdPortforwardSave")).forward).toMatchObject({ open_in_browser: false });
+  expect(await page.evaluate(() => window.__fake.opened())).toEqual([]);
+
+  await row(page, "api").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Port forward…" }).click();
+  await expect(d.getByLabel("Service port")).toHaveValue("80");
+  await expect(d.getByLabel("Open in browser")).not.toBeChecked();
+  await d.getByRole("button", { name: "Cancel" }).click();
+
+  // The Port Forwards view says what stops a forward in the dialog's words.
+  await openForwardsView(page);
+  await expect(page.getByTestId("forwards-lifetime")).toHaveText(
+    "Forwards are saved per cluster. Each keeps running until you stop it, disconnect its cluster, close this window or quit nauvi.",
+  );
+  expect(fake.errors).toEqual([]);
 });
 
 test("the Service panel forwards each TCP port", async ({ page }) => {

@@ -1,7 +1,16 @@
 <script lang="ts">
   import CalmWater from "./CalmWater.svelte";
   import { onDestroy } from "svelte";
-  import { forwardLabel, forwardRows, forwardsCount, forwardState, plannedUrl, portsLabel, savedPortsLabel } from "../forwards";
+  import {
+    FORWARD_STOPS,
+    forwardLabel,
+    forwardRows,
+    forwardsCount,
+    forwardState,
+    plannedUrl,
+    portsLabel,
+    savedPortsLabel,
+  } from "../forwards";
   import { api } from "../cluster";
   import type { ForwardInfo } from "../bindings";
   import { needsClusterLabels } from "../hidden";
@@ -71,9 +80,10 @@
     <h2>Port forwards</h2>
     <p
       class="note muted"
-      title="Forwards are saved per cluster. They keep running when you close panels, leave this view or show another cluster (they are listed here with their cluster); disconnecting the cluster or quitting stops them, and they come back stopped unless you check Start automatically."
+      data-testid="forwards-lifetime"
+      title="Closing panels, leaving this view or showing another cluster leaves them running (they are listed here with their cluster). A stopped forward stays saved; it starts again when the app connects to its cluster only if you check Start automatically."
     >
-      Forwards are saved per cluster. They keep running while you work elsewhere in this window.
+      Forwards are saved per cluster. Each keeps running {FORWARD_STOPS}.
     </p>
   </div>
   {#if rows.length === 0 && others.length === 0}

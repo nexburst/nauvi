@@ -1,8 +1,13 @@
 <script lang="ts">
   import { api, visibleCluster } from "../cluster";
   import type { ServicePortInfo } from "../bindings";
-  import { forwardLabel } from "../forwards";
-  import { closeForwardDialog, confirmForwardDialog, forwardDialog } from "../stores/forwards.svelte";
+  import { defaultOpenInBrowser, FORWARD_STOPS, forwardLabel } from "../forwards";
+  import {
+    closeForwardDialog,
+    confirmForwardDialog,
+    forwardDialog,
+    rememberedOpenInBrowser,
+  } from "../stores/forwards.svelte";
 
   /** Start a port-forward to a pod, Service or workload: remote port
    *  (offered from the Service's ports), an optional local port and how to
@@ -20,7 +25,13 @@
       .then((ports) => {
         if (forwardDialog.target !== t) return;
         servicePorts = ports.filter((p) => p.protocol === "TCP");
-        if (!forwardDialog.remote && servicePorts.length > 0) forwardDialog.remote = String(servicePorts[0].port);
+        if (!forwardDialog.remote && servicePorts.length > 0) {
+          const p = servicePorts[0];
+          forwardDialog.remote = String(p.port);
+          if (!forwardDialog.openTouched) {
+            forwardDialog.openInBrowser = defaultOpenInBrowser(rememberedOpenInBrowser(), forwardDialog.remote, p.name);
+          }
+        }
       })
       .catch(() => {
         // Typing the port still works.
@@ -81,9 +92,7 @@
           bind:value={forwardDialog.local}
           onkeydown={onEnter}
         />
-        <span class="hint muted"
-          >Empty: the remote port if it is free and at least 1024, otherwise a free one. 0: any free port.</span
-        >
+        <span class="hint muted">Leave empty to pick one for you (the same port when it is free and ≥ 1024).</span>
       </label>
 
       <label class="check">
@@ -91,7 +100,12 @@
         <span>https <span class="muted">(the target speaks TLS: open and copy an https:// URL)</span></span>
       </label>
       <label class="check">
-        <input type="checkbox" aria-label="Open in browser" bind:checked={forwardDialog.openInBrowser} />
+        <input
+          type="checkbox"
+          aria-label="Open in browser"
+          bind:checked={forwardDialog.openInBrowser}
+          onchange={() => (forwardDialog.openTouched = true)}
+        />
         <span>Open in browser when it starts</span>
       </label>
       <label class="check">
@@ -99,9 +113,8 @@
         <span>Start automatically <span class="muted">(when the app connects to this cluster)</span></span>
       </label>
 
-      <p class="hint muted">
-        Saved for this cluster in Network → Port Forwards. It keeps running when you close panels; switching context
-        or quitting stops it.
+      <p class="hint muted" data-testid="forward-lifetime">
+        Saved for this cluster in Network → Port Forwards. It keeps running {FORWARD_STOPS}.
       </p>
 
       {#if forwardDialog.error}<p class="error-text" role="alert">{forwardDialog.error}</p>{/if}
