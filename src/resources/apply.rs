@@ -373,13 +373,13 @@ async fn apply_one(
     };
     let opts = ApplyOptions {
         dry_run,
-        resource_version: None,
+        ..ApplyOptions::default()
     };
     let (outcome, after) = apply_value(&api, name, value, &opts).await?;
     let takeovers = match outcome {
         ApplyOutcome::Applied { takeovers } => takeovers,
         // Only without a resourceVersion check, which is not used here.
-        ApplyOutcome::Conflict { .. } => Vec::new(),
+        ApplyOutcome::Conflict { .. } | ApplyOutcome::Rebased { .. } => Vec::new(),
     };
     let status = match (before, after) {
         (None, _) => ApplyStatus::Created,

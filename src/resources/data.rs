@@ -386,6 +386,8 @@ pub async fn patch_data(
                 .unwrap_or_default();
             Ok(ApplyOutcome::Conflict {
                 resource_version: current,
+                fields: Vec::new(),
+                reason: String::new(),
             })
         }
         Err(e) => Err(text(e.into())),

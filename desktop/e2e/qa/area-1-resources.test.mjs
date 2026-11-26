@@ -149,7 +149,7 @@ async function saveYaml(app, text) {
     async () => {
       const status = await app.js(`return document.querySelector('[data-testid="yaml-status"]')?.textContent.trim() ?? ""`);
       const err = await app.js(
-        `return document.querySelector('[data-testid="detail-panel"] .banner.error, [data-testid="detail-panel"] .banner.conflict')?.innerText ?? ""`,
+        `return document.querySelector('[data-testid="yaml-status"] [role="alert"]')?.innerText ?? ""`,
       );
       if (err) throw new Error(`save failed: ${err}`);
       return /saved/i.test(status) ? status : null;

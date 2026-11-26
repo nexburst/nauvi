@@ -131,7 +131,10 @@ async fn secret_data_reveal_and_patch_only_changed_keys() -> Result<()> {
         )
         .await
         .map_err(anyhow::Error::msg)?;
-        let ApplyOutcome::Conflict { resource_version } = stale else {
+        let ApplyOutcome::Conflict {
+            resource_version, ..
+        } = stale
+        else {
             anyhow::bail!("expected a conflict, got {stale:?}");
         };
         ensure!(resource_version != entries.resource_version);
