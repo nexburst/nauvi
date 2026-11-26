@@ -15,7 +15,7 @@ async function expectOneRow(page: Page) {
   const bar = (await toolbar(page).boundingBox())!;
   expect(bar.height, "the toolbar is one row").toBeLessThanOrEqual(60);
   const right = bar.x + bar.width;
-  const names = ["Match case", "Regular expression", "Star this search", /^Columns/, "Export CSV", "+ Create"];
+  const names = ["Match case", "Regex (regular expression)", "Star this search", /^Columns/, "Export CSV", "+ Create"];
   for (const name of names) {
     const exact = typeof name === "string";
     const b = (await toolbar(page).getByRole("button", { name, exact }).boundingBox())!;

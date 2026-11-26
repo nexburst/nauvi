@@ -292,8 +292,15 @@
                 {#if hidden}
                   <button type="button" class="btn" aria-label="Unhide {name}" onclick={() => unhide(c.name)}>Unhide</button>
                 {:else}
-                  <button type="button" class="btn" disabled={c.current} aria-label="Open {name}" onclick={() => open(c.name)}
-                    >Open</button
+                  <button
+                    type="button"
+                    class="btn"
+                    disabled={c.current}
+                    aria-label="Open {name}"
+                    title={c.current
+                      ? "Shown in this window"
+                      : `Show ${name} in this window (⋯ → New window opens it in its own)`}
+                    onclick={() => open(c.name)}>Open</button
                   >
                 {/if}
                 <button

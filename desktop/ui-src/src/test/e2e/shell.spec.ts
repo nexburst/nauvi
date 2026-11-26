@@ -111,7 +111,7 @@ test("the kinds can be kept open as a column, and floated again", async ({ page 
   await expect(page.getByTestId("chart-toggle")).toBeVisible();
 });
 
-test("the watch dial opens the watch; a cleared problem ties a knot on the wake line", async ({ page }) => {
+test("the problem pill opens the problem pods and the watch log; a cleared problem ties a knot on the wake line", async ({ page }) => {
   const fake = await openFloating(page);
   await expect(page.getByTestId("deck-headline")).toHaveText("2 pods need a look");
   await fake.emitOverview({
@@ -135,6 +135,9 @@ test("the watch dial opens the watch; a cleared problem ties a knot on the wake 
 
   await page.getByTestId("watch-dial").click();
   const watch = page.getByTestId("watch-panel");
+  // The problem pods first (#491); the watch log is the second tab.
+  await expect(page.getByTestId("watch-problem")).toHaveCount(1);
+  await page.getByTestId("watch-tab-log").click();
   await expect(watch).toContainText("1 cleared today");
   await expect(watch).toContainText("Steady hand");
 });

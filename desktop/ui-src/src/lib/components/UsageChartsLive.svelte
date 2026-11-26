@@ -50,6 +50,7 @@
             class="range"
             class:active={feed.range === r.value}
             aria-pressed={feed.range === r.value}
+            title={`Show the last ${r.label}`}
             onclick={() => feed.setRange(r.value)}>{r.label}</button
           >
         {/each}
