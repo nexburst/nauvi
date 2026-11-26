@@ -149,6 +149,17 @@ impl Prober {
         probe.await
     }
 
+    /// The health check of a view that watches nothing (Port Forwards,
+    /// Helm, the catalog: #469): [`Self::probe`], with an error worded like
+    /// a watch's while it reconnects ("…; retrying."), for the status
+    /// banner. It shares the probe in flight with the watches, so it adds
+    /// no request while they probe.
+    pub async fn health(&self) -> Result<(), String> {
+        self.probe()
+            .await
+            .map_err(|e| crate::reconnect::retrying(&e))
+    }
+
     fn reusable(&self, started: Instant, probe: &ProbeFuture) -> bool {
         let age = started.elapsed();
         if probe.peek().is_some() {
@@ -357,6 +368,15 @@ mod tests {
 
     fn not_answering() -> Guarded<u32> {
         Guarded::Lost("The API server is not answering (no reply within 5 s)".into())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn health_says_whether_the_server_answers() {
+        assert_eq!(Server::new(true).prober.health().await, Ok(()));
+        assert_eq!(
+            Server::new(false).prober.health().await,
+            Err("The API server is not answering (no reply within 5 s); retrying.".into())
+        );
     }
 
     #[tokio::test(start_paused = true)]

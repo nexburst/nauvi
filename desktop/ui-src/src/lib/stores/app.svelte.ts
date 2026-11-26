@@ -3,10 +3,7 @@ import { commands } from "../bindings";
 import type { ContextInfo, NamespaceInfo, ResourceKind } from "../bindings";
 import { joinNames, normalizeNamespaces, sameNamespaces } from "../namespaces";
 import { clampHeight } from "../dock";
-import { PORT_FORWARDS_VIEW } from "../forwards";
-import { HELM_VIEW } from "../helm";
-import { CATALOG_VIEW } from "../catalog";
-import { HELM_CHARTS_VIEW } from "../helmCharts";
+import { isWatchless } from "../health";
 import { WORKLOADS_VIEW } from "../workloads";
 import { APPLICATIONS_VIEW } from "../applications";
 import { contextToRestore, namespacesToRestore } from "../settings";
@@ -145,12 +142,12 @@ function restorePendingView() {
   const view = pendingView;
   pendingView = null;
   if (!view || view === "overview" || app.view !== "overview") return;
-  if (view === PORT_FORWARDS_VIEW || view === HELM_VIEW || view === HELM_CHARTS_VIEW || view === CATALOG_VIEW) {
+  if (isWatchless(view)) {
     app.view = view;
-    // These views watch nothing, so nothing sets the header status: it
-    // would keep what the overview had said before it was replaced, maybe
-    // "Connecting…" for good (#459). Discovery just got an answer, so the
-    // overview's error banner goes too.
+    // These views watch nothing: the header would keep what the overview
+    // had said before it was replaced, maybe "Connecting…" (#459), until
+    // their health check (#469) answers. Discovery just got an answer, so
+    // the cluster is reachable and the overview's error banner goes too.
     setStatus(true, "Live");
     showError("");
     return;

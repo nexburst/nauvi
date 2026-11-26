@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import type { ContextInfo } from "../bindings";
   import { groupContexts, sectionsOf, stateText } from "../clusterTree";
+  import { visibleDot } from "../health";
   import { app, currentContextName, openContextWindow } from "../stores/app.svelte";
   import { contextFullName, contextLabel } from "../stores/catalog.svelte";
   import { contextSettings, settings } from "../stores/settings.svelte";
@@ -73,7 +74,8 @@
   {@const open = isExpanded(id)}
   <!-- Disconnected by the idle reaper (PR 4): its next command connects again. -->
   {@const idled = !isVisible && n.state === "connected" && clusterStates.byId.get(id)?.state === "idle"}
-  {@const state = isVisible ? "connected" : idled ? "idle" : n.state}
+  <!-- The one shown follows the header status (#462): red while it does not answer. -->
+  {@const state = isVisible ? visibleDot(app.status) : idled ? "idle" : n.state}
   <div
     class="node"
     class:visible={isVisible}
@@ -95,12 +97,12 @@
         type="button"
         class="name"
         aria-current={isVisible ? "true" : undefined}
-        title={`${contextFullName(id)}: ${idled ? "Disconnected while idle: it connects again when used" : stateText(n.state, isVisible)}`}
+        title={`${contextFullName(id)}: ${idled ? "Disconnected while idle: it connects again when used" : stateText(n.state, isVisible)}${isVisible && state !== "connected" ? ` (${app.status.text})` : ""}`}
         onclick={() => void showNode(id)}
       >
         <span
           class="dot {state}"
-          style:background={colorOf(id) || null}
+          style:background={state === "failed" ? null : colorOf(id) || null}
           aria-hidden="true"
         ></span>
         <span class="text">{label(id)}</span>

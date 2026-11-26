@@ -43,6 +43,7 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdCheckActions", "access reviews"),
     ("cmdClusterConnect", "opens a session"),
     ("cmdClusterDisconnect", "closes a session"),
+    ("cmdClusterHealth", "asks /readyz"),
     ("cmdClusterReconnect", "restarts the session"),
     ("cmdDefaultNamespace", "reads"),
     ("cmdDetailWatch", "watches"),

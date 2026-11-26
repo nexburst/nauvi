@@ -106,6 +106,8 @@ export interface FakeCluster {
   forwardsElsewhere: string[];
   /** Forwards running on the window's other clusters (`cmd_portforward_list_all`). */
   backgroundForwards: ClusterForward[];
+  /** `cmd_cluster_health` fails with this (`""`: the API server answers). */
+  healthError: string;
   /** `cmd_service_ports`, by `namespace/name`. */
   servicePorts: Record<string, ServicePortInfo[]>;
   /** `cmd_debug_start` fails with this after its first progress line. */
@@ -486,6 +488,7 @@ export function defaultCluster(): FakeCluster {
     forwards: [],
     forwardsElsewhere: [],
     backgroundForwards: [],
+    healthError: "",
     debugError: "",
     attachError: "",
     nodeShellError: "",

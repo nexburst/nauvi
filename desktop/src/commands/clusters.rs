@@ -38,6 +38,18 @@ pub(crate) async fn cmd_cluster_disconnect(
     Ok(())
 }
 
+/// Whether `cluster`'s API server answers (`GET /readyz`; any HTTP answer
+/// counts, as for the watches' liveness probe). The views that watch
+/// nothing (Port Forwards, Helm, the catalog) ask this every few seconds,
+/// so the header and the banner say when the cluster goes away (#469).
+/// The error reads like a reconnecting watch's ("…; retrying.").
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_cluster_health(cluster: Cluster) -> Result<(), String> {
+    let (_, prober) = cluster.watch_client().await?;
+    prober.health().await
+}
+
 /// Start `cluster` over in the calling window, as asked (e.g. after its
 /// proxy changed): a fresh session with a new client, shown or not as
 /// before. Everything the old one ran (log streams, terminals, forwards,
