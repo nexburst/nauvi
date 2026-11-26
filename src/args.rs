@@ -144,6 +144,31 @@ pub enum Commands {
         #[arg(short, long)]
         namespace: Option<String>,
     },
+    /// Known vulnerabilities of the running images, from the Trivy
+    /// Operator's VulnerabilityReports: one row per image with its counts
+    /// by severity, how many have a fix, and the workloads that use it.
+    /// nauvi scans nothing itself; the data is as old as the last scan
+    Vulns {
+        /// Show this image's vulnerabilities and the package upgrades that
+        /// fix them: a reference as listed (`nginx:1.27`) or a digest (at
+        /// least 12 characters)
+        image: Option<String>,
+        /// Only this namespace (default: all namespaces you may read)
+        #[arg(short, long)]
+        namespace: Option<String>,
+        /// All namespaces (the default; accepted for kubectl habits)
+        #[arg(short = 'A', long, conflicts_with = "namespace")]
+        all_namespaces: bool,
+        /// Only images (and vulnerabilities) of this severity or worse
+        #[arg(long, value_enum, value_name = "SEVERITY")]
+        severity: Option<nauvi::image_security::Severity>,
+        /// Only vulnerabilities that have a fixed version
+        #[arg(long)]
+        fixable: bool,
+        /// Output format
+        #[arg(short, long, value_enum, default_value_t = VulnsOutput::Table)]
+        output: VulnsOutput,
+    },
     /// Set the replica count of a Deployment, StatefulSet or ReplicaSet
     Scale {
         /// `<kind>/<name>`, e.g. `deploy/web`
@@ -343,6 +368,15 @@ pub enum Commands {
     },
 }
 
+/// `-o` of `nauvi vulns`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum VulnsOutput {
+    /// Aligned columns
+    Table,
+    /// The whole result as JSON (stable field names)
+    Json,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum HelmCommand {
     /// List releases with their chart, revision and status
@@ -423,6 +457,53 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(Cli::try_parse_from(["nauvi", "problems", "-A", "-n", "x"]).is_err());
+    }
+
+    #[test]
+    fn vulns_takes_an_image_a_severity_and_json() {
+        use nauvi::image_security::Severity;
+        match parse(&[
+            "vulns",
+            "nginx:1.27",
+            "-n",
+            "shop",
+            "--severity",
+            "high",
+            "--fixable",
+            "-o",
+            "json",
+        ])
+        .command
+        {
+            Commands::Vulns {
+                image,
+                namespace,
+                severity,
+                fixable,
+                output,
+                ..
+            } => {
+                assert_eq!(image.as_deref(), Some("nginx:1.27"));
+                assert_eq!(namespace.as_deref(), Some("shop"));
+                assert_eq!(severity, Some(Severity::High));
+                assert!(fixable);
+                assert_eq!(output, VulnsOutput::Json);
+            }
+            other => panic!("{other:?}"),
+        }
+        match parse(&["vulns", "-A"]).command {
+            Commands::Vulns {
+                image,
+                severity,
+                output,
+                ..
+            } => {
+                assert_eq!((image, severity), (None, None));
+                assert_eq!(output, VulnsOutput::Table);
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(Cli::try_parse_from(["nauvi", "vulns", "--severity", "bad"]).is_err());
     }
 
     #[test]

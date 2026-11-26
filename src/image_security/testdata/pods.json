@@ -1,0 +1,52 @@
+{
+  "apiVersion": "v1",
+  "kind": "PodList",
+  "items": [
+    {
+      "metadata": {
+        "name": "web-5f6b7c-aaaaa", "namespace": "shop",
+        "labels": { "app": "web", "pod-template-hash": "5f6b7c" },
+        "ownerReferences": [{ "apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "web-5f6b7c", "uid": "u1", "controller": true }]
+      },
+      "spec": { "containers": [{ "name": "nginx", "image": "nginx:1.27" }] },
+      "status": { "containerStatuses": [{ "name": "nginx", "image": "docker.io/library/nginx:1.27", "imageID": "docker.io/library/nginx@sha256:1111", "ready": true, "restartCount": 0 }] }
+    },
+    {
+      "metadata": {
+        "name": "web-5f6b7c-bbbbb", "namespace": "shop",
+        "labels": { "app": "web", "pod-template-hash": "5f6b7c" },
+        "ownerReferences": [{ "apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "web-5f6b7c", "uid": "u1", "controller": true }]
+      },
+      "spec": { "containers": [{ "name": "nginx", "image": "nginx:1.27" }] },
+      "status": { "containerStatuses": [{ "name": "nginx", "image": "docker.io/library/nginx:1.27", "imageID": "docker.io/library/nginx@sha256:1111", "ready": true, "restartCount": 0 }] }
+    },
+    {
+      "metadata": {
+        "name": "web-5f6b7c-ccccc", "namespace": "shop",
+        "labels": { "app": "web", "pod-template-hash": "5f6b7c" },
+        "ownerReferences": [{ "apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "web-5f6b7c", "uid": "u1", "controller": true }]
+      },
+      "spec": { "containers": [{ "name": "nginx", "image": "nginx:1.27" }] },
+      "status": { "phase": "Pending" }
+    },
+    {
+      "metadata": { "name": "static", "namespace": "shop" },
+      "spec": {
+        "initContainers": [{ "name": "init", "image": "busybox:1.36" }],
+        "containers": [{ "name": "nginx", "image": "docker.io/library/nginx:1.27" }]
+      },
+      "status": {
+        "initContainerStatuses": [{ "name": "init", "image": "busybox:1.36", "imageID": "sha256:9999", "ready": true, "restartCount": 0 }],
+        "containerStatuses": [{ "name": "nginx", "image": "docker.io/library/nginx:1.27", "imageID": "docker.io/library/nginx@sha256:1111", "ready": true, "restartCount": 0 }]
+      }
+    },
+    {
+      "metadata": {
+        "name": "cache-0", "namespace": "shop",
+        "ownerReferences": [{ "apiVersion": "apps/v1", "kind": "StatefulSet", "name": "cache", "uid": "u2", "controller": true }]
+      },
+      "spec": { "containers": [{ "name": "redis", "image": "redis:7" }] },
+      "status": { "containerStatuses": [{ "name": "redis", "image": "docker.io/library/redis:7", "imageID": "docker.io/library/redis@sha256:3333", "ready": true, "restartCount": 0 }] }
+    }
+  ]
+}
