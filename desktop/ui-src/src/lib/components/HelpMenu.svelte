@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../icons/Icon.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import type { MenuItem } from "./ContextMenu.svelte";
   import { help, openAbout, openHelpItem } from "../stores/help.svelte";
@@ -38,12 +39,7 @@
   data-testid="help-menu-button"
   onclick={toggle}
 >
-  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-    <path
-      fill="currentColor"
-      d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zm-1-5h2v2h-2v-2zm1-10a4 4 0 0 0-4 4h2a2 2 0 1 1 4 0c0 2-3 1.75-3 5h2c0-2.25 3-2.5 3-5a4 4 0 0 0-4-4z"
-    />
-  </svg>
+  <Icon name="help" size={18} />
 </button>
 {#if help.menuOpen}
   <ContextMenu x={at.x} y={at.y} title="Help" {items} onclose={() => (help.menuOpen = false)} />

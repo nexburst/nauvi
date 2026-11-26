@@ -97,7 +97,7 @@ describe("area 1: status, Overview, Refresh, sidebar", { timeout: 10 * 60_000 },
     const warnings = await app.js(
       `return document.querySelector('.overview section[aria-label="Warnings"]')?.innerText ?? ""`,
     );
-    // The heading is drawn in capitals.
+    // The section heading (sentence case since #480).
     assert.match(warnings, /Warnings/i);
   });
 

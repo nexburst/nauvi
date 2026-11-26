@@ -25,6 +25,7 @@
   import { contextMode, contextNameOf } from "../stores/contextMode.svelte";
   import { history } from "../stores/history.svelte";
   import { goBack, goForward } from "../stores/navigation.svelte";
+  import Icon from "../icons/Icon.svelte";
 
   const REFRESH_SHORTCUT = shortcutHint("refresh", isMacPlatform());
   const PALETTE_SHORTCUT = shortcutHint("palette", isMacPlatform());
@@ -91,9 +92,7 @@
       disabled={!history.canBack}
       onclick={goBack}
     >
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <path fill="currentColor" d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-      </svg>
+      <Icon name="arrowLeft" />
     </button>
     <button
       class="arrow"
@@ -103,9 +102,7 @@
       disabled={!history.canForward}
       onclick={goForward}
     >
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <path fill="currentColor" d="M4 13h12.17l-5.59 5.59L12 20l8-8-8-8-1.41 1.41L16.17 11H4v2z" />
-      </svg>
+      <Icon name="arrowRight" />
     </button>
   </div>
   <div
@@ -160,7 +157,7 @@
         class="chip-x"
         aria-label={`Disconnect ${label(id)}`}
         title="Disconnect: stops its logs, terminals and forwards in this window"
-        onclick={() => void disconnectNode(id)}>✕</button
+        onclick={() => void disconnectNode(id)}><Icon name="close" size={11} /></button
       >
     </span>
   {/each}
@@ -176,9 +173,7 @@
     aria-label="Cluster catalog"
     onclick={() => setView(CATALOG_VIEW)}
   >
-    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-      <path fill="currentColor" d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm8-2h8v8h-8v-8zm2 2v4h4v-4h-4z" />
-    </svg>
+    <Icon name="grid" />
   </button>
   {#if app.contexts.length > 0}
     <button
@@ -189,12 +184,7 @@
       data-testid="open-in-new-window"
       onclick={() => openContextWindow(current)}
     >
-      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M14 3h7v7h-2V6.41l-8.29 8.3-1.42-1.42 8.3-8.29H14V3zM5 5h6v2H5v12h12v-6h2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"
-        />
-      </svg>
+      <Icon name="external" />
     </button>
   {/if}
   <button
@@ -205,10 +195,7 @@
     data-testid="rail-goto"
     onclick={() => openPalette()}
   >
-    <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
-      <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
-      <path d="M16 16l5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-    </svg>
+    <Icon name="search" size={14} />
     <span class="hint">Go to a kind, an object, an action…</span>
     <kbd>{PALETTE_SHORTCUT.split(" or ")[0]}</kbd>
   </button>
@@ -247,12 +234,7 @@
     }}
   >
     {#key spins}
-      <svg class="turn" class:spun={spins > 0} viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
-        <path
-          fill="currentColor"
-          d="M17.65 6.35A7.95 7.95 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"
-        />
-      </svg>
+      <span class="turn" class:spun={spins > 0}><Icon name="refresh" size={17} /></span>
     {/key}
     <span class="sr">Refresh</span>
   </button>
@@ -260,12 +242,7 @@
   <NotificationBell />
   <HelpMenu />
   <button class="gear" type="button" aria-label="Settings" title="Settings" onclick={openSettings}>
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.67 8.48a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.04.24.25.42.49.42h3.84c.24 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"
-      />
-    </svg>
+    <Icon name="settings" size={18} />
   </button>
 </header>
 
@@ -302,10 +279,9 @@
     color: var(--accent);
   }
   .word {
-    font-family: var(--font-num);
-    font-weight: 600;
+    font-weight: 650;
     font-size: 15px;
-    letter-spacing: 0.04em;
+    letter-spacing: -0.01em;
     color: var(--text);
   }
   .history {
@@ -401,7 +377,7 @@
   }
   .chip.more {
     padding: 0 8px;
-    font-family: var(--font-num);
+    font-variant-numeric: tabular-nums;
   }
   .chip button {
     background: transparent;
@@ -432,8 +408,9 @@
     flex-shrink: 0;
   }
   .chip-x {
+    display: flex;
+    align-items: center;
     padding: 0 6px;
-    font-size: 9px;
     opacity: 0.6;
   }
   .chip-x:hover {
@@ -509,8 +486,9 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    font-family: var(--font-num);
-    font-size: 11px;
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    font-variant-numeric: tabular-nums;
     color: var(--text-muted);
     white-space: nowrap;
     background: transparent;
@@ -592,6 +570,9 @@
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
+  }
+  .turn {
+    display: flex;
   }
   .turn.spun {
     animation: turn 600ms var(--ease-out);
