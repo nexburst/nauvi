@@ -37,24 +37,24 @@ test("an overview that cannot start: red dot, the banner and a state with Retry 
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
-test("an empty table says the cluster is not answering instead of No items found", async ({ page }) => {
+test("an empty table says the cluster is not answering instead of that it has no rows", async ({ page }) => {
   const fake = await openApp(page, (cluster) => {
     cluster.rows["v1/pods"] = [];
   });
   await openKind(page, "Pods");
   await expect(status(page)).toHaveText("Live");
-  await expect(page.getByText("No items found.")).toBeVisible();
+  await expect(page.getByTestId("empty-state")).toBeVisible();
 
   await fake.emitWatchState({ state: "reconnecting", error: LOST });
   await expect(status(page)).toHaveText("Reconnecting…");
   await expect(visibleDot(page)).toHaveClass(/failed/);
   await expect(page.getByTestId("out-of-reach")).toContainText("Reconnecting…");
-  await expect(page.getByText("No items found.")).toHaveCount(0);
+  await expect(page.getByTestId("empty-state")).toHaveCount(0);
 
   await fake.emitWatchState({ state: "live" });
   await expect(status(page)).toHaveText("Live");
   await expect(visibleDot(page)).toHaveClass(/connected/);
-  await expect(page.getByText("No items found.")).toBeVisible();
+  await expect(page.getByTestId("empty-state")).toBeVisible();
 });
 
 test("Port Forwards checks the cluster every 10 s and says when it goes away and comes back", async ({ page }) => {

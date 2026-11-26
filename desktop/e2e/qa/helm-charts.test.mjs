@@ -365,7 +365,7 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
       message: "qa-local removed from helm's repositories",
     });
     await (await app.find(By.xpath("//*[@data-testid='settings']//button[normalize-space()='Close']"))).click();
-    await app.waitFor(async () => /No chart repositories configured/.test(await textOf("helm-charts")), {
+    await app.waitFor(async () => /No chart repositories yet/.test(await textOf("helm-charts")), {
       message: "the Charts view without repositories",
     });
   });

@@ -24,11 +24,17 @@ pub(crate) enum HelpItem {
     LogFolder,
     /// The docs' page on Ask AI and AI assistants (#376, #466).
     AiAssistants,
+    /// The docs' steps for opening a cluster, from the welcome screen (#485).
+    GetStarted,
 }
 
 /// The docs' page on Ask AI, its skill and `nauvi mcp`, relative to the
 /// docs' start (`docs/user/src/reference/app/ask-ai.md`).
 const AI_DOCS_PAGE: &str = "reference/app/ask-ai.html";
+
+/// The docs' step that says which kubeconfig nauvi reads and how to pick a
+/// cluster (`docs/user/src/get-started.md`), for the welcome screen (#485).
+const GET_STARTED_PAGE: &str = "get-started.html#2-open-it-and-pick-a-cluster";
 
 /// Do what `item` says. The URLs and the folder are fixed here: the page
 /// only names the item.
@@ -40,6 +46,9 @@ pub(crate) fn open<R: Runtime>(app: &AppHandle<R>, item: HelpItem) -> Result<(),
             .map_err(|e| format!("Could not open the documentation in the browser: {e}")),
         HelpItem::AiAssistants => opener
             .open_url(crate::diagnostics::docs_url(AI_DOCS_PAGE), None::<&str>)
+            .map_err(|e| format!("Could not open the documentation in the browser: {e}")),
+        HelpItem::GetStarted => opener
+            .open_url(crate::diagnostics::docs_url(GET_STARTED_PAGE), None::<&str>)
             .map_err(|e| format!("Could not open the documentation in the browser: {e}")),
         HelpItem::ReportBug => opener
             .open_url(crate::diagnostics::bug_report_url(), None::<&str>)

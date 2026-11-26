@@ -1846,7 +1846,9 @@ export type HelpItem =
 /**  The folder with the app log, in the file manager. */
 "log_folder" | 
 /**  The docs' page on Ask AI and AI assistants (#376, #466). */
-"ai_assistants";
+"ai_assistants" | 
+/**  The docs' steps for opening a cluster, from the welcome screen (#485). */
+"get_started";
 
 /**  The counts of one workload kind. */
 export type KindCounts = {
@@ -2737,6 +2739,8 @@ export type SettingsPatch_Deserialize = {
 	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
+	welcomed?: boolean | null,
+	tips_left?: number | null,
 };
 
 /**
@@ -2772,6 +2776,8 @@ export type SettingsPatch_Serialize = {
 	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
+	welcomed?: boolean | null,
+	tips_left?: number | null,
 };
 
 export type Settings_Deserialize = {
@@ -2870,6 +2876,18 @@ export type Settings_Deserialize = {
 	 *  into words, never run through a shell.
 	 */
 	ask_ai_command?: string,
+	/**
+	 *  The welcome screen (#485) was left once. `false` only in the
+	 *  settings of a first run (no settings file yet): a file from before
+	 *  it, or one that had to be reset, counts as welcomed.
+	 */
+	welcomed?: boolean,
+	/**
+	 *  How many more starts show the tips strip (#485): `TIPS_SESSIONS`
+	 *  on a first run, 0 once it is dismissed or used up (and for a file
+	 *  from before it).
+	 */
+	tips_left?: number,
 };
 
 export type Settings_Serialize = {
@@ -2968,6 +2986,18 @@ export type Settings_Serialize = {
 	 *  into words, never run through a shell.
 	 */
 	ask_ai_command: string,
+	/**
+	 *  The welcome screen (#485) was left once. `false` only in the
+	 *  settings of a first run (no settings file yet): a file from before
+	 *  it, or one that had to be reset, counts as welcomed.
+	 */
+	welcomed: boolean,
+	/**
+	 *  How many more starts show the tips strip (#485): `TIPS_SESSIONS`
+	 *  on a first run, 0 once it is dismissed or used up (and for a file
+	 *  from before it).
+	 */
+	tips_left: number,
 };
 
 /**  One source of contexts, for the catalog's list of sources. */

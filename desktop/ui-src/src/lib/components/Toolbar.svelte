@@ -6,6 +6,7 @@
   import TableFilter from "./TableFilter.svelte";
   import { openCreate } from "../stores/create.svelte";
   import { HELM_VIEW } from "../helm";
+  import { HELM_CHARTS_VIEW } from "../helmCharts";
   import { PROBLEMS_STATUS, WORKLOADS_VIEW } from "../workloads";
   import { problems } from "../stores/problems.svelte";
   import { APPLICATIONS_VIEW } from "../applications";
@@ -71,7 +72,7 @@
     <ColumnChooser {kind} />
     <ExportCsv {kind} />
   {/if}
-  {#if !overview}
+  {#if !overview && app.view !== HELM_CHARTS_VIEW}
     <button type="button" class="btn primary create" title="Create resources from YAML" onclick={openCreate}
       >+ Create</button
     >

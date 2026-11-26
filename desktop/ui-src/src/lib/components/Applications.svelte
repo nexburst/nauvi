@@ -19,6 +19,9 @@
   import { healthTone, nextSort, sourceLabel, visibleApps, workloadSummary } from "../applications";
   import type { AppSort, AppSortKey } from "../applications";
   import { watchGutter } from "../scrollGutter";
+  import EmptyState from "./EmptyState.svelte";
+  import { listEmptyState } from "../emptyState";
+  import { setNamespaces } from "../stores/app.svelte";
 
   /** Applications (#226): workloads grouped by the app.kubernetes.io labels
    *  and Helm releases, live, with their status rolled up. A row opens the
@@ -218,16 +221,27 @@
     </VirtualList>
     <!-- Inside the grid, so notes above it never overlap the message. -->
     {#if apps.loaded && visible.length === 0}
+      {@const e = listEmptyState({
+        label: "applications",
+        namespaces: app.selectedNamespaces,
+        search: app.search,
+        total: apps.rows.entries.length,
+        synced: true,
+      })}
       <div class="empty" data-testid="applications-empty">
-        {#if apps.rows.entries.length > 0}
-          <p>No applications match the filter.</p>
-        {:else}
-          <p>No applications found.</p>
-          <p class="muted hint">
-            Workloads appear here when they carry an <code>app.kubernetes.io/instance</code> or
-            <code>app.kubernetes.io/name</code> label, or were installed by Helm.
-          </p>
-        {/if}
+        <EmptyState
+          title={e.title}
+          detail={e.reason === "filter"
+            ? e.detail
+            : "Workloads appear here when they carry an app.kubernetes.io/instance or app.kubernetes.io/name label, or were installed by Helm."}
+          reason={e.reason}
+        >
+          {#if e.reason === "filter"}
+            <button type="button" class="btn primary" data-testid="clear-filter" onclick={() => (app.search = "")}>Clear filter</button>
+          {:else if e.reason === "namespace"}
+            <button type="button" class="btn primary" onclick={() => setNamespaces([])}>All namespaces</button>
+          {/if}
+        </EmptyState>
       </div>
     {:else if !apps.loaded}
       <p class="empty muted">Loading…</p>
@@ -332,16 +346,8 @@
     right: 0;
     margin: 0;
     padding: 0 24px;
-    text-align: center;
+    display: flex;
+    justify-content: center;
     color: var(--text-muted);
-  }
-  .empty p {
-    margin: 0 0 6px;
-  }
-  .hint {
-    font-size: 12px;
-  }
-  code {
-    font-size: 12px;
   }
 </style>
