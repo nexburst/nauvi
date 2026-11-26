@@ -70,7 +70,7 @@ const samePage = (app) => app.js("return window.__qa205 === 'same page'");
 
 async function openYaml(app) {
   await showKind(app, "Config Maps", ns, "qa205-cm");
-  await (await app.find(app.row("qa205-cm", ns))).click();
+  await app.clickRow("qa205-cm", ns);
   const panel = await app.find(By.css('[data-testid="detail-panel"]'));
   await (await panel.findElement(By.xpath(`.//button[@role='tab'][normalize-space()='YAML']`))).click();
   const el = await editor(app, "yaml-editor");
@@ -165,7 +165,7 @@ describe("#205: webview menu, reload keys, page reload and CSP", { timeout: 15 *
     const pod = podNames("demo", "app=web")[0];
     assert.ok(pod, "a demo/web pod");
     await showKind(app, "Pods", "demo", pod);
-    await (await app.find(app.row(pod, "demo"))).click();
+    await app.clickRow(pod, "demo");
     const chart = await app.waitFor(
       () =>
         app.js(`

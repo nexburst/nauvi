@@ -465,7 +465,7 @@ describe("area 3: related objects and Access Control sections (#64, #87)", { tim
     );
     console.log(`instances table: ${JSON.stringify(header)} rows=${JSON.stringify(await app.rows())}`);
     assert.ok(header.some((h) => /Colour/i.test(h)), "the printer column");
-    await (await app.find(app.row("qa-instance", ns))).click();
+    await app.clickRow("qa-instance", ns);
     await waitPanelTitle(app, `${ns}/qa-instance`);
     console.log(`instance panel: ${await panelTitle(app)}`);
   });

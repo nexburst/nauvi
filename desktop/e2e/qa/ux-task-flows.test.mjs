@@ -276,7 +276,7 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
 
   it("3. reads its logs: previous container, follow, search", T, async () => {
     const { app } = s;
-    await (await app.find(app.row("payments-worker", shop))).click();
+    await app.clickRow("payments-worker", shop);
     await panelAction("logs");
     step("3. Logs: open, previous, search", 2);
     const id = `logs:${shop}/payments-worker`;

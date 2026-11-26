@@ -98,7 +98,7 @@ describe("settings survive a restart", { timeout: 15 * 60_000 }, () => {
     // Panel width: open a pod and widen the panel from the keyboard (16 px a step).
     const pod = (await app.rows()).find(([, ns]) => ns === "demo")?.[0];
     assert.ok(pod, "a demo pod in the table");
-    await (await app.find(app.row(pod, "demo"))).click();
+    await app.clickRow(pod, "demo");
     await app.find(byTestId("detail-panel"));
     const w0 = await panelWidth(app);
     const resizer = await app.find(byTestId("panel-resizer"));
@@ -138,7 +138,7 @@ describe("settings survive a restart", { timeout: 15 * 60_000 }, () => {
     assert.match(await app.js(`return Array.from(document.querySelectorAll("button")).map((b) => b.textContent.trim()).find((t) => t.startsWith("Columns")) ?? ""`), /1 hidden/);
     // The panel isn't reopened; its width comes back when a pod is opened.
     const pod2 = (await app.rows()).find(([, ns]) => ns === "demo")?.[0];
-    await (await app.find(app.row(pod2, "demo"))).click();
+    await app.clickRow(pod2, "demo");
     await app.find(byTestId("detail-panel"));
     assert.equal(await panelWidth(app), state.width, "panel width");
     // The dock is closed after a restart (its tabs aren't kept); its height is.

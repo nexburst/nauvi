@@ -116,7 +116,7 @@ async function tab(app, name) {
 /** Open a ConfigMap/Secret's YAML tab; returns the loaded editor. */
 async function openYaml(app, label, name, needle) {
   await openKind(app, label, ns, name);
-  await (await app.find(app.row(name, ns))).click();
+  await app.clickRow(name, ns);
   await app.waitFor(async () => (await (await panel(app)).getText()).includes(`${ns}/${name}`), {
     message: `the panel of ${name}`,
   });
@@ -158,7 +158,7 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     assert.deepEqual(await chunks(), [], "no CodeMirror chunk at start-up");
     assert.equal(await app.js("return document.querySelectorAll('.cm-editor').length"), 0, "no editor before the YAML tab");
     await openKind(app, "Config Maps", ns, "qa-yaml");
-    await (await app.find(app.row("qa-yaml", ns))).click();
+    await app.clickRow("qa-yaml", ns);
     await panel(app);
     const t0 = Date.now();
     await tab(app, "YAML");
@@ -471,7 +471,7 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     await stillEditing();
 
     // Another row.
-    await (await app.find(app.row("qa-yaml-2", ns))).click();
+    await app.clickRow("qa-yaml-2", ns);
     await waitDiscardDialog(app);
     await answerDiscard(app, "Keep editing");
     await stillEditing();
@@ -483,7 +483,7 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     await stillEditing();
 
     // Another row, discarding: the other object opens.
-    await (await app.find(app.row("qa-yaml-2", ns))).click();
+    await app.clickRow("qa-yaml-2", ns);
     await answerDiscard(app, "Discard changes");
     await app.waitFor(async () => (await (await panel(app)).getText()).includes(`${ns}/qa-yaml-2`), { message: "qa-yaml-2 open" });
   });

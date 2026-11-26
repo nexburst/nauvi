@@ -127,7 +127,7 @@ describe("actions follow RBAC (limited user)", { timeout: 12 * 60_000, skip }, (
   it("the detail panel greys out the same, with the reason in the tooltip", T, async () => {
     const { app } = s;
     await closeMenu(app);
-    await (await app.find(app.row(DEPLOYMENT, ns))).click();
+    await app.clickRow(DEPLOYMENT, ns);
     const del = await app.find(By.css('[data-testid="detail-panel"] [role="toolbar"] button[data-action="delete"]'));
     await app.waitFor(async () => (await del.getAttribute("aria-disabled")) === "true", {
       message: "Delete greyed in the panel",

@@ -87,7 +87,7 @@ describe("resource table layout (#140)", { timeout: 10 * 60_000 }, () => {
       await app.find(app.row(SERVICE, ns), { timeout: 60_000 });
       assertLayout(`services ${theme}`, await layout(app));
 
-      await (await app.find(app.row(SERVICE, ns))).click();
+      await app.clickRow(SERVICE, ns);
       await waitPanelTitle(app, `${ns}/${SERVICE}`);
       // Columns fit their headers now (#482): a header is cut only when its
       // column gives way, and then with an ellipsis and its title (above).
@@ -102,7 +102,7 @@ describe("resource table layout (#140)", { timeout: 10 * 60_000 }, () => {
       await app.filter(node);
       await app.find(app.row(node), { timeout: 60_000 });
       assertLayout(`nodes ${theme}`, await layout(app));
-      await (await app.find(app.row(node))).click();
+      await app.clickRow(node);
       await waitPanelTitle(app, node);
       assertLayout(`nodes + panel ${theme}`, await layout(app));
       // Leave the panel open for the screenshot; the next test closes it.

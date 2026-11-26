@@ -42,7 +42,7 @@ function isRunning(pid) {
 
 async function openYaml(app) {
   await openKind(app, "Config Maps", ns, "qa173-cm");
-  await (await app.find(app.row("qa173-cm", ns))).click();
+  await app.clickRow("qa173-cm", ns);
   await app.waitFor(async () => (await (await panel(app)).getText()).includes(`${ns}/qa173-cm`), { message: "the panel" });
   const p = await panel(app);
   await (await p.findElement(By.xpath(`.//button[@role='tab'][normalize-space()='YAML']`))).click();

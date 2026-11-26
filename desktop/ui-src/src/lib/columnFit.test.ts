@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitWidths, longest, middleCut, minTotal, sample, settle } from "./columnFit";
+import { fitSettled, fitWidths, longest, middleCut, minTotal, sample, settle } from "./columnFit";
 import type { Fit, FitInput } from "./columnFit";
 
 const NAME: Fit = { min: 168, max: 640, grow: 2, give: 3, middle: true };
@@ -88,6 +88,16 @@ describe("settle, longest, sample", () => {
   it("keeps a width that narrows a little, takes one that grows or narrows a lot", () => {
     expect(settle([100, 100, 100], [92, 120, 60])).toEqual([100, 120, 60]);
     expect(settle(undefined, [1, 2])).toEqual([1, 2]);
+  });
+
+  it("keeps settled widths only while they fit; short of room, the measured ones (#482)", () => {
+    // CPU kept 83 px for a value an earlier filter showed; it now needs 75.
+    const settled = [col(NAME, 326), col(SHORT, 83)];
+    const measured = [col(NAME, 326), col(SHORT, 75)];
+    // Room for both: the kept width stays (no jitter).
+    expect(fitSettled(settled, measured, 420)).toEqual([337, 83]);
+    // Short of room: the name stays whole, CPU takes what it shows now.
+    expect(fitSettled(settled, measured, 401)).toEqual([326, 75]);
   });
 
   it("picks the longest values", () => {

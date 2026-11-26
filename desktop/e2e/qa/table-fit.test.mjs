@@ -158,7 +158,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
     it(`Pods with the detail panel open: cut names keep their end (${theme})`, T, async () => {
       const { app } = s;
       const [first] = payments(await layout(app));
-      await (await app.find(app.row(first.Name.name || first.Name.text))).click();
+      await app.clickRow(first.Name.name || first.Name.text);
       await waitPanelTitle(app, `${ns}/`);
       assertCutWell(`pods + panel ${theme}`, await layout(app));
     });

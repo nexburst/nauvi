@@ -93,7 +93,7 @@ describe("area 5: Settings page and themes", { timeout: 10 * 60_000 }, () => {
     const web = await app.waitFor(async () => (await app.rows()).find(([n, ns]) => ns === "demo" && n.startsWith("web-"))?.[0], {
       message: "a demo/web pod",
     });
-    await (await app.find(app.row(web, "demo"))).click();
+    await app.clickRow(web, "demo");
     await app.find(byTestId("detail-panel"));
     // A checkbox ticked: select the row.
     await app.js(`document.querySelector('[data-testid="resource-row"] input[type="checkbox"]')?.click()`);

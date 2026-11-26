@@ -173,7 +173,7 @@ describe("area 5: several windows", { timeout: 25 * 60_000 }, () => {
     // A node shell in B.
     await app.nav("Nodes");
     await app.filter(NODE);
-    await (await app.find(app.row(NODE))).click();
+    await app.clickRow(NODE);
     await app.find(byTestId("detail-panel"));
     const before = new Set(nodeShellPods());
     await panelButton(app, "Shell");

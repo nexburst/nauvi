@@ -67,7 +67,7 @@ async function button(app, label) {
 /** Open the Deployment's YAML tab; returns the loaded editor. */
 async function openYaml(app) {
   await openKind(app, "Deployments", ns, NAME);
-  await (await app.find(app.row(NAME, ns))).click();
+  await app.clickRow(NAME, ns);
   await app.waitFor(async () => (await (await panel(app)).getText()).includes(`${ns}/${NAME}`), { message: "the panel" });
   const p = await panel(app);
   await (await p.findElement(By.xpath(".//button[@role='tab'][normalize-space()='YAML']"))).click();

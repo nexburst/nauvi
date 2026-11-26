@@ -4,7 +4,7 @@
 // the table's width with `fitWidths` (columnFit.ts). The table passes what
 // it shows through `Source`; the layout is plain arithmetic on a resize.
 import { untrack } from "svelte";
-import { CELL_PAD, fitWidths, longest, middleCut, minTotal, sample, settle } from "../columnFit";
+import { CELL_PAD, fitSettled, longest, middleCut, minTotal, sample, settle } from "../columnFit";
 import type { FitInput, Measure } from "../columnFit";
 import { cellWidth, STATUS_ICON_PX } from "../columns";
 import type { Column, Ctx, Row } from "../columns";
@@ -35,6 +35,8 @@ export class TableFit {
   dragging = $state.raw<{ key: string; px: number } | null>(null);
   /** Widest value per column key, px with padding. */
   #naturals = $state.raw(new Map<string, number>());
+  /** The same as last measured, before `settle` kept wider ones. */
+  #measured = $state.raw(new Map<string, number>());
   /** Header label widths per column key, px with padding. */
   #heads = $state.raw(new Map<string, number>());
   #cell: Measure | null = null;
@@ -52,22 +54,24 @@ export class TableFit {
   }
 
   /** What a column's content asks for: its widest value or its header. */
-  natural(key: string): number | undefined {
-    const cells = this.#naturals.get(key);
+  natural(key: string, measured = false): number | undefined {
+    const cells = (measured ? this.#measured : this.#naturals).get(key);
     if (cells === undefined) return undefined;
     return Math.max(cells, (this.#heads.get(key) ?? 0) + (this.src.sortKey() === key ? ARROW_PX : 0));
   }
 
-  readonly inputs: FitInput[] = $derived.by(() => {
+  #inputs(measured: boolean): FitInput[] {
     const user = this.src.userWidths();
     return this.src.columns().map((c) => ({
       fit: c.fit,
-      natural: this.natural(c.key) ?? c.fit.min,
+      natural: this.natural(c.key, measured) ?? c.fit.min,
       user: this.dragging?.key === c.key ? this.dragging.px : user[c.key],
     }));
-  });
+  }
+  readonly inputs: FitInput[] = $derived(this.#inputs(false));
+  readonly #measuredInputs: FitInput[] = $derived(this.#inputs(true));
   /** Each column's width, px. */
-  readonly widths: number[] = $derived(fitWidths(this.inputs, this.avail));
+  readonly widths: number[] = $derived(fitSettled(this.inputs, this.#measuredInputs, this.avail));
   /** The columns' width together: at least what their minimums need. */
   readonly total: number = $derived(
     Math.max(
@@ -133,6 +137,7 @@ export class TableFit {
         keys.map((k) => next.get(k)!),
       );
       this.#naturals = new Map(keys.map((k, i) => [k, kept[i]]));
+      this.#measured = next;
       this.#heads = heads;
     });
   }

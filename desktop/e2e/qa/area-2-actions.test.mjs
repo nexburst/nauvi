@@ -369,7 +369,7 @@ describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
       else await app.filter(name);
       const { items } = await contextMenu(app, name, namespace || undefined);
       await closeMenu(app);
-      await (await app.find(app.row(name, namespace || undefined))).click();
+      await app.clickRow(name, namespace || undefined);
       await app.waitFor(async () => (await actionBarLabels(app)).length > 0, { message: `${name}'s action bar` });
       const bar = await actionBarLabels(app);
       report.push(`${label}: menu ${JSON.stringify(items)} / panel ${JSON.stringify(bar)}`);

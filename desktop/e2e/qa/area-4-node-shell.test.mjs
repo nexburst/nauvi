@@ -45,7 +45,7 @@ async function waitGone(app, pod, timeout = 60_000) {
 async function openNode(app) {
   await app.nav("Nodes");
   await app.filter(NODE);
-  await (await app.find(app.row(NODE))).click();
+  await app.clickRow(NODE);
   await app.find(byTestId("detail-panel"));
 }
 
