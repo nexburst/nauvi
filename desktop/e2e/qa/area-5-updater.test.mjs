@@ -3,12 +3,14 @@
 // NAUVI_UPDATE_ENDPOINT. Nothing is downloaded or installed.
 // Checks: a newer version shows the banner on start (main window), with
 // Release notes opening the release page and, for a plain binary, "Download
-// from the release page"; ✕ closes it; turning "Check for updates on start"
-// off skips the check after a restart, while Check for updates in Settings
-// still asks; the palette reports "latest version" and errors; a failed
-// check on start stays quiet; a second window does not check on start;
-// without the override a debug build never asks; a copy on a DMG or a
-// translocated one (#206) offers no install.
+// from the release page"; ✕ closes it; turning "Check for updates
+// automatically" off skips the check after a restart, while Check for
+// updates in Settings still asks; the palette reports "latest version" and
+// errors; a failed check on start stays quiet; a second window does not
+// check on start; while the app stays open it checks again periodically and
+// on a wake, with the interval shortened through the QA hook
+// `__nauviUpdateEvery` (#540); without the override a debug build never
+// asks; a copy on a DMG or a translocated one (#206) offers no install.
 
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -106,7 +108,7 @@ describe("area 5: updates with a local latest.json", { timeout: 15 * 60_000 }, (
   it("turning the start-up check off skips it after a restart; Settings still checks", T, async () => {
     const { app } = s;
     await openSettings(app);
-    const box = await app.find(By.xpath("//*[@data-testid='update-settings']//label[contains(., 'Check for updates on start')]/input"));
+    const box = await app.find(By.xpath("//*[@data-testid='update-settings']//label[contains(., 'Check for updates automatically')]/input"));
     assert.equal(await box.isSelected(), true);
     await box.click();
     await app.waitFor(() => app.profile.settings()?.check_updates === false, { message: "check_updates false in settings.json" });
@@ -169,6 +171,86 @@ describe("area 5: updates with a local latest.json", { timeout: 15 * 60_000 }, (
     await app.driver.close();
     await switchTo(app, main);
     await app.waitFor(async () => (await windowHandles(app)).length === 1, { message: "one window" });
+  });
+
+  // #540: the periodic check, with 15 s for 12 h (± 1.25 s for ± 1 h).
+  const every = (app, ms, nextMs) => app.js("window.__nauviUpdateEvery(arguments[0], arguments[1] ?? undefined)", ms, nextMs ?? null);
+  const visible = (app) => app.js("document.dispatchEvent(new Event('visibilitychange'))");
+  const nextRequest = (app, before, what) =>
+    app.waitFor(() => served.requests > before, { timeout: 30_000, message: what });
+
+  it("a release published after start shows the banner at the next periodic check (#540)", T, async () => {
+    const { app } = s;
+    assert.equal(await count(app, '[data-testid="update-banner"]'), 0);
+    served.version = "9.9.10";
+    const before = served.requests;
+    await every(app, 15_000);
+    await nextRequest(app, before, "the periodic check");
+    const banner = await app.find(byTestId("update-banner"), { timeout: 30_000 });
+    const text = await app.js("return arguments[0].innerText", banner);
+    console.log(`periodic banner: ${text.replace(/\s+/g, " ")}; requests ${served.requests - before}`);
+    assert.match(text, /nauvi 9\.9\.10 is available/);
+    for (const theme of ["dark", "light"]) {
+      await setTheme(app, theme);
+      await app.shot(`periodic-banner-${theme}`);
+    }
+    await setTheme(app, null);
+  });
+
+  it("a dismissed version stays dismissed at the next check; a newer one shows (#540)", T, async () => {
+    const { app } = s;
+    await (await app.find(By.css('[data-testid="update-banner"] button[aria-label="Dismiss update"]'))).click();
+    let before = served.requests;
+    await nextRequest(app, before, "the next periodic check");
+    await sleep(1500);
+    assert.equal(await count(app, '[data-testid="update-banner"]'), 0, "9.9.10 stays dismissed");
+    served.version = "9.9.11";
+    before = served.requests;
+    await nextRequest(app, before, "the check after that");
+    await app.waitFor(async () => /9\.9\.11 is available/.test(await textOf(app, "update-banner")), {
+      timeout: 10_000,
+      message: "the banner for 9.9.11",
+    });
+    await app.shot("periodic-newer-banner");
+  });
+
+  it("a wake checks only when the last check is older than the interval (#540)", T, async () => {
+    const { app } = s;
+    // The timer an hour away: only a wake can check now. A minute since
+    // the last check is not enough for a wake to check.
+    await every(app, 60_000, 3_600_000);
+    const before = served.requests;
+    await visible(app);
+    await sleep(2500);
+    assert.equal(served.requests, before, "no check on a wake soon after one");
+    // 3 s for 12 h: the last check is old enough now.
+    await every(app, 3_000, 3_600_000);
+    await sleep(3500); // wake signs closer than 5 s are one wake
+    await visible(app);
+    await nextRequest(app, before, "the check on the wake");
+    await every(app, 60_000, 3_600_000);
+    console.log(`wake: ${served.requests - before} request(s)`);
+  });
+
+  it("turned off in Settings: no periodic or wake check; turned on: checks again (#540)", T, async () => {
+    const { app } = s;
+    await openSettings(app);
+    const box = await app.find(By.xpath("//*[@data-testid='update-settings']//label[contains(., 'Check for updates automatically')]/input"));
+    assert.equal(await box.isSelected(), true);
+    await box.click();
+    await app.waitFor(() => app.profile.settings()?.check_updates === false, { message: "check_updates false in settings.json" });
+    await every(app, 5_000);
+    const before = served.requests;
+    await sleep(12_000);
+    await visible(app);
+    await sleep(2000);
+    assert.equal(served.requests, before, "no check while turned off");
+    await app.shot("settings-automatic-off");
+    await box.click();
+    await app.waitFor(() => app.profile.settings()?.check_updates === true, { message: "check_updates true in settings.json" });
+    await nextRequest(app, before, "the check when turned on");
+    await app.shot("settings-automatic-on");
+    await closeSettings(app);
   });
 });
 
