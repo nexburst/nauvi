@@ -22,6 +22,11 @@ async function forwardApi(
   await openKind(page, "Services");
   await row(page, "api").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Port forward…" }).click();
+  // Once the Service's ports are in, "Open in browser" has its default
+  // (on for port 80/http, then the last choice, #498); these tests open it
+  // only when asked.
+  await expect(dialog(page).getByLabel("Service port")).toHaveValue("80");
+  await dialog(page).getByLabel("Open in browser").uncheck();
   await dialog(page).getByLabel("Local port").fill(local);
   if (opts.auto) await dialog(page).getByLabel("Start automatically").check();
   await dialog(page).getByTestId("forward-confirm").click();

@@ -54,6 +54,17 @@ export function pollWindowForwards(): () => void {
   };
 }
 
+/**
+ * Disconnect cluster `id` (the tree's and the header's ✕). Its forwards
+ * stopped with it, so the lists that show them follow now, not on their
+ * next poll (#498). Returns whether it was disconnected.
+ */
+export async function disconnectCluster(id: string): Promise<boolean> {
+  const done = await disconnectNode(id);
+  if (done) await refreshWindowForwards();
+  return done;
+}
+
 export function runningOn(id: string): Running {
   return windowItems.byCluster.get(id) ?? NOTHING;
 }

@@ -1,7 +1,15 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import type { ForwardInfo, ForwardTarget, SavedForward } from "../bindings";
-import { forwardLabel, isLocalUrl, parseLocalPort, parseRemotePort, PORT_FORWARDS_VIEW } from "../forwards";
+import {
+  defaultOpenInBrowser,
+  looksLikeWeb,
+  forwardLabel,
+  isLocalUrl,
+  parseLocalPort,
+  parseRemotePort,
+  PORT_FORWARDS_VIEW,
+} from "../forwards";
 import { setNotice } from "./actions.svelte";
 import { setView } from "./app.svelte";
 
@@ -166,6 +174,27 @@ export async function copyForwardUrl(f: ForwardInfo) {
   }
 }
 
+/** The last "Open in browser when it starts" the user set, for web-like
+ *  ports and for the others, in this webview (#498). */
+const openKey = (web: boolean) => `nauvi.forward.openInBrowser.${web ? "web" : "other"}`;
+
+export function rememberedOpenInBrowser(web: boolean): boolean | null {
+  try {
+    const v = localStorage.getItem(openKey(web));
+    return v === "true" ? true : v === "false" ? false : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberOpenInBrowser(web: boolean, open: boolean) {
+  try {
+    localStorage.setItem(openKey(web), String(open));
+  } catch {
+    // Not remembered: the next dialog starts from the port's default.
+  }
+}
+
 /** The "Port forward…" dialog, also used to edit a saved forward. */
 export const forwardDialog = $state({
   target: null as ForwardTarget | null,
@@ -177,6 +206,11 @@ export const forwardDialog = $state({
   local: "",
   https: false,
   openInBrowser: false,
+  /** The user set "Open in browser" in this dialog: the Service's ports,
+   *  loaded after it opened, no longer pick its default. */
+  openTouched: false,
+  /** The name of the chosen Service port, if known (`http`, …). */
+  portName: "",
   autoStart: false,
   busy: false,
   error: "",
@@ -189,7 +223,9 @@ export function openForwardDialog(target: ForwardTarget, remote = "") {
   forwardDialog.remote = remote;
   forwardDialog.local = "";
   forwardDialog.https = false;
-  forwardDialog.openInBrowser = false;
+  forwardDialog.openInBrowser = defaultOpenInBrowser(rememberedOpenInBrowser, remote);
+  forwardDialog.openTouched = false;
+  forwardDialog.portName = "";
   forwardDialog.autoStart = false;
   forwardDialog.busy = false;
   forwardDialog.error = "";
@@ -233,6 +269,10 @@ export async function confirmForwardDialog() {
       auto_start: forwardDialog.autoStart,
     });
     await refreshSaved();
+    // Only a choice the user made is remembered, not a default they left.
+    if (forwardDialog.openTouched) {
+      rememberOpenInBrowser(looksLikeWeb(saved.remote, forwardDialog.portName), saved.open_in_browser);
+    }
     if (restart) {
       let f: ForwardInfo;
       try {
