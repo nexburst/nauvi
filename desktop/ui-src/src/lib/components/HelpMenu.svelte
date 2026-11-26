@@ -33,7 +33,7 @@
   class="help"
   type="button"
   aria-label="Help"
-  title="Help"
+  title="Help: documentation, bug report, about (press ? for the keyboard shortcuts)"
   aria-haspopup="menu"
   aria-expanded={help.menuOpen}
   data-testid="help-menu-button"

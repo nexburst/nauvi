@@ -64,7 +64,7 @@ export const BADGES: Badge[] = [
   {
     id: "first-light",
     title: "First light",
-    how: "See the deck with no problem pods",
+    how: "See the cluster with no problem pods",
     progress: (l) => ({ value: l.calmSince !== null ? 1 : 0, text: l.calmSince !== null ? "1 / 1" : "0 / 1" }),
   },
   {
@@ -76,7 +76,7 @@ export const BADGES: Badge[] = [
   {
     id: "calm-hour",
     title: "Calm hour",
-    how: "Keep the deck calm for an hour",
+    how: "Go an hour with no problem pods",
     progress: (l, now) => ratio(Math.floor(Math.max(calmFor(l, now), l.bestCalm) / MIN), 60, " min"),
   },
   {
@@ -88,7 +88,7 @@ export const BADGES: Badge[] = [
   {
     id: "long-watch",
     title: "Long watch",
-    how: "Keep the deck calm for four hours",
+    how: "Go four hours with no problem pods",
     progress: (l, now) => ratio(Math.floor(Math.max(calmFor(l, now), l.bestCalm) / HOUR), 4, " h"),
   },
 ];

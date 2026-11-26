@@ -93,7 +93,7 @@
   <div class="top">
     <div class="header">
       <span class="title kinded">{pod.namespace}/<wbr />{pod.name}</span>
-      <button type="button" class="close" aria-label="Close details" onclick={closeDetail}>✕</button>
+      <button type="button" class="close" aria-label="Close details" title="Close (Esc)" onclick={closeDetail}>✕</button>
     </div>
     <ActionBar {target} disabled={live.deleted} onEdit={showYaml} {dockSpec} />
   </div>

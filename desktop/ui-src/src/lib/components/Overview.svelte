@@ -68,6 +68,10 @@
     fresh = false;
     scope.blips = toBlips(pods.problems, SCOPE_R);
     scope.healthy = pods.running;
+    scope.problems = pods.problems;
+    scope.total = pods.problems_total;
+    scope.context = currentContextName();
+    scope.at = Date.now();
     if (gone.length === 0 || !prev?.pods) return;
     recovered = toBlips(prev.pods.problems, SCOPE_R).filter((b) => gone.includes(b.key));
     scope.recovered = recovered;
@@ -188,7 +192,10 @@
 
   const ageTimer = setInterval(() => (now = Date.now()), AGE_TICK_MS);
 
+  // The header pill's list is live while the Overview is on screen (#504).
+  scope.live = true;
   onDestroy(() => {
+    scope.live = false;
     clearInterval(ageTimer);
     if (clearedTimer) clearTimeout(clearedTimer);
     stop();

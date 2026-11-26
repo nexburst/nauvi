@@ -126,7 +126,7 @@
 <aside data-testid="helm-detail">
   <div class="header">
     <span class="title"><span class="muted">Helm release</span> {target.namespace}/{target.name}</span>
-    <button type="button" class="close" aria-label="Close details" onclick={() => selectRelease(null)}>✕</button>
+    <button type="button" class="close" aria-label="Close details" title="Close (Esc)" onclick={() => selectRelease(null)}>✕</button>
   </div>
 
   <div class="bar">

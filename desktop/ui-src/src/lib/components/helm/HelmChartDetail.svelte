@@ -65,7 +65,7 @@
 <aside data-testid="chart-detail">
   <div class="header">
     <span class="title"><span class="muted">Chart</span> {chart}</span>
-    <button type="button" class="close" aria-label="Close details" onclick={() => selectChart(null)}>✕</button>
+    <button type="button" class="close" aria-label="Close details" title="Close (Esc)" onclick={() => selectChart(null)}>✕</button>
   </div>
 
   <div class="bar">

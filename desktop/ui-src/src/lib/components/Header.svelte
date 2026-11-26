@@ -6,8 +6,8 @@
   import { contextSettings, settings } from "../stores/settings.svelte";
   import { live } from "../stores/live.svelte";
   import { openPalette, openSettings } from "../stores/keyboard.svelte";
-  import { calmFor, streakText } from "../watch";
-  import { scope, watch } from "../stores/watch.svelte";
+  import { pillText, pillTitle } from "../problemPill";
+  import { problemsOf, scope, toggleWatchPanel, watch } from "../stores/watch.svelte";
   import WatchPanel from "./WatchPanel.svelte";
   import { showNode, tree } from "../stores/clusters.svelte";
   import { disconnectCluster } from "../stores/hidden.svelte";
@@ -30,11 +30,14 @@
 
   const REFRESH_SHORTCUT = shortcutHint("refresh", isMacPlatform());
   const PALETTE_SHORTCUT = shortcutHint("palette", isMacPlatform());
-  // The watch dial: the calm streak as of the last Overview update.
-  const calm = $derived(watch.log.calmSince !== null);
-  const dial = $derived(
-    calm ? `calm ${streakText(calmFor(watch.log, watch.log.lastSeen))}` : `${scope.blips.length || ""} to look at`.trim(),
-  );
+  const SETTINGS_SHORTCUT = shortcutHint("settings", isMacPlatform());
+  // The problem pill (#491): how many pods need a look, as of the last
+  // Overview update; a click lists them.
+  // Only the list of the cluster on screen counts: after a switch, until
+  // the Overview has seen the new one, the pill is neutral (#504).
+  const seen = $derived(problemsOf(app.contexts.find((c) => c.current)?.name ?? ""));
+  const calm = $derived(seen?.total === 0);
+  const dial = $derived(pillText(seen ? seen.total : null));
   const BACK_SHORTCUT = shortcutHint("back", isMacPlatform());
   const FORWARD_SHORTCUT = shortcutHint("forward", isMacPlatform());
 
@@ -147,9 +150,19 @@
       {/each}
     {/if}
   </select>
+  {#if others.length > 0}
+    <!-- Other clusters this window is still connected to (#483). -->
+    <span class="also" title="Other clusters this window is still connected to">Also connected:</span>
+  {/if}
   {#each others.slice(0, CHIPS_MAX) as id (id)}
     <span class="chip" data-testid="cluster-chip">
-      <button type="button" class="chip-go" title={`Show ${label(id)} in this window`} onclick={() => void showNode(id)}>
+      <button
+        type="button"
+        class="chip-go"
+        title={`${label(id)} is still connected in this window. Click to show it here.`}
+        aria-label={`Show ${label(id)}`}
+        onclick={() => void showNode(id)}
+      >
         <span class="chip-dot" style:background={contextSettings(id).color || null} aria-hidden="true"></span>
         {label(id)}
       </button>
@@ -157,13 +170,13 @@
         type="button"
         class="chip-x"
         aria-label={`Disconnect ${label(id)}`}
-        title="Disconnect: stops its logs, terminals and forwards in this window"
+        title={`Disconnect ${label(id)}: stops its logs, terminals and forwards in this window`}
         onclick={() => void disconnectCluster(id)}><Icon name="close" size={11} /></button
       >
     </span>
   {/each}
   {#if others.length > CHIPS_MAX}
-    <span class="chip more" title={others.slice(CHIPS_MAX).map(label).join(", ")}>+{others.length - CHIPS_MAX}</span>
+    <span class="chip more" title={`Also connected: ${others.slice(CHIPS_MAX).map(label).join(", ")}`}>+{others.length - CHIPS_MAX}</span>
   {/if}
   <ModeBadge {mode} name={contextNameOf(current)} />
   <button
@@ -200,22 +213,23 @@
     <span class="hint">Go to a kind, an object, an action…</span>
     <kbd>{PALETTE_SHORTCUT.split(" or ")[0]}</kbd>
   </button>
-  {#if watch.context}
+  {#if current}
     <button
       type="button"
       class="dial"
       class:calm
-      aria-label="Watch"
+      aria-label={dial}
+      aria-haspopup="dialog"
       aria-expanded={watch.panel}
-      title={calm ? `Calm on deck for ${dial}. Open the watch.` : "The deck is busy: the calm streak waits. Open the watch."}
+      title={pillTitle(seen ? seen.total : null)}
       data-testid="watch-dial"
-      onclick={() => (watch.panel = !watch.panel)}
+      onclick={() => toggleWatchPanel("problems")}
     >
       <!-- A sonar the size of a letter: a blip per problem, a ring per change. -->
       <svg class="mini" viewBox="-10 -10 20 20" width="18" height="18" aria-hidden="true">
         <circle r="9" />
         <circle r="4.5" />
-        {#each scope.blips.slice(0, 6) as b (b.key)}
+        {#each seen ? scope.blips.slice(0, 6) : [] as b (b.key)}
           <circle class="blip {b.tone}" cx={(b.x / 92) * 9} cy={(b.y / 92) * 9} r="1.6" />
         {/each}
         {#key scope.sweep}<circle class="ring" r="9" />{/key}
@@ -229,6 +243,7 @@
     class="refresh"
     type="button"
     title={`Refresh (${REFRESH_SHORTCUT})`}
+    aria-label="Refresh"
     onclick={() => {
       spins++;
       refresh();
@@ -242,7 +257,7 @@
   <AskAiButton />
   <NotificationBell />
   <HelpMenu />
-  <button class="gear" type="button" aria-label="Settings" title="Settings" onclick={openSettings}>
+  <button class="gear" type="button" aria-label="Settings" title={`Settings (${SETTINGS_SHORTCUT})`} onclick={openSettings}>
     <Icon name="settings" size={18} />
   </button>
 </header>
@@ -364,6 +379,12 @@
     height: 10px;
     border-radius: 3px;
     margin-right: -10px;
+  }
+  .also {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    white-space: nowrap;
+    margin-right: -4px;
   }
   /* Another connected cluster: one click shows it, the mark lets it go. */
   .chip {

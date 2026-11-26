@@ -47,10 +47,10 @@
   <div class="streak" class:calm={log.calmSince !== null}>
     {#if log.calmSince !== null}
       <span class="value" data-testid="calm-streak">{streakText(calm)}</span>
-      <span class="caption">calm on deck</span>
+      <span class="caption">with no problem pods</span>
     {:else}
       <span class="value" data-testid="calm-streak">{streakText(log.bestCalm)}</span>
-      <span class="caption">best calm streak</span>
+      <span class="caption">longest time with no problem pods</span>
     {/if}
   </div>
 

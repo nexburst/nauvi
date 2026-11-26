@@ -67,6 +67,7 @@ import UnsavedDialog from "./components/UnsavedDialog.svelte";
 import UpdateBanner from "./components/UpdateBanner.svelte";
 import WorkloadsOverview from "./components/WorkloadsOverview.svelte";
 import AskAiDialog from "./components/AskAiDialog.svelte";
+import Tooltips from "./components/Tooltips.svelte";
 import { askAi, loadAskAiSetup } from "./stores/askAi.svelte";
 
 /** A view of its own (not a resource table), shown when `app.view` is `id`. */
@@ -173,6 +174,8 @@ export const DIALOGS: Slot[] = [
   slot(HideClusterDialog, { when: () => hideDialog.id !== "" }),
   // Ask AI (#376).
   slot(AskAiDialog, { when: () => askAi.scope !== null, key: () => askAi.scope }),
+  // Every title as one styled tooltip, on focus too (#483).
+  slot(Tooltips),
 ];
 
 /** Event subscriptions, made before the first watch starts; each returns its unlisten. */

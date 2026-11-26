@@ -87,7 +87,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     await pickNamespaces(app, [ns]);
     await waitNames(app, ["web-1", "web-22", "db-1", SLOW, "kube-root-ca.crt"], "every ConfigMap");
     assert.equal(await pressed(app, "Match case"), false);
-    assert.equal(await pressed(app, "Regular expression"), false);
+    assert.equal(await pressed(app, "Regex (regular expression)"), false);
 
     await app.filter("WEB");
     await waitNames(app, ["web-1", "web-22"], "case ignored");
@@ -104,7 +104,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
 
   it("a regex filters per field, in the worker", T, async () => {
     const { app } = s;
-    await setToggle(app, "Regular expression", true);
+    await setToggle(app, "Regex (regular expression)", true);
     await app.filter("^web-\\d$");
     await waitNames(app, ["web-1"], "^web-\\d$");
     await app.filter("^(web|db)-1$");
@@ -131,15 +131,15 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
 
   it("a catastrophic regex never blocks the page", T, async () => {
     const { app } = s;
-    await setToggle(app, "Regular expression", true);
+    await setToggle(app, "Regex (regular expression)", true);
     // V8 backtracks on these for ever and the worker is stopped after the
     // limit ("Regex too slow"); JavaScriptCore may give up on its own and
     // report no match. Either way the page must keep drawing and answer.
     for (const pattern of ["^(a+)+$", "(a+)+$"]) {
       await app.filter("db-1");
-      await setToggle(app, "Regular expression", false);
+      await setToggle(app, "Regex (regular expression)", false);
       await waitNames(app, ["db-1"], "a plain filter first");
-      await setToggle(app, "Regular expression", true);
+      await setToggle(app, "Regex (regular expression)", true);
       const t0 = Date.now();
       await app.filter(pattern);
       const fpsP = measureFps(app, 2000);
@@ -164,7 +164,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
       await shots(app, `catastrophic-${pattern.startsWith("^") ? "anchored" : "plain"}`);
       // The UI thread is free: a click answers at once.
       const t1 = Date.now();
-      await setToggle(app, "Regular expression", false);
+      await setToggle(app, "Regex (regular expression)", false);
       const ms = Date.now() - t1;
       assert.ok(ms < 3000, `the toggle answered in ${ms} ms`);
       await app.waitFor(async () => (await errorText(app)) === "", { message: "the error goes" });
@@ -174,7 +174,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
   it("searches are remembered, starred, offered in another list and kept across a restart", { timeout: 300_000 }, async () => {
     const { app } = s;
     await setToggle(app, "Match case", false);
-    await setToggle(app, "Regular expression", true);
+    await setToggle(app, "Regex (regular expression)", true);
     const input = await filterInput(app);
     await app.filter("^web-\\d+$");
     await waitNames(app, ["web-1", "web-22"], "^web-\\d+$");
@@ -185,7 +185,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
       { message: "starred" },
     );
     // A plain one too.
-    await setToggle(app, "Regular expression", false);
+    await setToggle(app, "Regex (regular expression)", false);
     await app.filter("db");
     await (await filterInput(app)).sendKeys(Key.ENTER);
 
@@ -204,7 +204,7 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     // Pick the starred one: back on ConfigMaps it filters with its regex.
     await (await filterInput(app)).sendKeys(Key.ENTER);
     assert.equal(await (await filterInput(app)).getAttribute("value"), "^web-\\d+$");
-    assert.equal(await pressed(app, "Regular expression"), true);
+    assert.equal(await pressed(app, "Regex (regular expression)"), true);
     await app.nav("Config Maps");
     await waitNames(app, ["web-1", "web-22"], "the picked search filters");
 

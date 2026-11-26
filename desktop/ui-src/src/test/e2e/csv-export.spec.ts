@@ -33,6 +33,8 @@ test("exports the filtered, sorted rows and the shown columns", async ({ page })
   expect(lines.slice(1, -1).map((l) => l.split(",")[0])).toEqual(["web-2", "web-1"]);
 
   await expect(note(page)).toHaveText(`Saved 2 rows to Downloads/${call.filename}`);
+  // The pointer off it: under the pointer the title shows as the app's tooltip (#483).
+  await page.mouse.move(0, 0);
   await expect(note(page)).toHaveAttribute("title", `/home/tester/Downloads/${call.filename}`);
 });
 
