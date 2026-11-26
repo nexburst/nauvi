@@ -7,8 +7,8 @@
     envCount,
     envGroupTitle,
     envRowId,
+    envRowSource,
     envShownValue,
-    envValueSource,
     LONG_VALUE,
     SECRET_REF,
     visibleText,
@@ -130,22 +130,28 @@
   {@const shown = revealed.get(id)}
   {@const text = visibleText(shown ?? envShownValue(r))}
   {@const long = text.length > LONG_VALUE}
-  {@const source = envValueSource(r)}
-  <li class="row" class:overridden={r.overridden} data-testid="env-row" data-name={r.name}>
+  {@const source = envRowSource(r, group >= 0)}
+  <li class="row sub" class:overridden={r.overridden} data-testid="env-row" data-name={r.name}>
     <span class="mono name" title={r.overridden ? "Overridden by a later variable of the same name" : undefined}
       >{visibleText(r.name)}</span
     >
-    {#if r.error}
-      <span class="error-text err" data-testid="env-error">{visibleText(r.error)}</span>
-    {:else}
-      <span
-        class="mono value"
-        class:masked={r.hidden && shown === undefined}
-        class:ref={!r.hidden && (r.kind === "resource" || (r.kind === "field" && !r.value))}
-        class:folded={long && !unfolded.has(id)}
-        title={long && shown === undefined ? text : undefined}
-        data-testid="env-value">{text}</span
-      >
+    <span class="cell" class:wide={!!r.error}>
+      {#if r.error}
+        <span class="error-text err" data-testid="env-error">{visibleText(r.error)}</span>
+      {:else}
+        <span
+          class="mono value"
+          class:masked={r.hidden && shown === undefined}
+          class:ref={!r.hidden && (r.kind === "resource" || (r.kind === "field" && !r.value))}
+          class:folded={long && !unfolded.has(id)}
+          title={long && shown === undefined ? text : undefined}
+          data-testid="env-value">{text}</span
+        >
+      {/if}
+      {#if source}<span class="muted src" data-testid="env-source">{visibleText(source)}</span>{/if}
+      {#if r.overridden}<span class="muted src">(overridden)</span>{/if}
+    </span>
+    {#if !r.error}
       <span class="actions">
         {#if long}
           <button type="button" class="link" aria-label="{unfolded.has(id) ? 'Fold' : 'Show all of'} {r.name}" onclick={() => toggleFold(id)}
@@ -162,13 +168,14 @@
           {/if}
         {/if}
         {#if (!r.hidden || shown !== undefined) && r.kind !== "resource" && text}
-          <button type="button" class="link" aria-label="Copy {r.name}" onclick={() => copy(id, r)}>Copy</button>
+          <button type="button" class="link copy" aria-label="Copy {r.name}" title="Copy the value" onclick={() => copy(id, r)}
+            >Copy</button
+          >
         {/if}
       </span>
     {/if}
-    {#if source}<span class="muted src">from {visibleText(source)}</span>{/if}
-    {#if r.overridden}<span class="muted src">(overridden)</span>{/if}
-    {#if rowError.get(id)}<span class="error-text err" data-testid="env-reveal-error">{visibleText(rowError.get(id) ?? "")}</span>{/if}
+    {#if rowError.get(id)}<span class="error-text err wide" data-testid="env-reveal-error">{visibleText(rowError.get(id) ?? "")}</span
+      >{/if}
   </li>
 {/snippet}
 
@@ -184,29 +191,33 @@
     </ul>
     <button type="button" class="link" onclick={load}>Try again</button>
   {:else if env}
-    {#each env.from as g, gi (gi)}
-      <div class="group" data-testid="env-group">
-        <div class="group-title muted">{visibleText(envGroupTitle(g))}</div>
-        {#if g.error}
-          <p class="error-text err" data-testid="env-error">{visibleText(g.error)}</p>
-        {:else if g.rows.length === 0}
-          <p class="muted">No keys.</p>
-        {:else}
-          <ul>
-            {#each g.rows as r, i (i)}
-              {@render valueRow(envRowId(gi, i), r, gi, i)}
-            {/each}
-          </ul>
-        {/if}
-      </div>
-    {/each}
-    {#if env.env.length > 0}
-      <ul>
-        {#each env.env as r, i (i)}
-          {@render valueRow(envRowId("env", i), r, -1, i)}
-        {/each}
-      </ul>
-    {/if}
+    <!-- One grid for the whole list (#541): groups and rows are subgrids of
+         it, so the names share one column and the values line up. -->
+    <div class="grid" data-testid="env-grid">
+      {#each env.from as g, gi (gi)}
+        <div class="group sub" data-testid="env-group">
+          <div class="group-title muted span">{visibleText(envGroupTitle(g))}</div>
+          {#if g.error}
+            <p class="error-text err span" data-testid="env-error">{visibleText(g.error)}</p>
+          {:else if g.rows.length === 0}
+            <p class="muted span">No keys.</p>
+          {:else}
+            <ul class="sub">
+              {#each g.rows as r, i (i)}
+                {@render valueRow(envRowId(gi, i), r, gi, i)}
+              {/each}
+            </ul>
+          {/if}
+        </div>
+      {/each}
+      {#if env.env.length > 0}
+        <ul class="sub">
+          {#each env.env as r, i (i)}
+            {@render valueRow(envRowId("env", i), r, -1, i)}
+          {/each}
+        </ul>
+      {/if}
+    </div>
     <div class="foot">
       {#if status}<span class="muted" role="status">{status}</span>{/if}
       <button type="button" class="link" disabled={loading} onclick={load}>Reload</button>
@@ -223,10 +234,25 @@
     margin: 0;
     padding: 0;
   }
-  .row {
+  /* Names as wide as the widest one, at most 40% of the list (longer ones
+     wrap), the values in the rest, the row's buttons last. */
+  .grid {
     display: grid;
-    grid-template-columns: minmax(80px, max-content) minmax(0, 1fr) auto;
-    column-gap: 8px;
+    grid-template-columns: fit-content(40%) minmax(0, 1fr) auto;
+    column-gap: 10px;
+  }
+  .sub {
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: 1 / -1;
+  }
+  .span {
+    grid-column: 1 / -1;
+  }
+  .wide {
+    grid-column: 2 / -1;
+  }
+  .row {
     align-items: baseline;
     padding: 2px 0;
     border-bottom: 1px solid var(--border);
@@ -235,6 +261,7 @@
     border-bottom: none;
   }
   .name {
+    grid-column: 1;
     font-weight: 600;
     overflow-wrap: anywhere;
   }
@@ -243,8 +270,22 @@
     text-decoration: line-through;
     opacity: 0.7;
   }
-  .value {
+  /* The value, then its source on the same line when both fit. */
+  .cell {
+    grid-column: 2;
     min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    column-gap: 8px;
+  }
+  .cell.wide {
+    grid-column: 2 / -1;
+  }
+  .value {
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
@@ -258,17 +299,23 @@
     color: var(--text-muted);
   }
   .actions {
+    grid-column: 3;
     display: flex;
+    justify-content: flex-end;
     gap: 8px;
+  }
+  /* Copy only on the row under the pointer or with the keyboard focus. */
+  .row:not(:hover):not(:focus-within) .copy {
+    opacity: 0;
   }
   .src,
   .err {
-    grid-column: 2 / -1;
+    flex: 0 1 auto;
+    min-width: 0;
     font-size: 11px;
     overflow-wrap: anywhere;
   }
-  .row > .err:nth-child(2) {
-    grid-column: 2 / -1;
+  .cell > .err {
     font-size: 12px;
   }
   .group {
