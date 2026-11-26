@@ -141,9 +141,12 @@ test("warnings come first and link to their objects", async ({ page }) => {
   const fake = await openApp(page);
   const warnings = page.getByRole("region", { name: "Warnings" });
   await expect(warnings.locator(".event")).toHaveCount(2);
-  await expect(warnings.locator(".event").first()).toContainText("FailedCreate");
-  await expect(warnings.locator(".event").first()).toContainText("2m");
-  await expect(warnings).toContainText("exceeded quota (x4)");
+  // The reason in words, the raw one on hover; how often and when (#484).
+  await expect(warnings.locator(".event").first()).toContainText("Failed to create");
+  await expect(warnings.locator(".event").first().locator(".reason")).toHaveAttribute("title", "FailedCreate");
+  await expect(warnings.locator(".event").first()).toContainText(/4 times, last 2m( \d+s)? ago/);
+  await expect(warnings).toContainText("exceeded quota");
+  await expect(warnings).not.toContainText("(x4)");
   // A kind discovery does not know is not a link.
   await expect(warnings.getByText("Gadget/thing")).toBeVisible();
   await expect(warnings.getByRole("button", { name: "Gadget/thing" })).toHaveCount(0);

@@ -20,7 +20,8 @@
     stamp,
   } from "../stores/app.svelte";
   import { clusterError } from "../clusterError";
-  import { formatAge } from "../format";
+  import { eventTimes } from "../format";
+  import { eventHeadline, reasonWords } from "../eventText";
   import { capacityBars, deckHeadline, eventKind, overviewCount, podCards } from "../overview";
   import { blips as toBlips, type Blip } from "../sonar";
   import { observeOverview, scope } from "../stores/watch.svelte";
@@ -374,19 +375,23 @@
           <div class="stack">
             {#each overview.events?.items ?? [] as e (e.key)}
               {@const linked = eventKind(e, kinds.all)}
+              {@const headline = eventHeadline(e.reason, e.message)}
               <div class="event">
                 <div class="tile" aria-hidden="true"><Icon name="warning" size={18} /></div>
                 <div class="what">
                   <div class="e-head">
-                    <span class="reason">{e.reason}</span>
+                    <span class="reason" title={e.reason}>{reasonWords(e.reason, e.message)}</span>
                     {#if linked}
                       <button type="button" class="link object" onclick={() => openEvent(e)}>{e.object}</button>
                     {:else}
                       <span class="object muted">{e.object}</span>
                     {/if}
-                    <span class="age">{formatAge(e.time, now, "")}</span>
+                    <span class="age">{eventTimes(e.count, e.time, now)}</span>
                   </div>
-                  <p class="message">{e.message}<span class="times">{e.count > 1 ? ` (x${e.count})` : ""}</span></p>
+                  <!-- A summary of the long, alike messages (the scheduler's,
+                       back-off) over the full message (#484). -->
+                  <p class="message" class:summary={headline !== e.message}>{headline}</p>
+                  {#if headline !== e.message}<p class="full">{e.message}</p>{/if}
                 </div>
               </div>
             {:else}
@@ -824,8 +829,16 @@
     color: var(--text-muted);
     overflow-wrap: anywhere;
   }
-  .times {
+  .message.summary {
+    color: var(--text);
     font-weight: var(--weight-medium);
+  }
+  .full {
+    margin: 2px 0 0;
+    font-size: var(--text-sm);
+    line-height: 1.4;
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
   }
   .link {
     background: transparent;

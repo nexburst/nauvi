@@ -2,6 +2,8 @@
 // - the Overview's problem pods say how long a pod is pending in days and
 //   hours ("Pending for 8d 14h"), never minutes over an hour ("12382m");
 //   the demo's default/hungry asks for 1000 CPUs and stays pending
+// - the Overview's warning cards: "Failed scheduling", the summary over the
+//   full message, "N times, last 4m 2s ago" instead of "(xN)"
 // - its detail panel's events read "Failed scheduling" (the raw reason in
 //   the tooltip), a summary line ("No node has enough CPU and memory") over
 //   the scheduler's full message, and "N times, last 41s ago"
@@ -64,6 +66,35 @@ describe("human-readable values (#484)", { timeout: 15 * 60_000 }, () => {
     assert.doesNotMatch(reason, /\d{3,}m/, "no minutes over an hour");
     await app.js(`document.querySelector('${PROBLEMS}')?.scrollIntoView({ block: "start" })`);
     await shotBoth(app, "overview-problems");
+  });
+
+  it("the Overview's warnings say the reason in words, a summary and how often", T, async () => {
+    const { app } = s;
+    const card = await app.waitFor(
+      () =>
+        app.js(`
+          const c = Array.from(document.querySelectorAll('.overview section[aria-label="Warnings"] .event'))
+            .find((el) => el.querySelector(".object")?.textContent.trim() === "Pod/hungry");
+          if (!c) return null;
+          c.scrollIntoView({ block: "center" });
+          return {
+            reason: c.querySelector(".reason")?.textContent.trim(),
+            raw: c.querySelector(".reason")?.getAttribute("title"),
+            when: c.querySelector(".age")?.textContent.trim(),
+            headline: c.querySelector(".message")?.textContent.trim(),
+            full: c.querySelector(".full")?.textContent.trim() ?? "",
+            text: c.innerText,
+          };`),
+      { timeout: 60_000, interval: 2000, message: "the Pod/hungry warning on the Overview" },
+    );
+    console.log(JSON.stringify(card, null, 2));
+    assert.equal(card.raw, "FailedScheduling");
+    assert.equal(card.reason, "Failed scheduling");
+    assert.match(card.headline, /^No node (has enough CPU and memory|fits: .*short of CPU and memory)/);
+    assert.match(card.full, /^0\/\d+ nodes are available/);
+    assert.match(card.when, /^(\d+ times, last )?\d+[smhdy]( \d+[smhdy])? ago$/);
+    assert.doesNotMatch(card.text, /\(x\d+\)/);
+    await shotBoth(app, "overview-warnings");
   });
 
   it("the pod's events say the reason in words, a summary, how often and when", T, async () => {
