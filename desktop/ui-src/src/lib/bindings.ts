@@ -512,10 +512,13 @@ export const commands = {
 	cmdApplyManifests: (cluster: MutationTarget, yaml: string, namespace: string, dryRun: boolean, skipInvalid: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyResult[]>("cmd_apply_manifests", { cluster, yaml, namespace, dryRun, skipInvalid }, options),
 	/**
 	 *  Server-side apply of edited YAML. `resource_version` is the version the
-	 *  YAML was loaded at (empty: don't check); if the object changed since,
-	 *  nothing is applied and the outcome says so. `dry_run` validates only.
+	 *  YAML was loaded at (empty: don't check) and `base` the YAML as loaded
+	 *  (empty: unknown). If the object changed since, the edit is applied when
+	 *  only server-owned fields changed, and otherwise nothing is applied and
+	 *  the outcome says so: re-applied on the latest version (`rebased`) or a
+	 *  conflict. `dry_run` validates only.
 	 */
-	cmdApplyResourceYaml: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, yaml: string, resourceVersion: string, dryRun: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_apply_resource_yaml", { cluster, resource, namespace, name, yaml, resourceVersion, dryRun }, options),
+	cmdApplyResourceYaml: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, yaml: string, resourceVersion: string, base: string, dryRun: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_apply_resource_yaml", { cluster, resource, namespace, name, yaml, resourceVersion, base, dryRun }, options),
 	cmdDeleteResource: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_delete_resource", { cluster, resource, namespace, name }, options),
 	/**
 	 *  The keys of a Secret (values hidden) or ConfigMap (with values), for the
@@ -802,9 +805,22 @@ export type ApplyOutcome =
 { outcome: "applied"; takeovers: FieldTakeover[] } | 
 /**
  *  Someone else wrote to the object since it was loaded; nothing was
- *  applied. `resource_version` is the object's current one.
+ *  applied. `resource_version` is the object's current one; `fields`
+ *  the fields both the edit and the other writer changed (empty when
+ *  that is not known); `reason` a sentence when the conflict is not
+ *  about fields (the object was deleted and created again, or is being
+ *  deleted), empty otherwise.
  */
-{ outcome: "conflict"; resource_version: string };
+{ outcome: "conflict"; resource_version: string; fields: string[]; reason: string } | 
+/**
+ *  The object changed on the server since it was loaded, in other
+ *  fields than the edit; nothing was applied. `yaml` is the edit
+ *  re-applied on the latest version (at `resource_version`), to review
+ *  and save again; `changed` the fields the server changed.
+ */
+{ outcome: "rebased"; yaml: string; 
+/**  The latest version as the editor loads it: the new base. */
+latest: string; resource_version: string; changed: string[] };
 
 /**  The result for one object of a manifest. */
 export type ApplyResult = {
@@ -1855,6 +1871,11 @@ export type KindSettings_Deserialize = {
 	 *  from before it have none, so those columns stay off.
 	 */
 	shown?: string[],
+	/**
+	 *  Widths in px the user dragged columns to, by column key (#482).
+	 *  Columns not in it fit their values.
+	 */
+	widths?: { [key in string]: number },
 };
 
 /**  What is remembered per kind (by kind id). */
@@ -1869,6 +1890,11 @@ export type KindSettings_Serialize = {
 	 *  from before it have none, so those columns stay off.
 	 */
 	shown: string[],
+	/**
+	 *  Widths in px the user dragged columns to, by column key (#482).
+	 *  Columns not in it fit their values.
+	 */
+	widths: { [key in string]: number },
 };
 
 /**

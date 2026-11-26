@@ -45,7 +45,7 @@ test("the YAML tab loads the object into the editor", async ({ page }) => {
     reveal: false,
   });
   // Nothing changed yet: nothing to review.
-  await expect(button(page, "Review")).toBeDisabled();
+  await expect(button(page, "Review & save…")).toBeDisabled();
 });
 
 test("the YAML arrives as raw bytes, multi-byte text intact (#115)", async ({ page }) => {
@@ -59,7 +59,7 @@ test("the YAML arrives as raw bytes, multi-byte text intact (#115)", async ({ pa
   await button(page, "Reload").click();
   await expect(editor).toContainText('note: "größe 日本 🚀"');
   // Unchanged after load: the decoded text is what the editor compares with.
-  await expect(button(page, "Review")).toBeDisabled();
+  await expect(button(page, "Review & save…")).toBeDisabled();
 });
 
 test("edit, review the diff, then save", async ({ page }) => {
@@ -68,13 +68,13 @@ test("edit, review the diff, then save", async ({ page }) => {
   await append(page, editor, "spec:\n  replicas: 5\n");
   await expect(page.locator("aside h3", { hasText: "YAML" }).locator(".dirty")).toBeVisible();
 
-  await button(page, "Review").click();
+  await button(page, "Review & save…").click();
   // Validated with a dry run first, at the version that was loaded.
   expect(await fake.lastCall("cmdApplyResourceYaml")).toMatchObject({ dryRun: true, resourceVersion: "1" });
   const diff = page.getByRole("textbox", { name: "Deployment YAML changes" });
   await expect(diff).toBeVisible();
   await expect(page.locator("aside .cm-changedLine")).toHaveText(["spec:", "  replicas: 5"]);
-  await expect(page.locator("aside").getByText("Server-side validation passed.")).toBeVisible();
+  await expect(page.locator("aside").getByText("The server accepted these changes in a test run.")).toBeVisible();
 
   // Side by side shows both versions.
   await button(page, "Side by side").click();
@@ -82,7 +82,7 @@ test("edit, review the diff, then save", async ({ page }) => {
   await button(page, "Unified").click();
 
   await button(page, "Save").click();
-  await expect(page.locator("aside").getByText("Saved.")).toBeVisible();
+  await expect(page.getByTestId("yaml-saved")).toContainText(/Saved at \d\d:\d\d:\d\d/);
   const applies = await fake.calls("cmdApplyResourceYaml");
   expect(applies).toHaveLength(2);
   const saved = applies[1];
@@ -93,7 +93,7 @@ test("edit, review the diff, then save", async ({ page }) => {
   const reloaded = await editorOf(page, "Deployment");
   await expect(reloaded).toContainText('resourceVersion: "2"');
   await expect(reloaded).toContainText("replicas: 5");
-  await expect(button(page, "Review")).toBeDisabled();
+  await expect(button(page, "Review & save…")).toBeDisabled();
   await expect(page.getByRole("note")).toHaveCount(0);
 });
 
@@ -111,17 +111,19 @@ test("review shows the fields a save would take over, and the save reports them"
   );
   await append(page, editor, "spec:\n  replicas: 5\n");
 
-  await button(page, "Review").click();
+  await button(page, "Review & save…").click();
   const note = page.getByRole("note");
-  await expect(note).toContainText("Saving will take over fields another tool is managing.");
+  // The tools in words, not their field manager names (#495).
+  await expect(note).toContainText("Saving takes over fields that kubectl apply and Helm set.");
   await expect(note.getByRole("listitem")).toHaveText([
-    'from kubectl-client-side-apply: .spec.replicas, .spec.template.spec.containers[name="web"].image',
-    "from helm: .metadata.labels.app",
+    'kubectl apply: .spec.replicas, .spec.template.spec.containers[name="web"].image',
+    "Helm: .metadata.labels.app",
   ]);
+  await expect(note.locator("strong").first()).toHaveAttribute("title", "kubectl-client-side-apply");
 
   await button(page, "Save").click();
-  await expect(note).toContainText("This save took over fields another tool was managing.");
-  await expect(note.locator("strong")).toHaveText(["kubectl-client-side-apply", "helm"]);
+  await expect(note).toContainText("This save took over fields that kubectl apply and Helm had set.");
+  await expect(note.locator("strong")).toHaveText(["kubectl apply", "Helm"]);
 });
 
 test("a dry-run error is shown, points at the line, and nothing is saved", async ({ page }) => {
@@ -133,7 +135,7 @@ test("a dry-run error is shown, points at the line, and nothing is saved", async
     'Deployment.apps "web" is invalid: spec.replicas: Invalid value: -1: must be greater than or equal to 0',
   );
 
-  await button(page, "Review").click();
+  await button(page, "Review & save…").click();
   const alert = page.locator("aside").getByRole("alert");
   await expect(alert).toContainText("The server rejected this YAML: Deployment.apps \"web\" is invalid: spec.replicas");
   await expect(alert).toContainText("(line 8)");
@@ -149,7 +151,7 @@ test("a rejected save shows the server's reason and keeps the edit", async ({ pa
   const fake = await openYaml(page, "Deployments", "web");
   const editor = await editorOf(page, "Deployment");
   await append(page, editor, "broken: [\n");
-  await button(page, "Review").click();
+  await button(page, "Review & save…").click();
   await fake.failNext("cmdApplyResourceYaml", "admission webhook denied the request");
 
   await button(page, "Save").click();
@@ -167,16 +169,16 @@ test("a write by someone else is detected: diff against the latest, then save", 
     cluster.resourceVersions["apps/v1/deployments|demo/web"] = 7;
   }, null);
 
-  await button(page, "Review").click();
+  await button(page, "Review & save…").click();
   const alert = page.locator("aside").getByRole("alert");
   await expect(alert).toContainText("This object changed on the server since you loaded it.");
-  await alert.getByRole("button", { name: "Diff against the latest" }).click();
+  await alert.getByRole("button", { name: "Compare with the latest" }).click();
 
   // Compared with the latest version; the edit is kept.
   await expect(page.getByRole("textbox", { name: "Deployment YAML changes" })).toBeVisible();
   await expect(page.locator("aside .cm-changedLine")).toContainText(['resourceVersion: "1"', "spec:", "  replicas: 5"]);
   await button(page, "Save").click();
-  await expect(page.locator("aside").getByText("Saved.")).toBeVisible();
+  await expect(page.getByTestId("yaml-saved")).toContainText(/Saved at \d\d:\d\d:\d\d/);
   expect(await fake.lastCall("cmdApplyResourceYaml")).toMatchObject({ resourceVersion: "7", dryRun: false });
 });
 
@@ -187,12 +189,149 @@ test("a conflict can be resolved by reloading", async ({ page }) => {
   await fake.setCluster((cluster) => {
     cluster.resourceVersions["apps/v1/deployments|demo/web"] = 3;
   }, null);
-  await button(page, "Review").click();
+  await button(page, "Review & save…").click();
   await button(page, "Reload (lose my edits)").click();
   await expect(editor).toContainText('resourceVersion: "3"');
   await expect(editor).not.toContainText("replicas: 5");
   await expect(page.locator("aside").getByRole("alert")).toHaveCount(0);
-  await expect(button(page, "Review")).toBeDisabled();
+  await expect(button(page, "Review & save…")).toBeDisabled();
+});
+
+test("the save is confirmed above the editor and in the notifications (#495)", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  await button(page, "Review & save…").click();
+  // The review's messages sit between the buttons and the diff.
+  const accepted = page.locator("aside").getByText("The server accepted these changes in a test run.");
+  const diff = page.locator("aside .pane");
+  expect((await accepted.boundingBox())!.y).toBeLessThan((await diff.boundingBox())!.y);
+  await button(page, "Save").click();
+
+  const saved = page.getByTestId("yaml-saved");
+  await expect(saved).toBeInViewport();
+  expect((await saved.boundingBox())!.y).toBeLessThan((await diff.boundingBox())!.y);
+  await expect(page.getByTestId("notification-count")).toHaveText("1");
+  await page.getByTestId("notification-bell").click();
+  await expect(page.getByTestId("notification").first()).toContainText("Saved the YAML of Deployment web.");
+  await page.keyboard.press("Escape");
+
+  // The next edit makes it old news.
+  await append(page, await editorOf(page, "Deployment"), "# more\n");
+  await expect(saved).toHaveCount(0);
+});
+
+test("a status-only change on the server is no conflict: the save goes through (#495)", async ({ page }) => {
+  const fake = await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  // A rollout updates the status while the user types.
+  await fake.setCluster((cluster) => {
+    cluster.resourceVersions["apps/v1/deployments|demo/web"] = 4;
+    cluster.serverWrites["apps/v1/deployments|demo/web"] = "status";
+  }, null);
+  await button(page, "Review & save…").click();
+  await expect(page.locator("aside").getByText("The server accepted these changes in a test run.")).toBeVisible();
+  await expect(page.getByTestId("yaml-rebased")).toHaveCount(0);
+  await button(page, "Save").click();
+  await expect(page.getByTestId("yaml-saved")).toBeVisible();
+  await expect(page.locator("aside").getByRole("alert")).toHaveCount(0);
+  // The loaded YAML went along, so the backend could tell.
+  const saved = await fake.lastCall("cmdApplyResourceYaml");
+  expect(saved).toMatchObject({ resourceVersion: "1", dryRun: false });
+  expect(saved.base).toContain("kind: Deployment");
+  expect(saved.base).not.toContain("replicas: 5");
+});
+
+test("a change to other fields re-applies the edit on the latest version, to review (#495)", async ({ page }) => {
+  const fake = await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  await fake.setCluster((cluster) => {
+    cluster.resourceVersions["apps/v1/deployments|demo/web"] = 6;
+    cluster.serverWrites["apps/v1/deployments|demo/web"] = {
+      changed: ['.spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"]'],
+    };
+  }, null);
+  await button(page, "Review & save…").click();
+  const note = page.getByTestId("yaml-rebased");
+  await expect(note).toContainText("The object changed on the server while you were editing");
+  await expect(note).toContainText("kubectl.kubernetes.io/restartedAt");
+  // The diff is against the latest version: only the edit is new.
+  await expect(page.locator("aside .cm-changedLine")).toHaveText(["spec:", "  replicas: 5"]);
+  await button(page, "Save").click();
+  await expect(page.getByTestId("yaml-saved")).toBeVisible();
+  expect(await fake.lastCall("cmdApplyResourceYaml")).toMatchObject({ resourceVersion: "6", dryRun: false });
+});
+
+test("a field changed on both sides is a conflict that names it (#495)", async ({ page }) => {
+  const fake = await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  await fake.setCluster((cluster) => {
+    cluster.resourceVersions["apps/v1/deployments|demo/web"] = 8;
+    cluster.serverWrites["apps/v1/deployments|demo/web"] = { conflict: [".spec.replicas"] };
+  }, null);
+  await button(page, "Review & save…").click();
+  const alert = page.locator("aside").getByRole("alert");
+  await expect(alert).toContainText("You and someone else both changed .spec.replicas since you loaded this object.");
+  await alert.getByRole("button", { name: "Compare with the latest" }).click();
+  // An explicit overwrite: said before the save.
+  await expect(page.getByRole("note")).toContainText("Saving replaces what changed there with your version");
+  await button(page, "Save").click();
+  await expect(page.getByTestId("yaml-saved")).toBeVisible();
+});
+
+test("the re-apply and overwrite notes go with their review (#495)", async ({ page }) => {
+  const fake = await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  await fake.setCluster((cluster) => {
+    cluster.resourceVersions["apps/v1/deployments|demo/web"] = 6;
+    cluster.serverWrites["apps/v1/deployments|demo/web"] = { changed: [".metadata.labels.team"] };
+  }, null);
+  await button(page, "Review & save…").click();
+  await expect(page.getByTestId("yaml-rebased")).toBeVisible();
+  await button(page, "Back to editing").click();
+  await expect(page.getByTestId("yaml-rebased")).toHaveCount(0);
+  // A new review of the same edit: the server has not changed since.
+  await button(page, "Review & save…").click();
+  await expect(page.locator("aside").getByText("The server accepted these changes in a test run.")).toBeVisible();
+  await expect(page.getByTestId("yaml-rebased")).toHaveCount(0);
+
+  // The overwrite warning of Compare with the latest goes the same way.
+  await button(page, "Back to editing").click();
+  await fake.setCluster((cluster) => {
+    cluster.resourceVersions["apps/v1/deployments|demo/web"] = 9;
+    cluster.serverWrites["apps/v1/deployments|demo/web"] = { conflict: [".spec.replicas"] };
+  }, null);
+  await button(page, "Review & save…").click();
+  await page.locator("aside").getByRole("button", { name: "Compare with the latest" }).click();
+  const warning = page.getByRole("note").filter({ hasText: "Saving replaces what changed there" });
+  await expect(warning).toBeVisible();
+  await button(page, "Back to editing").click();
+  await expect(warning).toHaveCount(0);
+  await button(page, "Review & save…").click();
+  await expect(page.locator("aside").getByText("The server accepted these changes in a test run.")).toBeVisible();
+  await expect(warning).toHaveCount(0);
+});
+
+test("an object deleted and created again is a conflict that says so (#495)", async ({ page }) => {
+  const fake = await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  await fake.setCluster((cluster) => {
+    cluster.resourceVersions["apps/v1/deployments|demo/web"] = 12;
+    cluster.serverWrites["apps/v1/deployments|demo/web"] = {
+      reason: "The object was deleted and created again since you loaded it. Nothing was saved.",
+    };
+  }, null);
+  await button(page, "Review & save…").click();
+  await expect(page.locator("aside").getByRole("alert")).toContainText(
+    "The object was deleted and created again since you loaded it. Nothing was saved.",
+  );
+  await expect(button(page, "Save")).toHaveCount(0);
 });
 
 test("closing the panel with unsaved edits asks first", async ({ page }) => {
@@ -283,7 +422,7 @@ test("a locked Secret is read-only until its values are revealed", async ({ page
   await expect(editor).toContainText("password: <hidden>");
   await expect(editor).not.toBeEditable();
   await expect(editor).toHaveAttribute("contenteditable", "false");
-  await expect(button(page, "Review")).toBeDisabled();
+  await expect(button(page, "Review & save…")).toBeDisabled();
   await expect(aside.getByText("Values are hidden. Reveal them to edit this Secret.")).toBeVisible();
 
   await button(page, "Reveal values").click();
@@ -304,7 +443,7 @@ test("a failed load leaves nothing to review", async ({ page }) => {
   await fake.failNext("cmdGetResourceYaml", 'deployments.apps "web" not found');
   await page.locator("aside").getByRole("tab", { name: "YAML" }).click();
   await expect(page.locator("aside").getByText('Could not load YAML: deployments.apps "web" not found')).toBeVisible();
-  await expect(button(page, "Review")).toBeDisabled();
+  await expect(button(page, "Review & save…")).toBeDisabled();
 });
 
 test("Enter after a key that opens a block indents the next line (#101)", async ({ page }) => {
@@ -337,7 +476,7 @@ test("the diff's unchanged-lines bar draws its chevrons, no font glyph (#101)", 
   await page.locator("aside").getByRole("tab", { name: "YAML" }).click();
   const editor = await editorOf(page, "Deployment");
   await append(page, editor, "spec:\n  replicas: 5\n");
-  await button(page, "Review").click();
+  await button(page, "Review & save…").click();
   const bar = page.locator("aside .cm-collapsedLines").first();
   await expect(bar).toContainText("unchanged lines");
   const marks = await bar.evaluate((el) =>

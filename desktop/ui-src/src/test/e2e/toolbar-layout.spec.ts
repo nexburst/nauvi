@@ -71,7 +71,8 @@ test("one row at 1280 px with the kinds kept open, the inspector open and a long
   // Kept open as a column, the rail of berths is gone (#481).
   await expect(page.getByTestId("berths")).toHaveCount(0);
   await toggleNamespaces(page, "qa-csv-mwoycuzth2c-a-much-longer-tail");
-  await row(page, "web-1").click();
+  // On its name: with fitted columns (#482) the row's middle may be a cell's link.
+  await row(page, "web-1").getByRole("gridcell").nth(1).click();
   await expect(page.getByTestId("detail-panel")).toBeVisible();
   await expect(page.getByTestId("detail-panel").locator(".card").first()).toBeVisible();
   const picker = page.getByRole("button", { name: "Namespace", exact: true });

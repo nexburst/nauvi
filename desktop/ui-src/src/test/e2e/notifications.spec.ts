@@ -69,6 +69,8 @@ test("a notification links to its object", async ({ page }) => {
   await openApp(page);
   await openKind(page, "Deployments");
   await runFromMenu(page, "web", "Rollout restart");
+  // A restart asks first (#494).
+  await page.getByTestId("action-confirm").click();
   await expect(page.getByRole("status")).toBeVisible();
   // Somewhere else, then back to the object from the history.
   await openKind(page, "Pods");

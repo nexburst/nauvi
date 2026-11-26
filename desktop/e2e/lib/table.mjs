@@ -17,7 +17,8 @@ export function tableData(app) {
     const rows = Array.from(table.querySelectorAll('[data-testid="resource-row"]'), (r) => {
       const cells = r.querySelectorAll('[role="gridcell"]');
       const o = { _selected: r.classList.contains("selected"), _problem: r.dataset.problem ?? "" };
-      headers.forEach((h, i) => { if (h) o[h] = cells[i]?.textContent.trim() ?? ""; });
+      // A cut cell (#482) has its whole value as its name.
+      headers.forEach((h, i) => { if (h) o[h] = cells[i]?.getAttribute("aria-label") ?? cells[i]?.textContent.trim() ?? ""; });
       return o;
     });
     const empty = table.querySelector(".empty")?.textContent.trim() ?? "";

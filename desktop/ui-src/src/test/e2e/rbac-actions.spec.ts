@@ -40,6 +40,7 @@ test("the row menu greys out refused actions with the missing permission", async
   expect((await fake.lastCall("cmdCheckActions"))?.ids).toEqual([
     "logs",
     "shell",
+    "edit",
     "portForward",
     "attach",
     "debug",

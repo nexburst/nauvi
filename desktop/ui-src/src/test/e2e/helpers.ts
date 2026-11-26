@@ -192,8 +192,12 @@ export async function column(page: Page, label: string): Promise<string[]> {
   const headers = await page.locator(".table .head .th").allTextContents();
   const i = headers.findIndex((h) => h.replace(/[▲▼]/g, "").trim() === label);
   expect(i, `column ${label}`).toBeGreaterThan(0);
-  // Cell 0 is the checkbox, like header 0.
-  return rows(page).evaluateAll((els, idx) => els.map((el) => el.children[idx]?.textContent?.trim() ?? ""), i);
+  // Cell 0 is the checkbox, like header 0. A cut cell (#482) by its name, the whole value.
+  return rows(page).evaluateAll(
+    (els, idx) =>
+      els.map((el) => el.children[idx]?.getAttribute("aria-label") ?? el.children[idx]?.textContent?.trim() ?? ""),
+    i,
+  );
 }
 
 /** The namespace control's button and its popover. */

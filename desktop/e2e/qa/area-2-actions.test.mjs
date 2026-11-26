@@ -229,6 +229,8 @@ describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
       await openKind(app, label, ns, name);
       await contextMenu(app, name, ns);
       await menuItem(app, "Rollout restart");
+      // It asks first, from the menu as from Shift+R (#494).
+      await (await app.find(byTestId("action-confirm"))).click();
       const notice = await app.waitFor(async () => {
         const t = await noticeText(app);
         return t.includes(`${ns}/${name}`) && /restart/i.test(t) ? t : null;
@@ -373,12 +375,12 @@ describe("area 2: resource actions", { timeout: 20 * 60_000 }, () => {
       report.push(`${label}: menu ${JSON.stringify(items)} / panel ${JSON.stringify(bar)}`);
       await app.shot(`panel-${label}`);
       // The panel's header and the menu come from the same registry (#218):
-      // the same items, plus the panel's Edit (its YAML editor). "Copy as
-      // prompt" is the row's alone: it is written from the row's columns.
-      for (const b of bar.filter((b) => b !== "Edit")) assert.ok(items.includes(b), `${label}: the menu has "${b}"`);
+      // the same items, Edit YAML in both (#494). "Copy as prompt" is the
+      // row's alone: it is written from the row's columns.
+      for (const b of bar) assert.ok(items.includes(b), `${label}: the menu has "${b}"`);
       for (const i of items.filter((i) => i !== "Copy as prompt")) assert.ok(bar.includes(i), `${label}: the panel lacks "${i}"`);
       assert.ok(items.includes("Copy as prompt"), `${label}: the menu has Copy as prompt`);
-      assert.ok(bar.includes("Edit"), `${label}: the panel has Edit`);
+      assert.ok(bar.includes("Edit YAML") && items.includes("Edit YAML"), `${label}: both have Edit YAML`);
     }
     console.log(report.join("\n"));
     await app.driver.actions().sendKeys(Key.ESCAPE).perform();

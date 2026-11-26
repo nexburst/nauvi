@@ -467,14 +467,16 @@ export class App {
     return this.js(
       `return Array.from(document.querySelectorAll('[data-testid="resource-row"]'), (r) => {
          const c = r.querySelectorAll('[role="gridcell"]');
-         return [c[1]?.textContent.trim() ?? "", c[2]?.textContent.trim() ?? ""];
+         const v = (cell) => cell?.getAttribute("aria-label") ?? cell?.textContent.trim() ?? "";
+         return [v(c[1]), v(c[2])];
        });`,
     );
   }
 
-  /** The table row whose Name cell is `name` (and Namespace cell `namespace`). */
+  /** The table row whose Name cell is `name` (and Namespace cell `namespace`);
+   *  a cut cell (#482) by its whole value, its name. */
   row(name, namespace) {
-    const cell = (v) => `[*[@role='gridcell'][normalize-space()=${xq(v)}]]`;
+    const cell = (v) => `[*[@role='gridcell'][normalize-space()=${xq(v)} or @aria-label=${xq(v)}]]`;
     return By.xpath(`//*[@data-testid='resource-row']${cell(name)}${namespace ? cell(namespace) : ""}`);
   }
 

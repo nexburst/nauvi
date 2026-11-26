@@ -959,6 +959,7 @@ async fn yaml_dry_run_validates_and_a_stale_version_is_a_conflict() -> Result<()
         let opts = |dry_run: bool, rv: &str| ApplyOptions {
             dry_run,
             resource_version: Some(rv.to_string()),
+            ..ApplyOptions::default()
         };
 
         // A dry run validates and stores nothing.
@@ -985,6 +986,7 @@ async fn yaml_dry_run_validates_and_a_stale_version_is_a_conflict() -> Result<()
             apply_resource_yaml_with(&client, r, &ns, "cm", &edited, &opts(false, &rv)).await?;
         let ApplyOutcome::Conflict {
             resource_version: latest,
+            ..
         } = out
         else {
             bail!("expected a conflict, got {out:?}");

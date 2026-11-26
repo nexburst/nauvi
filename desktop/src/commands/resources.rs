@@ -57,8 +57,11 @@ pub(crate) async fn cmd_get_resource_yaml(
 }
 
 /// Server-side apply of edited YAML. `resource_version` is the version the
-/// YAML was loaded at (empty: don't check); if the object changed since,
-/// nothing is applied and the outcome says so. `dry_run` validates only.
+/// YAML was loaded at (empty: don't check) and `base` the YAML as loaded
+/// (empty: unknown). If the object changed since, the edit is applied when
+/// only server-owned fields changed, and otherwise nothing is applied and
+/// the outcome says so: re-applied on the latest version (`rebased`) or a
+/// conflict. `dry_run` validates only.
 #[tauri::command]
 #[specta::specta]
 #[allow(clippy::too_many_arguments)]
@@ -69,12 +72,14 @@ pub(crate) async fn cmd_apply_resource_yaml(
     name: String,
     yaml: String,
     resource_version: String,
+    base: String,
     dry_run: bool,
 ) -> Result<resources::ApplyOutcome, String> {
     let client = cluster.client().await?;
     let opts = resources::ApplyOptions {
         dry_run,
         resource_version: Some(resource_version).filter(|v| !v.is_empty()),
+        base: Some(base).filter(|b| !b.is_empty()),
     };
     resources::apply_resource_yaml_with(&client, &resource, &namespace, &name, &yaml, &opts)
         .await

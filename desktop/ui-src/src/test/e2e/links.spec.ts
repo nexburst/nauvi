@@ -39,14 +39,14 @@ test("Copy link in the detail panel and the row menu", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Pods");
   await row(page, "web-1").click();
-  // After Edit, before the destructive actions; not part of the access check.
+  // After the other actions, before the destructive ones; not part of the access check.
   await expect(bar(page).getByRole("button")).toHaveText([
     "Logs",
     "Shell",
+    "Edit YAML",
     "Port forward…",
     "Attach",
     "Debug…",
-    "Edit",
     "Copy link",
     "Evict",
     "Delete",

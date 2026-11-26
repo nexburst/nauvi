@@ -113,7 +113,8 @@ async function bothThemes(app, label) {
   await setTheme(app, null);
 }
 
-const POD_LABELS = ["Logs", "Shell", "Port forward…", "Attach", "Debug…", "Edit", "Copy link", "Evict", "Delete", "Force delete…"];
+// Edit YAML right after the tabs that open, as in the row menu (#494).
+const POD_LABELS = ["Logs", "Shell", "Edit YAML", "Port forward…", "Attach", "Debug…", "Copy link", "Evict", "Delete", "Force delete…"];
 
 let ns = "";
 let pod = "";
@@ -178,7 +179,7 @@ describe("detail panel action header (admin)", { timeout: 15 * 60_000 }, () => {
 
   it("pod: Edit scrolls to the YAML editor and the header stays on top", T, async () => {
     const { app } = s;
-    await (await headerButton(app, "Edit")).click();
+    await (await headerButton(app, "Edit YAML")).click();
     const pos = await app.waitFor(
       async () => {
         const r = await app.js(`
@@ -199,10 +200,10 @@ describe("detail panel action header (admin)", { timeout: 15 * 60_000 }, () => {
   it("Deployment: Logs, Scale, Rollout restart; Edit opens the YAML tab", T, async () => {
     const { app } = s;
     await app.openDetail("Deployments", ns, "qa-act");
-    const b = await waitBar(app, ["Logs", "Scale…", "Rollout restart", "Port forward…", "Edit", "Copy link", "Delete"]);
+    const b = await waitBar(app, ["Logs", "Edit YAML", "Scale…", "Rollout restart", "Port forward…", "Copy link", "Delete"]);
     assert.ok(b.every((x) => x.icon === 16 && !x.denied));
     await bothThemes(app, "deployment-panel");
-    await (await headerButton(app, "Edit")).click();
+    await (await headerButton(app, "Edit YAML")).click();
     await app.find(By.css('[data-testid="detail-panel"] .cm-content'), { timeout: 20_000 });
     const selected = await app.js(
       `return document.querySelector('[data-testid="detail-panel"] [role="tab"][aria-selected="true"]')?.textContent.trim()`,
@@ -214,7 +215,7 @@ describe("detail panel action header (admin)", { timeout: 15 * 60_000 }, () => {
     const { app } = s;
     await closePanel(app);
     await openClusterDetail(app, "Nodes", WORKER);
-    const b = await waitBar(app, ["Shell", "Cordon", "Uncordon", "Edit", "Copy link", "Drain…", "Delete"]);
+    const b = await waitBar(app, ["Shell", "Edit YAML", "Cordon", "Uncordon", "Copy link", "Drain…", "Delete"]);
     assert.ok(b.every((x) => x.icon === 16 && !x.denied));
     await focusButton(app, "Drain…");
     await app.waitFor(async () => (await tipText(app)) === "Drain", { message: 'the "Drain" tooltip' });
@@ -271,7 +272,7 @@ describe("detail panel action header (view-only user)", { timeout: 10 * 60_000 }
     console.log(`viewer header: ${JSON.stringify(b)}`);
     const by = Object.fromEntries(b.map((x) => [x.label, x]));
     assert.equal(by.Logs.denied, false, "view may read logs");
-    for (const l of ["Shell", "Attach", "Debug…", "Port forward…", "Edit", "Evict", "Delete", "Force delete…"]) {
+    for (const l of ["Shell", "Attach", "Debug…", "Port forward…", "Edit YAML", "Evict", "Delete", "Force delete…"]) {
       assert.equal(by[l].denied, true, `${l} greyed`);
       assert.match(by[l].reason, /^Not allowed: you can't /, `${l} says why`);
     }
