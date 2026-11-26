@@ -9,7 +9,8 @@
   import { pillText, pillTitle } from "../problemPill";
   import { problemsOf, scope, toggleWatchPanel, watch } from "../stores/watch.svelte";
   import WatchPanel from "./WatchPanel.svelte";
-  import { disconnectNode, showNode, tree } from "../stores/clusters.svelte";
+  import { showNode, tree } from "../stores/clusters.svelte";
+  import { disconnectCluster } from "../stores/hidden.svelte";
 
   /** The other clusters this window is connected to: at most three chips. */
   const CHIPS_MAX = 3;
@@ -170,7 +171,7 @@
         class="chip-x"
         aria-label={`Disconnect ${label(id)}`}
         title={`Disconnect ${label(id)}: stops its logs, terminals and forwards in this window`}
-        onclick={() => void disconnectNode(id)}><Icon name="close" size={11} /></button
+        onclick={() => void disconnectCluster(id)}><Icon name="close" size={11} /></button
       >
     </span>
   {/each}

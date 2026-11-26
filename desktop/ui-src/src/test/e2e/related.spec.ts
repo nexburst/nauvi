@@ -132,7 +132,7 @@ test("a related link clears a filter that would hide the opened object, and keep
   await expect(panel(page).locator(".title")).toHaveText("ConfigMap demo/settings");
   await expect(filter).toHaveValue("");
   await expect(row(page, "settings")).toHaveClass(/selected/);
-  await expect(page.getByText("No items found.")).toHaveCount(0);
+  await expect(page.getByTestId("empty-state")).toHaveCount(0);
 
   // Deployments filtered to "web": its ReplicaSet web-5d8f still matches.
   await openKind(page, "Deployments");

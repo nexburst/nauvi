@@ -221,6 +221,33 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
     await closePanel(app);
   });
 
+  it("the keyboard's row shows its quick actions too (#507)", T, async () => {
+    const { app } = s;
+    await showPods(app, ns);
+    // The pointer off the rows, the focus in the grid.
+    await app.driver.actions().move({ origin: Origin.VIEWPORT, x: 5, y: 5 }).perform();
+    await app.js(`document.querySelector('[role="grid"]').focus()`);
+    await app.driver.actions().sendKeys(Key.ARROW_DOWN).perform();
+    const focusedQuick = () =>
+      app.js(`
+        const grid = document.querySelector('[role="grid"]');
+        const id = grid?.getAttribute("aria-activedescendant");
+        const row = id && document.getElementById(id);
+        return {
+          focused: row ? row.querySelectorAll('[data-testid="row-quick"] button').length : -1,
+          all: document.querySelectorAll('[data-testid="row-quick"]').length,
+        };`);
+    await app.waitFor(async () => (await focusedQuick()).focused === 3, { message: "the focused row's quick actions" });
+    assert.equal((await focusedQuick()).all, 1, "only the focused row shows them");
+    for (const theme of ["light", "dark"]) {
+      await setTheme(app, theme);
+      await app.shot(`focused-quick-${theme}`);
+    }
+    // They go with the focus.
+    await app.js(`document.activeElement?.blur()`);
+    await app.waitFor(async () => (await focusedQuick()).all === 0, { message: "no quick actions without focus" });
+  });
+
   for (const [kind, name, first] of [
     ["Deployments", "payments-worker", ["Logs", "Edit YAML"]],
     ["Pods", null, ["Logs", "Shell", "Edit YAML"]],

@@ -11,6 +11,7 @@
   import { metricsHidden } from "../stores/metricsHidden.svelte";
   import { isNode, isPod } from "../columns";
   import MetricsHiddenNote from "./MetricsHiddenNote.svelte";
+  import MetricsMissingNote from "./MetricsMissingNote.svelte";
 
   let { kind }: { kind: ResourceKind } = $props();
 
@@ -61,6 +62,8 @@
 
 {#if hideMetrics && (isPod(kind) || isNode(kind))}
   <MetricsHiddenNote />
+{:else if live.metricsMissing && (isPod(kind) || isNode(kind))}
+  <MetricsMissingNote />
 {/if}
 <ResourceTable
   {kind}
@@ -69,6 +72,7 @@
   now={live.now}
   status={app.statusFilter}
   {selectedKey}
+  synced={live.synced}
   {onselect}
   {oncount}
 />

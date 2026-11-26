@@ -28,7 +28,7 @@ import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { ARTIFACTS, CONTEXT, xq } from "../lib/app.mjs";
 import { deleteNamespace, kubectl, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { appPid, openPodLogs, pane, panelButton } from "../lib/dock.mjs";
+import { appPid, openLogOptions, openPodLogs, pane, panelButton } from "../lib/dock.mjs";
 import { measured, peakMemory } from "../lib/perf.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { setTheme } from "../lib/theme.mjs";
@@ -59,7 +59,8 @@ const YAML_LINES = 9000;
  * 420-450 MB RSS; runners differ a lot (`kubectl logs` of the same pod took
  * 0.3 s on one, 2.8 s on another), so the limits leave about 3x over the
  * slow one. Debug: a loaded 4-core dev box showed 3-5 s, p95 90-125 ms,
- * 4 s CPU each, 600 MB.
+ * 4 s CPU each, 600 MB. Those numbers are from lines of about 95 bytes;
+ * since #507 they are about 23 (see BURST_LINE).
  */
 const LOG_BUDGET = RELEASE
   ? { ms: 6000, p95Frame: 200, coreCpuS: 2, webCpuS: 5, coreAndWebRssMb: 900 }
@@ -119,9 +120,23 @@ const skip = process.platform !== "linux" ? "reads /proc (Linux only)" : false;
 const T = { timeout: 300_000 };
 const results = { build: BUILD };
 
+/**
+ * One line of a burst; sed puts the line's number at the `&`. Short, so that
+ * the BURSTS bursts stay under the kubelet's 10 MiB log rotation size
+ * (#507): past it `kubectl logs` shows only the new file. With the CRI log
+ * prefix (timestamp, stream, tag: about 40 bytes) a line takes about
+ * 40 + 17 + 5 + 1 bytes in the node's file (9 MiB for the three).
+ */
+const BURST_LINE = "burst line & lorem";
+const CRI_PREFIX_BYTES = 40;
+/** What the bursts take in the container's log file, at most. */
+const LOG_FILE_BYTES = BURSTS * LOG_LINES * (CRI_PREFIX_BYTES + BURST_LINE.length - 1 + String(LOG_LINES).length + 1);
+// A margin under the 10 MiB rotation, so a longer line fails here, not as a flaky kubectl check.
+assert.ok(LOG_FILE_BYTES < 9.5 * 1024 * 1024, `the bursts write ${LOG_FILE_BYTES} bytes, past the kubelet's log rotation`);
+
 /** A pod that logs "ready", then prints LOG_LINES lines at once each time /tmp/go<n> appears (n = 1, 2, ...). */
 function burstPodYaml(name) {
-  const line = "burst line & lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor";
+  const line = BURST_LINE;
   return `
 apiVersion: v1
 kind: Pod
@@ -251,8 +266,15 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     );
     const runs = [];
     for (let i = 1; i <= BURSTS; i++) {
-      // Each burst starts from an empty view.
+      // Each burst starts from an empty view. Clear is in the log options
+      // since #492; the menu closes again before the burst.
+      await openLogOptions(app, id);
       await (await app.find(By.xpath(`//*[@data-tab=${xq(id)}]//button[normalize-space()='Clear']`))).click();
+      await app.js(
+        `const b = document.querySelector(arguments[0] + ' button[aria-label="Log options"]');
+         if (b && b.getAttribute('aria-expanded') === 'true') b.click();`,
+        pane(id),
+      );
       const r = await measured(
         app,
         pid,
@@ -271,12 +293,17 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     await setTheme(app, "light");
     await app.shot("log-burst-light");
     await setTheme(app, null);
-    // What the cluster itself takes to hand over the same log.
+    assert.deepEqual(overBudget(r, LOG_BUDGET), [], `the 50k-line log burst (${BUILD}) is over its budget`);
+  });
+
+  // Report-only: what the cluster itself takes to hand over the same log.
+  // Its own test, so a failure here never hides the budget above (#507).
+  it("kubectl logs has every burst", T, async () => {
+    assert.ok(logTab, "the log tab of the burst test");
     const t0 = Date.now();
     const text = execFileSync("kubectl", ["--context", CONTEXT, "-n", ns, "logs", "burst"], { encoding: "utf8", maxBuffer: 64 << 20 });
     results.kubectlLogsMs = Date.now() - t0;
-    assert.ok(text.includes(`BURST-END-${BURSTS}`), "kubectl logs has every burst");
-    assert.deepEqual(overBudget(r, LOG_BUDGET), [], `the 50k-line log burst (${BUILD}) is over its budget`);
+    for (let i = 1; i <= BURSTS; i++) assert.ok(text.includes(`BURST-END-${i}\n`), `kubectl logs has burst ${i}`);
   });
 
   // Report-only: what the log download costs (the text goes to the core

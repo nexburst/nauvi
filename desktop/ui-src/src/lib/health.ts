@@ -10,6 +10,7 @@ import { clusterError } from "./clusterError";
 import { PORT_FORWARDS_VIEW } from "./forwards";
 import { HELM_VIEW } from "./helm";
 import { HELM_CHARTS_VIEW } from "./helmCharts";
+import { WELCOME_VIEW } from "./welcome";
 
 /** A view's connection status, as `app.status` holds it. */
 export interface Health {
@@ -19,7 +20,13 @@ export interface Health {
 }
 
 /** The views that start no watch: nothing else tells them the cluster went away. */
-export const WATCHLESS_VIEWS: readonly string[] = [PORT_FORWARDS_VIEW, HELM_VIEW, HELM_CHARTS_VIEW, CATALOG_VIEW];
+export const WATCHLESS_VIEWS: readonly string[] = [
+  PORT_FORWARDS_VIEW,
+  HELM_VIEW,
+  HELM_CHARTS_VIEW,
+  CATALOG_VIEW,
+  WELCOME_VIEW,
+];
 
 export function isWatchless(view: string): boolean {
   return WATCHLESS_VIEWS.includes(view);

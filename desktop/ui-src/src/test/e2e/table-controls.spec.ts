@@ -17,7 +17,7 @@ test("the filter narrows the rows and the footer count", async ({ page }) => {
 
   await filter.fill("nothing-matches");
   await expect(rows(page)).toHaveCount(0);
-  await expect(page.getByText("No items found.")).toBeVisible();
+  await expect(page.getByTestId("empty-state")).toBeVisible();
 
   await filter.fill("");
   await expect(rows(page)).toHaveCount(5);

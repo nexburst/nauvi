@@ -1,10 +1,12 @@
 <script lang="ts">
-  import CalmWater from "./CalmWater.svelte";
+  import EmptyState from "./EmptyState.svelte";
+  import { emptyState, type EmptyAction } from "../emptyState";
+  import { openCreate } from "../stores/create.svelte";
   import OutOfReach from "./OutOfReach.svelte";
   import { troubleTitle } from "../health";
   import { chart } from "../stores/chart.svelte";
   import { visibleRows } from "../stores/visibleRows.svelte";
-  import { app, kinds, openObject, switchNamespace } from "../stores/app.svelte";
+  import { app, kinds, openObject, setNamespaces, switchNamespace } from "../stores/app.svelte";
   import { cellLink, type CellLink } from "../cellLinks";
   import { rowHeightPx } from "../preferences";
   import { onDestroy, onMount, untrack } from "svelte";
@@ -56,6 +58,8 @@
     /** Called with (shown, total) whenever either changes. */
     oncount?: (shown: number, total: number) => void;
     scrollEl?: HTMLDivElement | null;
+    /** A first batch has arrived: an empty table is empty, not loading. */
+    synced?: boolean;
   }
 
   let {
@@ -68,6 +72,7 @@
     onselect,
     oncount,
     scrollEl = $bindable(null),
+    synced = true,
   }: Props = $props();
 
   // Settings → Tables (#330): normal or compact.
@@ -193,6 +198,29 @@
   /** The header status while the cluster does not answer (#462). */
   const trouble = $derived(troubleTitle(app.status));
   const getKey = $derived((i: number) => visible[i]?.key ?? i);
+
+  // Why the table is empty, and what to do (#485).
+  const empty = $derived(
+    emptyState({
+      label: kind.label,
+      plural: kind.resource.plural,
+      group: kind.resource.group,
+      namespaced: kind.resource.namespaced,
+      verbs: kind.verbs,
+      namespaces: app.selectedNamespaces,
+      search: app.search,
+      status,
+      total: store.entries.length,
+      synced,
+      denied: kinds.denied.has(kind.id) || app.status.text.startsWith("Not allowed"),
+    }),
+  );
+  function emptyAction(id: EmptyAction) {
+    if (id === "clearFilter") app.search = "";
+    else if (id === "clearStatus") app.statusFilter = "";
+    else if (id === "allNamespaces") setNamespaces([]);
+    else openCreate();
+  }
 
   $effect(() => {
     oncount?.(visible.length, store.entries.length);
@@ -483,6 +511,9 @@
   });
   /** The row under the pointer, for its quick actions. */
   let hoverKey = $state<string | null>(null);
+  /** The grid has the DOM focus: the focused row shows its quick actions
+   *  too (#507), not only the one under the pointer. */
+  let gridFocused = $state(false);
 
   function quickVerb(e: MouseEvent, row: Row, verb: Verb) {
     e.stopPropagation();
@@ -640,6 +671,8 @@
     aria-multiselectable="true"
     aria-activedescendant={focusedIndex >= 0 ? rowId(focusedIndex) : undefined}
     bind:this={gridEl}
+    onfocusin={() => (gridFocused = true)}
+    onfocusout={(e) => (gridFocused = gridEl?.contains(e.relatedTarget as Node | null) ?? false)}
   >
     <div
       class="head"
@@ -837,11 +870,11 @@
               </div>
             {/each}
             <div class="td more" role="gridcell">
-              {#if entry.key === hoverKey}
-                <!-- The row's own actions on hover (#482), so the ⋮ menu is
-                     not the only way to them. Only under the pointer: they
-                     cover the end of the last cell, and the keyboard has
-                     L, S and E for them. -->
+              {#if entry.key === hoverKey || (gridFocused && i === focusedIndex)}
+                <!-- The row's own actions on hover (#482) and on the
+                     keyboard's row while the grid has the focus (#507), so
+                     the ⋮ menu is not the only way to them. Only on those
+                     rows: they cover the end of the last cell. -->
                 <RowQuickActions name={entry.row.name} items={quick} run={(e, verb) => quickVerb(e, entry.row, verb)} />
               {/if}
               <button
@@ -887,17 +920,23 @@
       <OutOfReach title={trouble} />
     </div>
   {:else if visible.length === 0}
+    {@const e = empty}
     <div class="empty">
-      <CalmWater mark="buoy">
-        <p class="way-out">
-          <span>No items found.</span>
-          {#if app.search}
-            <button type="button" class="btn" data-testid="clear-filter" onclick={() => (app.search = "")}
-              >Clear the filter "{app.search}"</button
-            >
-          {/if}
-        </p>
-      </CalmWater>
+      {#if e.reason === "loading"}
+        <p class="muted loading" data-testid="table-loading">{e.title}</p>
+      {:else}
+      <EmptyState title={e.title} detail={e.detail} reason={e.reason}>
+        {#each e.actions as a, i (a.id)}
+          <button
+            type="button"
+            class="btn"
+            class:primary={i === 0}
+            data-testid={a.id === "clearFilter" ? "clear-filter" : `empty-${a.id}`}
+            onclick={() => emptyAction(a.id)}>{a.label}</button
+          >
+        {/each}
+      </EmptyState>
+      {/if}
     </div>
   {/if}
 </div>
@@ -1211,9 +1250,14 @@
   .empty p {
     margin: 0;
   }
-  .empty .way-out {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+  /* Quick loads show nothing; a slow one says what it waits for. */
+  .empty .loading {
+    font-size: var(--text-base);
+    animation: appear 200ms ease 400ms both;
+  }
+  @keyframes appear {
+    from {
+      opacity: 0;
+    }
   }
 </style>

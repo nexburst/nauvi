@@ -23,7 +23,7 @@ import { cannotCloseLikeUser, selectContext, x11Windows } from "../lib/window.mj
 
 const T = { timeout: 120_000 };
 // The label only: a problem badge ("Pods 2") may follow it.
-const activeKind = (app) => app.js(`return document.querySelector("nav button.active")?.firstChild?.textContent.trim() ?? ""`);
+const activeKind = (app) => app.js(`return document.querySelector("nav button.active .label")?.textContent.trim() ?? ""`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const WM_CLOSE = join(dirname(fileURLToPath(import.meta.url)), "../lib/wm-close.py");
 
@@ -56,7 +56,11 @@ describe("settings survive a restart", { timeout: 15 * 60_000 }, () => {
       timeout: 30_000,
       message: "Deployments active after the restart",
     });
+    // The profile starts with "{}" (#485): check what the app wrote.
     assert.ok(existsSync(app.profile.settingsPath), `${app.profile.settingsPath} exists`);
+    const written = app.profile.settings();
+    assert.ok(Object.values(written?.contexts ?? {}).some((c) => c.last_used > 0), "the app wrote the context's last use");
+    assert.ok(Object.values(written?.contexts ?? {}).some((c) => c.view === "apps/v1/deployments"), "and the view");
     console.log(`settings.json: ${JSON.stringify(app.profile.settings())}`);
   });
 

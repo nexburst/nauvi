@@ -9,7 +9,6 @@
   import {
     answerNode,
     connectNode,
-    disconnectNode,
     isExpanded,
     nodeOf,
     showNode,
@@ -19,7 +18,7 @@
     visibleChanged,
   } from "../stores/clusters.svelte";
   import { clusterStates } from "../stores/clusterStates.svelte";
-  import { askHide, isHidden, windowItems } from "../stores/hidden.svelte";
+  import { askHide, disconnectCluster, isHidden, windowItems } from "../stores/hidden.svelte";
   import { shownContexts } from "../hidden";
   import ExecPrompt from "./catalog/ExecPrompt.svelte";
   import SidebarKinds from "./SidebarKinds.svelte";
@@ -147,7 +146,7 @@
             class="icon"
             aria-label={`Disconnect ${label(id)}`}
             title="Disconnect: stops its logs, terminals and forwards in this window"
-            onclick={() => void disconnectNode(id)}>✕</button
+            onclick={() => void disconnectCluster(id)}>✕</button
           >
         {/if}
       </span>

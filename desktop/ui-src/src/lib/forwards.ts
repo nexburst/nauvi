@@ -9,6 +9,44 @@ import type {
 /** The sidebar view that lists the running forwards. */
 export const PORT_FORWARDS_VIEW = "port-forwards";
 
+/**
+ * What stops a forward, said the same way in the dialog and in Port
+ * Forwards (#498). Forwards run per window and cluster in the backend:
+ * closing panels or the view, or showing another cluster, leaves them
+ * running; Stop, disconnecting (or hiding) the cluster, closing the window
+ * and quitting stop them.
+ */
+export const FORWARD_STOPS = "until you stop it, disconnect its cluster, close this window or quit nauvi";
+
+/** Ports that usually serve a web page or an HTTP API. */
+const WEB_PORTS = new Set([80, 443, 3000, 4200, 5000, 5173, 8000, 8080, 8081, 8443, 8888, 9000, 9090]);
+
+/**
+ * Whether a remote port (a number, or a port name) looks like HTTP: a
+ * common web port, or a name such as `http`, `https`, `web` or `http-api`
+ * (`name`: the Service or container port's name, if known).
+ */
+export function looksLikeWeb(remote: string, name = ""): boolean {
+  const named = (n: string) => /^(https?|web|ui)($|-)|http/i.test(n);
+  const text = remote.trim();
+  if (/^\d+$/.test(text)) return WEB_PORTS.has(Number(text)) || named(name);
+  return named(text) || named(name);
+}
+
+/**
+ * Whether "Open in browser when it starts" starts checked: what the user
+ * last chose for this sort of port (web-like or not, `remembered`), else on
+ * for ports that look like HTTP (#498).
+ */
+export function defaultOpenInBrowser(
+  remembered: (web: boolean) => boolean | null,
+  remote: string,
+  name = "",
+): boolean {
+  const web = looksLikeWeb(remote, name);
+  return remembered(web) ?? web;
+}
+
 const KINDS: Record<string, ForwardKind> = {
   "/Pod": "pod",
   "/Service": "service",

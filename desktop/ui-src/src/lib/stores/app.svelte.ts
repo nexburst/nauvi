@@ -20,6 +20,7 @@ import { filterKeeps } from "./tableFilter.svelte";
 import { startupLinkContext } from "./links.svelte";
 import { notify } from "./notifications.svelte";
 import { becameLive } from "../statusTime";
+import { shouldWelcome, WELCOME_VIEW } from "../welcome";
 
 /** `"overview"`, or the id of a discovered kind (`apps/v1/deployments`). */
 export type View = string;
@@ -373,6 +374,10 @@ export async function startApp() {
   }
   await loadNamespaces();
   await restoreScope();
+  // A first run, or no kubeconfig at all, starts on the welcome screen (#485).
+  if (!linked && shouldWelcome(settings.current.welcomed, app.contexts.length, isMainWindow())) {
+    app.view = WELCOME_VIEW;
+  }
   app.ready = true;
 }
 

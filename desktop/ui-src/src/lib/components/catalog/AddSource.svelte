@@ -1,8 +1,9 @@
 <script lang="ts">
   import { addSource, pasteKubeconfig } from "../../stores/catalog.svelte";
 
-  /** Add a kubeconfig source: a file or folder by path, or pasted YAML. */
-  let { onclose }: { onclose: () => void } = $props();
+  /** Add a kubeconfig source: a file or folder by path, or pasted YAML.
+   *  `cancel`: show Cancel (not on the welcome screen, where it stays, #485). */
+  let { onclose, cancel = true }: { onclose: () => void; cancel?: boolean } = $props();
 
   let mode = $state<"path" | "paste">("path");
   let path = $state("");
@@ -61,7 +62,7 @@
       class="btn primary"
       disabled={busy || (mode === "path" ? !path.trim() : !yaml.trim())}>{mode === "path" ? "Add" : "Save and add"}</button
     >
-    <button type="button" class="btn" onclick={onclose}>Cancel</button>
+    {#if cancel}<button type="button" class="btn" onclick={onclose}>Cancel</button>{/if}
   </div>
 </form>
 

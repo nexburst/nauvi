@@ -4,8 +4,10 @@
   /**
    * The chart repositories in the user's helm configuration: add, remove,
    * update. Shown in the Helm charts view and in Settings; the parent
-   * loads them (`loadCharts`).
+   * loads them (`loadCharts`). `hint`: say so when there are none (the
+   * Charts view's own empty state already does, #485).
    */
+  let { hint = true }: { hint?: boolean } = $props();
 
   let name = $state("");
   let url = $state("");
@@ -53,7 +55,7 @@
         >
       </li>
     {:else}
-      {#if charts.reposLoaded && !charts.reposError}
+      {#if hint && charts.reposLoaded && !charts.reposError}
         <li class="muted">No chart repositories yet. Add one below, for example bitnami, https://charts.bitnami.com/bitnami.</li>
       {/if}
     {/each}

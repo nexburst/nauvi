@@ -234,7 +234,7 @@ describe("area 5: keyboard and command palette", { timeout: 15 * 60_000 }, () =>
 
   /** On a demo/web pod (its menu has several items), open the row menu with `open`. */
   async function menuCheck(app, open) {
-    if ((await app.js(`return document.querySelector("nav button.active")?.firstChild?.textContent.trim()`)) !== "Pods") {
+    if ((await app.js(`return document.querySelector("nav button.active .label")?.textContent.trim()`)) !== "Pods") {
       await app.nav("Pods");
       await pickNamespaces(app, ["demo"]);
       await app.filter("web-");

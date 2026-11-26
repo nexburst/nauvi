@@ -46,6 +46,9 @@ export class LiveTable {
   now = $state.raw(Date.now());
   /** A first batch has arrived since `start`, so the rows are not just empty. */
   synced = $state.raw(false);
+  /** The cluster serves no metrics API (no metrics-server): the CPU and
+   *  memory columns stay empty, and the table says why (#485). */
+  metricsMissing = $state.raw(false);
 
   #kind: ResourceKind | null = null;
   /** The running watches by key, in selection order. */
@@ -245,6 +248,7 @@ export class LiveTable {
   /** Only pods and nodes have metric columns; poll just the one on screen. */
   #startMetrics() {
     this.#token++;
+    this.metricsMissing = false;
     if (this.#metricsTimer) clearInterval(this.#metricsTimer);
     this.#metricsTimer = null;
     if (this.#metricsHidden) return;
@@ -269,6 +273,7 @@ export class LiveTable {
     const snaps = results
       .filter((r): r is PromiseFulfilledResult<MetricsSnapshot> => r.status === "fulfilled")
       .map((r) => r.value);
+    this.metricsMissing = snaps.length > 0 && snaps.every((s) => !s.available);
     this.metrics = {
       pods: new Map(snaps.flatMap((s) => s.pods.map((p) => [`${p.namespace}/${p.name}`, p] as const))),
       nodes: new Map(snaps.flatMap((s) => s.nodes.map((n) => [n.name, n] as const))),

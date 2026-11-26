@@ -113,14 +113,20 @@ test("repositories are added, updated and removed, in the Charts view and in Set
   expect(fake.errors).toEqual([]);
 });
 
-test("with no repositories, the Charts view says so and offers to add one", async ({ page }) => {
-  await openApp(page, (c) => {
+test("with no repositories, the Charts view says so once and offers well-known ones, with no table", async ({ page }) => {
+  const fake = await openApp(page, (c) => {
     c.helm.charts.repos = [];
   });
   await openCharts(page);
-  await expect(page.getByTestId("helm-charts")).toContainText("No chart repositories configured.");
-  await expect(page.getByTestId("helm-repos")).toContainText("No chart repositories yet");
-  await expect(page.getByTestId("chart-row")).toHaveCount(0);
+  const view = page.getByTestId("helm-charts");
+  await expect(view.getByTestId("empty-state")).toContainText("No chart repositories yet");
+  // Said once (#486), with no empty table under it, and no "+ Create" (that is YAML, not charts).
+  await expect(view.getByText(/no chart repositories/i)).toHaveCount(1);
+  await expect(view.getByRole("grid")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "+ Create" })).toHaveCount(0);
+  await expect(page.getByTestId("helm-repos").getByLabel("Repository URL")).toBeVisible();
+  await view.getByRole("button", { name: "Add bitnami" }).click();
+  expect((await fake.lastCall("cmdHelmRepoAdd"))).toMatchObject({ name: "bitnami", url: "https://charts.bitnami.com/bitnami" });
 });
 
 test("install: edit the values, dry run the manifest, then install and open the release", async ({ page }) => {
@@ -150,7 +156,9 @@ test("install: edit the values, dry run the manifest, then install and open the 
 
   await setText(page, values, "greeting: hi\nreplicas: 2\n");
   await dlg.getByTestId("deploy-preview").click();
-  await expect(dlg.getByTestId("deploy-summary")).toHaveText("Dry run of team-new/web2: 3 objects, nothing changed.");
+  await expect(dlg.getByTestId("deploy-summary")).toHaveText(
+    "Dry run: 3 objects would be created. Nothing has been applied yet.",
+  );
   const manifest = dlg.getByRole("textbox", { name: "Rendered manifest" });
   await expect(manifest).toContainText('greeting: "hi"');
   await expect(manifest).toContainText("<hidden: reveal to view>");
@@ -232,7 +240,10 @@ test("upgrade: values and a version from the chart's repository, a dry-run diff,
   await dlg.getByLabel("Chart version").selectOption("1.3.0");
   await setText(page, values, "greeting: ciao\n");
   await dlg.getByTestId("deploy-preview").click();
-  await expect(dlg.getByTestId("deploy-summary")).toContainText("Dry run of demo/web");
+  // The line above the diff names what the diff shows changing (#497).
+  await expect(dlg.getByTestId("deploy-summary")).toHaveText(
+    "Dry run: 1 of 3 objects would change (ConfigMap web-config). Nothing has been applied yet.",
+  );
   const diff = dlg.getByRole("textbox", { name: "Manifest changes" });
   await expect(diff).toContainText('greeting: "ciao"');
   expect((await fake.lastCall("cmdHelmUpgrade")).request).toEqual({
@@ -246,8 +257,8 @@ test("upgrade: values and a version from the chart's repository, a dry-run diff,
     reveal: false,
     storage: "secret",
   });
-  // The current side of the diff is the newest revision, redacted the same way.
-  expect(await fake.lastCall("cmdHelmGet")).toEqual({ namespace: "demo", name: "web", revision: 0, reveal: false });
+  // The current side of the diff comes with the dry run, redacted the same way.
+  await expect(diff).toContainText('greeting: "bye"');
 
   await dlg.getByTestId("deploy-confirm").click();
   await expect(dlg.getByTestId("deploy-result")).toHaveText("Upgraded demo/web to revision 3.");
@@ -258,6 +269,19 @@ test("upgrade: values and a version from the chart's repository, a dry-run diff,
   await expect(detail.getByTestId("helm-notes")).toHaveText("web says ciao.");
   await expect(page.getByTestId("helm-row").filter({ hasText: "web" })).toContainText("3");
   expect(fake.errors).toEqual([]);
+});
+
+test("an upgrade dry run with the same values says nothing would change", async ({ page }) => {
+  await openApp(page);
+  await page.getByRole("navigation").getByRole("button", { name: "Releases", exact: true }).click();
+  await page.getByTestId("helm-row").filter({ hasText: "web" }).click();
+  await page.getByTestId("helm-detail").getByRole("button", { name: "Upgrade…" }).click();
+  const dlg = deployDialog(page);
+  await expect(dlg.getByLabel("Chart version")).toHaveValue("1.2.0");
+  await dlg.getByTestId("deploy-preview").click();
+  await expect(dlg.getByTestId("deploy-summary")).toHaveText(
+    "Dry run: none of the 3 objects would change. Nothing has been applied yet.",
+  );
 });
 
 test("upgrading a release whose chart is in no configured repository says what to do", async ({ page }) => {

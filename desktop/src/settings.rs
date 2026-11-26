@@ -214,7 +214,18 @@ pub(crate) struct Settings {
     /// Ask AI's custom command, the program and its arguments (#376). Split
     /// into words, never run through a shell.
     pub(crate) ask_ai_command: String,
+    /// The welcome screen (#485) was left once. `false` only in the
+    /// settings of a first run (no settings file yet): a file from before
+    /// it, or one that had to be reset, counts as welcomed.
+    pub(crate) welcomed: bool,
+    /// How many more starts show the tips strip (#485): `TIPS_SESSIONS`
+    /// on a first run, 0 once it is dismissed or used up (and for a file
+    /// from before it).
+    pub(crate) tips_left: u32,
 }
+
+/// The starts that show the tips strip on a first run (#485).
+pub(crate) const TIPS_SESSIONS: u32 = 5;
 
 /// `searches` as read from the file: each entry parsed on its own, so one
 /// bad entry (or a list that is not a list) does not cost the rest (#219).
@@ -352,6 +363,20 @@ impl Default for Settings {
             open_more_sections: Vec::new(),
             ask_ai_cli: String::new(),
             ask_ai_command: String::new(),
+            welcomed: true,
+            tips_left: 0,
+        }
+    }
+}
+
+impl Settings {
+    /// The settings of a first run (no settings file yet): the welcome
+    /// screen and the tips strip show (#485).
+    pub(crate) fn first_run() -> Self {
+        Self {
+            welcomed: false,
+            tips_left: TIPS_SESSIONS,
+            ..Self::default()
         }
     }
 }
@@ -440,6 +465,10 @@ pub(crate) struct SettingsPatch {
     pub(crate) ask_ai_cli: Option<String>,
     #[specta(optional)]
     pub(crate) ask_ai_command: Option<String>,
+    #[specta(optional)]
+    pub(crate) welcomed: Option<bool>,
+    #[specta(optional)]
+    pub(crate) tips_left: Option<u32>,
 }
 
 impl Settings {
@@ -511,6 +540,12 @@ impl Settings {
         if let Some(v) = patch.ask_ai_command {
             self.ask_ai_command = v.trim().to_string();
         }
+        if let Some(v) = patch.welcomed {
+            self.welcomed = v;
+        }
+        if let Some(v) = patch.tips_left {
+            self.tips_left = v.min(TIPS_SESSIONS);
+        }
         for (id, mut ctx) in patch.contexts.unwrap_or_default() {
             // The mode has its own command (#338).
             let old = self.contexts.get(&id).cloned().unwrap_or_default();
@@ -574,7 +609,7 @@ pub(crate) fn parse(text: &str) -> Option<Settings> {
 pub(crate) fn load(path: &Path) -> Settings {
     let text = match std::fs::read_to_string(path) {
         Ok(t) => t,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Settings::default(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Settings::first_run(),
         Err(e) => {
             tracing::warn!("could not read {}: {e}", path.display());
             return Settings::default();
@@ -903,9 +938,40 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_file_gives_the_defaults() {
+    fn a_missing_file_is_a_first_run() {
         let path = temp_path("missing");
-        assert_eq!(load(&path), Settings::default());
+        let s = load(&path);
+        assert_eq!(s, Settings::first_run());
+        assert!(!s.welcomed);
+        assert_eq!(s.tips_left, TIPS_SESSIONS);
+        assert_eq!(
+            Settings {
+                welcomed: true,
+                tips_left: 0,
+                ..s
+            },
+            Settings::default()
+        );
+    }
+
+    #[test]
+    fn a_file_from_before_the_welcome_counts_as_welcomed() {
+        let s = parse(r#"{"version":1,"theme":"light"}"#).unwrap();
+        assert!(s.welcomed);
+        assert_eq!(s.tips_left, 0);
+        let mut s = Settings::first_run();
+        s.apply(SettingsPatch {
+            tips_left: Some(99),
+            ..Default::default()
+        });
+        assert_eq!(s.tips_left, TIPS_SESSIONS);
+        s.apply(SettingsPatch {
+            welcomed: Some(true),
+            tips_left: Some(0),
+            ..Default::default()
+        });
+        assert!(s.welcomed);
+        assert_eq!(s.tips_left, 0);
     }
 
     #[test]
