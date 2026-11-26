@@ -134,7 +134,7 @@ test("a crash-looping container shows its reason in red and its last termination
   // often and when.
   const events = panel(page).locator("table.events");
   await expect(events).toContainText("Back-off restarting");
-  await expect(events.locator("td[title='BackOff']")).toBeVisible();
+  await expect(events.locator("td.reason [title='BackOff']")).toBeVisible();
   await expect(events).toContainText("Container app keeps failing; restarting it after a delay");
   await expect(events).toContainText("Back-off restarting failed container app");
   await expect(events).toContainText("168 times, last 2m ago");

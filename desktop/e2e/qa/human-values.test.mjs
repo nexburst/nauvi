@@ -79,11 +79,11 @@ describe("human-readable values (#484)", { timeout: 15 * 60_000 }, () => {
           const t = document.querySelector('[data-testid="detail-panel"] table.events');
           if (!t) return null;
           return Array.from(t.querySelectorAll("tbody tr"), (tr) => ({
-            reason: tr.cells[1].textContent.trim(),
-            raw: tr.cells[1].getAttribute("title"),
+            reason: tr.querySelector("td.reason [title]")?.textContent.trim() ?? "",
+            raw: tr.querySelector("td.reason [title]")?.getAttribute("title") ?? "",
             summary: tr.querySelector(".summary")?.textContent.trim() ?? "",
             full: tr.querySelector(".full")?.textContent.trim() ?? "",
-            seen: tr.cells[3].textContent.trim(),
+            seen: tr.querySelector(".seen")?.textContent.trim() ?? "",
           }));`),
       { timeout: 60_000, interval: 1000, message: "the events of default/hungry" },
     );

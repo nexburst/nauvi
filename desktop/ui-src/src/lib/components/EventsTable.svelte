@@ -23,13 +23,18 @@
 {:else}
   <div class="scroll-x">
     <table class="events">
-      <thead><tr><th>Type</th><th>Reason</th><th>Message</th><th>Seen</th></tr></thead>
+      <thead><tr><th>Type</th><th>Reason</th><th>Message</th></tr></thead>
       <tbody>
         {#each events as e, i (i)}
           {@const summary = eventSummary(e.reason, e.message)}
           <tr>
             <td class:warn={e.type === "Warning"}>{e.type}</td>
-            <td title={e.reason}>{reasonWords(e.reason, e.message)}</td>
+            <!-- How often and when sit under the reason, so the message keeps
+                 the width in the narrow panel. -->
+            <td class="reason">
+              <div title={e.reason}>{reasonWords(e.reason, e.message)}</div>
+              <div class="seen muted">{eventTimes(e.count, e.time, now, e.age)}</div>
+            </td>
             <td class="wrap">
               {#if summary}
                 <div class="summary">{summary}</div>
@@ -38,7 +43,6 @@
                 {e.message}
               {/if}
             </td>
-            <td class="seen">{eventTimes(e.count, e.time, now, e.age)}</td>
           </tr>
         {/each}
       </tbody>
@@ -54,9 +58,22 @@
   table {
     font-size: 12px;
   }
+  td {
+    vertical-align: top;
+  }
   td.wrap {
     white-space: normal;
+    min-width: 180px;
     word-break: break-word;
+  }
+  td.reason {
+    white-space: normal;
+    min-width: 96px;
+    max-width: 150px;
+  }
+  .seen {
+    font-size: 11px;
+    margin-top: 2px;
   }
   .summary {
     font-weight: 600;
