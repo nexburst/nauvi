@@ -189,7 +189,9 @@ describe("what stops a port-forward (#498)", { timeout: 15 * 60_000 }, () => {
     await disconnectCluster(app, CONTEXT);
     await waitNodeState(app, CONTEXT, "idle");
     await app.waitFor(async () => !(await answers(url)), { message: `${url} closed after disconnecting ${CONTEXT}` });
-    await forwardsView();
+    const view = await forwardsView();
+    // The view no longer lists it (the tree's disconnect refreshes the list).
+    await app.waitFor(async () => !(await view.getText()).includes(url), { timeout: 2000, message: `${url} gone from the view` });
     await app.shot("after-disconnect");
   });
 });

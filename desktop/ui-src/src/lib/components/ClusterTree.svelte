@@ -19,7 +19,7 @@
     visibleChanged,
   } from "../stores/clusters.svelte";
   import { clusterStates } from "../stores/clusterStates.svelte";
-  import { askHide, isHidden, windowItems } from "../stores/hidden.svelte";
+  import { askHide, isHidden, refreshWindowForwards, windowItems } from "../stores/hidden.svelte";
   import { shownContexts } from "../hidden";
   import ExecPrompt from "./catalog/ExecPrompt.svelte";
   import SidebarKinds from "./SidebarKinds.svelte";
@@ -67,6 +67,12 @@
 
   const label = (id: string) => contextLabel(id);
   const colorOf = (id: string) => contextSettings(id).color;
+
+  /** Disconnect `id`: its forwards stopped, so the lists that show them
+   *  follow now rather than on their next poll (#498). */
+  async function disconnect(id: string) {
+    if (await disconnectNode(id)) await refreshWindowForwards();
+  }
 </script>
 
 {#snippet node(ctx: ContextInfo)}
@@ -147,7 +153,7 @@
             class="icon"
             aria-label={`Disconnect ${label(id)}`}
             title="Disconnect: stops its logs, terminals and forwards in this window"
-            onclick={() => void disconnectNode(id)}>✕</button
+            onclick={() => void disconnect(id)}>✕</button
           >
         {/if}
       </span>

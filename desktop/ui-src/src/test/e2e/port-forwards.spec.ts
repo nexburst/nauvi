@@ -213,3 +213,37 @@ test("a deployment forward asks for a port name or number", async ({ page }) => 
     local_port: "",
   });
 });
+
+test("disconnecting a cluster in the tree takes its forwards off Port Forwards at once (#498)", async ({ page }) => {
+  await openApp(page, (cluster) => {
+    cluster.backgroundForwards = [
+      {
+        cluster: "kind-dev",
+        forward: {
+          id: "pf-bg",
+          saved_id: "fwd-bg",
+          target: { kind: "service", namespace: "demo", name: "web" },
+          remote: "80",
+          remote_port: 80,
+          local_port: 40080,
+          url: "http://127.0.0.1:40080",
+          started_at: 1,
+          status: { pod: "web-1", connections: 0, total_connections: 0, last_error: "" },
+        },
+      },
+    ];
+  });
+  const node = (id: string) => page.locator(`[data-testid="cluster-node"][data-cluster="${id}"]`);
+  // Show prod: kind-dev's forward runs on, listed with its cluster.
+  await node("prod").getByRole("button", { name: "prod", exact: true }).click();
+  await expect(node("prod")).toHaveAttribute("data-state", "visible");
+  await openForwardsView(page);
+  const other = page.locator('[data-testid="forward-row-other"][data-cluster="kind-dev"]');
+  await expect(other).toContainText("http://127.0.0.1:40080");
+
+  // Faster than the view's 3 s poll.
+  await page.clock.install();
+  await node("kind-dev").hover();
+  await node("kind-dev").getByRole("button", { name: "Disconnect kind-dev" }).click();
+  await expect(other).toHaveCount(0, { timeout: 1000 });
+});
