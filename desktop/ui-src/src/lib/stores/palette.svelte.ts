@@ -23,6 +23,7 @@ import {
 } from "./app.svelte";
 import { requestAction } from "./actions.svelte";
 import { openCreate } from "./create.svelte";
+import { copyDescribe } from "./describe";
 import { openDetail } from "./detail.svelte";
 import { dockMenuFor } from "../dock";
 import { dock, openDockTab, toggleDock } from "./dock.svelte";
@@ -196,6 +197,26 @@ export function paletteItems(): PaletteItem[] {
           run: () => openDockTab(d.spec),
         });
       }
+      // The panel is nauvi's describe (#513); the text is for those who want it.
+      const ref = { resource: kind.resource, namespace: t.namespace, name: t.name };
+      items.push(
+        {
+          id: "action:describe",
+          group: "Action",
+          label: "Describe",
+          detail: targetLabel(t),
+          terms: ["details", "kubectl describe", "inspect", "panel"],
+          run: () => openDetail(ref),
+        },
+        {
+          id: "action:copy-describe",
+          group: "Action",
+          label: "Copy kubectl describe",
+          detail: targetLabel(t),
+          terms: ["describe", "clipboard", "text"],
+          run: () => void copyDescribe(ref.resource, ref.namespace, ref.name),
+        },
+      );
       const keys = kind.columns.map((c) => c.key);
       for (const a of kind.actions) {
         items.push({
@@ -279,7 +300,7 @@ export function paletteItems(): PaletteItem[] {
         group: "Object",
         label: `${kind.resource.plural}/${r.name}`,
         detail: r.namespace || undefined,
-        terms: [r.name],
+        terms: [r.name, `describe ${r.name}`],
         run: () => openDetail({ resource: kind.resource, namespace: r.namespace, name: r.name }),
       });
     }

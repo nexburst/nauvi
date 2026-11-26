@@ -101,6 +101,22 @@ pub(crate) async fn cmd_delete_resource(
         .map_err(|e| actions::describe_error(&e))
 }
 
+/// An object's describe text, as `nauvi describe` prints it, for "Copy
+/// kubectl describe" (#513).
+#[tauri::command]
+#[specta::specta]
+pub(crate) async fn cmd_describe_resource(
+    cluster: Cluster,
+    resource: ResourceRef,
+    namespace: String,
+    name: String,
+) -> Result<String, String> {
+    let client = cluster.client().await?;
+    nauvi::describe_text(&client, &resource, &namespace, &name)
+        .await
+        .map_err(|e| nauvi::error_text(&e))
+}
+
 /// Create or update the objects of a (multi-document) YAML manifest. The
 /// batch is validated with a dry run first; unless `dry_run`, it is applied
 /// if every document passed, or with `skip_invalid` the ones that did.

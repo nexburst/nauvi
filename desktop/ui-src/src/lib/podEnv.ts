@@ -1,4 +1,4 @@
-import type { EnvFromGroup, EnvValue, ResourceRef } from "./bindings";
+import type { EnvFromGroup, EnvInfo, EnvValue, ResourceRef } from "./bindings";
 
 /** The Secret kind, for revealing one key through `cmdRevealDataValue`. */
 export const SECRET_REF: ResourceRef = {
@@ -74,4 +74,17 @@ export function visibleText(text: string): string {
 /** Number of variables the container gets (overridden ones not counted). */
 export function envCount(groups: EnvFromGroup[], env: EnvValue[]): number {
   return [...groups.flatMap((g) => g.rows), ...env].filter((r) => !r.overridden).length;
+}
+
+/** The Environment list's title (#525). An `envFrom` source (named
+ *  `<prefix>*`) is every key of its ConfigMap or Secret, so the number of
+ *  variables is only known once the values are loaded (`loaded`, from
+ *  `envCount`); until then the sources are counted apart. */
+export function envTitle(names: EnvInfo[], loaded: number | null): string {
+  if (loaded !== null) return `Environment (${loaded})`;
+  const sources = names.filter((e) => e.name.endsWith("*")).length;
+  const vars = names.length - sources;
+  if (!sources) return `Environment (${vars})`;
+  const from = `${sources} ${sources === 1 ? "source" : "sources"}`;
+  return `Environment (${vars ? `${vars} + ${from}` : from})`;
 }

@@ -30,6 +30,10 @@
 
   const data = $derived(feed.data);
   const note = $derived(data ? fallbackNote(data) : "");
+  const empty = $derived(!!data && data.history.samples.length === 0);
+  const emptyWhy = $derived(
+    [`metrics-server has no sample for ${subject}, or is not installed.`, note].filter(Boolean).join("\n\n"),
+  );
   const lines = $derived.by((): ChartLine[] => {
     const h = data?.history;
     if (!h) return [];
@@ -42,6 +46,11 @@
 <section class="usage" data-testid="usage-charts">
   <div class="head">
     <h3>Usage</h3>
+    {#if empty}
+      <!-- One line (#513): why there is nothing, and where Prometheus was
+           looked for, are in the tooltip. -->
+      <span class="muted empty" data-testid="usage-empty" title={emptyWhy}>No usage data yet</span>
+    {/if}
     {#if data?.prometheus}
       <div class="ranges" role="group" aria-label="Usage range">
         {#each USAGE_RANGES as r (r.value)}
@@ -57,16 +66,12 @@
       </div>
     {/if}
   </div>
-  {#if note}
+  {#if note && !empty}
     <p class="muted small note" data-testid="usage-note" title={note}>{note}</p>
   {/if}
   {#if !data}
     <p class="muted small">{feed.error ? `Could not load usage: ${feed.error}` : "Loading…"}</p>
-  {:else if data.history.samples.length === 0}
-    <p class="muted small note" data-testid="usage-empty">
-      No usage yet. metrics-server has no sample for {subject}, or is not installed.
-    </p>
-  {:else}
+  {:else if !empty}
     <p class="muted small" data-testid={data.source === "prometheus" ? "usage-source" : "usage-since"}>
       {usageSourceText(data)}
     </p>
@@ -100,6 +105,15 @@
     align-items: center;
     justify-content: space-between;
     gap: 8px;
+  }
+  .empty {
+    flex: 1;
+    min-width: 0;
+    margin: 14px 0 8px;
+    font-size: 12px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   h3 {
     margin: 14px 0 8px;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EnvFromGroup, EnvValue } from "./bindings";
-import { envCount, envGroupTitle, envRowId, envShownValue, envValueSource, MASK, visibleText } from "./podEnv";
+import { envCount, envGroupTitle, envTitle, envRowId, envShownValue, envValueSource, MASK, visibleText } from "./podEnv";
 
 const v = (r: Partial<EnvValue>): EnvValue => ({
   name: "X",
@@ -64,5 +64,19 @@ describe("env values", () => {
     expect(visibleText(controls)).toBe("a\\u{0000}b\\u{001B}c\\u{007F}d\\u{0085}e");
     // Newlines and tabs keep a multi-line value's shape; other text is untouched.
     expect(visibleText("a=1\n\tb=2 ünï 日本")).toBe("a=1\n\tb=2 ünï 日本");
+  });
+});
+
+describe("envTitle (#525)", () => {
+  const n = (name: string, source = "") => ({ name, source });
+  it("counts plain variables as they are", () => {
+    expect(envTitle([n("A"), n("B", "secret:db/password")], null)).toBe("Environment (2)");
+  });
+  it("counts envFrom sources apart until the values are loaded", () => {
+    expect(envTitle([n("A"), n("B"), n("*", "configmap:app-config")], null)).toBe("Environment (2 + 1 source)");
+    expect(envTitle([n("*", "configmap:a"), n("DB_*", "secret:b")], null)).toBe("Environment (2 sources)");
+  });
+  it("shows the loaded number of variables", () => {
+    expect(envTitle([n("A"), n("*", "configmap:app-config")], 26)).toBe("Environment (26)");
   });
 });
