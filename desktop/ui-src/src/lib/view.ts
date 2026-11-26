@@ -25,7 +25,12 @@ export function visibleEntries(
   // A string: plain text ignoring case; a function: the table filter's
   // match (`ListFilter`, #219); null: no filter.
   const q = typeof search === "string" ? search.trim().toLowerCase() : "";
-  const match = typeof search === "function" ? search : q ? (e: Entry<Row>) => e.hay.includes(q) : null;
+  const match =
+    typeof search === "function"
+      ? search
+      : q
+        ? (e: Entry<Row>) => [e.row.name, e.row.namespace, ...e.row.cells].some((v) => v.toLowerCase().includes(q))
+        : null;
   const filtered =
     match || status
       ? entries.filter((e) => matchesStatus(e.row, status) && (!match || match(e)))

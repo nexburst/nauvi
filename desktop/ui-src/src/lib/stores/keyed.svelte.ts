@@ -1,9 +1,8 @@
-/** A row plus its precomputed lowercase search text. */
+/** A row and its key. What a table's filter matches is the table's
+ *  business: it depends on the shown columns (#512, `shownText`). */
 export interface Entry<T> {
   key: string;
   row: T;
-  /** Every field, lowercased and joined, so filtering is one `includes`. */
-  hay: string;
 }
 
 export interface BatchLike<T> {
@@ -15,12 +14,6 @@ export interface BatchLike<T> {
   applied: T[];
   /** Keys of removed rows. */
   deleted: string[];
-}
-
-function hayOf(row: object): string {
-  let out = "";
-  for (const v of Object.values(row)) out += String(v).toLowerCase() + "\u0000";
-  return out;
 }
 
 /**
@@ -67,7 +60,7 @@ export class KeyedStore<T extends object> {
     }
     for (const row of batch.applied) {
       const key = this.#keyOf(row);
-      this.#map.set(key, { key, row, hay: hayOf(row) });
+      this.#map.set(key, { key, row });
       this.#sourceOf.set(key, source);
     }
     for (const key of batch.deleted) this.#delete(key);

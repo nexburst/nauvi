@@ -7,7 +7,6 @@ import { visibleRows } from "./visibleRows.svelte";
 
 const entry = (key: string, created: number): Entry<Row> => ({
   key,
-  hay: key,
   row: { key, name: key, namespace: "", created, cells: [], status: "", problem: "" } as unknown as Row,
 });
 

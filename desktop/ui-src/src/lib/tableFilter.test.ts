@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileFilter, cutHit, filterKey, nameMatches, NO_FILTER, shownText } from "./tableFilter";
+import { compileFilter, cutHit, filterKey, nameMatches, NO_FILTER, shownCells, shownText } from "./tableFilter";
 import { LogSearcher } from "./logSearch";
 
 const q = (text: string, regex = false, matchCase = false) => compileFilter({ text, regex, matchCase });
@@ -71,6 +71,14 @@ describe("shownText", () => {
   it("skips empty and missing cells", () => {
     const row = { name: "n", namespace: "", cells: ["n", ""] };
     expect(shownText([0, 1, 7]).raw(row)).toBe("n\n\nn");
+  });
+});
+
+describe("shownCells", () => {
+  it("gives the cell index of each shown column, skipping unknown ones", () => {
+    const defs = [{ key: "name" }, { key: "namespace" }, { key: "status" }, { key: "qos" }];
+    expect(shownCells(defs, [{ key: "name" }, { key: "qos" }, { key: "gone" }])).toEqual([0, 3]);
+    expect(shownCells(defs, [])).toEqual([]);
   });
 });
 
