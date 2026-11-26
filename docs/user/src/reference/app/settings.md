@@ -45,5 +45,6 @@ Settings are saved in `settings.json` in the app's config directory
 - The detail panel's width.
 - Saved port forwards.
 - The filter's recent and starred searches.
-- The berths, and which drawer sections are collapsed.
+- Your pins, which sidebar sections are collapsed and which show **N more**,
+  and whether the sidebar is open.
 - The windows open when you quit.

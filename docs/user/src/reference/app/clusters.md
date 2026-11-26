@@ -6,7 +6,7 @@ kubeconfig.
 
 ## The cluster tree
 
-The drawer holds a tree of every kubeconfig context, grouped by file.
+The sidebar holds a tree of every kubeconfig context, grouped by file.
 Nothing connects until you use it: expand a cluster to connect it in the
 background and see its resource types, and click its name to show it.
 

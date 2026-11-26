@@ -111,11 +111,16 @@ for (const theme of ["light", "dark"]) {
       const { app } = s;
       await app.nav("Overview");
       // The problem pods and the usage need the watches and a metrics sample.
-      await app.waitFor(async () => (await app.js("return document.body.innerText")).includes("crashed"), {
-        timeout: 60_000,
-        message: "demo/crashed on the Overview",
-      });
-      await new Promise((r) => setTimeout(r, 4000));
+      // demo/crashed is a problem pod only between two of its runs, and its
+      // name is in the warning cards too: wait for its problem card, and take
+      // the shot only while that card is still there.
+      const problemCard = () =>
+        app.js(`return [...document.querySelectorAll(".problem")].some((p) => p.innerText.includes("crashed"))`);
+      for (let tries = 0; ; tries++) {
+        await app.waitFor(problemCard, { timeout: 120_000, message: "demo/crashed among the problem pods" });
+        await new Promise((r) => setTimeout(r, 4000));
+        if ((await problemCard()) || tries >= 4) break;
+      }
       await save(app, "overview", theme);
     });
 

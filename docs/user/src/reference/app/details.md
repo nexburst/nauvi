@@ -5,9 +5,15 @@ Every object has one.
 
 - The panel **leads with what is wrong**, in the words of the table
   ("CrashLoopBackOff · 12 restarts").
-- Its header has icon buttons for the object's actions: Logs, Shell, Edit,
-  Delete, and for example Scale and Restart on workloads, or Cordon and Drain
-  on nodes. **Copy link** copies a [`nauvi://` link](links.md) to the object.
+- Its header has the object's actions. **Logs**, **Shell** (or **Node
+  shell**) and **Edit YAML** show their names; the others are icons with a
+  tooltip, for example Scale and Restart on workloads, or Cordon and Drain on
+  nodes. The destructive ones (Evict, Delete, Force delete) sit together on
+  the right. **Copy link** copies a [`nauvi://` link](links.md) to the
+  object.
+- **✕** or `Esc` closes the panel.
+- When a link opens an object (a problem pod on the Overview, a related
+  object), its row in the table scrolls into view.
 - Drag its left edge to change its width; nauvi remembers it.
 - `W` gives the object the whole window and gives the table back. The YAML
   tab takes the whole window by itself.
@@ -15,6 +21,23 @@ Every object has one.
   Settings).
 
 ## Pods
+
+### Why it's failing
+
+For a pod that needs a look, the panel starts with **Why it's failing**:
+
+- what is wrong, in words: an image that cannot be pulled and why ("host
+  registry.invalid not found"), a container that keeps crashing or running
+  out of memory, a missing Secret, or "No node has enough CPU" for a pod no
+  node can take;
+- the container and its state ("Container app · CrashLoopBackOff");
+- the last run's exit code and when it ended, and its termination message;
+- the newest warning event;
+- **Logs** (the failing container's logs), **Previous logs** (the run before,
+  once the container runs again) and **Events (n) ↓**, which jumps to the
+  events. For such a pod, the events come right after the containers.
+
+### Containers
 
 <img class="shot-light" src="../../img/pod-env-light.png" alt="A pod's detail panel with its environment">
 <img class="shot-dark" src="../../img/pod-env-dark.png" alt="A pod's detail panel with its environment">
@@ -37,6 +60,14 @@ volume is.
   instance of a crashed one) and an interactive terminal.
 - CPU and memory charts against requests and limits
   ([Metrics](metrics.md)).
+
+### Events
+
+Events show the reason in words ("Failed scheduling", "Back-off
+restarting"; hover it for the raw reason) and how often it happened ("821
+times, last 41s ago"). A short summary in bold comes first ("No node fits: 1
+node short of CPU, 2 nodes short of memory"), with the full message under
+it. A message nauvi does not know how to sum up shows on its own.
 
 ## The last-applied annotation
 

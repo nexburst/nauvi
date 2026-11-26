@@ -85,7 +85,8 @@ See [Use a cluster you can only partly read](how-to/limited-access.md).
 
 ## The CPU and memory columns are empty
 
-They need metrics-server; the Overview offers to install it. Its numbers
+They need metrics-server. The Pods and Nodes tables say so and offer
+**Install metrics-server…**, and so does the Overview. Its numbers
 appear about a minute after it starts. Maybe **Hide metrics** is on for that
 cluster (its **Settings → Metrics**).
 

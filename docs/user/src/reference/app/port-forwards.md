@@ -7,10 +7,14 @@ A port forward connects a local port to a pod, a Service or a workload.
 
 **Port forward…** in the row menu or the detail panel of a pod, Service,
 Deployment, StatefulSet, DaemonSet or ReplicaSet. Choose the remote port and
-a local port (or leave it empty for an automatic one).
+a local port. Leave the local port empty to let nauvi pick one: the same
+port when it is free and 1024 or more.
 
 - **https**: for targets that speak TLS; the URL becomes `https://`.
-- **Open in browser**: opens the URL whenever the forward starts.
+- **Open in browser when it starts**: opens the URL whenever the forward
+  starts. It is on by default for ports that look like a web server (80,
+  443, 3000, 8080…, or a port named `http`, `https`, `web`), and then
+  follows your last choice.
 - **Start automatically**: starts it when the cluster opens.
 
 After a forward starts, a banner offers **Open** and **Port Forwards**.
@@ -19,10 +23,11 @@ After a forward starts, a banner offers **Open** and **Port Forwards**.
 
 - A Service forward picks a ready pod for each connection, so it keeps
   working when pods restart. Workload forwards do the same.
-- Forwards are **saved per cluster**. They keep running when you close panels
-  or show another cluster, stop when you disconnect that cluster or close the
-  window, and come back stopped, or running if you ticked *Start
-  automatically*.
+- Forwards are **saved per cluster**. Each keeps running until you stop it,
+  disconnect its cluster, close its window or quit nauvi. Closing a panel or
+  a dock tab, leaving the view or showing another cluster does not stop it.
+- A stopped forward stays saved. It comes back stopped next time, or
+  running if you ticked *Start automatically*.
 - A saved forward runs in **one window at a time**. Other windows on that
   context show "Running in another window" and can't start it until it is
   stopped there.

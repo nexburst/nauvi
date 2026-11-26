@@ -10,20 +10,36 @@ them. Click a **Namespace** cell to show only that namespace.
 
 ## The filter
 
-The filter box above every table matches any column.
+The filter box above every table matches what the table shows: the name,
+the namespace and the columns that are on. A column you turned off, or one
+that is off by default (like **QoS** or **IP**), is not matched. Turn it on
+in **Columns** to filter by it.
 
-- **Aa** matches case.
-- **.\*** takes a regular expression. `^` and `$` match at the start and end
+- **Aa Match case** matches case. The toggle is filled when it is on.
+- **.\* Regex** takes a regular expression. `^` and `$` match at the start and end
   of each column. A regex that runs too long is stopped.
 - A leading `!` inverts a text filter: `!Completed` shows the rows that do
   not contain it.
 - `Z`, or the warning mark in the toolbar, keeps only the rows that need
   attention.
-- `Enter` remembers a search and **☆** stars it. `ArrowDown` in the box
+- When a name is cut in the middle and the filter matches only the hidden
+  part, the cell is highlighted and its tooltip shows the whole name.
+- `Enter` remembers a search and **☆ Star** stars it. `ArrowDown` in the box
   offers your starred and recent searches, in any table.
 
 ## Columns
 
+- Each column is as wide as its values. Spare width goes to **Name**. When
+  room runs short, long text gives way first; Ready, Status, Restarts, Age,
+  CPU and Memory are never cut. Only when even that does not fit does the
+  table scroll sideways.
+- A name that is too long is cut in the middle, so its end stays visible
+  (`payments-worker-canary-…-x7k2p`). Hover it for the whole name.
+- Drag a header's right edge to resize the column. Double-click the edge to
+  fit the column to its values; double-click again to let it size itself.
+  Widths are remembered per kind.
+- **Status** cells start with an icon in their colour, so the state does not
+  depend on colour alone.
 - **Ages** are printed like `kubectl get` (`7d20h`, `3h12m`). Hover an Age
   cell, or open the detail panel, for the creation time (local time or UTC,
   per Settings).
@@ -72,7 +88,8 @@ as links.
 ### Usage
 
 Pods and Nodes show CPU and memory usage when the metrics API is available,
-with a small trend line of the last 30 minutes. See
+with a small trend line of the last 30 minutes. Memory reads in KiB, MiB
+and GiB; hover a CPU value to see it in cores ("250m (0.25 cores)"). See
 [Metrics and Prometheus](metrics.md).
 
 ## Links in cells
@@ -82,9 +99,30 @@ open the node, a **Controlled By** cell to open the owner.
 
 ## Row actions
 
-Every row ends in a **⋮** button with the row's actions: the same menu as a
-right-click, or `Shift+F10` on the focused row. Select several rows (`Space`) to act on all of them from the selection bar. See
+Hover a row (or focus it) to show its **Logs**, **Shell** and **Edit YAML**
+buttons at its end. Every row also ends in a **⋮** button with all of the
+row's actions: the same menu as a right-click, or `Shift+F10` on the focused
+row. The menu shows each action's key (Logs `L`, Shell `S`, Edit YAML `E`,
+Copy as prompt `A`, Rollout restart `⇧R`, Delete `Del`). Select several rows (`Space`) to act on all of them from the selection bar. See
 [Actions](actions.md).
+
+## Empty tables
+
+An empty table says why, and offers the one thing that helps:
+
+- **The filter hides every row**: `No Deployments match "checkout"`, how
+  many it hides, and **Clear filter**. The filter stays on as you go from
+  table to table, so it may come from the last table you filtered.
+- **The namespace has none**: **All namespaces**, and **Create…** for kinds
+  you can create.
+- **No access**: "No access to Secrets in namespace team-b", with the
+  permission you are missing.
+- **Only problems shown** (`Z`): "No Pods need attention", with **Show all**.
+- **Still loading**: "Loading Pods…", only when it takes more than a moment.
+
+When the cluster has no metrics API, the Pods and Nodes tables say that the
+CPU and memory columns are empty because of it, and offer **Install
+metrics-server…**.
 
 ## Export CSV
 
