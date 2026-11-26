@@ -618,11 +618,11 @@
               {@const text = col.text(entry.row, { metrics, now })}
               {@const spark = col.spark?.(entry.row, { metrics, now })}
               {@const link = cellLink(kinds.all, kind, col, text, entry.row.namespace)}
+              {@const tip = col.title?.(entry.row, settings.current.time_zone, { metrics, now }) || text}
               <div
                 class="td {col.cls?.(entry.row) ?? ''}"
                 role="gridcell"
-                title={col.title?.(entry.row, settings.current.time_zone) ||
-                  (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : text)}
+                title={spark && spark.length > 1 ? `${tip}, trend since ${clockTime(metrics.since)}` : tip}
               >
                 {#if link && col.link === "owner"}
                   <!-- The owner's name is the link (#378). Out of the tab order

@@ -56,9 +56,9 @@ test("pod metrics are merged into the CPU and Memory columns", async ({ page }) 
   const fake = await openApp(page);
   await openKind(page, "Pods");
   await expect(row(page, "web-1").getByRole("gridcell", { name: "250m" })).toBeVisible();
-  await expect(row(page, "web-1").getByRole("gridcell", { name: "64Mi" })).toBeVisible();
+  await expect(row(page, "web-1").getByRole("gridcell", { name: "64 MiB" })).toBeVisible();
   await expect(row(page, "web-2").getByRole("gridcell", { name: "1.5", exact: true })).toBeVisible();
-  await expect(row(page, "web-2").getByRole("gridcell", { name: "1.5Gi" })).toBeVisible();
+  await expect(row(page, "web-2").getByRole("gridcell", { name: "1.5 GiB" })).toBeVisible();
   // No metrics for this pod.
   expect(await column(page, "CPU")).toEqual(["—", "—", "250m", "1.5", "—"]);
   expect((await fake.calls("cmdGetMetrics")).length).toBeGreaterThan(0);
@@ -68,7 +68,7 @@ test("node metrics show usage over capacity", async ({ page }) => {
   await openApp(page);
   await openKind(page, "Nodes");
   expect(await column(page, "CPU")).toEqual(["900m / 4", "—"]);
-  expect(await column(page, "Memory")).toEqual(["2Gi / 8Gi", "—"]);
+  expect(await column(page, "Memory")).toEqual(["2 GiB / 8 GiB", "—"]);
 });
 
 test("kinds without metric columns do not poll metrics", async ({ page }) => {

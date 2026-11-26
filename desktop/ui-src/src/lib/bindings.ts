@@ -2383,7 +2383,7 @@ export type ProblemPod = {
 	name: string,
 	/**  As in the Pods table. */
 	status: string,
-	/**  Why it is listed: the status, "Not ready" or "Pending for 12m". */
+	/**  Why it is listed: the status, "Not ready" or "Pending for 8d 14h". */
 	reason: string,
 	restarts: number,
 	/**  Unix seconds. */
@@ -2453,6 +2453,11 @@ export type RelatedEvent = {
 	message: string,
 	count: number,
 	age: string,
+	/**
+	 *  When it last happened (unix seconds, 0 if unknown), so the UI can
+	 *  say "last 41s ago" and keep it fresh.
+	 */
+	time: number,
 };
 
 /**  A small table of related objects (or of plain rows: ports, taints). */

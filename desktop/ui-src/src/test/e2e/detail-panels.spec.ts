@@ -130,7 +130,31 @@ test("a crash-looping container shows its reason in red and its last termination
   await expect(app.getByTestId("last-state")).toHaveClass(/tone-bad/);
   await expect(app).toContainText(/Restarts\s*12/);
   await expect(app).toContainText("not ready");
-  await expect(panel(page).locator("table.events")).toContainText("BackOff ×168");
+  // Events in words (#484): the reason, a summary without the pod UID, how
+  // often and when.
+  const events = panel(page).locator("table.events");
+  await expect(events).toContainText("Back-off restarting");
+  await expect(events.locator("td.reason [title='BackOff']")).toBeVisible();
+  await expect(events).toContainText("Container app keeps failing; restarting it after a delay");
+  await expect(events).toContainText("Back-off restarting failed container app");
+  await expect(events).toContainText("168 times, last 2m ago");
+});
+
+test("scheduler events say what no node has, how often and how long ago (#484)", async ({ page }) => {
+  const fake = await openPod(page, "crashed");
+  const before = await podDetail(fake, "crashed");
+  const message =
+    "0/3 nodes are available: 3 Insufficient cpu, 3 Insufficient memory. preemption: 0/3 nodes are available: 3 No preemption victims found for incoming pod.";
+  const time = Math.floor(Date.now() / 1000) - 3 * 3600 - 5 * 60 - 10;
+  await fake.emitDetail({
+    state: "detail",
+    detail: { ...before, events: [{ type: "Warning", reason: "FailedScheduling", message, count: 821, age: "185m", time }] },
+  });
+  const events = panel(page).locator("table.events");
+  await expect(events).toContainText("Failed scheduling");
+  await expect(events.locator(".summary")).toHaveText("No node has enough CPU and memory");
+  await expect(events.locator(".full")).toHaveText(message);
+  await expect(events).toContainText("821 times, last 3h 5m ago");
 });
 
 test("the pod panel updates in place from the detail watch", async ({ page }) => {
@@ -139,7 +163,7 @@ test("the pod panel updates in place from the detail watch", async ({ page }) =>
   const updated: ResourceDetail = {
     ...before,
     labels: { app: "crashed", tier: "db" },
-    events: [{ type: "Warning", reason: "BackOff", message: "Back-off restarting failed container app", count: 169, age: "1s" }],
+    events: [{ type: "Warning", reason: "BackOff", message: "Back-off restarting failed container app", count: 169, age: "1s", time: 0 }],
     pod: {
       ...before.pod,
       containers: [{ ...before.pod.containers[0], restarts: 13 }],
@@ -148,7 +172,7 @@ test("the pod panel updates in place from the detail watch", async ({ page }) =>
   await fake.emitDetail({ state: "detail", detail: updated });
   await expect(panel(page).getByText("tier=db")).toBeVisible();
   await expect(card(page, "app")).toContainText(/Restarts\s*13/);
-  await expect(panel(page).locator("table.events")).toContainText("BackOff ×169");
+  await expect(panel(page).locator("table.events")).toContainText("169 times, last 1s ago");
   // Not reloaded: one fetch, then only the watch.
   expect(await fake.calls("cmdGetResourceDetail")).toHaveLength(1);
 });
@@ -222,7 +246,7 @@ test("the generic panel updates live and shows deletion too", async ({ page }) =
       owners: [],
       conditions: [{ type: "Available", status: "False", reason: "MinimumReplicasUnavailable", message: "", age: "5s" }],
       secret_keys: [],
-      events: [{ type: "Normal", reason: "ScalingReplicaSet", message: "Scaled up to 3", count: 1, age: "5s" }],
+      events: [{ type: "Normal", reason: "ScalingReplicaSet", message: "Scaled up to 3", count: 1, age: "5s", time: 0 }],
       pod: {
         phase: "",
         reason: "",
@@ -240,7 +264,7 @@ test("the generic panel updates live and shows deletion too", async ({ page }) =
   });
   await fake.emitDetail({ state: "detail", detail });
   await expect(panel(page).locator("table.conditions")).toContainText("MinimumReplicasUnavailable");
-  await expect(panel(page).locator("table.events")).toContainText("ScalingReplicaSet");
+  await expect(panel(page).locator("table.events")).toContainText("Scaling replica set");
 
   // Deleted elsewhere (here: by the fake, as another client would).
   await page.evaluate(() => {

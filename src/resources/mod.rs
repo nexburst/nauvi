@@ -285,6 +285,9 @@ pub struct RelatedEvent {
     pub message: String,
     pub count: i64,
     pub age: String,
+    /// When it last happened (unix seconds, 0 if unknown), so the UI can
+    /// say "last 41s ago" and keep it fresh.
+    pub time: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

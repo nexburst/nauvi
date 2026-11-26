@@ -1,5 +1,5 @@
 // Area 3 of #83, PR #59 (pod detail parity, live detail panels):
-// - default/hungry: FailedScheduling event, PodScheduled=False, `cpu 1k / —`
+// - default/hungry: a "Failed scheduling" event, PodScheduled=False, `cpu 1k / —`
 // - demo/crashed: `Waiting: CrashLoopBackOff` in red, `Terminated: Error
 //   (exit 1)`; the restart count climbs live (on a pod of our own that
 //   crashes at once, so the back-off is still short)
@@ -190,7 +190,8 @@ describe("area 3: pod detail and live panels (#59)", { timeout: 20 * 60_000 }, (
     const text = await app.waitFor(
       async () => {
         const t = await panelText(app);
-        return t.includes("FailedScheduling") ? t : null;
+        // The reason in words (#484); "FailedScheduling" is its tooltip.
+        return t.includes("Failed scheduling") ? t : null;
       },
       { message: "the FailedScheduling event" },
     );
