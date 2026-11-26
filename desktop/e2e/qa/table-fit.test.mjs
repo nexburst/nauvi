@@ -158,7 +158,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
     it(`Pods with the detail panel open: cut names keep their end (${theme})`, T, async () => {
       const { app } = s;
       const [first] = payments(await layout(app));
-      await (await app.find(app.row(first.Name.name || first.Name.text))).click();
+      await app.clickRow(first.Name.name || first.Name.text);
       await waitPanelTitle(app, `${ns}/`);
       assertCutWell(`pods + panel ${theme}`, await layout(app));
     });
@@ -286,6 +286,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
     await showPods(app, ns);
     const width = async () => (await layout(app)).widths.Namespace;
     const before = await width();
+    console.log(`before the drag: ${JSON.stringify((await layout(app)).widths)}`);
     const handle = await app.find(By.css('[data-testid="col-resize"][data-col="namespace"]'));
     await app.driver
       .actions()
@@ -302,6 +303,11 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
     await app.nav("Pods");
     await app.waitFor(async () => Math.abs((await width()) - sized) <= 1, { message: `Namespace kept at ${sized}px` });
     await app.driver.actions().doubleClick(await app.find(By.css('[data-testid="col-resize"][data-col="namespace"]'))).perform();
-    await app.waitFor(async () => Math.abs((await width()) - before) <= 1, { message: `Namespace back to ${before}px` });
+    try {
+      await app.waitFor(async () => Math.abs((await width()) - before) <= 1, { message: `Namespace back to ${before}px` });
+    } catch (e) {
+      console.log(`after the double-click: ${JSON.stringify((await layout(app)).widths)}`);
+      throw e;
+    }
   });
 });

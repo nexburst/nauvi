@@ -4,7 +4,7 @@
 // the table's width with `fitWidths` (columnFit.ts). The table passes what
 // it shows through `Source`; the layout is plain arithmetic on a resize.
 import { untrack } from "svelte";
-import { CELL_PAD, fitWidths, longest, middleCut, minTotal, sample, settle } from "../columnFit";
+import { CELL_PAD, fitWidths, longest, middleCut, minTotal, rowsSignature, sample, settle } from "../columnFit";
 import type { FitInput, Measure } from "../columnFit";
 import { cellWidth, STATUS_ICON_PX } from "../columns";
 import type { Column, Ctx, Row } from "../columns";
@@ -42,6 +42,8 @@ export class TableFit {
   #at = 0;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #rows = 0;
+  /** `rowsSignature` of the rows last measured. */
+  #shown = "";
   /** A cut generated name keeps its end (`logger-84…-x7k2p`). */
   #middle = cached((text, width) => (this.#cell ? middleCut(text, width, this.#cell) : text));
 
@@ -126,12 +128,18 @@ export class TableFit {
         for (const t of longest(entries.map((e) => col.text(e.row, ctx)))) w = Math.max(w, cellWidth(col, t, cell));
         next.set(col.key, Math.ceil(w));
       }
-      // A column narrowing a little keeps its width (no jitter).
+      // A column narrowing a little keeps its width (no jitter), while the
+      // same rows are shown; other rows (a filter, a namespace) fit afresh.
+      const shown = rowsSignature(entries.map((e) => e.row.key));
+      const same = shown === this.#shown;
+      this.#shown = shown;
       const keys = [...next.keys()];
-      const kept = settle(
-        keys.map((k) => this.#naturals.get(k) ?? 0),
-        keys.map((k) => next.get(k)!),
-      );
+      const kept = same
+        ? settle(
+            keys.map((k) => this.#naturals.get(k) ?? 0),
+            keys.map((k) => next.get(k)!),
+          )
+        : keys.map((k) => next.get(k)!);
       this.#naturals = new Map(keys.map((k, i) => [k, kept[i]]));
       this.#heads = heads;
     });

@@ -92,7 +92,7 @@ async function waitEditorText(app, needle, message = needle) {
 
 async function openObject(app, label, namespace, name) {
   await openKind(app, label, namespace, name);
-  await (await app.find(app.row(name, namespace))).click();
+  await app.clickRow(name, namespace);
   await app.find(By.css(EDITOR), { timeout: 30_000 });
   await app.waitFor(async () => /\d+ keys?/.test(await editorText(app)) && !(await editorText(app)).includes("Loading"), {
     message: `the data of ${name}`,
@@ -235,7 +235,7 @@ describe("data editor (#224)", { timeout: 20 * 60_000 }, () => {
     assert.ok(!(await bodyText(app)).includes(NEW_PASSWORD), "no revealed value left on the page");
     assert.equal(secretValue(ns, "qa-creds", "username"), "admin", "the discarded edit was not saved");
     // Reopened: hidden again.
-    await (await app.find(app.row("qa-creds", ns))).click();
+    await app.clickRow("qa-creds", ns);
     await waitEditorText(app, "password");
     assert.equal(await app.js(`return document.querySelectorAll('${EDITOR} [aria-label="Hidden value"]').length`), 3);
   });

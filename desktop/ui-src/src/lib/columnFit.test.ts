@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fitWidths, longest, middleCut, minTotal, sample, settle } from "./columnFit";
+import { fitWidths, longest, middleCut, minTotal, rowsSignature, sample, settle } from "./columnFit";
 import type { Fit, FitInput } from "./columnFit";
 
 const NAME: Fit = { min: 168, max: 640, grow: 2, give: 3, middle: true };
@@ -88,6 +88,14 @@ describe("settle, longest, sample", () => {
   it("keeps a width that narrows a little, takes one that grows or narrows a lot", () => {
     expect(settle([100, 100, 100], [92, 120, 60])).toEqual([100, 120, 60]);
     expect(settle(undefined, [1, 2])).toEqual([1, 2]);
+  });
+
+  it("tells a new set of rows from the same rows (#482)", () => {
+    expect(rowsSignature(["a/x", "a/y"])).toBe(rowsSignature(["a/x", "a/y"]));
+    expect(rowsSignature(["a/x", "a/y"])).not.toBe(rowsSignature(["a/x"]));
+    expect(rowsSignature(["a/x", "a/y"])).not.toBe(rowsSignature(["a/x", "a/z"]));
+    // A table sorted by a metric reorders the same rows on each refresh.
+    expect(rowsSignature(["a/y", "a/x"])).toBe(rowsSignature(["a/x", "a/y"]));
   });
 
   it("picks the longest values", () => {

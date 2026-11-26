@@ -1,9 +1,12 @@
 // Notification history (#326), at 1280x800 in the dark and the light theme,
 // on two Deployments in a temp namespace:
 // - the bell has no count and the panel says it is empty at first
-// - a Rollout restart (a notice) and a refused one (an error notice: a
-//   ValidatingAdmissionPolicy denies updates of qa-notify-locked) land in
-//   the history; the bell counts them until the panel is opened
+// - a Rollout restart (a notice; it asks first, #494) and a refused Suspend
+//   of a CronJob (an error notice: a ValidatingAdmissionPolicy denies
+//   updates of qa-notify-locked) land in the history; the bell counts them
+//   until the panel is opened. (A refused action in a confirmation dialog
+//   says so in the dialog and stays out of the history, so the refused one
+//   is an action that runs at once.)
 // - each entry has its time, level, context and a link to the object;
 //   the link opens the object's detail panel
 // - Clear all empties it
@@ -33,6 +36,21 @@ spec:
       containers: [{ name: main, image: "busybox:1.36", command: ["sh", "-c", "sleep 3600"] }]
 `;
 
+const cronJob = (name) => `
+apiVersion: batch/v1
+kind: CronJob
+metadata: { name: ${name} }
+spec:
+  schedule: "0 0 1 1 *"
+  suspend: false
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers: [{ name: main, image: "busybox:1.36", command: ["true"] }]
+`;
+
 let ns = "";
 let policy = "";
 let skip = "";
@@ -51,6 +69,10 @@ spec:
         apiVersions: ["v1"]
         operations: ["UPDATE"]
         resources: ["deployments"]
+      - apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        operations: ["UPDATE"]
+        resources: ["cronjobs"]
   validations:
     - expression: "object.metadata.name != 'qa-notify-locked'"
       message: "qa-notify-locked is locked by the QA scenario"
@@ -71,7 +93,7 @@ spec:
 async function waitPolicy() {
   for (let i = 0; i < 60; i++) {
     try {
-      kubectl(["-n", ns, "annotate", "deploy/qa-notify-locked", "qa=1", "--overwrite", "--dry-run=server"]);
+      kubectl(["-n", ns, "annotate", "cronjob/qa-notify-locked", "qa=1", "--overwrite", "--dry-run=server"]);
     } catch (e) {
       if (/locked by the QA scenario/.test(String(e.stderr ?? e.message))) return;
     }
@@ -113,7 +135,7 @@ before(async () => {
   } catch (e) {
     skip = `could not list admission resources: ${e.message}`;
   }
-  ns = tempNamespace("qa-notify", deployment("qa-notify") + "---" + deployment("qa-notify-locked"));
+  ns = tempNamespace("qa-notify", deployment("qa-notify") + "---" + cronJob("qa-notify-locked"));
   if (!skip) {
     policy = ns;
     kubectl(["apply", "-f", "-"], policyYaml(policy, ns));
@@ -153,15 +175,18 @@ describe("notification history", { timeout: 15 * 60_000 }, () => {
     await openKind(app, "Deployments", ns, "qa-notify");
     await contextMenu(app, "qa-notify", ns);
     await menuItem(app, "Rollout restart");
+    // It asks first, from the menu as from Shift+R (#494).
+    await (await app.find(byTestId("action-confirm"))).click();
     await app.waitFor(async () => /Restarted|restart/i.test(await noticeText(app)), { message: "the restart notice" });
+    await openKind(app, "CronJobs", ns, "qa-notify-locked");
     await contextMenu(app, "qa-notify-locked", ns);
-    await menuItem(app, "Rollout restart");
+    await menuItem(app, "Suspend");
     const err = await app.waitFor(
       async () => {
         const n = await noticeText(app);
         return /locked by the QA scenario/.test(n) ? n : null;
       },
-      { timeout: 30_000, message: "the refused restart notice" },
+      { timeout: 30_000, message: "the refused Suspend notice" },
     );
     console.log(`error notice: ${err}`);
     assert.equal(await badge(app), "2");
@@ -174,7 +199,7 @@ describe("notification history", { timeout: 15 * 60_000 }, () => {
     assert.equal(list.length, 2);
     assert.match(list[0].cls, /\berror\b/);
     assert.match(list[0].text, /locked by the QA scenario/);
-    assert.equal(list[0].link, `Deployment ${ns}/qa-notify-locked`);
+    assert.equal(list[0].link, `CronJob ${ns}/qa-notify-locked`);
     assert.match(list[1].cls, /\bsuccess\b/);
     assert.equal(list[1].link, `Deployment ${ns}/qa-notify`);
     for (const e of list) {

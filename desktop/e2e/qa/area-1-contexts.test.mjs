@@ -54,7 +54,7 @@ const { path: kubeconfig, second: SECOND } = twoContexts();
 
 const panelTitle = (app) => app.js(`return document.querySelector('[data-testid="detail-panel"] .title')?.textContent ?? ""`);
 const activeView = (app) => app.js(`return document.querySelector("nav button.active")?.textContent.trim() ?? ""`);
-const denied = (app) => app.js(`return Array.from(document.querySelectorAll("nav button.denied"), (b) => b.childNodes[0].textContent.trim())`);
+const denied = (app) => app.js(`return Array.from(document.querySelectorAll("nav button.denied"), (b) => (b.querySelector(".label") ?? b).textContent.trim())`);
 const cards = (app) =>
   app.js(`return Array.from(document.querySelectorAll(".overview .card .label"), (l) => l.textContent.trim())`);
 

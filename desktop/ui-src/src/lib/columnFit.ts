@@ -153,6 +153,25 @@ export function settle(prev: readonly number[] | undefined, next: number[]): num
   return next.map((n, i) => (n < prev[i] && prev[i] - n < SETTLE_PX ? prev[i] : n));
 }
 
+/**
+ * A short signature of which rows are shown (their count and keys, in any
+ * order), to
+ * tell values that change on the same rows (kept by `settle`) from a new
+ * set of rows (a filter, a namespace): those are fitted afresh, so a width
+ * kept for rows no longer shown never cuts a name (#482).
+ */
+export function rowsSignature(keys: readonly string[]): string {
+  // Order-independent: a table sorted by CPU reorders the same rows on each
+  // metrics refresh, and that must still count as the same rows.
+  let h = 0;
+  for (const k of keys) {
+    let x = 0;
+    for (let i = 0; i < k.length; i++) x = (Math.imul(x, 31) + k.charCodeAt(i)) | 0;
+    h = (h + Math.imul(x ^ (x >>> 15), 0x2c1b3c6d)) | 0;
+  }
+  return `${keys.length}:${h}`;
+}
+
 /** The values to measure of a column: at most `n`, the longest by length
  *  (a proportional font keeps the order close enough). */
 export function longest(values: Iterable<string>, n = 12): string[] {

@@ -118,7 +118,7 @@ async function openEnv(app) {
   // can come back empty for a long namespace name.
   await pickNamespaces(app, [ns]);
   await app.filter("qa-env");
-  await (await app.find(app.row("qa-env", ns))).click();
+  await app.clickRow("qa-env", ns);
   const summary = await app.find(
     By.xpath(`//section[@aria-label="Container app"]//summary[starts-with(normalize-space(), ${xq("Environment (")})]`),
     { timeout: 30_000 },

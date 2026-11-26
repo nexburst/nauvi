@@ -92,7 +92,7 @@ describe("zoom, terminal font size and focus", { timeout: 15 * 60_000 }, () => {
     await app.js("document.activeElement?.blur()");
     await press(app, "/");
     assert.equal(await app.js(`return document.activeElement?.getAttribute("aria-label")`), "Filter");
-    await (await app.find(app.row("shell", ns))).click();
+    await app.clickRow("shell", ns);
     await app.find(byTestId("detail-panel"));
     await app.waitFor(async () => (await app.js(`return document.activeElement?.getAttribute("role")`)) === "grid", {
       message: "the grid focused after the click",

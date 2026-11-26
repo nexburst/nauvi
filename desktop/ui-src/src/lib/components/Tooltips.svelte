@@ -68,6 +68,9 @@
   }
 
   function hideTip() {
+    // Nothing shown or pending: called on every pointer move, so no new
+    // `pos` object (and no effects) each time.
+    if (!text && !timer) return;
     if (timer) clearTimeout(timer);
     timer = null;
     if (text) lastHidden = Date.now();

@@ -55,7 +55,7 @@ describe("usage charts from Prometheus", { timeout: 10 * 60_000, skip }, () => {
     const node = kubectl(["get", "nodes", "-o", "jsonpath={.items[0].metadata.name}"]);
     await app.nav("Nodes");
     await app.filter(node);
-    await (await app.find(app.row(node))).click();
+    await app.clickRow(node);
     await app.find(byTestId("detail-panel"));
     await app.find(By.css('[data-testid="detail-panel"] [data-testid="usage-charts"]'));
     const c = await waitForPrometheusCharts(app, node);

@@ -109,13 +109,18 @@ describe("Overview look (#480)", { timeout: 10 * 60_000 }, () => {
     await resizeWindow(app, 1280, 800);
     await setTheme(app, null);
     await app.js(`document.querySelector(".overview").scrollTo(0, 0)`);
-    const clicked = await app.js(`
-      const card = Array.from(document.querySelectorAll('.overview section[aria-label="Problem pods"] .problem'))
-        .find((p) => p.querySelector(".name")?.textContent.trim() === "demo/crashed");
-      const logs = card && Array.from(card.querySelectorAll(".actions button")).find((b) => b.textContent.trim() === "Logs");
-      logs?.click();
-      return !!logs;`);
-    assert.ok(clicked, "demo/crashed has a Logs action");
+    // demo/crashed is a problem pod only between two runs of its container
+    // (CLAUDE.md): wait for it, with a bound.
+    await app.waitFor(
+      () =>
+        app.js(`
+          const card = Array.from(document.querySelectorAll('.overview section[aria-label="Problem pods"] .problem'))
+            .find((p) => p.querySelector(".name")?.textContent.trim() === "demo/crashed");
+          const logs = card && Array.from(card.querySelectorAll(".actions button")).find((b) => b.textContent.trim() === "Logs");
+          logs?.click();
+          return !!logs;`),
+      { timeout: 120_000, interval: 1000, message: "demo/crashed with a Logs action in the problem pods" },
+    );
     const tab = await app.waitFor(
       () =>
         app.js(

@@ -104,10 +104,12 @@ describe("area 1: namespace-scoped user", { timeout: 15 * 60_000, skip }, () => 
 
   it("Nodes and the other cluster-scoped kinds are greyed out with a reason", T, async () => {
     const { app } = s;
+    // Cluster Roles and the like wait under their section's "N more" (#481).
+    await app.expandSidebar();
     const nav = await app.waitFor(
       async () => {
         const n = await app.js(
-          `return Array.from(document.querySelectorAll("[data-testid=sidebar-kinds] button"), (b) => ({ label: b.childNodes[0]?.textContent.trim(), denied: b.classList.contains("denied"), title: b.title }))`,
+          `return Array.from(document.querySelectorAll("[data-testid=sidebar-kinds] button.kind"), (b) => ({ label: b.querySelector(".label").textContent.trim(), denied: b.classList.contains("denied"), title: b.title }))`,
         );
         return n.find((b) => b.label === "Nodes")?.denied ? n : null;
       },

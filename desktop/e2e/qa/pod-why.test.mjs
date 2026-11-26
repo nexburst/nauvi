@@ -199,7 +199,7 @@ describe("why a pod is failing (#496)", { timeout: 15 * 60_000 }, () => {
     await pickNamespaces(app, [ns]);
     const name = kubectl(["-n", ns, "get", "pods", "-l", "app=aaa-filler", "-o", "jsonpath={.items[0].metadata.name}"]);
     await app.filter(name);
-    await (await app.find(app.row(name))).click();
+    await app.clickRow(name);
     await waitPanelTitle(app, name);
     await app.waitFor(() => app.js(`return !!document.querySelector('[data-testid="detail-panel"] dl.meta')`), {
       message: "the panel's details",
