@@ -20,7 +20,7 @@ test("the overview counts a crash-looping pod as an error, not as running", asyn
   await expect(problems.locator(".problem .name")).toHaveText(["demo/crashed", "demo/db-0"]);
   await expect(problems).toContainText("CrashLoopBackOff");
   await expect(problems).toContainText("12 restarts");
-  await expect(problems).toContainText("Pending for 60m");
+  await expect(problems).toContainText("Pending for 1h");
 });
 
 test("a running pod whose container failed reads Error in the overview, as in the Pods table (#263)", async ({ page }) => {
@@ -49,7 +49,7 @@ test("a running pod whose container failed reads Error in the overview, as in th
           restarts: 12,
           created,
         },
-        { namespace: "demo", name: "db-0", status: "Pending", reason: "Pending for 60m", restarts: 0, created },
+        { namespace: "demo", name: "db-0", status: "Pending", reason: "Pending for 1h", restarts: 0, created },
         { namespace: "demo", name: "half-failed", status: "Error", reason: "Error", restarts: 0, created },
       ],
       problems_total: 3,
@@ -123,7 +123,7 @@ test("capacity shows requests and usage against allocatable", async ({ page }) =
   const capacity = page.getByRole("region", { name: "Capacity" });
   await expect(capacity).toContainText("1.2 / 8 requested (15%)");
   await expect(capacity).toContainText("900m used (11%)");
-  await expect(capacity).toContainText("3Gi / 16Gi requested (19%)");
+  await expect(capacity).toContainText("3 GiB / 16 GiB requested (19%)");
   await expect(capacity).toContainText("4 / 220 (2%)");
   await expect(capacity.getByRole("meter", { name: "CPU" })).toHaveAttribute("aria-valuenow", "15");
 });
@@ -141,9 +141,12 @@ test("warnings come first and link to their objects", async ({ page }) => {
   const fake = await openApp(page);
   const warnings = page.getByRole("region", { name: "Warnings" });
   await expect(warnings.locator(".event")).toHaveCount(2);
-  await expect(warnings.locator(".event").first()).toContainText("FailedCreate");
-  await expect(warnings.locator(".event").first()).toContainText("2m");
-  await expect(warnings).toContainText("exceeded quota (x4)");
+  // The reason in words, the raw one on hover; how often and when (#484).
+  await expect(warnings.locator(".event").first()).toContainText("Failed to create");
+  await expect(warnings.locator(".event").first().locator(".reason")).toHaveAttribute("title", "FailedCreate");
+  await expect(warnings.locator(".event").first()).toContainText(/4 times, last 2m( \d+s)? ago/);
+  await expect(warnings).toContainText("exceeded quota");
+  await expect(warnings).not.toContainText("(x4)");
   // A kind discovery does not know is not a link.
   await expect(warnings.getByText("Gadget/thing")).toBeVisible();
   await expect(warnings.getByRole("button", { name: "Gadget/thing" })).toHaveCount(0);

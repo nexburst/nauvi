@@ -20,7 +20,7 @@ test("the Overview's counts badge Pods; the Pods table highlights the problem ro
   await openKind(page, "Pods");
   await expect(row(page, "crashed")).toHaveClass(/problem/);
   await expect(row(page, "crashed")).toHaveAttribute("data-problem", "CrashLoopBackOff");
-  await expect(row(page, "db-0")).toHaveAttribute("data-problem", "Pending for 60m");
+  await expect(row(page, "db-0")).toHaveAttribute("data-problem", "Pending for 1h");
   await expect(row(page, "web-1")).not.toHaveClass(/problem/);
   await expect(row(page, "crashed").getByRole("gridcell").first()).toHaveAttribute("title", "CrashLoopBackOff");
 

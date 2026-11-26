@@ -160,7 +160,7 @@ test("a workload panel charts its pods' summed usage, from both sources", async 
   await expect(cpu.locator('polyline[data-series="pods"]')).toHaveCount(1);
   await expect(cpu.getByTestId("ref-request")).toHaveText("request 200m");
   const mem = charts.getByTestId("usage-chart-memory");
-  await expect(mem.getByTestId("ref-limit")).toHaveText("limit 256Mi");
+  await expect(mem.getByTestId("ref-limit")).toHaveText("limit 256 MiB");
   expect(await fake.lastCall("cmdWorkloadUsageHistory")).toEqual({
     kind: "Deployment",
     namespace: "demo",

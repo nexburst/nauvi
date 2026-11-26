@@ -33,7 +33,7 @@ test("the capacity bars show the limits, with a marker", async ({ page }) => {
   await expect(capacity(page)).toContainText("1.2 / 8 requested (15%)");
   await expect(capacity(page)).toContainText("2.5 limits (31%)");
   // Three containers have no memory limit: said, and the marker is hollow.
-  await expect(capacity(page)).toContainText("6Gi limits (38%) · 3 containers without a limit");
+  await expect(capacity(page)).toContainText("6 GiB limits (38%) · 3 containers without a limit");
   await expect(capacity(page).getByTestId("limit-Memory")).toHaveClass(/partial/);
   await expect(capacity(page).getByTestId("limit-CPU")).not.toHaveClass(/partial/);
   await expect(capacity(page).getByTestId("limit-CPU")).toHaveAttribute("style", /left: 31%/);
@@ -42,7 +42,7 @@ test("the capacity bars show the limits, with a marker", async ({ page }) => {
   // Limits over allocatable: overcommitted, the marker at the end, in red.
   const c = (await page.evaluate(() => window.__fake.cluster.overview.capacity))!;
   await fake.emitOverview({ capacity: { ...c, memory_limits_bytes: 20 * 1024 ** 3 } });
-  await expect(capacity(page)).toContainText("20Gi limits (125%)");
+  await expect(capacity(page)).toContainText("20 GiB limits (125%)");
   await expect(capacity(page).getByTestId("limit-Memory")).toHaveClass(/over/);
   await expect(capacity(page).getByTestId("limit-Memory")).toHaveAttribute("style", /left: 100%/);
   expect(fake.errors).toEqual([]);
@@ -83,7 +83,7 @@ test("with a Prometheus, the chart shows its last hour", async ({ page }) => {
     const points = await usage(page).getByTestId(`usage-chart-${r}`).locator("polyline").getAttribute("points");
     expect(points?.split(" ")).toHaveLength(120);
   }
-  await expect(usage(page).getByTestId("usage-chart-memory").getByTestId("ref-limits set")).toHaveText("limits set 6Gi");
+  await expect(usage(page).getByTestId("usage-chart-memory").getByTestId("ref-limits set")).toHaveText("limits set 6 GiB");
   expect(fake.errors).toEqual([]);
 });
 
