@@ -516,7 +516,7 @@
           checked={current.check_updates}
           onchange={(e) => updateSettings({ check_updates: e.currentTarget.checked })}
         />
-        Check for updates on start
+        Check for updates automatically
       </label>
       <div class="row">
         <span class="muted status" data-testid="update-status">
@@ -535,7 +535,7 @@
         >
       </div>
       <p class="muted hint">
-        The check asks GitHub for the latest release. Nothing is downloaded or installed until you click Install and
+        The check asks GitHub for the latest release: on start, then about every 12 hours while nauvi is open. Nothing is downloaded or installed until you click Install and
         restart.
       </p>
     </fieldset>
