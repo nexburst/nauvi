@@ -23,7 +23,7 @@ import { cannotCloseLikeUser, selectContext, x11Windows } from "../lib/window.mj
 
 const T = { timeout: 120_000 };
 // The label only: a problem badge ("Pods 2") may follow it.
-const activeKind = (app) => app.js(`return document.querySelector("nav button.active")?.firstChild?.textContent.trim() ?? ""`);
+const activeKind = (app) => app.js(`return document.querySelector("nav button.active .label")?.textContent.trim() ?? ""`);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const WM_CLOSE = join(dirname(fileURLToPath(import.meta.url)), "../lib/wm-close.py");
 
