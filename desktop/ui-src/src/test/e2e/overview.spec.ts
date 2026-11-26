@@ -17,7 +17,7 @@ test("the overview counts a crash-looping pod as an error, not as running", asyn
   await expect(card(page, "Nodes ready")).toHaveText("2/2");
 
   const problems = page.getByRole("region", { name: "Problem pods" });
-  await expect(problems.getByRole("button")).toHaveText(["demo/crashed", "demo/db-0"]);
+  await expect(problems.locator(".problem .name")).toHaveText(["demo/crashed", "demo/db-0"]);
   await expect(problems).toContainText("CrashLoopBackOff");
   await expect(problems).toContainText("12 restarts");
   await expect(problems).toContainText("Pending for 60m");
@@ -56,12 +56,12 @@ test("a running pod whose container failed reads Error in the overview, as in th
     },
   });
   const problems = page.getByRole("region", { name: "Problem pods" });
-  const entry = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/half-failed" }) });
+  const entry = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/half-failed", exact: true }) });
   await expect(entry.locator(".reason")).toHaveText("Error");
   await expect(entry.locator(".reason")).toHaveClass(/error/);
   await expect(problems).not.toContainText("Not ready");
 
-  await entry.getByRole("button", { name: "demo/half-failed" }).click();
+  await entry.getByRole("button", { name: "demo/half-failed", exact: true }).click();
   await expect(row(page, "crashed")).toBeVisible();
   await fake.emitWatchBatch({ applied: [fake.podRow("demo", "half-failed", "Error", "0", "Error")] });
   await expect(row(page, "half-failed")).toHaveAttribute("data-problem", "Error");
@@ -130,7 +130,7 @@ test("capacity shows requests and usage against allocatable", async ({ page }) =
 
 test("a problem pod opens in the Pods view", async ({ page }) => {
   const fake = await openApp(page);
-  await page.getByRole("region", { name: "Problem pods" }).getByRole("button", { name: "demo/crashed" }).click();
+  await page.getByRole("region", { name: "Problem pods" }).getByRole("button", { name: "demo/crashed", exact: true }).click();
   await expect(page.getByRole("navigation").getByRole("button", { name: "Pods", exact: true })).toHaveClass(/active/);
   await expect
     .poll(async () => (await fake.calls("cmdGetResourceDetail")).at(-1))
@@ -206,4 +206,63 @@ test("a scoped Pods card is wide enough for a short namespace", async ({ page })
   const label = page.locator(".card .label", { hasText: "Pods in team-a" });
   await expect(label).toBeVisible();
   expect(await label.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false);
+});
+
+test("a problem pod's card has its actions: Logs opens the dock, Describe the pod (#480)", async ({ page }) => {
+  const fake = await openApp(page);
+  const problems = page.getByRole("region", { name: "Problem pods" });
+  const crashed = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/crashed", exact: true }) });
+  const pending = problems.locator(".problem", { has: page.getByRole("button", { name: "demo/db-0", exact: true }) });
+  // A pending pod has no logs yet: only Describe.
+  await expect(pending.locator(".actions").getByRole("button")).toHaveText(["Describe"]);
+  await expect(crashed.locator(".actions").getByRole("button")).toHaveText(["Logs", "Describe"]);
+
+  await crashed.getByRole("button", { name: "Logs of demo/crashed" }).click();
+  await expect(page.getByTestId("dock").getByRole("tab")).toHaveText(["Logs: crashed"]);
+  await expect.poll(async () => (await fake.calls("cmdStreamPodLogs")).at(-1)?.name).toBe("crashed");
+  // Still on the Overview.
+  await expect(page.getByTestId("deck-headline")).toBeVisible();
+
+  await crashed.getByRole("button", { name: "Describe demo/crashed" }).click();
+  await expect(page.getByRole("navigation").getByRole("button", { name: "Pods", exact: true })).toHaveClass(/active/);
+  await expect
+    .poll(async () => (await fake.calls("cmdGetResourceDetail")).at(-1))
+    .toEqual({ resource: expect.objectContaining({ kind: "Pod" }), namespace: "demo", name: "crashed" });
+});
+
+test("the stat cards carry an icon each; text is in the UI font, not mono (#480)", async ({ page }) => {
+  await openApp(page);
+  const cards = page.locator(".overview .card");
+  await expect(cards).toHaveCount(8);
+  for (const card of await cards.all()) await expect(card.locator("svg.icon")).toHaveCount(1);
+  const fonts = await page.evaluate(() =>
+    [".overview .headline", ".overview .card .label", ".overview .card .num", ".overview h3"].map(
+      (s) => getComputedStyle(document.querySelector(s)!).fontFamily,
+    ),
+  );
+  for (const f of fonts) expect(f).not.toMatch(/Plex Mono|monospace/);
+});
+
+test("a calm cluster shows the calm headline and the empty states (#480)", async ({ page }) => {
+  const fake = await openApp(page);
+  await fake.emitOverview({
+    pods: {
+      namespace: null,
+      total: 3,
+      running: 3,
+      pending: 0,
+      succeeded: 0,
+      failed: 0,
+      waiting_errors: 0,
+      by_namespace: [["demo", 3]],
+      problems: [],
+      problems_total: 0,
+    },
+    events: { namespace: null, items: [] },
+  });
+  await expect(page.getByTestId("deck-headline")).toHaveText("All quiet on the water");
+  await expect(page.locator(".overview .status-mark.calm")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Problem pods" })).toContainText("None.");
+  await expect(page.getByRole("region", { name: "Warnings" })).toContainText("No warnings.");
+  await expect(page.locator(".card.alert")).toHaveCount(0);
 });

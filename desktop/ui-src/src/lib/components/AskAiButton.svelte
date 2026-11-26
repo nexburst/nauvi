@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "../icons/Icon.svelte";
   import { askAiAvailable, openAskAi } from "../stores/askAi.svelte";
   import { app } from "../stores/app.svelte";
 
@@ -17,15 +18,7 @@
       : "Ask your AI CLI about this cluster, with the nauvi skill"}
     onclick={() => openAskAi()}
   >
-    <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
-      <path
-        d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8Z M18.5 15l.9 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9Z"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="1.6"
-        stroke-linejoin="round"
-      />
-    </svg>
+    <Icon name="sparkles" size={15} />
     <span>Ask AI</span>
   </button>
 {/if}

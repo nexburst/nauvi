@@ -1,3 +1,4 @@
+@import "@fontsource-variable/inter/wght.css";
 @import "@fontsource/ibm-plex-mono/latin-400.css";
 @import "@fontsource/ibm-plex-mono/latin-500.css";
 @import "@fontsource/ibm-plex-mono/latin-600.css";
@@ -27,6 +28,9 @@
   /* Error messages on the panel background. */
   --error-text: #ffabaf;
   --shadow-pop: 0 18px 48px -12px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.04);
+  /* Cards (Overview): a raised sheet with a hairline, barely lifted. */
+  --bg-card: #141922;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
   /* The YAML editor and diff view (lib/editor/setup.ts). */
   --code-bg: #0b0e14;
   --code-text: #d6dce6;
@@ -66,6 +70,8 @@
   --brass-soft: rgba(140, 98, 32, 0.12);
   --error-text: #ad2129;
   --shadow-pop: 0 18px 40px -14px rgba(60, 45, 20, 0.28), 0 0 0 1px rgba(60, 45, 20, 0.06);
+  --bg-card: #fffdf8;
+  --shadow-card: 0 1px 2px rgba(60, 45, 20, 0.07);
   --code-bg: #fffdf8;
   --code-text: #1b2130;
   --code-active-line: rgba(14, 116, 107, 0.06);
@@ -99,6 +105,8 @@
     --brass-soft: rgba(140, 98, 32, 0.12);
     --error-text: #ad2129;
     --shadow-pop: 0 18px 40px -14px rgba(60, 45, 20, 0.28), 0 0 0 1px rgba(60, 45, 20, 0.06);
+    --bg-card: #fffdf8;
+    --shadow-card: 0 1px 2px rgba(60, 45, 20, 0.07);
     --code-bg: #fffdf8;
     --code-text: #1b2130;
     --code-active-line: rgba(14, 116, 107, 0.06);
@@ -113,10 +121,32 @@
   }
 }
 
-/* Motion and type, shared by both themes. */
+/* Motion and type, shared by both themes.
+   Type roles (docs/ux-standard.md, "11. The look"): every word is in the
+   UI font; --font-num (mono) only where characters must line up: numbers
+   in table columns, IDs, YAML, logs, terminals, key hints. The UI font is
+   the system's on macOS and Windows and Inter (bundled) elsewhere, so
+   Linux does not fall back to a wide default. */
 :root {
-  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "Inter Variable", Roboto, sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  /* The type scale. Headings are sentence case at a real size; no
+     letter-spaced capitals. */
+  --text-xs: 11px; /* captions, units, footnotes */
+  --text-sm: 12px; /* secondary text, labels, buttons */
+  --text-base: 13px; /* body text in lists, tables and cards */
+  --text-md: 14px; /* the default body size */
+  --text-lg: 15px; /* section headings (h3) */
+  --text-xl: 20px; /* view titles (h2) */
+  --text-2xl: 26px; /* the one headline of a view, big figures */
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  /* Icons (lib/icons): sizes and the stroke of their lines. */
+  --icon-sm: 14px;
+  --icon: 16px;
+  --icon-lg: 20px;
+  --icon-stroke: 1.8;
+  --radius-card: 10px;
   /* Strong ease-out for things that enter or answer a click. */
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
@@ -136,7 +166,7 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: var(--text-md);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -315,13 +345,12 @@ th {
   flex: 1;
 }
 
-/* A small chart label: mono capitals, used above panels and groups. */
+/* A small label above panels and groups: muted, sentence case, in the UI
+   font. It names a group; it does not shout. */
 .eyebrow {
-  font-family: var(--font-num);
-  font-size: 10.5px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   color: var(--text-muted);
 }
 
