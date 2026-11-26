@@ -942,6 +942,13 @@ export type AskAiStarted = {
 	nauvi: boolean,
 	/**  As in a local shell: the downloaded kubectl first on `PATH`. */
 	kubectl: string,
+	/**  The folder it runs in. */
+	cwd: string,
+	/**
+	 *  `cwd` is the working directory set for the context (else it is Ask
+	 *  AI's own folder).
+	 */
+	cwd_set: boolean,
 };
 
 /**  A saved forward that did not start automatically, and why. */

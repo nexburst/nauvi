@@ -88,12 +88,24 @@ export function skillText(s: Pick<AskAiStarted, "skill" | "skill_path" | "skill_
   return s.nauvi ? base : `${base}; the nauvi CLI is not on PATH, so only kubectl works`;
 }
 
+/** Where the session runs, in words (#532). */
+export function folderText(s: Pick<AskAiStarted, "cwd" | "cwd_set">): string {
+  const dir = oneLine(s.cwd);
+  return s.cwd_set
+    ? `It runs in ${dir}, the working directory set for this cluster.`
+    : `It runs in its own folder, ${dir}, not your home folder. Set a working directory in the cluster's settings to change it.`;
+}
+
 /** The grey lines before the CLI's own output. */
 export function askAiIntro(
-  s: Pick<AskAiStarted, "cli" | "context" | "namespace" | "skill" | "skill_path" | "skill_error" | "nauvi" | "kubectl">,
+  s: Pick<
+    AskAiStarted,
+    "cli" | "context" | "namespace" | "skill" | "skill_path" | "skill_error" | "nauvi" | "kubectl" | "cwd" | "cwd_set"
+  >,
 ): string {
   return (
     `\x1b[90mAsk AI: ${oneLine(s.cli)}, with ${skillText(s)}; kubectl uses context ${oneLine(s.context)}, namespace ${oneLine(s.namespace)}.\r\n` +
+    `${folderText(s)}\r\n` +
     "No MCP server is set up. What it runs is up to its own approval prompts. When it exits, this tab is your shell.\x1b[0m\r\n" +
     kubectlIntro(s.kubectl)
   );

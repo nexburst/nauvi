@@ -124,6 +124,8 @@ export function askAiHandlers(s: FakeState) {
         skill_error: skillError,
         nauvi: config().nauvi,
         kubectl: "",
+        cwd: "/home/demo/.local/share/nauvi/ask-ai",
+        cwd_set: false,
       };
     },
   } satisfies AreaHandlers;
