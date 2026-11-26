@@ -74,6 +74,8 @@ test("kinds the cluster does not serve are greyed out in their group", async ({
     "Resource Slices",
   ]);
   const classes = kindButton(page, "Device Classes");
+  // The pointer off the list: under it, a title shows as the app's tooltip (#483).
+  await page.mouse.move(0, 0);
   await expect(classes).toHaveAttribute("aria-disabled", "true");
   await expect(classes).toHaveAttribute(
     "title",
