@@ -88,8 +88,8 @@ const fixed = (px: number): Fit => ({ min: px, max: px, grow: 0, give: 0 });
 function fitFor(def: ColumnDef): Fit {
   switch (def.kind) {
     case "age":
-      // Never cut (#482): as wide as `23h59m` at least, the widest age.
-      return { min: 56, max: 120, grow: 0, give: 0, sample: "23h59m" };
+      // Never cut (#482): as wide as `9m59s` at least, about the widest age.
+      return { min: 56, max: 120, grow: 0, give: 0, sample: "9m59s" };
     case "podCpu":
       return fixed(112);
     case "podMemory":
@@ -103,7 +103,7 @@ function fitFor(def: ColumnDef): Fit {
   }
   // Name takes the spare width (#384, #482) and gives way last; the end of
   // a cut name stays, where generated names differ.
-  if (def.key === "name") return { min: 168, max: 640, grow: 2, give: 3, middle: true };
+  if (def.key === "name") return { min: 200, max: 640, grow: 2, give: 3, keep: 360, middle: true };
   // Then the places it runs in.
   if (def.key === "namespace" || def.key === "node" || def.key === "nominated")
     return { min: 96, max: 320, grow: 1, give: 2, middle: true };

@@ -99,15 +99,25 @@
   let gridW = $state(0);
   let measureCell: Measure | null = null;
   let measureHead: Measure | null = null;
-  /** Widest value (or header) per column key, px with padding. */
+  /** Widest value per column key, px with padding. */
   let naturals = $state.raw(new Map<string, number>());
+  /** Header label widths per column key, px with padding. */
+  let heads = $state.raw(new Map<string, number>());
+  /** The sort arrow and its gap: room in the sorted column's header only. */
+  const ARROW_PX = 13;
+  /** What a column's content asks for: its widest value or its header. */
+  function naturalOf(key: string): number | undefined {
+    const cells = naturals.get(key);
+    if (cells === undefined) return undefined;
+    return Math.max(cells, (heads.get(key) ?? 0) + (sort?.key === key ? ARROW_PX : 0));
+  }
   /** The column being dragged, and to what width. */
   let dragging = $state.raw<{ key: string; px: number } | null>(null);
   const userWidths = $derived(kindSettings(kind.id).widths ?? {});
   const fitInputs = $derived(
     columns.map((c) => ({
       fit: c.fit,
-      natural: naturals.get(c.key) ?? c.fit.min,
+      natural: naturalOf(c.key) ?? c.fit.min,
       user: dragging?.key === c.key ? dragging.px : userWidths[c.key],
     })),
   );
@@ -124,8 +134,6 @@
 
   // The widths follow the rows at most once a second, so a busy table does
   // not measure on every watch batch; at once for new columns or the first rows.
-  /** Sort arrow and its gap, kept in the header's width so sorting does not cut it. */
-  const ARROW_PX = 13;
   let fitAt = 0;
   let fitTimer: ReturnType<typeof setTimeout> | undefined;
   let fitRows = 0;
@@ -137,12 +145,14 @@
     fitRows = entries.length;
     const ctx = { metrics, now: untrack(() => now) };
     const next = new Map<string, number>();
+    const nextHeads = new Map<string, number>();
     for (const col of columns) {
       if (col.fit.min === col.fit.max) {
         next.set(col.key, col.fit.min);
         continue;
       }
-      let w = measureHead(col.label) + CELL_PAD + ARROW_PX;
+      nextHeads.set(col.key, measureHead(col.label) + CELL_PAD);
+      let w = 0;
       if (col.fit.sample) w = Math.max(w, CELL_PAD + cell(col.fit.sample));
       for (const t of longest(entries.map((e) => col.text(e.row, ctx)))) w = Math.max(w, cellWidth(col, t, cell));
       next.set(col.key, Math.ceil(w));
@@ -154,6 +164,7 @@
       keys.map((k) => next.get(k)!),
     );
     naturals = new Map(keys.map((k, i) => [k, kept[i]]));
+    heads = nextHeads;
   }
   $effect(() => {
     const cols = columns;
@@ -250,7 +261,7 @@
   function fitColumn(i: number) {
     const col = columns[i];
     if (userWidths[col.key] !== undefined) saveWidth(col.key, null);
-    else saveWidth(col.key, naturals.get(col.key) ?? col.fit.min);
+    else saveWidth(col.key, naturalOf(col.key) ?? col.fit.min);
   }
   let scrollLeft = $state(0);
   // svelte-ignore state_referenced_locally
@@ -839,17 +850,17 @@
                 class="td {cls}"
                 class:cut={shown.cut}
                 role="gridcell"
+                aria-label={shown.text !== text ? text : undefined}
                 title={shown.cut
                   ? text
                   : col.title?.(entry.row, settings.current.time_zone) ||
                     (spark && spark.length > 1 ? `${text}, trend since ${clockTime(metrics.since)}` : undefined)}
               >
-                {#if col.cls}
-                  <!-- The state as an icon too, not by colour alone (#482). -->
-                  {@const icon = statusIcon(cls)}
-                  <span class="st-icon">{#if icon}<Icon name={icon} size={14} />{/if}</span>
-                {/if}
-                {#if link && col.link === "owner"}
+                <!-- A state as an icon too, not by colour alone (#482). No
+                     space between it and the text: STATUS_ICON_PX is all it takes. -->
+                {#if col.cls}{@const icon = statusIcon(cls)}<span class="st-icon"
+                    >{#if icon}<Icon name={icon} size={14} />{/if}</span
+                  >{/if}{#if link && col.link === "owner"}
                   <!-- The owner's name is the link (#378). Out of the tab order
                        like the rows: the grid has the focus. -->
                   <button

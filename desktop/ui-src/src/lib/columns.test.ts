@@ -96,7 +96,7 @@ describe("columnsFor", () => {
     expect(fit.namespace.middle).toBe(true);
     expect(fit.x.middle).toBeFalsy();
     // Age is as wide as its widest value from the start.
-    expect(fit.age.sample).toBe("23h59m");
+    expect(fit.age.sample).toBe("9m59s");
   });
 
   it("gives a cell's width with what is drawn in it", () => {

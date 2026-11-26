@@ -89,18 +89,23 @@
 <div class="menu" role="menu" data-testid="context-menu" bind:this={el} style:left="{left}px" style:top="{top}px">
   <div class="title" title={title}>{title}</div>
   {#each items as item, i (item.label)}
-    <button
-      type="button"
-      role="menuitem"
-      tabindex="-1"
-      class:danger={item.danger}
-      class:denied={!!item.reason}
-      disabled={off(item)}
-      title={item.reason || undefined}
-      aria-describedby={item.reason ? `menu-deny-${i}` : undefined}
-      onclick={() => pick(item)}
-      ><span class="label">{item.label}</span>{#if item.key}<kbd aria-hidden="true">{item.key}</kbd>{/if}</button
-    >
+    <!-- The key sits over the item's end, outside it, so the item's text
+         (and name) stays its label. -->
+    <div class="item" role="none">
+      <button
+        type="button"
+        role="menuitem"
+        tabindex="-1"
+        class:danger={item.danger}
+        class:denied={!!item.reason}
+        class:keyed={!!item.key}
+        disabled={off(item)}
+        title={item.reason || undefined}
+        aria-describedby={item.reason ? `menu-deny-${i}` : undefined}
+        onclick={() => pick(item)}>{item.label}</button
+      >
+      {#if item.key}<kbd aria-hidden="true">{item.key}</kbd>{/if}
+    </div>
     {#if item.reason}
       <div class="reason" role="none" id="menu-deny-{i}" data-testid="menu-reason">{item.reason}</div>
     {/if}
@@ -152,23 +157,28 @@
     background: var(--bg-hover);
     outline: none;
   }
-  button {
+  .item {
+    position: relative;
     display: flex;
-    align-items: center;
-    gap: 16px;
+    flex-direction: column;
   }
-  .label {
-    flex: 1;
-    min-width: 0;
+  button.keyed {
+    padding-right: 48px;
   }
+  /* The key that does the same on a focused row (#494). */
   kbd {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
     font-family: var(--font-num);
     font-size: 10.5px;
+    line-height: 16px;
     color: var(--text-muted);
     padding: 0 4px;
     border: 1px solid var(--border);
     border-radius: 3px;
-    line-height: 16px;
   }
   button:disabled {
     color: var(--text-muted);

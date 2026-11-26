@@ -8,7 +8,8 @@
 
 /** How a column's width is fitted. Widths are px, cell padding included. */
 export interface Fit {
-  /** The narrowest it gets when the table is short of room. */
+  /** The narrowest it gets when the table is short of room (a column
+   *  whose values are narrower stays as narrow as they are). */
   min: number;
   /** The widest its content makes it (the spare width can go beyond). */
   max: number;
@@ -17,10 +18,14 @@ export interface Fit {
   /** Gives up width below its content's when the table is short of room,
    *  the lowest first. 0: never (short values: Ready, Age, Status). */
   give: number;
+  /** Kept up to this width when the table scrolls sideways anyway (it is
+   *  short of room even with every column at its minimum): there is no
+   *  point cutting a name then. */
+  keep?: number;
   /** A cut value keeps its end, where generated names differ
    *  (`logger-846dd6…-x7k2p`), instead of losing it to an ellipsis. */
   middle?: boolean;
-  /** A value at least this wide is expected (Age's `23h59m`), so the
+  /** A value at least this wide is expected (Age's `9m59s`), so the
    *  column does not widen and narrow as values change. */
   sample?: string;
 }
@@ -38,10 +43,12 @@ export interface FitInput {
 }
 
 /** The width a column's content asks for: its widest value or its header,
- *  between its minimum and maximum. */
+ *  up to its maximum. (Its minimum is how far it gives way, not a width
+ *  it takes: a Name column of short names stays narrow, and the spare
+ *  width it gets is what is left over.) */
 export function wanted(c: FitInput): number {
   if (c.user !== undefined) return c.user;
-  return Math.round(Math.min(c.fit.max, Math.max(c.fit.min, c.natural)));
+  return Math.round(Math.min(c.fit.max, c.natural));
 }
 
 /** The narrowest the columns get together: a table narrower than this
@@ -76,6 +83,14 @@ export function fitWidths(cols: readonly FitInput[], avail: number): number[] {
     const at = cols.map((c, i) => (c.user === undefined && c.fit.give === tier ? i : -1)).filter((i) => i >= 0);
     spare += cut(w, at, (i) => Math.min(cols[i].fit.min, w[i]), -spare);
   }
+  // Still short: the table scrolls sideways, so the columns that say so
+  // keep their values, up to `keep` and to a share of the table, so the
+  // columns after them stay in view.
+  if (spare < 0)
+    cols.forEach((c, i) => {
+      if (c.user === undefined && c.fit.keep)
+        w[i] = Math.max(w[i], Math.min(wanted(c), c.fit.keep, Math.floor(avail * KEEP_SHARE)));
+    });
   return w;
 }
 
@@ -105,6 +120,12 @@ function cut(w: number[], at: number[], floor: (i: number) => number, need: numb
   return took;
 }
 
+/** The longest last part (`-x7k2p`) kept whole by `middleCut`. */
+const MAX_SUFFIX = 12;
+
+/** The share of the table's width a column keeps when it scrolls sideways. */
+export const KEEP_SHARE = 0.45;
+
 /** Text width, px. */
 export type Measure = (text: string) => number;
 
@@ -119,10 +140,10 @@ export function middleCut(text: string, width: number, measure: Measure): string
   const last = Math.max(text.lastIndexOf("-"), text.lastIndexOf("."), text.lastIndexOf("/"));
   const suffix = last > 0 ? text.length - last : 0;
   const make = (k: number) => {
-    let tail = Math.floor(k * 0.45);
-    // The whole suffix (with its separator) when it leaves a few characters
-    // of the start.
-    if (suffix > tail && suffix <= k - 4) tail = suffix;
+    // A short last part (a pod's `-x7k2p`, a namespace's `-payments`) whole,
+    // with all the rest of the room for the start: what is cut is the
+    // middle, the ReplicaSet hash first. Otherwise a little less than half.
+    const tail = suffix > 0 && suffix <= MAX_SUFFIX && suffix <= k - 4 ? suffix : Math.floor(k * 0.45);
     return text.slice(0, k - tail) + "…" + (tail > 0 ? text.slice(-tail) : "");
   };
   // The most characters that fit.

@@ -17,8 +17,10 @@ describe("fitWidths", () => {
     expect(w).toEqual([800 - 110 - 60 - 70, 110, 60, 70]);
   });
 
-  it("keeps values between the column's minimum and maximum", () => {
-    expect(fitWidths([col(SHORT, 10), col(SHORT, 500)], 0)).toEqual([48, 120]);
+  it("caps a column at its maximum, and leaves narrow values narrow", () => {
+    expect(fitWidths([col(SHORT, 30), col(SHORT, 500)], 0)).toEqual([30, 120]);
+    // A Name of short names does not hold width the others need.
+    expect(fitWidths([col(NAME, 90), col(NS, 150)], 220)).toEqual([90, 130]);
   });
 
   it("sends the spare to Namespace and Node once Name is sized by the user", () => {
@@ -48,6 +50,17 @@ describe("fitWidths", () => {
     expect(both).toEqual([168, 150, 150]);
   });
 
+  it("keeps names whole (up to `keep`) when the table scrolls sideways anyway", () => {
+    const keep: Fit = { ...NAME, keep: 300 };
+    // 168 + 60 > 220: it scrolls, so Name keeps its 280, up to 45% of the table.
+    expect(fitWidths([col(keep, 280), col(SHORT, 60)], 220)).toEqual([168, 60]);
+    expect(fitWidths([col(keep, 280), col(SHORT, 120), col(TEXT, 600, 600)], 700)).toEqual([280, 120, 600]);
+    // Up to its keep.
+    expect(fitWidths([col(keep, 500), col(SHORT, 120), col(TEXT, 900, 900)], 1000)).toEqual([300, 120, 900]);
+    // Not when cutting it to its minimum is enough.
+    expect(fitWidths([col(keep, 280), col(SHORT, 60)], 240)).toEqual([180, 60]);
+  });
+
   it("keeps a width the user set, even short of room", () => {
     expect(fitWidths([col(NAME, 300), col(TEXT, 200, 250)], 300)).toEqual([168, 250]);
   });
@@ -69,6 +82,8 @@ describe("middleCut", () => {
     expect(a).toMatch(/^payments.*….*-x7k2p$/);
     expect(b).toMatch(/-q2w3e$/);
     expect(a).not.toBe(b);
+    // With a little more room the hash in the middle goes first, the owner's name stays.
+    expect(middleCut("payments-worker-canary-7d9f8b6c5-x7k2p", 30 * 7, mono)).toBe("payments-worker-canary-…-x7k2p");
   });
 
   it("cuts in the middle without a separator, and to nothing in no room", () => {
