@@ -4,7 +4,7 @@
 // the table's width with `fitWidths` (columnFit.ts). The table passes what
 // it shows through `Source`; the layout is plain arithmetic on a resize.
 import { untrack } from "svelte";
-import { CELL_PAD, fitSettled, longest, middleCut, minTotal, sample, settle } from "../columnFit";
+import { CELL_PAD, fitWidths, longest, middleCut, minTotal, rowsSignature, sample, settle } from "../columnFit";
 import type { FitInput, Measure } from "../columnFit";
 import { cellWidth, STATUS_ICON_PX } from "../columns";
 import type { Column, Ctx, Row } from "../columns";
@@ -35,8 +35,6 @@ export class TableFit {
   dragging = $state.raw<{ key: string; px: number } | null>(null);
   /** Widest value per column key, px with padding. */
   #naturals = $state.raw(new Map<string, number>());
-  /** The same as last measured, before `settle` kept wider ones. */
-  #measured = $state.raw(new Map<string, number>());
   /** Header label widths per column key, px with padding. */
   #heads = $state.raw(new Map<string, number>());
   #cell: Measure | null = null;
@@ -44,6 +42,8 @@ export class TableFit {
   #at = 0;
   #timer: ReturnType<typeof setTimeout> | undefined;
   #rows = 0;
+  /** `rowsSignature` of the rows last measured. */
+  #shown = "";
   /** A cut generated name keeps its end (`logger-84…-x7k2p`). */
   #middle = cached((text, width) => (this.#cell ? middleCut(text, width, this.#cell) : text));
 
@@ -54,24 +54,22 @@ export class TableFit {
   }
 
   /** What a column's content asks for: its widest value or its header. */
-  natural(key: string, measured = false): number | undefined {
-    const cells = (measured ? this.#measured : this.#naturals).get(key);
+  natural(key: string): number | undefined {
+    const cells = this.#naturals.get(key);
     if (cells === undefined) return undefined;
     return Math.max(cells, (this.#heads.get(key) ?? 0) + (this.src.sortKey() === key ? ARROW_PX : 0));
   }
 
-  #inputs(measured: boolean): FitInput[] {
+  readonly inputs: FitInput[] = $derived.by(() => {
     const user = this.src.userWidths();
     return this.src.columns().map((c) => ({
       fit: c.fit,
-      natural: this.natural(c.key, measured) ?? c.fit.min,
+      natural: this.natural(c.key) ?? c.fit.min,
       user: this.dragging?.key === c.key ? this.dragging.px : user[c.key],
     }));
-  }
-  readonly inputs: FitInput[] = $derived(this.#inputs(false));
-  readonly #measuredInputs: FitInput[] = $derived(this.#inputs(true));
+  });
   /** Each column's width, px. */
-  readonly widths: number[] = $derived(fitSettled(this.inputs, this.#measuredInputs, this.avail));
+  readonly widths: number[] = $derived(fitWidths(this.inputs, this.avail));
   /** The columns' width together: at least what their minimums need. */
   readonly total: number = $derived(
     Math.max(
@@ -130,14 +128,19 @@ export class TableFit {
         for (const t of longest(entries.map((e) => col.text(e.row, ctx)))) w = Math.max(w, cellWidth(col, t, cell));
         next.set(col.key, Math.ceil(w));
       }
-      // A column narrowing a little keeps its width (no jitter).
+      // A column narrowing a little keeps its width (no jitter), while the
+      // same rows are shown; other rows (a filter, a namespace) fit afresh.
+      const shown = rowsSignature(entries.map((e) => e.row.key));
+      const same = shown === this.#shown;
+      this.#shown = shown;
       const keys = [...next.keys()];
-      const kept = settle(
-        keys.map((k) => this.#naturals.get(k) ?? 0),
-        keys.map((k) => next.get(k)!),
-      );
+      const kept = same
+        ? settle(
+            keys.map((k) => this.#naturals.get(k) ?? 0),
+            keys.map((k) => next.get(k)!),
+          )
+        : keys.map((k) => next.get(k)!);
       this.#naturals = new Map(keys.map((k, i) => [k, kept[i]]));
-      this.#measured = next;
       this.#heads = heads;
     });
   }

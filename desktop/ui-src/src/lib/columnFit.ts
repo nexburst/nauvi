@@ -154,15 +154,15 @@ export function settle(prev: readonly number[] | undefined, next: number[]): num
 }
 
 /**
- * `fitWidths` of the settled inputs (widths kept by `settle`) while they fit
- * in `avail`; when the table is short of room, of the measured ones: a
- * width kept for a value no longer shown never cuts another column's
- * values (a pod name cut while CPU keeps the room of a value gone with an
- * earlier filter). `settled` and `measured` list the same columns.
+ * A short signature of which rows are shown (their count and keys), to
+ * tell values that change on the same rows (kept by `settle`) from a new
+ * set of rows (a filter, a namespace): those are fitted afresh, so a width
+ * kept for rows no longer shown never cuts a name (#482).
  */
-export function fitSettled(settled: readonly FitInput[], measured: readonly FitInput[], avail: number): number[] {
-  const want = settled.reduce((sum, c) => sum + wanted(c), 0);
-  return fitWidths(want <= Math.floor(avail) ? settled : measured, avail);
+export function rowsSignature(keys: readonly string[]): string {
+  let h = 0;
+  for (const k of keys) for (let i = 0; i < k.length; i++) h = (Math.imul(h, 31) + k.charCodeAt(i)) | 0;
+  return `${keys.length}:${h}`;
 }
 
 /** The values to measure of a column: at most `n`, the longest by length
