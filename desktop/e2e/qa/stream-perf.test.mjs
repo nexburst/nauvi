@@ -28,7 +28,7 @@ import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { ARTIFACTS, CONTEXT, xq } from "../lib/app.mjs";
 import { deleteNamespace, kubectl, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { appPid, openPodLogs, pane, panelButton } from "../lib/dock.mjs";
+import { appPid, openLogOptions, openPodLogs, pane, panelButton } from "../lib/dock.mjs";
 import { measured, peakMemory } from "../lib/perf.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 import { setTheme } from "../lib/theme.mjs";
@@ -266,8 +266,15 @@ describe("stream throughput", { skip, timeout: 25 * 60_000 }, () => {
     );
     const runs = [];
     for (let i = 1; i <= BURSTS; i++) {
-      // Each burst starts from an empty view.
+      // Each burst starts from an empty view. Clear is in the log options
+      // since #492; the menu closes again before the burst.
+      await openLogOptions(app, id);
       await (await app.find(By.xpath(`//*[@data-tab=${xq(id)}]//button[normalize-space()='Clear']`))).click();
+      await app.js(
+        `const b = document.querySelector(arguments[0] + ' button[aria-label="Log options"]');
+         if (b && b.getAttribute('aria-expanded') === 'true') b.click();`,
+        pane(id),
+      );
       const r = await measured(
         app,
         pid,
