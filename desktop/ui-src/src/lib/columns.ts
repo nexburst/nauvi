@@ -83,17 +83,17 @@ export function isNode(kind: ResourceKind): boolean {
 }
 
 // Widths, px with the cell's padding: see `Fit` in columnFit.ts.
-const fixed = (px: number): Fit => ({ min: px, max: px, grow: 0, give: 0 });
 
 function fitFor(def: ColumnDef): Fit {
   switch (def.kind) {
     case "age":
       // Never cut (#482): as wide as `9m59s` at least, about the widest age.
       return { min: 56, max: 120, grow: 0, give: 0, sample: "9m59s" };
+    // As wide as their values and sparkline (#482): "—" without metrics
+    // does not hold 120 px.
     case "podCpu":
-      return fixed(112);
     case "podMemory":
-      return fixed(122);
+      return { min: 64, max: 140, grow: 0, give: 0 };
     case "nodeCpu":
       return { min: 140, max: 220, grow: 0, give: 0 };
     case "nodeMemory":
@@ -103,22 +103,24 @@ function fitFor(def: ColumnDef): Fit {
   }
   // Name takes the spare width (#384, #482) and gives way last; the end of
   // a cut name stays, where generated names differ.
-  if (def.key === "name") return { min: 200, max: 640, grow: 2, give: 3, keep: 360, middle: true };
+  if (def.key === "name") return { min: 240, max: 640, grow: 2, give: 3, middle: true };
   // Then the places it runs in.
   if (def.key === "namespace" || def.key === "node" || def.key === "nominated")
-    return { min: 96, max: 320, grow: 1, give: 2, middle: true };
+    return { min: 88, max: 320, grow: 1, give: 2, middle: true };
   if (def.key === "message") return { min: 240, max: 100000, grow: 3, give: 1 };
   // Short values ("1/1", "12", "Running") are as wide as they and their
   // header are, and are never cut.
   if (def.kind === "number" || def.key === "ready" || def.key === "restarts")
     return { min: 48, max: 120, grow: 0, give: 0 };
-  if (def.kind === "owner") return { min: 120, max: 360, grow: 0, give: 1, middle: true };
+  if (def.kind === "owner") return { min: 160, max: 360, grow: 0, give: 1, middle: true };
   if (def.kind === "containers") return { min: 72, max: 260, grow: 0, give: 1 };
   if (def.kind === "rollout") return { min: 96, max: 220, grow: 0, give: 0 };
   // "CrashLoopBackOff" behind its icon; a longer reason is cut, with the
   // whole text in the cell's title.
   if (def.kind === "status") return { min: 80, max: 240, grow: 0, give: 0 };
-  return { min: 72, max: 360, grow: 0, give: 1 };
+  // Other text (QoS, IP, labels) gives way first, but a value up to about
+  // 15 characters ("Burstable", "10.244.0.5") is never cut.
+  return { min: 120, max: 360, grow: 0, give: 1 };
 }
 
 /** The px drawn before a status cell's text: its icon and the gap. */
@@ -147,8 +149,13 @@ export function cellWidth(col: Column, text: string, measure: Measure): number {
   if (col.draw === "containers") return CELL_PAD + parseContainers(text).length * 13;
   if (col.draw === "rollout") return CELL_PAD + 16 + measure(text);
   const lead = col.cls ? STATUS_ICON_PX : 0;
-  return CELL_PAD + lead + (text ? measure(text) : 0);
+  // A metric's sparkline may follow its value.
+  const spark = col.spark && text !== "—" ? SPARK_PX : 0;
+  return CELL_PAD + lead + (text ? measure(text) : 0) + spark;
 }
+
+/** A sparkline and its gap (Sparkline.svelte). */
+export const SPARK_PX = 38;
 
 /** A column label in sentence case (#384): "Controlled By" -> "Controlled
  *  by". A word with a capital after its first letter (CPU, QoS, IP) is kept.

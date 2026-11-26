@@ -18,10 +18,6 @@ export interface Fit {
   /** Gives up width below its content's when the table is short of room,
    *  the lowest first. 0: never (short values: Ready, Age, Status). */
   give: number;
-  /** Kept up to this width when the table scrolls sideways anyway (it is
-   *  short of room even with every column at its minimum): there is no
-   *  point cutting a name then. */
-  keep?: number;
   /** A cut value keeps its end, where generated names differ
    *  (`logger-846dd6…-x7k2p`), instead of losing it to an ellipsis. */
   middle?: boolean;
@@ -83,14 +79,6 @@ export function fitWidths(cols: readonly FitInput[], avail: number): number[] {
     const at = cols.map((c, i) => (c.user === undefined && c.fit.give === tier ? i : -1)).filter((i) => i >= 0);
     spare += cut(w, at, (i) => Math.min(cols[i].fit.min, w[i]), -spare);
   }
-  // Still short: the table scrolls sideways, so the columns that say so
-  // keep their values, up to `keep` and to a share of the table, so the
-  // columns after them stay in view.
-  if (spare < 0)
-    cols.forEach((c, i) => {
-      if (c.user === undefined && c.fit.keep)
-        w[i] = Math.max(w[i], Math.min(wanted(c), c.fit.keep, Math.floor(avail * KEEP_SHARE)));
-    });
   return w;
 }
 
@@ -122,9 +110,6 @@ function cut(w: number[], at: number[], floor: (i: number) => number, need: numb
 
 /** The longest last part (`-x7k2p`) kept whole by `middleCut`. */
 const MAX_SUFFIX = 12;
-
-/** The share of the table's width a column keeps when it scrolls sideways. */
-export const KEEP_SHARE = 0.45;
 
 /** Text width, px. */
 export type Measure = (text: string) => number;

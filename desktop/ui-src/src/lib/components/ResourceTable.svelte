@@ -35,7 +35,7 @@
   import type { Measure } from "../columnFit";
   import { cached, measurerFor } from "../textMeasure";
   import Icon from "../icons/Icon.svelte";
-  import type { IconName } from "../icons/icons";
+  import RowQuickActions, { type Quick } from "./RowQuickActions.svelte";
   import type { KeyedStore } from "../stores/keyed.svelte";
   import type { Sort } from "../view";
   import { ListFilter } from "../stores/tableFilter.svelte";
@@ -132,8 +132,9 @@
   /** The px left for a cell's text, per column. */
   const textWidths = $derived(widths.map((w, i) => w - CELL_PAD - (columns[i]?.cls ? STATUS_ICON_PX : 0)));
 
-  // The widths follow the rows at most once a second, so a busy table does
+  // The widths follow the rows at most every FIT_MS, so a busy table does
   // not measure on every watch batch; at once for new columns or the first rows.
+  const FIT_MS = 300;
   let fitAt = 0;
   let fitTimer: ReturnType<typeof setTimeout> | undefined;
   let fitRows = 0;
@@ -141,7 +142,7 @@
     fitAt = performance.now();
     if (!measureCell || !measureHead) return;
     const cell = measureCell;
-    const entries = sample(store.entries);
+    const entries = sample(visible);
     fitRows = entries.length;
     const ctx = { metrics, now: untrack(() => now) };
     const next = new Map<string, number>();
@@ -168,12 +169,14 @@
   }
   $effect(() => {
     const cols = columns;
-    const count = store.entries.length;
-    void store.entries;
+    const count = visible.length;
+    void visible;
+    // The metric columns follow their values too.
+    void metrics;
     untrack(() => {
       const now = performance.now();
       const urgent = cols.some((c) => !naturals.has(c.key)) || (fitRows === 0 && count > 0);
-      const wait = urgent ? 0 : Math.max(0, 1000 - (now - fitAt));
+      const wait = urgent ? 0 : Math.max(0, FIT_MS - (now - fitAt));
       if (wait === 0) {
         clearTimeout(fitTimer);
         fitTimer = undefined;
@@ -566,7 +569,7 @@
   /** The row's quick actions, shown on hover (#482): its dock tabs and its YAML. */
   const quick = $derived.by(() => {
     const dock = dockMenuFor(kind.resource, "", "x").map((d) => d.label);
-    const out: { verb: Verb; label: string; key: string; icon: IconName }[] = [];
+    const out: Quick[] = [];
     if (dock.includes("Logs")) out.push({ verb: "logs", label: "Logs", key: "L", icon: "logs" });
     if (dock.includes("Shell")) out.push({ verb: "shell", label: "Shell", key: "S", icon: "terminal" });
     out.push({ verb: "edit", label: "Edit YAML", key: "E", icon: "edit" });
@@ -926,22 +929,12 @@
               </div>
             {/each}
             <div class="td more" role="gridcell">
-              {#if entry.key === hoverKey || i === focusedIndex}
+              {#if entry.key === hoverKey}
                 <!-- The row's own actions on hover (#482), so the ⋮ menu is
-                     not the only way to them. -->
-                <div class="quick" data-testid="row-quick">
-                  {#each quick as q (q.verb)}
-                    <button
-                      type="button"
-                      class="quick-btn"
-                      tabindex="-1"
-                      data-testid="row-{q.verb}"
-                      aria-label="{q.label} of {entry.row.name}"
-                      title="{q.label} ({q.key})"
-                      onclick={(e) => quickVerb(e, entry.row, q.verb)}><Icon name={q.icon} size={15} /></button
-                    >
-                  {/each}
-                </div>
+                     not the only way to them. Only under the pointer: they
+                     cover the end of the last cell, and the keyboard has
+                     L, S and E for them. -->
+                <RowQuickActions name={entry.row.name} items={quick} run={(e, verb) => quickVerb(e, entry.row, verb)} />
               {/if}
               <button
                 type="button"
@@ -1275,40 +1268,9 @@
     background: var(--accent);
   }
   /* The row's quick actions sit over the end of the last cells, in the
-     row's tint, only while it is hovered or focused. */
+     row's tint, only while it is hovered. */
   .td.more {
     overflow: visible;
-  }
-  .quick {
-    position: absolute;
-    right: 100%;
-    top: 0;
-    bottom: 0;
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    padding: 0 2px 0 14px;
-    background:
-      linear-gradient(var(--row-bg, transparent), var(--row-bg, transparent)),
-      var(--bg);
-    /* Fades in over the cell it covers. */
-    -webkit-mask-image: linear-gradient(to right, transparent, #000 12px);
-    mask-image: linear-gradient(to right, transparent, #000 12px);
-  }
-  .quick-btn {
-    all: unset;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 22px;
-    border-radius: 5px;
-    color: var(--text-muted);
-    cursor: pointer;
-  }
-  .quick-btn:hover {
-    color: var(--accent);
-    background: var(--bg-hover);
   }
   .more-btn {
     all: unset;

@@ -39,7 +39,8 @@ const rowOf = (page: Page, name: string) =>
 const nameCell = (page: Page, name: string) => rowOf(page, name).getByRole("gridcell").nth(1);
 
 test("names are not cut while there is room; short columns stay narrow", async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 800 });
+  // Room for the 38-character names and the 41-character node.
+  await page.setViewportSize({ width: 1720, height: 900 });
   await openApp(page, longNames);
   await openKind(page, "Pods");
   await expect(rows(page)).toHaveCount(7);
@@ -58,6 +59,24 @@ test("names are not cut while there is room; short columns stay narrow", async (
     .locator(".scroller")
     .evaluate((el) => el.scrollWidth - el.clientWidth);
   expect(overflow).toBeLessThanOrEqual(1);
+  await page.screenshot({ path: test.info().outputPath("pods-1720.png") });
+});
+
+test("at 1280 px Name gives way last, keeping its end; short columns are whole", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openApp(page, longNames);
+  await openKind(page, "Pods");
+  await expect(rows(page)).toHaveCount(7);
+  // The node and namespace columns gave way before Name.
+  const name = nameCell(page, CANARY);
+  await expect(name).toHaveText(/^payments-worker-canary.*-x7k2p$/);
+  await expect(rowOf(page, CANARY).getByRole("gridcell", { name: NODE })).toHaveClass(/\bcut\b/);
+  for (const n of ["Ready", "Status", "Restarts", "Age"]) {
+    const i = await grid(page)
+      .getByRole("columnheader")
+      .evaluateAll((hs, label) => hs.findIndex((h) => h.textContent?.trim() === label), n);
+    await expect(rows(page).locator(`> :nth-child(${i + 1}).cut`), n).toHaveCount(0);
+  }
   await page.screenshot({ path: test.info().outputPath("pods-1280.png") });
 });
 
@@ -65,7 +84,8 @@ test("short of room, a cut name keeps its end and shows the whole name in its to
   await page.setViewportSize({ width: 1100, height: 800 });
   await openApp(page, longNames);
   await openKind(page, "Pods");
-  await row(page, "web-1").click();
+  // On its name: the middle of the row may be a cell's link.
+  await row(page, "web-1").getByRole("gridcell").nth(1).click();
   await expect(panel(page)).toBeVisible();
 
   const canary = nameCell(page, CANARY);
@@ -81,8 +101,7 @@ test("short of room, a cut name keeps its end and shows the whole name in its to
     const i = await grid(page)
       .getByRole("columnheader")
       .evaluateAll((hs, label) => hs.findIndex((h) => h.textContent?.trim() === label), n);
-    const cells = rows(page).locator(`> :nth-child(${i + 1})`);
-    await expect(cells.and(page.locator(".cut")), n).toHaveCount(0);
+    await expect(rows(page).locator(`> :nth-child(${i + 1}).cut`), n).toHaveCount(0);
   }
   await page.screenshot({ path: test.info().outputPath("pods-panel.png") });
 });
@@ -107,7 +126,7 @@ test("a header edge drags to resize, is remembered per kind, and double-click fi
   await expect(header(page, "Namespace")).toHaveAttribute("aria-sort", "none");
 
   // Saved with the kind's settings, and back after another kind.
-  const saved = (await fake.calls("cmd_update_settings")).map((c) => JSON.stringify(c));
+  const saved = (await fake.calls("cmdUpdateSettings")).map((c) => JSON.stringify(c));
   expect(saved.some((c) => c.includes('"namespace":' + sized))).toBe(true);
   await openKind(page, "Deployments");
   await expect(row(page, "web")).toBeVisible();
@@ -144,8 +163,8 @@ test("a hovered row shows its logs, shell and YAML actions", async ({ page }) =>
 
   // YAML opens the panel on its editor, without the row's click opening it plain.
   await quick.getByTestId("row-edit").click();
-  await expect(panel(page)).toBeVisible();
-  await expect(page.locator("aside").getByRole("tab", { name: "YAML" })).toHaveAttribute("aria-selected", "true");
+  await expect(panel(page)).toContainText("web-2");
+  await expect(panel(page).getByTestId("yaml-editor")).toBeInViewport();
 
   await row(page, "web-1").hover();
   await row(page, "web-1").getByTestId("row-logs").click();
@@ -186,7 +205,13 @@ test("every row menu offers Edit YAML after the dock entries, with the keys (#49
   await row(page, "db-0").click({ button: "right" });
   await page.getByRole("menuitem", { name: "Edit YAML", exact: true }).click();
   await expect(panel(page)).toContainText("db-0");
-  await expect(page.locator("aside").getByRole("tab", { name: "YAML" })).toHaveAttribute("aria-selected", "true");
+  await expect(panel(page).getByTestId("yaml-editor")).toBeInViewport();
+
+  // A Deployment's panel opens on its YAML tab.
+  await openKind(page, "Deployments");
+  await row(page, "web").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Edit YAML", exact: true }).click();
+  await expect(panel(page).getByRole("tab", { name: "YAML" })).toHaveAttribute("aria-selected", "true");
 });
 
 test("Rollout restart asks first from the menu and the panel, as from Shift+R (#494)", async ({ page }) => {
@@ -197,12 +222,12 @@ test("Rollout restart asks first from the menu and the panel, as from Shift+R (#
   const dialog = page.getByTestId("action-dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("web");
-  expect(await fake.calls("cmd_run_action")).toEqual([]);
+  expect(await fake.calls("cmdRunAction")).toEqual([]);
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
 
   await row(page, "web").click();
   await panel(page).locator('button[data-action="restart"]').click();
   await expect(dialog).toBeVisible();
-  expect(await fake.calls("cmd_run_action")).toEqual([]);
+  expect(await fake.calls("cmdRunAction")).toEqual([]);
 });

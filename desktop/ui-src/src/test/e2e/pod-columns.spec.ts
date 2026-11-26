@@ -68,7 +68,8 @@ test("the Controlled By link opens the owner's detail", async ({ page }) => {
   await chooser(page).getByRole("checkbox", { name: "Controlled by", exact: true }).check();
   await page.keyboard.press("Escape");
 
-  await row(page, "web-1").getByTestId("owner-link").click();
+  // Near its start: the row's quick actions (#482) sit over the end of the last column.
+  await row(page, "web-1").getByTestId("owner-link").click({ position: { x: 8, y: 6 } });
   const nav = page.getByRole("navigation").locator("button.active");
   await expect(nav).toHaveAccessibleName("ReplicaSets");
   await expect(page.getByTestId("detail-panel")).toContainText("web-5d8f");

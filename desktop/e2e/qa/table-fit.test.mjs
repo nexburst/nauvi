@@ -3,8 +3,9 @@
 // Two Deployments whose pods have long generated names that differ only at
 // the end (payments-worker-canary-<hash>-<id>, payments-worker-<hash>-<id>),
 // as in the task-flow audit (#486). Checked, in light and dark:
-// - Pods at 1280x800: no name, namespace, node or age is cut; the short
-//   columns stay narrow; the table does not scroll sideways.
+// - Pods at 1280x800: the pod names are whole, Ready, Status, Restarts and
+//   Age are never cut and stay narrow, anything cut has its whole value as
+//   tooltip and name, and the table does not scroll sideways.
 // - With the detail panel open, and in a narrow window: a cut name keeps
 //   its end (the two pods still read differently) and has its whole value
 //   as tooltip and name; Ready, Status, Restarts and Age are never cut.
@@ -84,15 +85,27 @@ const layout = (app) =>
 const payments = (l) => l.rows.filter((r) => (r.Name?.name || r.Name?.text || "").startsWith("payments-worker"));
 const SHORT = ["Ready", "Status", "Restarts", "Age"];
 
-function assertNothingCut(what, l) {
+/** Every cut cell says what it cuts: its whole value as tooltip and name. */
+function assertCutsExplained(what, l) {
+  for (const r of l.rows)
+    for (const [k, c] of Object.entries(r)) {
+      if (!c.cut || k === "") continue;
+      assert.ok(c.name && c.title === c.name, `${what}: ${k} "${c.text}" is cut without its whole value (${c.title})`);
+    }
+  for (const r of l.rows) for (const k of SHORT) if (r[k]) assert.ok(!r[k].cut, `${what}: ${k} "${r[k].text}" is cut`);
+}
+
+function assertNamesWhole(what, l) {
   console.log(`${what}: widths ${JSON.stringify(l.widths)}, sideways ${l.sideways}`);
   const cut = l.rows.flatMap((r) => Object.entries(r).filter(([, c]) => c.cut).map(([k, c]) => `${k}: ${c.text}`));
-  assert.deepEqual(cut, [], `${what}: cut cells`);
+  console.log(`${what}: cut ${JSON.stringify(cut)}`);
+  for (const r of payments(l)) assert.ok(!r.Name.cut, `${what}: ${r.Name.text} is cut`);
+  assertCutsExplained(what, l);
   assert.ok(l.sideways <= 1, `${what}: scrolls sideways by ${l.sideways}px`);
   for (const k of ["Ready", "Restarts", "Age"]) assert.ok(l.widths[k] <= 120, `${what}: ${k} is ${l.widths[k]}px wide`);
 }
 
-function assertCutWell(what, l) {
+function assertCutWell(what, l, { canary = false } = {}) {
   console.log(`${what}: widths ${JSON.stringify(l.widths)}, sideways ${l.sideways}`);
   const [a, b] = payments(l);
   assert.ok(a && b, `${what}: both payments pods are rendered`);
@@ -106,7 +119,9 @@ function assertCutWell(what, l) {
     assert.ok(whole.startsWith(head) && whole.endsWith(tail), `${what}: ${r.Name.text} is cut from ${whole}`);
     assert.ok(whole.endsWith(whole.slice(whole.lastIndexOf("-"))) && r.Name.text.endsWith(whole.slice(whole.lastIndexOf("-"))), `${what}: ${r.Name.text} keeps its suffix`);
   }
-  for (const r of l.rows) for (const k of SHORT) if (r[k]) assert.ok(!r[k].cut, `${what}: ${k} "${r[k].text}" is cut`);
+  // With some room, the part that tells them apart stays (the hash goes first).
+  if (canary) assert.ok(payments(l).some((r) => r.Name.text.includes("canary")), `${what}: "canary" is shown`);
+  assertCutsExplained(what, l);
 }
 
 async function showPods(app, ns) {
@@ -128,7 +143,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
   const s = appSession("table-fit");
 
   for (const theme of ["light", "dark"]) {
-    it(`Pods at 1280x800: nothing cut, short columns narrow (${theme})`, T, async () => {
+    it(`Pods at 1280x800: names whole, short columns narrow (${theme})`, T, async () => {
       const { app } = s;
       await waitLive(app);
       await resizeWindow(app, 1280, 800);
@@ -136,7 +151,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
       await setTheme(app, theme);
       await showPods(app, ns);
       const l = await layout(app);
-      assertNothingCut(`pods ${theme}`, l);
+      assertNamesWhole(`pods ${theme}`, l);
       for (const r of payments(l)) assert.equal(r.Status.icon, "ok", `status icon of ${r.Name.text}`);
     });
 
@@ -145,7 +160,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
       const [first] = payments(await layout(app));
       await (await app.find(app.row(first.Name.name || first.Name.text))).click();
       await waitPanelTitle(app, `${ns}/`);
-      assertCutWell(`pods + panel ${theme}`, await layout(app));
+      assertCutWell(`pods + panel ${theme}`, await layout(app), { canary: true });
     });
 
     it(`Pods in a narrow window, without and with the panel (${theme})`, T, async () => {
@@ -167,12 +182,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
     await app.filter("payments");
     await app.waitFor(async () => payments(await layout(app)).length === 2, { message: "both payments pods" });
     const l = await layout(app);
-    console.log(`all namespaces: widths ${JSON.stringify(l.widths)}`);
-    for (const r of payments(l)) {
-      assert.ok(!r.Namespace.cut, `namespace ${r.Namespace.text} is cut`);
-      assert.ok(!r.Age.cut, `age ${r.Age.text} is cut`);
-      assert.ok(!r.Name.cut, `name ${r.Name.text} is cut`);
-    }
+    assertNamesWhole("all namespaces", l);
   });
 
   it("a hovered row shows Logs, Shell and Edit YAML; Edit YAML opens the YAML tab", T, async () => {

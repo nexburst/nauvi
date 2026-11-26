@@ -50,17 +50,6 @@ describe("fitWidths", () => {
     expect(both).toEqual([168, 150, 150]);
   });
 
-  it("keeps names whole (up to `keep`) when the table scrolls sideways anyway", () => {
-    const keep: Fit = { ...NAME, keep: 300 };
-    // 168 + 60 > 220: it scrolls, so Name keeps its 280, up to 45% of the table.
-    expect(fitWidths([col(keep, 280), col(SHORT, 60)], 220)).toEqual([168, 60]);
-    expect(fitWidths([col(keep, 280), col(SHORT, 120), col(TEXT, 600, 600)], 700)).toEqual([280, 120, 600]);
-    // Up to its keep.
-    expect(fitWidths([col(keep, 500), col(SHORT, 120), col(TEXT, 900, 900)], 1000)).toEqual([300, 120, 900]);
-    // Not when cutting it to its minimum is enough.
-    expect(fitWidths([col(keep, 280), col(SHORT, 60)], 240)).toEqual([180, 60]);
-  });
-
   it("keeps a width the user set, even short of room", () => {
     expect(fitWidths([col(NAME, 300), col(TEXT, 200, 250)], 300)).toEqual([168, 250]);
   });
