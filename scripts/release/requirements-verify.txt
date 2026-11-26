@@ -3,15 +3,17 @@
 # Pinned with the hashes of the wheels for CPython 3.10 (the system Python of
 # the ubuntu-22.04 runner) on x86_64 Linux, from the PyPI JSON API
 # (https://pypi.org/pypi/<name>/<version>/json). A new version or runner
-# Python needs new hashes.
-cryptography==44.0.2 \
-    --hash=sha256:bc821e161ae88bfe8088d11bb39caf2916562e0a2dc7b6d56714a48b784ef0bb \
-    --hash=sha256:4973da6ca3db4405c54cd0b26d328be54c7747e89e284fcff166132eb7bccc9c \
-    --hash=sha256:f514ef4cd14bb6fb484b4a60203e912cfcb64f2ab139e88c2274511514bf7308 \
-    --hash=sha256:9a1e657c0f4ea2a23304ee3f964db058c9e9e635cc7019c4aa21c330755ef6fd \
-    --hash=sha256:b042d2a275c8cee83a4b7ae30c45a15e6a4baa65a179a0ec2d78ebb90e4f6699 \
-    --hash=sha256:c7362add18b416b69d58c910caa217f980c5ef39b23a38a0880dfd87bdf8cd23
-cffi==1.17.1 \
-    --hash=sha256:2bb1a08b8008b281856e5971307cc386a8e9c5b625ac297e853d36da6efe9c17
-pycparser==2.22 \
-    --hash=sha256:c3702b6d3dd8c7abc1afa565d7e63d53a1d0bd86cdc24edd75470f4de499cfcc
+# Python needs new hashes. cryptography: the cp39-abi3 manylinux wheels
+# (2014, 2_28, 2_34). pycparser stays on 2.x: 3.0 is the last for 3.10 and
+# 3.1 and later need Python 3.11. typing-extensions is a cryptography
+# dependency on Python older than 3.11 only.
+cryptography==50.0.0 \
+    --hash=sha256:a91296cb61e8df6f86d0c19cc4068228da256bf59bf86049fbd821084565327f \
+    --hash=sha256:105110f43a471dbd0060b9c9516cb8a6a79233631a04cc2ba16f28323ac6e025 \
+    --hash=sha256:37fdb0d0111f1e2ff07139dfb79f1b49531f8e213c46f1163dd7642979b58c47
+cffi==2.0.0 \
+    --hash=sha256:fc7de24befaeae77ba923797c7c87834c73648a05a4bde34b3b7e5588973a453
+pycparser==2.23 \
+    --hash=sha256:e5c6e8d3fbad53479cab09ac03729e0a9faf2bee3db8208a550daf5af81a5934
+typing-extensions==4.16.0 \
+    --hash=sha256:481caa481374e813c1b176ada14e97f1f67a4539ce9cfeb3f350d78d6370c2e8
