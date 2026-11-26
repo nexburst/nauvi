@@ -35,8 +35,9 @@
     overwrite?: boolean;
     pendingTakeovers?: readonly FieldTakeover[];
     takeovers?: readonly FieldTakeover[];
-    /** The fields both sides changed, when the save stopped on a conflict. */
-    conflict?: readonly string[] | null;
+    /** When the save stopped on a conflict: the fields both sides changed,
+     *  or why the object is not the one loaded (`reason`). */
+    conflict?: { fields: readonly string[]; reason: string } | null;
     error?: string;
     errorAt?: number | null;
     conflictActions: Snippet;
@@ -62,9 +63,11 @@
     <div class="msg warn" role="alert">
       <Icon name="warning" size={14} />
       <div>
-        {#if conflict.length > 0}
-          You and someone else both changed <code>{fields(conflict)}</code> since you loaded this object. Nothing
-          was saved.
+        {#if conflict.reason}
+          {conflict.reason}
+        {:else if conflict.fields.length > 0}
+          You and someone else both changed <code>{fields(conflict.fields)}</code> since you loaded this object.
+          Nothing was saved.
         {:else}
           This object changed on the server since you loaded it. Nothing was saved.
         {/if}

@@ -6,7 +6,8 @@
 // - folding from the gutter; bracket matching
 // - Review: unified and side-by-side diffs render and scroll; Save works
 // - a write from kubectl meanwhile: to another key, the edit is re-applied
-//   on the latest version (#495); to the same key, the conflict and Reload
+//   on the latest version (#495); to the same key, the conflict and Reload,
+//   or Compare with the latest and an explicit Save
 // - "Discard changes?" on closing the panel, another kind, another row and
 //   another context (the app gets two contexts on the same cluster)
 // - a locked Secret can't be typed into; after Reveal it can
@@ -401,6 +402,34 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     assert.ok(!after.includes("alpha: lost"), "the edit is gone");
     assert.equal(await app.js("return !!document.querySelector('[data-testid=\"yaml-status\"] [role=\"alert\"]')"), false);
     assert.equal(await (await app.find(byTestId("yaml-review"))).isEnabled(), false, "nothing to review");
+  });
+
+  it("the same key again: Compare with the latest, then Save replaces the other write only on Save", T, async () => {
+    const { app } = s;
+    const el = await editor(app, "yaml-editor");
+    const v = await editorValue(app, el);
+    await setEditorValue(app, el, v.replace("alpha: server", "alpha: mine2"));
+    get(["patch", "cm", "qa-yaml", "--type=merge", "-p", '{"data":{"alpha":"server2"}}']);
+    await (await app.find(byTestId("yaml-review"))).click();
+    await app.find(By.css('[data-testid="yaml-status"] [role="alert"]'));
+    await (await button(app, "Compare with the latest")).click();
+    await app.find(byTestId("yaml-save"));
+    await app.waitFor(() => app.js("return document.querySelector('[data-testid=\"detail-panel\"] .diff')?.dataset.ready === 'true'"), {
+      message: "the diff against the latest",
+    });
+    const changed = await app.js("return Array.from(document.querySelectorAll('[data-testid=\"detail-panel\"] .cm-changedLine'), (l) => l.textContent)");
+    console.log(`compare with the latest: ${JSON.stringify(changed)}`);
+    assert.ok(changed.some((l) => /alpha: server2/.test(l)) && changed.some((l) => /alpha: mine2/.test(l)), "the diff shows theirs replaced by mine");
+    assert.match(await statusText(app), /Saving replaces what changed there with your version/);
+    assert.equal(get(["get", "cm", "qa-yaml", "-o", "jsonpath={.data.alpha}"]), "server2", "nothing replaced before Save");
+    await setTheme(app, "light");
+    await app.shot("compare-latest-light");
+    await setTheme(app, "dark");
+    await app.shot("compare-latest-dark");
+    await setTheme(app, null);
+    await (await app.find(byTestId("yaml-save"))).click();
+    await app.waitFor(async () => /Saved/.test(await statusText(app)), { message: "Saved." });
+    assert.equal(get(["get", "cm", "qa-yaml", "-o", "jsonpath={.data.alpha}"]), "mine2", "replaced after the explicit Save");
   });
 
   it("asks before closing the panel, opening another kind or row; Keep editing keeps the edit", T, async () => {

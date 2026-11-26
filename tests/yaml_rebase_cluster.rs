@@ -212,7 +212,7 @@ async fn an_edit_is_reapplied_on_a_restart_and_a_shared_field_conflicts() -> Res
             .await?;
         let out =
             apply_resource_yaml_with(&client, r, &ns, "web", &mine, &opts(false, &loaded)).await?;
-        let ApplyOutcome::Conflict { fields, .. } = out else {
+        let ApplyOutcome::Conflict { fields, reason, .. } = out else {
             bail!("expected a conflict, got {out:?}");
         };
         ensure!(
@@ -242,6 +242,54 @@ async fn a_scale_from_nauvi_is_not_a_takeover() -> Result<()> {
             bail!("expected a dry run, got {out:?}");
         };
         ensure!(takeovers.is_empty(), "{takeovers:?}");
+        Ok(())
+    })
+    .await
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_recreated_or_terminating_object_is_a_conflict() -> Result<()> {
+    in_temp_ns("it-rebase-gone", |client, ns| async move {
+        let api = settled(&client, &ns).await?;
+        let r = &deployments();
+        let loaded = get_resource_yaml(&client, r, &ns, "web", false).await?;
+        let edited = add_label(&loaded);
+
+        // Deleted and created again under the same name.
+        api.delete("web", &DeleteParams::foreground()).await?;
+        for _ in 0..100 {
+            if api.get_opt("web").await?.is_none() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        settled(&client, &ns).await?;
+        let out = apply_resource_yaml_with(&client, r, &ns, "web", &edited, &opts(false, &loaded))
+            .await?;
+        let ApplyOutcome::Conflict { reason, .. } = out else {
+            bail!("expected a conflict, got {out:?}");
+        };
+        ensure!(reason.contains("deleted and created again"), "{reason}");
+        let d = api.get("web").await?;
+        ensure!(!d.metadata.labels.unwrap_or_default().contains_key("edited"));
+
+        // Being deleted (a finalizer holds it).
+        let hold = json!({ "metadata": { "finalizers": ["nauvi.dev/it-hold"] } });
+        api.patch("web", &PatchParams::default(), &Patch::Merge(&hold))
+            .await?;
+        let loaded = get_resource_yaml(&client, r, &ns, "web", false).await?;
+        let edited = add_label(&loaded);
+        api.delete("web", &DeleteParams::background()).await?;
+        let out = apply_resource_yaml_with(&client, r, &ns, "web", &edited, &opts(false, &loaded))
+            .await?;
+        let release = json!({ "metadata": { "finalizers": null } });
+        api.patch("web", &PatchParams::default(), &Patch::Merge(&release))
+            .await?;
+        let ApplyOutcome::Conflict { reason, .. } = out else {
+            bail!("expected a conflict, got {out:?}");
+        };
+        ensure!(reason.contains("being deleted"), "{reason}");
         Ok(())
     })
     .await

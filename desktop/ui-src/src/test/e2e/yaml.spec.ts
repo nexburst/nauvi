@@ -283,6 +283,57 @@ test("a field changed on both sides is a conflict that names it (#495)", async (
   await expect(page.getByTestId("yaml-saved")).toBeVisible();
 });
 
+test("the re-apply and overwrite notes go with their review (#495)", async ({ page }) => {
+  const fake = await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  await fake.setCluster((cluster) => {
+    cluster.resourceVersions["apps/v1/deployments|demo/web"] = 6;
+    cluster.serverWrites["apps/v1/deployments|demo/web"] = { changed: [".metadata.labels.team"] };
+  }, null);
+  await button(page, "Review & save…").click();
+  await expect(page.getByTestId("yaml-rebased")).toBeVisible();
+  await button(page, "Back to editing").click();
+  await expect(page.getByTestId("yaml-rebased")).toHaveCount(0);
+  // A new review of the same edit: the server has not changed since.
+  await button(page, "Review & save…").click();
+  await expect(page.locator("aside").getByText("The server accepted these changes in a test run.")).toBeVisible();
+  await expect(page.getByTestId("yaml-rebased")).toHaveCount(0);
+
+  // The overwrite warning of Compare with the latest goes the same way.
+  await button(page, "Back to editing").click();
+  await fake.setCluster((cluster) => {
+    cluster.resourceVersions["apps/v1/deployments|demo/web"] = 9;
+    cluster.serverWrites["apps/v1/deployments|demo/web"] = { conflict: [".spec.replicas"] };
+  }, null);
+  await button(page, "Review & save…").click();
+  await page.locator("aside").getByRole("button", { name: "Compare with the latest" }).click();
+  const warning = page.getByRole("note").filter({ hasText: "Saving replaces what changed there" });
+  await expect(warning).toBeVisible();
+  await button(page, "Back to editing").click();
+  await expect(warning).toHaveCount(0);
+  await button(page, "Review & save…").click();
+  await expect(page.locator("aside").getByText("The server accepted these changes in a test run.")).toBeVisible();
+  await expect(warning).toHaveCount(0);
+});
+
+test("an object deleted and created again is a conflict that says so (#495)", async ({ page }) => {
+  const fake = await openYaml(page, "Deployments", "web");
+  const editor = await editorOf(page, "Deployment");
+  await append(page, editor, "spec:\n  replicas: 5\n");
+  await fake.setCluster((cluster) => {
+    cluster.resourceVersions["apps/v1/deployments|demo/web"] = 12;
+    cluster.serverWrites["apps/v1/deployments|demo/web"] = {
+      reason: "The object was deleted and created again since you loaded it. Nothing was saved.",
+    };
+  }, null);
+  await button(page, "Review & save…").click();
+  await expect(page.locator("aside").getByRole("alert")).toContainText(
+    "The object was deleted and created again since you loaded it. Nothing was saved.",
+  );
+  await expect(button(page, "Save")).toHaveCount(0);
+});
+
 test("closing the panel with unsaved edits asks first", async ({ page }) => {
   await openYaml(page, "Deployments", "web");
   const editor = await editorOf(page, "Deployment");

@@ -387,6 +387,7 @@ pub async fn patch_data(
             Ok(ApplyOutcome::Conflict {
                 resource_version: current,
                 fields: Vec::new(),
+                reason: String::new(),
             })
         }
         Err(e) => Err(text(e.into())),

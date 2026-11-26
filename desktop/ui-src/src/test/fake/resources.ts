@@ -146,9 +146,12 @@ export function resourcesHandlers(s: FakeState) {
         // Like the backend: with the loaded YAML, a newer version is merged
         // with the edit (#495).
         const write = base ? cluster.serverWrites[key] : undefined;
-        if (!write) return { outcome: "conflict", resource_version: current, fields: [] };
+        if (!write) return { outcome: "conflict", resource_version: current, fields: [], reason: "" };
         if (typeof write === "object" && "conflict" in write) {
-          return { outcome: "conflict", resource_version: current, fields: write.conflict };
+          return { outcome: "conflict", resource_version: current, fields: write.conflict, reason: "" };
+        }
+        if (typeof write === "object" && "reason" in write) {
+          return { outcome: "conflict", resource_version: current, fields: [], reason: write.reason };
         }
         if (typeof write === "object") {
           const latest = withResourceVersion(cluster.yaml[key] || defaultYaml(kind, row), Number(current));
@@ -182,7 +185,7 @@ export function resourcesHandlers(s: FakeState) {
       const key = `${kind.id}|${row.key}`;
       const current = String(cluster.resourceVersions[key] ?? 1);
       if (resourceVersion && resourceVersion !== current) {
-        return { outcome: "conflict", resource_version: current, fields: [] };
+        return { outcome: "conflict", resource_version: current, fields: [], reason: "" };
       }
       const d = (cluster.data[key] ??= { immutable: false, entries: {} });
       for (const c of changes) {

@@ -257,10 +257,13 @@ pub enum ApplyOutcome {
     /// Someone else wrote to the object since it was loaded; nothing was
     /// applied. `resource_version` is the object's current one; `fields`
     /// the fields both the edit and the other writer changed (empty when
-    /// that is not known).
+    /// that is not known); `reason` a sentence when the conflict is not
+    /// about fields (the object was deleted and created again, or is being
+    /// deleted), empty otherwise.
     Conflict {
         resource_version: String,
         fields: Vec<String>,
+        reason: String,
     },
     /// The object changed on the server since it was loaded, in other
     /// fields than the edit; nothing was applied. `yaml` is the edit
@@ -322,10 +325,11 @@ pub async fn apply_resource_yaml_with(
                         changed,
                     })
                 }
-                Rebase::Conflict(fields) => {
+                Rebase::Conflict { fields, reason } => {
                     return Ok(ApplyOutcome::Conflict {
                         resource_version: current_rv,
                         fields,
+                        reason,
                     })
                 }
             }
@@ -342,6 +346,7 @@ pub async fn apply_resource_yaml_with(
     Ok(ApplyOutcome::Conflict {
         resource_version: current_resource_version(&api, name).await?,
         fields: Vec::new(),
+        reason: String::new(),
     })
 }
 
@@ -366,6 +371,7 @@ pub(super) async fn apply_value(
                 ApplyOutcome::Conflict {
                     resource_version: current,
                     fields: Vec::new(),
+                    reason: String::new(),
                 },
                 None,
             ));
@@ -420,6 +426,7 @@ pub(super) async fn apply_value(
             ApplyOutcome::Conflict {
                 resource_version: current_resource_version(api, name).await?,
                 fields: Vec::new(),
+                reason: String::new(),
             },
             None,
         )),
@@ -654,10 +661,11 @@ mod tests {
         let out = ApplyOutcome::Conflict {
             resource_version: "9".into(),
             fields: vec![".spec.replicas".into()],
+            reason: String::new(),
         };
         assert_eq!(
             serde_json::to_value(&out).unwrap(),
-            json!({"outcome": "conflict", "resource_version": "9", "fields": [".spec.replicas"]})
+            json!({"outcome": "conflict", "resource_version": "9", "fields": [".spec.replicas"], "reason": ""})
         );
     }
 

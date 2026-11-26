@@ -35,8 +35,34 @@ pub(super) enum Rebase {
         latest: String,
         changed: Vec<String>,
     },
-    /// Fields changed both by the edit and on the server.
-    Conflict(Vec<String>),
+    /// Fields changed both by the edit and on the server, or (`reason`)
+    /// not the same object any more.
+    Conflict { fields: Vec<String>, reason: String },
+}
+
+fn conflict(fields: Vec<String>) -> Rebase {
+    Rebase::Conflict {
+        fields,
+        reason: String::new(),
+    }
+}
+
+/// Why the server's version is not the object the YAML was loaded from:
+/// another `uid` (deleted and created again under the same name), or a
+/// `deletionTimestamp` it did not have (being deleted). `None` if it is.
+fn not_the_same(base: &Value, current: &Value) -> Option<String> {
+    let meta = |v: &Value, k: &str| v.pointer(&format!("/metadata/{k}")).cloned();
+    let (b, c) = (meta(base, "uid"), meta(current, "uid"));
+    if b.is_some() && c.is_some() && b != c {
+        return Some(
+            "The object was deleted and created again since you loaded it. Nothing was saved."
+                .into(),
+        );
+    }
+    if meta(current, "deletionTimestamp").is_some() && meta(base, "deletionTimestamp").is_none() {
+        return Some("The object is being deleted. Nothing was saved.".into());
+    }
+    None
 }
 
 /// Re-apply the edit (`base` -> `mine`, `mine` already stripped by
@@ -48,16 +74,23 @@ pub(super) fn rebase_onto(
     current: DynamicObject,
 ) -> Result<Rebase> {
     let Ok(mut base) = serde_yaml::from_str::<Value>(base) else {
-        return Ok(Rebase::Conflict(Vec::new()));
+        return Ok(conflict(Vec::new()));
     };
-    strip_server_fields(&mut base);
     // Values in full: a Secret edit reaches this point only with its
     // values revealed (`check_document` rejects hidden ones).
     let full = object_value(r, current, true)?;
+    // Never apply to another object of the same name, or one going away.
+    if let Some(reason) = not_the_same(&base, &full) {
+        return Ok(Rebase::Conflict {
+            fields: Vec::new(),
+            reason,
+        });
+    }
+    strip_server_fields(&mut base);
     let mut theirs = full.clone();
     strip_server_fields(&mut theirs);
     let merged = match merge3(&base, mine, &theirs) {
-        Err(fields) => return Ok(Rebase::Conflict(fields)),
+        Err(fields) => return Ok(conflict(fields)),
         Ok(merged) => merged,
     };
     let changed: Vec<String> = changed_paths(&base, &theirs)
@@ -290,6 +323,33 @@ mod tests {
     }
 
     #[test]
+    fn a_recreated_or_terminating_object_is_never_applied_to() {
+        let base = loaded(server(1, "t1", "10", 0));
+        let mine = edited(&base.replace("replicas: 1", "replicas: 3"));
+        // Deleted and created again with the same spec: only the status
+        // would differ, but it is another object.
+        let mut again = server(1, "t1", "11", 0);
+        again.metadata.uid = Some("u2".into());
+        let Rebase::Conflict { fields, reason } =
+            rebase_onto(&deployments(), &base, &mine, again).unwrap()
+        else {
+            panic!("not a conflict");
+        };
+        assert!(fields.is_empty());
+        assert!(reason.contains("deleted and created again"), "{reason}");
+
+        let mut going = server(1, "t1", "11", 0);
+        going.metadata.deletion_timestamp =
+            Some(serde_json::from_value(json!("2026-11-26T10:00:00Z")).unwrap());
+        let Rebase::Conflict { reason, .. } =
+            rebase_onto(&deployments(), &base, &mine, going).unwrap()
+        else {
+            panic!("not a conflict");
+        };
+        assert!(reason.contains("being deleted"), "{reason}");
+    }
+
+    #[test]
     fn a_controller_annotation_is_kept_without_asking() {
         let base = loaded(server(1, "t1", "10", 0));
         let mine = edited(&base.replace("replicas: 1", "replicas: 3"));
@@ -341,7 +401,7 @@ mod tests {
         let base = loaded(server(1, "t1", "10", 0));
         let mine = edited(&base.replace("replicas: 1", "replicas: 3"));
         let out = rebase_onto(&deployments(), &base, &mine, server(5, "t1", "11", 1)).unwrap();
-        assert_eq!(out, Rebase::Conflict(vec![".spec.replicas".to_string()]));
+        assert_eq!(out, conflict(vec![".spec.replicas".to_string()]));
         // The server made the same change: nothing to merge.
         let out = rebase_onto(&deployments(), &base, &mine, server(3, "t1", "11", 1)).unwrap();
         assert_eq!(out, Rebase::Clean(mine.clone()));

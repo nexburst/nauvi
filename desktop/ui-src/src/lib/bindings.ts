@@ -807,9 +807,11 @@ export type ApplyOutcome =
  *  Someone else wrote to the object since it was loaded; nothing was
  *  applied. `resource_version` is the object's current one; `fields`
  *  the fields both the edit and the other writer changed (empty when
- *  that is not known).
+ *  that is not known); `reason` a sentence when the conflict is not
+ *  about fields (the object was deleted and created again, or is being
+ *  deleted), empty otherwise.
  */
-{ outcome: "conflict"; resource_version: string; fields: string[] } | 
+{ outcome: "conflict"; resource_version: string; fields: string[]; reason: string } | 
 /**
  *  The object changed on the server since it was loaded, in other
  *  fields than the edit; nothing was applied. `yaml` is the edit

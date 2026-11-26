@@ -88,9 +88,10 @@ export interface FakeCluster {
   /** What the write by someone else (a bumped resourceVersion) changed, by
    *  `kindId|rowKey` (#495): nothing (status only: the save goes through),
    *  other fields (`changed`: the edit comes back re-applied) or the same
-   *  fields as the edit (`conflict`). Without an entry it is a conflict
+   *  fields as the edit (`conflict`), or not the same object any more
+   *  (`reason`). Without an entry it is a conflict
    *  whose fields are not known. */
-  serverWrites: Record<string, { changed: string[] } | { conflict: string[] } | "status">;
+  serverWrites: Record<string, { changed: string[] } | { conflict: string[] } | { reason: string } | "status">;
   /** Secret and ConfigMap data by `kindId|rowKey` (`cmd_get_data_entries`, #224). */
   data: Record<string, FakeData>;
   /** `cmd_bulk_delete` fails these row keys with the given reason. */

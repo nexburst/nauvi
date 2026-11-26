@@ -54,7 +54,7 @@
   let layout = $state<DiffLayout>("unified");
   /** Set when a save stopped because the object changed on the server:
    *  the fields both sides changed (empty if not known). */
-  let conflict = $state.raw<string[] | null>(null);
+  let conflict = $state.raw<{ fields: string[]; reason: string } | null>(null);
   /** The fields the server changed that the edit was re-applied on top
    *  of, while reviewing that (#495). */
   let rebased = $state.raw<string[]>([]);
@@ -165,8 +165,16 @@
     }
   }
 
-  /** Validate with a server dry run, then show the diff. */
-  async function review() {
+  /**
+   * Validate with a server dry run, then show the diff. A new review starts
+   * without the notes of the last one, unless the caller just set them
+   * (`keepNotes`: the edit re-applied by a save, or Compare with the latest).
+   */
+  async function review(keepNotes = false) {
+    if (!keepNotes) {
+      rebased = [];
+      overwrite = false;
+    }
     clearMessages();
     savedAt = "";
     busy = true;
@@ -175,11 +183,11 @@
       const res = await apply(true);
       status = "";
       if (res.outcome === "conflict") {
-        conflict = res.fields;
+        conflict = { fields: res.fields, reason: res.reason };
         return;
       }
       if (res.outcome === "rebased") {
-        conflict = [];
+        conflict = { fields: [], reason: "" };
         return;
       }
       pendingTakeovers = res.takeovers;
@@ -200,13 +208,15 @@
       if (res.outcome === "conflict") {
         status = "";
         reviewing = false;
-        conflict = res.fields;
+        conflict = { fields: res.fields, reason: res.reason };
         return;
       }
       if (res.outcome === "rebased") {
-        // Changed again since the review: review the new version.
+        // Changed again since the review: review the new version (`apply`
+        // set its note; an overwrite was of the version before).
+        overwrite = false;
         busy = false;
-        await review();
+        await review(true);
         return;
       }
       // Reload so the editor shows what the server now holds.
@@ -227,6 +237,13 @@
     }
   }
 
+  /** Leave the review: its notes were about that review. */
+  function backToEditing() {
+    reviewing = false;
+    rebased = [];
+    overwrite = false;
+  }
+
   /** Conflict: keep the edits, compare them with the server's latest. */
   async function diffLatest() {
     busy = true;
@@ -242,7 +259,7 @@
       return;
     }
     busy = false;
-    await review();
+    await review(true);
   }
 
   onMount(() => {
@@ -270,7 +287,7 @@
         >Side by side</button
       >
     </div>
-    <button type="button" class="btn" disabled={busy} onclick={() => (reviewing = false)}>Back to editing</button>
+    <button type="button" class="btn" disabled={busy} onclick={backToEditing}>Back to editing</button>
     <button type="button" class="btn primary" data-testid="yaml-save" disabled={busy} onclick={save}>Save</button>
   {:else}
     {#if isSecret}
@@ -281,7 +298,7 @@
       {/if}
     {/if}
     <button type="button" class="btn" disabled={busy} onclick={() => reloadAsking(revealed)}>Reload</button>
-    <button type="button" class="btn primary" data-testid="yaml-review" onclick={review} disabled={locked || !dirty || busy}
+    <button type="button" class="btn primary" data-testid="yaml-review" onclick={() => review()} disabled={locked || !dirty || busy}
       >Review & save…</button
     >
   {/if}
