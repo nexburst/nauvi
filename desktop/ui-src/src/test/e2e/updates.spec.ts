@@ -168,7 +168,7 @@ test("turning the check off in Settings skips it on start; asking still checks",
   const fake = await openApp(page, (_c, f) => f.offerUpdate("0.2.0"));
   await expect(banner(page)).toBeVisible();
   const dialog = await openSettings(page);
-  const toggle = dialog.getByRole("checkbox", { name: "Check for updates on start" });
+  const toggle = dialog.getByRole("checkbox", { name: "Check for updates automatically" });
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
   expect((await fake.lastCall("cmdUpdateSettings")).patch).toEqual({ check_updates: false });
@@ -182,7 +182,7 @@ test("turning the check off in Settings skips it on start; asking still checks",
   await expect(notice(page)).toHaveCount(0);
 
   const again = await openSettings(page);
-  await expect(again.getByRole("checkbox", { name: "Check for updates on start" })).not.toBeChecked();
+  await expect(again.getByRole("checkbox", { name: "Check for updates automatically" })).not.toBeChecked();
   await again.getByRole("button", { name: "Check for updates" }).click();
   expect((await fake.lastCall("cmdUpdateCheck")).startup).toBe(false);
   await again.getByRole("button", { name: "Close" }).click();
@@ -224,4 +224,48 @@ test("only the main window checks on start", async ({ page }) => {
   await page.waitForTimeout(300);
   expect(await fake.calls("cmdUpdateCheck")).toEqual([]);
   await expect(banner(page)).toHaveCount(0);
+});
+
+const HOUR = 3_600_000;
+
+test("while the app stays open it checks again about every 12 h, and on a wake after 12 h (#540)", async ({ page }) => {
+  await page.clock.install();
+  const fake = await openApp(page);
+  const checks = async () => (await fake.calls("cmdUpdateCheck")).map((c) => c.startup);
+  await expect.poll(checks).toEqual([true]);
+  await expect(banner(page)).toHaveCount(0);
+
+  // A release published after start: the next periodic check finds it.
+  await page.evaluate(() => window.__fake.offerUpdate("0.2.0"));
+  await page.clock.runFor(11 * HOUR - 60_000);
+  expect(await checks()).toEqual([true]);
+  await page.clock.runFor(2 * HOUR + 60_000);
+  await expect.poll(checks).toEqual([true, true]);
+  await expect(banner(page)).toContainText("nauvi 0.2.0 is available");
+
+  // Closed: the next check does not bring it back.
+  await banner(page).getByRole("button", { name: "Dismiss update" }).click();
+  await page.clock.runFor(13 * HOUR);
+  await expect.poll(checks).toEqual([true, true, true]);
+  await expect(banner(page)).toHaveCount(0);
+
+  // The machine sleeps two days (timers stand still): the window showing again checks once.
+  await page.evaluate(() => window.__fake.offerUpdate("0.3.0"));
+  const now = await page.evaluate(() => Date.now());
+  await page.clock.setSystemTime(now + 48 * HOUR);
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect.poll(checks).toEqual([true, true, true, true]);
+  await expect(banner(page)).toContainText("nauvi 0.3.0 is available");
+  expect(fake.errors).toEqual([]);
+});
+
+test("turned off in Settings: no periodic check (#540)", async ({ page }) => {
+  await page.clock.install();
+  const fake = await openApp(page);
+  await expect.poll(() => fake.calls("cmdUpdateCheck")).toHaveLength(1);
+  const dialog = await openSettings(page);
+  await dialog.getByRole("checkbox", { name: "Check for updates automatically" }).uncheck();
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await page.clock.runFor(30 * HOUR);
+  expect(await fake.calls("cmdUpdateCheck")).toHaveLength(1);
 });
