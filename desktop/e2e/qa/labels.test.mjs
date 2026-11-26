@@ -219,13 +219,13 @@ describe("labels and the problem pill (#483, #491)", { timeout: 15 * 60_000 }, (
       message: "the popover closed",
     });
     await (await app.find(By.css('header button[aria-label="Cluster catalog"]'))).click();
-    const others = await app.js(`return document.querySelectorAll('button[aria-label^="Open "]:not(:disabled)').length`);
+    const others = await app.js(`return document.querySelectorAll('table button[aria-label^="Open "]:not(:disabled)').length`);
     if (others === 0) {
       t.skip("only one context: no Open button to hover");
       return;
     }
-    const tip = await hover(app, 'button[aria-label^="Open "]:not(:disabled)', /in this window/);
+    const tip = await hover(app, 'table button[aria-label^="Open "]:not(:disabled)', /in this window/);
     console.log(`catalog Open tooltip: ${tip}`);
-    await shots(app, "catalog-open", () => hover(app, 'button[aria-label^="Open "]:not(:disabled)', /in this window/));
+    await shots(app, "catalog-open", () => hover(app, 'table button[aria-label^="Open "]:not(:disabled)', /in this window/));
   });
 });
