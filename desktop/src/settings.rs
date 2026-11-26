@@ -133,6 +133,9 @@ pub(crate) struct KindSettings {
     /// Keys of the off-by-default columns the user turned on (#378). Files
     /// from before it have none, so those columns stay off.
     pub(crate) shown: Vec<String>,
+    /// Widths in px the user dragged columns to, by column key (#482).
+    /// Columns not in it fit their values.
+    pub(crate) widths: BTreeMap<String, u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -871,6 +874,10 @@ mod tests {
         assert!(s.kinds["v1/pods"].sort_desc);
         // From before off-by-default columns (#378): none turned on.
         assert!(s.kinds["v1/pods"].shown.is_empty());
+        // From before fitted columns (#482): every column fits its values.
+        assert!(s.kinds["v1/pods"].widths.is_empty());
+        let sized = parse(r#"{"kinds":{"v1/pods":{"widths":{"name":320}}}}"#).unwrap();
+        assert_eq!(sized.kinds["v1/pods"].widths["name"], 320);
         let on = parse(r#"{"kinds":{"v1/pods":{"hidden":["node"],"shown":["qos"]}}}"#).unwrap();
         assert_eq!(on.kinds["v1/pods"].shown, ["qos"]);
         assert_eq!(parse(r#"{"version":0}"#).unwrap().version, SETTINGS_VERSION);

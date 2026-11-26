@@ -98,6 +98,10 @@ export const ICONS = {
   // Actions and sections.
   /** A pod's logs. */
   logs: ["M4 6h16", "M4 10h16", "M4 14h11", "M4 18h7"],
+  /** A shell in a pod (#482). */
+  terminal: [rect(3, 4.5, 18, 15, 2), "M7.5 10l3 2.5-3 2.5", "M13 15h3.5"],
+  /** Edit an object's YAML (#482). */
+  edit: ["M13 20h7", "M16.5 4a2.1 2.1 0 0 1 3 3L8 18.5l-4 1 1-4z"],
   /** Describe: the object's detail panel. */
   describe: [rect(3.5, 4.5, 17, 15, 2), "M14.5 4.5v15", "M6.8 9h4.4", "M6.8 12.5h4.4"],
   /** Capacity: requests against what the nodes can allocate. */

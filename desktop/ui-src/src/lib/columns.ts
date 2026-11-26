@@ -4,6 +4,8 @@ import { cpuCores, createdAt, formatAge, formatCpu, formatMemory } from "./forma
 import { columnOn } from "./settings";
 import { containersSummary, parseContainers, worstRank } from "./containerStates";
 import { rolloutRank, rolloutTitle } from "./rolloutStatus";
+import { CELL_PAD, type Fit, type Measure } from "./columnFit";
+import type { IconName } from "./icons/icons";
 
 export type Row = ResourceRow;
 
@@ -32,8 +34,8 @@ export interface Ctx {
 export interface Column {
   key: string;
   label: string;
-  /** CSS grid track. */
-  width: string;
+  /** How its width is fitted to its values (#482). */
+  fit: Fit;
   text(row: Row, ctx: Ctx): string;
   /** Value to sort by; numbers sort numerically. */
   sort(row: Row, ctx: Ctx): string | number;
@@ -66,13 +68,6 @@ export function shownColumns(
   return cols.filter((c) => columnOn(picks, c) && (c.shown?.(metrics) ?? true));
 }
 
-/** The narrowest the columns' tracks get, px: the sum of their minimums
- *  (`64px`, `minmax(160px, 2fr)`). A table narrower than this scrolls
- *  sideways instead of cutting the last columns off (#378). */
-export function minColumnsWidth(cols: readonly Pick<Column, "width">[]): number {
-  return cols.reduce((sum, c) => sum + Number(/^(?:minmax\()?(\d+)px/.exec(c.width)?.[1] ?? 0), 0);
-}
-
 export const EMPTY_METRICS: Metrics = { pods: new Map(), nodes: new Map(), sparks: new Map(), since: 0 };
 /** What the tables get while metrics are hidden for the cluster (#327). */
 export const HIDDEN_METRICS: Metrics = { ...EMPTY_METRICS, hidden: true };
@@ -87,42 +82,80 @@ export function isNode(kind: ResourceKind): boolean {
   return kind.resource.group === "" && kind.resource.kind === "Node";
 }
 
-function widthFor(def: ColumnDef): string {
+// Widths, px with the cell's padding: see `Fit` in columnFit.ts.
+
+function fitFor(def: ColumnDef): Fit {
   switch (def.kind) {
     case "age":
-      return "64px";
+      // Never cut (#482): as wide as `9m59s` at least, about the widest age.
+      return { min: 56, max: 120, grow: 0, give: 0, sample: "9m59s" };
+    // As wide as their values and sparkline (#482): "—" without metrics
+    // does not hold 120 px.
     case "podCpu":
-      return "112px";
     case "podMemory":
-      return "122px";
+      return { min: 64, max: 140, grow: 0, give: 0 };
     case "nodeCpu":
-      return "minmax(140px, 1fr)";
+      return { min: 140, max: 220, grow: 0, give: 0 };
     case "nodeMemory":
-      return "minmax(160px, 1fr)";
+      return { min: 160, max: 240, grow: 0, give: 0 };
     case "nodeDisk":
-      return "minmax(170px, 1fr)";
+      return { min: 170, max: 240, grow: 0, give: 0 };
   }
-  // Name takes the slack (#384): on a kind with few columns the width goes
-  // to it, not into even gaps between short columns.
-  if (def.key === "name") return "minmax(140px, 3fr)";
-  if (def.key === "namespace") return "minmax(120px, 1fr)";
-  if (def.key === "message") return "minmax(240px, 3fr)";
-  // Short values ("1/1", "12", "Running") grow only to about their header's
-  // width, capped in px (#384), and leave the rest to the flexible columns.
-  // Their minimums stay narrow, so the default Pods table and its row ⋮
-  // (#382) fit a 1280 px window without scrolling sideways.
-  if (def.key === "ready" && def.kind === "text") return "minmax(64px, 84px)";
-  if (def.key === "restarts") return "minmax(76px, 96px)";
-  if (def.kind === "number") return "minmax(64px, 112px)";
-  if (def.kind === "owner") return "minmax(160px, 1.6fr)";
-  if (def.kind === "containers") return "minmax(120px, 1fr)";
-  // "Scaled down" behind its square.
-  if (def.kind === "rollout") return "minmax(120px, 200px)";
-  // Wide enough for "CrashLoopBackOff" behind its dot; a longer reason is
-  // cut, with the whole text in the cell's title.
-  if (def.kind === "status") return "minmax(172px, 240px)";
-  return "minmax(80px, 1fr)";
+  // Name takes the spare width (#384, #482) and gives way last; the end of
+  // a cut name stays, where generated names differ.
+  if (def.key === "name") return { min: 232, max: 640, grow: 2, give: 3, middle: true };
+  // Then the places it runs in.
+  if (def.key === "namespace" || def.key === "node" || def.key === "nominated")
+    return { min: 84, max: 320, grow: 1, give: 2, middle: true };
+  if (def.key === "message") return { min: 240, max: 100000, grow: 3, give: 1 };
+  // Short values ("1/1", "12", "Running") are as wide as they and their
+  // header are, and are never cut.
+  if (def.kind === "number" || def.key === "ready" || def.key === "restarts")
+    return { min: 48, max: 120, grow: 0, give: 0 };
+  if (def.kind === "owner") return { min: 180, max: 360, grow: 0, give: 1, middle: true };
+  if (def.kind === "containers") return { min: 72, max: 260, grow: 0, give: 1 };
+  if (def.kind === "rollout") return { min: 96, max: 220, grow: 0, give: 0 };
+  // "CrashLoopBackOff" behind its icon; a longer reason is cut, with the
+  // whole text in the cell's title.
+  if (def.kind === "status") return { min: 80, max: 240, grow: 0, give: 0 };
+  // Other text (QoS, IP, labels) gives way first, but a value up to about
+  // 15 characters ("Burstable", "10.244.0.5") is never cut.
+  return { min: 120, max: 360, grow: 0, give: 1 };
 }
+
+/** The px drawn before a status cell's text: its icon and the gap. */
+export const STATUS_ICON_PX = 20;
+
+/**
+ * The status icon of a cell classed `cls` (`phase-Running`), next to its
+ * colour (#482), so the state does not rest on colour alone: the same
+ * tones as the `phase-*` classes in app.css. `null`: no icon, the text
+ * stays in line with the others.
+ */
+export function statusIcon(cls: string): IconName | null {
+  const phase = cls.startsWith("phase-") ? cls.slice(6) : "";
+  if (["Succeeded", "Complete", "Completed"].includes(phase)) return "check";
+  if (["Running", "Active", "Bound", "Normal"].includes(phase)) return "ok";
+  if (["Pending", "Terminating", "Released", "ContainerCreating"].includes(phase)) return "pending";
+  if (phase === "Warning") return "warning";
+  if (["Failed", "Lost"].includes(phase)) return "failed";
+  if (["Error", "CrashLoopBackOff", "ImagePullBackOff", "ErrImagePull"].includes(phase)) return "error";
+  return null;
+}
+
+/** The px a cell of `col` showing `text` takes, padding included: what is
+ *  drawn in it (squares, an icon) as well as the text. */
+export function cellWidth(col: Column, text: string, measure: Measure): number {
+  if (col.draw === "containers") return CELL_PAD + parseContainers(text).length * 13;
+  if (col.draw === "rollout") return CELL_PAD + 16 + measure(text);
+  const lead = col.cls ? STATUS_ICON_PX : 0;
+  // A metric's sparkline may follow its value.
+  const spark = col.spark && text !== "—" ? SPARK_PX : 0;
+  return CELL_PAD + lead + (text ? measure(text) : 0) + spark;
+}
+
+/** A sparkline and its gap (Sparkline.svelte). */
+export const SPARK_PX = 38;
 
 /** A column label in sentence case (#384): "Controlled By" -> "Controlled
  *  by". A word with a capital after its first letter (CPU, QoS, IP) is kept.
@@ -143,7 +176,7 @@ function numeric(text: string): number {
 }
 
 function column(def: ColumnDef, index: number): Column {
-  const base = { key: def.key, label: headerLabel(def.label), width: widthFor(def), defaultHidden: def.default_hidden };
+  const base = { key: def.key, label: headerLabel(def.label), fit: fitFor(def), defaultHidden: def.default_hidden };
   const cell = (r: Row) => r.cells[index] ?? "";
   switch (def.kind) {
     case "age":
@@ -268,10 +301,12 @@ export function nodeReadyClass(text: string): string {
   return "";
 }
 
-/** Node tables: the Ready cell is coloured and wide enough for "True,SchedulingDisabled". */
+/** Node tables: the Ready cell is coloured, and as wide as "True,SchedulingDisabled". */
 function forNodes(cols: Column[]): Column[] {
   return cols.map((c) =>
-    c.key === "ready" ? { ...c, width: "minmax(224px, 1fr)", cls: (r: Row) => nodeReadyClass(c.text(r, NO_CTX)) } : c,
+    c.key === "ready"
+      ? { ...c, fit: { min: 80, max: 260, grow: 0, give: 0 }, cls: (r: Row) => nodeReadyClass(c.text(r, NO_CTX)) }
+      : c,
   );
 }
 const NO_CTX: Ctx = { metrics: EMPTY_METRICS, now: 0 };
