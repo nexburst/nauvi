@@ -10,6 +10,7 @@ use super::{
     check_release_name, manifest_changes, manifest_resources, redact_manifest, HelmResource,
     HelmStorage, ManifestChanges,
 };
+use crate::text::single_line;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
@@ -131,13 +132,15 @@ fn deploy_args(
     args
 }
 
-/// "ConfigMap a, Service b and 2 more".
+/// "ConfigMap a, Service b and 2 more". Kind and name come from the chart,
+/// so control, bidi and zero-width characters are dropped
+/// ([`crate::text::single_line`]): they cannot reorder or hide the line.
 fn object_names(objects: &[HelmResource]) -> String {
     const SHOWN: usize = 3;
     let mut text = objects
         .iter()
         .take(SHOWN)
-        .map(|r| format!("{} {}", r.kind, r.name))
+        .map(|r| single_line(&format!("{} {}", r.kind, r.name)))
         .collect::<Vec<_>>()
         .join(", ");
     if objects.len() > SHOWN {
@@ -501,6 +504,32 @@ mod tests {
                  1 object would be created (Service s), 1 object would be deleted (Job j){end}"
             )
         );
+    }
+
+    #[test]
+    fn dry_run_summary_drops_control_and_bidi_characters() {
+        let obj = |kind: &str, name: &str| HelmResource {
+            api_version: "v1".into(),
+            kind: kind.into(),
+            namespace: "ns".into(),
+            name: name.into(),
+        };
+        let changes = ManifestChanges {
+            created: vec![
+                obj("Config\u{1b}[2JMap", "a\u{202E}gpj.exe\u{202C}"),
+                obj("Secret\u{2066}", "b\u{200B}\u{200F}\nc\u{7}"),
+            ],
+            changed: vec![obj("Service", "s")],
+            deleted: vec![],
+            total: 3,
+        };
+        let s = dry_run_summary(&changes, false);
+        assert_eq!(
+            s,
+            "Dry run: 1 of 3 objects would change (Service s), 2 objects would be created \
+             (Config[2JMap agpj.exe, Secret b c). Nothing has been applied yet"
+        );
+        assert!(!s.chars().any(|c| c.is_control()), "{s:?}");
     }
 
     #[test]
