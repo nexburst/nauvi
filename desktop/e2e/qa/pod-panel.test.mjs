@@ -204,9 +204,9 @@ describe("pod panel follow-ups (#513)", { timeout: 15 * 60_000 }, () => {
     await scrollPanelTo(app, "table.events");
     await shotBoth(app, "events-open");
 
-    // The panel's top, with the one-line Usage.
+    // Folded again; the panel's top, with the one-line Usage.
+    await app.js(`document.querySelector('${PANEL} table.events button.more').click()`);
     await app.js(`document.querySelector('${PANEL}').scrollTop = 0`);
-    await scrollPanelTo(app, '[data-testid="usage-charts"]');
     await shotBoth(app, "usage-one-line");
   });
 
