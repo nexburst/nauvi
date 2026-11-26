@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { EnvFromGroup, EnvValue } from "./bindings";
-import { envCount, envGroupTitle, envTitle, envRowId, envShownValue, envValueSource, MASK, visibleText } from "./podEnv";
+import {
+  envCount,
+  envGroupTitle,
+  envRowId,
+  envRowSource,
+  envShownValue,
+  envTitle,
+  envValueSource,
+  MASK,
+  visibleText,
+} from "./podEnv";
 
 const v = (r: Partial<EnvValue>): EnvValue => ({
   name: "X",
@@ -31,6 +41,20 @@ describe("env values", () => {
     expect(envValueSource(v({ kind: "secret", object: "db", key: "password" }))).toBe("Secret db/password");
     expect(envValueSource(v({ kind: "field", key: "metadata.name" }))).toBe("field metadata.name");
     expect(envValueSource(v({ kind: "resource", key: "limits.cpu" }))).toBe("resource limits.cpu");
+  });
+
+  it("gives envFrom rows no source, only the key when a prefix changes it (#541)", () => {
+    expect(envRowSource(v({ name: "ANTENNA_MODE", kind: "configmap", object: "app-config", key: "ANTENNA_MODE" }), true)).toBe("");
+    expect(envRowSource(v({ name: "CFG_mode", kind: "configmap", object: "cfg", key: "mode" }), true)).toBe("key mode");
+    expect(envRowSource(v({ name: "S_password", kind: "secret", object: "db", key: "password" }), true)).toBe("key password");
+  });
+
+  it("keeps the source of env rows (#541)", () => {
+    expect(envRowSource(v({ value: "x" }), false)).toBe("");
+    expect(envRowSource(v({ name: "P", kind: "secret", object: "db", key: "password" }), false)).toBe("from Secret db/password");
+    expect(envRowSource(v({ name: "L", kind: "configmap", object: "cfg", key: "level" }), false)).toBe("from ConfigMap cfg/level");
+    expect(envRowSource(v({ kind: "field", key: "metadata.name" }), false)).toBe("field metadata.name");
+    expect(envRowSource(v({ kind: "resource", key: "limits.cpu" }), false)).toBe("resource limits.cpu");
   });
 
   it("titles envFrom groups with prefix and optional", () => {

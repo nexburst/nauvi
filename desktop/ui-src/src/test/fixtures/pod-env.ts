@@ -41,6 +41,25 @@ export const POD_ENV: Record<string, ContainerEnv> = {
         error: "not allowed to read Secret api-keys in demo",
         rows: [],
       },
+      // No prefix: the keys are the names, so the rows show no source (#541).
+      {
+        kind: "configmap",
+        object: "app-config",
+        prefix: "",
+        optional: false,
+        error: "",
+        rows: [
+          v({ name: "ANTENNA_MODE", kind: "configmap", object: "app-config", key: "ANTENNA_MODE", value: "True" }),
+          v({
+            name: "WORKER_MAX_MEMORY_PER_CHILD_IN_KILOBYTES_FOR_THE_BACKGROUND_QUEUE",
+            kind: "configmap",
+            object: "app-config",
+            key: "WORKER_MAX_MEMORY_PER_CHILD_IN_KILOBYTES_FOR_THE_BACKGROUND_QUEUE",
+            value: "7000000",
+          }),
+          v({ name: "DB_HOST", kind: "configmap", object: "app-config", key: "DB_HOST", value: "db" }),
+        ],
+      },
     ],
     env: [
       v({ name: "MODE", value: "production" }),

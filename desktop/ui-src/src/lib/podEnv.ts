@@ -39,6 +39,17 @@ export function envValueSource(r: EnvValue): string {
   }
 }
 
+/** The source line of one row of the list (#541). An `envFrom` row's
+ *  source is its group's title, so it gets none, only `key mode` when a
+ *  prefix makes the key differ from the name. An `env` row says where its
+ *  value comes from: `from Secret db/password`, `field metadata.name`,
+ *  `resource limits.cpu`; a literal gets none. */
+export function envRowSource(r: EnvValue, inGroup: boolean): string {
+  if (inGroup) return r.key && r.key !== r.name ? `key ${r.key}` : "";
+  const s = envValueSource(r);
+  return r.kind === "configmap" || r.kind === "secret" ? `from ${s}` : s;
+}
+
 /** `all of ConfigMap app-cfg (prefix CFG_, optional)`. */
 export function envGroupTitle(g: EnvFromGroup): string {
   const what = g.kind === "unknown" ? "an unknown source" : `${KIND_TEXT[g.kind]} ${g.object}`;
