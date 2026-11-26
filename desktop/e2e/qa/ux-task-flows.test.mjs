@@ -221,9 +221,11 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
    * another scenario never sorts first.
    */
   const shopRow = ({ name, prefix }) => {
+    // A cut cell (#482) by its name, the whole value.
     const cell = (cond) => `[*[@role='gridcell'][${cond}]]`;
-    const nameCell = name ? cell(`normalize-space()=${xq(name)}`) : cell(`starts-with(normalize-space(), ${xq(prefix)})`) + cell("normalize-space()='Running'");
-    return By.xpath(`//*[@data-testid='resource-row']${cell(`normalize-space()=${xq(shop)}`)}${nameCell}`);
+    const is = (v) => `normalize-space()=${xq(v)} or @aria-label=${xq(v)}`;
+    const nameCell = name ? cell(is(name)) : cell(`starts-with(normalize-space(), ${xq(prefix)}) or starts-with(@aria-label, ${xq(prefix)})`) + cell("normalize-space()='Running'");
+    return By.xpath(`//*[@data-testid='resource-row']${cell(is(shop))}${nameCell}`);
   };
   const clickShopRow = async (which) => (await s.app.find(shopRow(which), { timeout: 60_000 })).findElement(By.xpath("./*[@role='gridcell'][2]")).then((c) => c.click());
   const shopRowMenu = async (which) => (await s.app.find(shopRow(which), { timeout: 60_000 })).findElement(By.css('[data-testid="row-menu"]')).then((b) => b.click());
@@ -337,7 +339,9 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     // Restart from the same menu.
     await shopRowMenu({ name: "checkout" });
     await menuItem("Rollout restart");
-    step("5. Deployment: YAML, scale, restart", 2);
+    // It asks first, as Shift+R does (#494).
+    await (await app.find(byTestId("action-confirm"))).click();
+    step("5. Deployment: YAML, scale, restart", 3);
     await app.shot("5-restarted");
     // Editing during the rollout ends in "This object changed on the server
     // since you loaded it" (#486): let the rollout finish first.
@@ -349,10 +353,10 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     );
     kubectl(["-n", shop, "rollout", "status", "deploy/checkout", "--timeout=180s"]);
     await sleep(2000);
-    // Edit: the row menu has no Edit (#486), so open the panel and its pencil.
-    assert.ok(!items.includes("Edit"), "the row menu now offers Edit: update #486's table");
-    await clickShopRow({ name: "checkout" });
-    await panelAction("edit");
+    // Edit: from the row menu (#494).
+    assert.ok(items.includes("Edit YAML"), "the row menu offers Edit YAML");
+    await shopRowMenu({ name: "checkout" });
+    await menuItem("Edit YAML");
     step("5. Deployment: YAML, scale, restart", 2);
     const editor = await app.find(byTestId("yaml-editor"));
     await app.waitFor(() => app.js("return !!arguments[0].nauviEditor", editor));

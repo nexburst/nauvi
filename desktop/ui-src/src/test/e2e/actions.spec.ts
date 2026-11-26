@@ -14,10 +14,10 @@ async function contextMenu(page: Page, name: string) {
 test("the context menu offers the actions of each kind", async ({ page }) => {
   await openApp(page);
   const cases: [string, string, string, string[]][] = [
-    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Copy link", "Copy as prompt", "Port forward…", "Attach", "Debug…", "Evict", "Delete", "Force delete…"]],
-    ["Deployments", "web", "demo/web", ["Logs", "Copy link", "Copy as prompt", "Scale…", "Rollout restart", "Port forward…", "Delete"]],
-    ["Nodes", "node-1", "node-1", ["Copy link", "Copy as prompt", "Shell", "Cordon", "Uncordon", "Drain…", "Delete"]],
-    ["Secrets", "db-creds", "demo/db-creds", ["Copy link", "Copy as prompt", "Delete"]],
+    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Edit YAML", "Copy link", "Copy as prompt", "Port forward…", "Attach", "Debug…", "Evict", "Delete", "Force delete…"]],
+    ["Deployments", "web", "demo/web", ["Logs", "Edit YAML", "Copy link", "Copy as prompt", "Scale…", "Rollout restart", "Port forward…", "Delete"]],
+    ["Nodes", "node-1", "node-1", ["Edit YAML", "Copy link", "Copy as prompt", "Shell", "Cordon", "Uncordon", "Drain…", "Delete"]],
+    ["Secrets", "db-creds", "demo/db-creds", ["Edit YAML", "Copy link", "Copy as prompt", "Delete"]],
   ];
   for (const [kind, name, title, items] of cases) {
     await openKind(page, kind);
@@ -33,13 +33,13 @@ test("the detail panel offers the same actions", async ({ page }) => {
   await openApp(page);
   await openKind(page, "Deployments");
   await row(page, "web").click();
-  // The row menu's items, plus Edit (the panel's YAML editor); Copy link after Edit.
+  // The row menu's items, Edit YAML after the dock tabs as there (#494).
   await expect(page.getByRole("toolbar", { name: "Actions" }).getByRole("button")).toHaveText([
     "Logs",
+    "Edit YAML",
     "Scale…",
     "Rollout restart",
     "Port forward…",
-    "Edit",
     "Copy link",
     "Delete",
   ]);
@@ -102,9 +102,19 @@ test("scale starts at the current replicas and warns at 0", async ({ page }) => 
 
 test("a harmless action runs without a dialog", async ({ page }) => {
   const fake = await openApp(page);
+  await openKind(page, "Nodes");
+  await (await contextMenu(page, "node-1")).getByRole("menuitem", { name: "Cordon", exact: true }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByRole("status")).toContainText("Cordoned Node/node-1");
+  expect(await fake.lastCall("cmdRunAction")).toMatchObject({ action: "cordon", name: "node-1" });
+});
+
+test("a restart asks first, then restarts (#494)", async ({ page }) => {
+  const fake = await openApp(page);
   await openKind(page, "Deployments");
   await (await contextMenu(page, "web")).getByRole("menuitem", { name: "Rollout restart" }).click();
-  await expect(dialog(page)).toHaveCount(0);
+  await expect(dialog(page)).toBeVisible();
+  await dialog(page).getByTestId("action-confirm").click();
   await expect(page.getByRole("status")).toContainText("restart deployment demo/web: done");
   expect(await fake.lastCall("cmdRunAction")).toMatchObject({ action: "restart", replicas: null });
 });
@@ -121,8 +131,8 @@ test("a cordoned node says SchedulingDisabled in amber until it is uncordoned", 
   const cordoned = ready("node-2", "True,SchedulingDisabled");
   await expect(cordoned).toBeVisible();
   await expect(cordoned).toHaveClass(/phase-Pending/);
-  // The whole text fits: the column is wide enough.
-  expect(await cordoned.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  // The whole text fits: the column widens to it (#482).
+  await expect.poll(() => cordoned.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
   // The other node is untouched.
   await expect(ready("node-1", "True")).toBeVisible();
 

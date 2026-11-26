@@ -43,7 +43,13 @@ test("with a Service open, a header too wide for its column is cut with an ellip
 
   await row(page, "api").click();
   await expect(page.getByTestId("detail-panel")).toBeVisible();
-  // The columns are now at their minimum width: "EXTERNAL IP" does not fit.
+  // Columns fit their headers (#482); dragged narrower, "EXTERNAL IP" does not fit.
+  const handle = grid(page).locator('[data-testid="col-resize"][data-col="externalip"]');
+  const box = (await handle.boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width / 2 - 70, box.y + box.height / 2, { steps: 4 });
+  await page.mouse.up();
   const external = grid(page).getByRole("columnheader", { name: "External IP" });
   await expect(external).toHaveAttribute("title", "External IP");
   const label = external.locator(".label");

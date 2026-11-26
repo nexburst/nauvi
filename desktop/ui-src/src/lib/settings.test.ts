@@ -31,10 +31,10 @@ describe("applyPatch", () => {
 
   it("replaces only the map entries given", () => {
     let s = applyPatch(defaultSettings(), {
-      kinds: { a: { sort_key: "name", sort_desc: false, hidden: [], shown: [] }, b: { sort_key: "age", sort_desc: true, hidden: [], shown: [] } },
+      kinds: { a: { sort_key: "name", sort_desc: false, hidden: [], shown: [], widths: {} }, b: { sort_key: "age", sort_desc: true, hidden: [], shown: [], widths: {} } },
     });
-    s = applyPatch(s, { kinds: { a: { sort_key: "status", sort_desc: false, hidden: ["node"], shown: [] } } });
-    expect(s.kinds.a).toEqual({ sort_key: "status", sort_desc: false, hidden: ["node"], shown: [] });
+    s = applyPatch(s, { kinds: { a: { sort_key: "status", sort_desc: false, hidden: ["node"], shown: [], widths: {} } } });
+    expect(s.kinds.a).toEqual({ sort_key: "status", sort_desc: false, hidden: ["node"], shown: [], widths: {} });
     expect(s.kinds.b.sort_key).toBe("age");
   });
 
@@ -72,7 +72,7 @@ describe("namespacesToRestore", () => {
 describe("sort", () => {
   it("round-trips through the kind settings", () => {
     const k = withSort(undefined, { key: "age", dir: "desc" });
-    expect(k).toEqual({ sort_key: "age", sort_desc: true, hidden: [], shown: [] });
+    expect(k).toEqual({ sort_key: "age", sort_desc: true, hidden: [], shown: [], widths: {} });
     expect(sortOf(k)).toEqual({ key: "age", dir: "desc" });
     expect(sortOf(withSort(k, null))).toBeNull();
     expect(withSort({ ...k, hidden: ["x"] }, null).hidden).toEqual(["x"]);

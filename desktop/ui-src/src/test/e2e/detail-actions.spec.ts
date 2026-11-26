@@ -11,17 +11,17 @@ const tip = (page: Page) => page.getByTestId("action-tip");
 const tabs = (page: Page) => page.getByTestId("dock").getByRole("tab");
 const dialog = (page: Page) => page.getByRole("alertdialog");
 
-test("the pod header has Logs, Shell, Attach, Edit and Delete, and no Logs and shell block", async ({ page }) => {
+test("the pod header has Logs, Shell, Edit YAML, Attach and Delete, and no Logs and shell block", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Pods");
   await row(page, "web-1").click();
   await expect(bar(page).getByRole("button")).toHaveText([
     "Logs",
     "Shell",
+    "Edit YAML",
     "Port forward…",
     "Attach",
     "Debug…",
-    "Edit",
     "Copy link",
     "Evict",
     "Delete",
@@ -35,10 +35,10 @@ test("the pod header has Logs, Shell, Attach, Edit and Delete, and no Logs and s
   expect((await fake.lastCall("cmdCheckActions")).ids).toEqual([
     "logs",
     "shell",
+    "edit",
     "portForward",
     "attach",
     "debug",
-    "edit",
     "evict",
     "delete",
     "forceDelete",
@@ -55,21 +55,21 @@ test("a deployment has Logs, Scale and Restart; a node Shell, Cordon and Drain",
   await openApp(page);
   await openKind(page, "Deployments");
   await row(page, "web").click();
-  await expect(bar(page).getByRole("button")).toHaveText(["Logs", "Scale…", "Rollout restart", "Port forward…", "Edit", "Copy link", "Delete"]);
+  await expect(bar(page).getByRole("button")).toHaveText(["Logs", "Edit YAML", "Scale…", "Rollout restart", "Port forward…", "Copy link", "Delete"]);
   await button(page, "Scale…").click();
   await expect(dialog(page)).toHaveAccessibleName("Scale Deployment");
   await dialog(page).getByRole("button", { name: "Cancel" }).click();
 
   await openKind(page, "Nodes");
   await row(page, "node-1").click();
-  await expect(bar(page).getByRole("button")).toHaveText(["Shell", "Cordon", "Uncordon", "Edit", "Copy link", "Drain…", "Delete"]);
+  await expect(bar(page).getByRole("button")).toHaveText(["Shell", "Edit YAML", "Cordon", "Uncordon", "Copy link", "Drain…", "Delete"]);
 });
 
 test("Edit opens the YAML tab of a generic panel", async ({ page }) => {
   await openApp(page);
   await openKind(page, "Deployments");
   await row(page, "web").click();
-  await button(page, "Edit").click();
+  await button(page, "Edit YAML").click();
   await expect(panel(page).getByRole("tab", { name: "YAML" })).toHaveAttribute("aria-selected", "true");
   await expect(panel(page).getByTestId("yaml-editor")).toBeVisible();
 });
@@ -81,7 +81,7 @@ test("Edit brings the pod's YAML editor into view", async ({ page }) => {
   await expect(panel(page).locator("h3", { hasText: "Containers" })).toBeVisible();
   const editor = panel(page).getByTestId("yaml-editor");
   await expect(editor).toBeAttached();
-  await button(page, "Edit").click();
+  await button(page, "Edit YAML").click();
   await expect(editor).toBeInViewport();
   // The header stays at the top of the scrolled panel.
   await expect(bar(page)).toBeInViewport();

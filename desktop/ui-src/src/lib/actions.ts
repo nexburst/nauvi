@@ -27,7 +27,9 @@ export function listTargets(targets: ActionTarget[]): string[] {
  * whenever it hits several objects at once.
  */
 export function needsDialog(action: ActionDef, targets: ActionTarget[]): boolean {
-  return action.destructive || action.input !== "none" || targets.length > 1;
+  // A restart replaces every pod of the workload: it asks first, the same
+  // from the menu, the panel and Shift+R (#494).
+  return action.destructive || action.input !== "none" || targets.length > 1 || action.id === "restart";
 }
 
 /** Scaling to 0 stops the workload, so it reads as destructive. */
@@ -163,8 +165,8 @@ export type PanelAction<Spec> = {
 /**
  * The detail panel's actions: the row menu's dock entries (Logs, Shell) and
  * registry actions, plus Edit (the YAML editor) and Copy link (#299).
- * Opening things comes first, then the other actions, Edit, Copy link, and
- * the destructive ones last.
+ * Opening things comes first (Edit too, #494), then the other actions,
+ * Copy link, and the destructive ones last.
  */
 export function panelActions<Spec>(dock: { label: string; spec: Spec }[], actions: ActionDef[]): PanelAction<Spec>[] {
   const fromRegistry = (a: ActionDef): PanelAction<Spec> => ({
@@ -186,8 +188,11 @@ export function panelActions<Spec>(dock: { label: string; spec: Spec }[], action
         spec: d.spec,
       }),
     ),
-    ...actions.filter((a) => !a.destructive).map(fromRegistry),
-    { id: "edit", label: "Edit", tip: "Edit YAML", danger: false, run: "edit" },
+    // A node's Shell is the registry's, and goes with the dock tabs.
+    ...actions.filter((a) => a.id === "nodeShell").map(fromRegistry),
+    // Right after the tabs that open, as in the row menu (#494).
+    { id: "edit", label: "Edit YAML", tip: "Edit YAML", danger: false, run: "edit" },
+    ...actions.filter((a) => !a.destructive && a.id !== "nodeShell").map(fromRegistry),
     { id: "link", label: "Copy link", tip: "Copy link", danger: false, run: "link" },
     ...actions.filter((a) => a.destructive).map(fromRegistry),
   ];

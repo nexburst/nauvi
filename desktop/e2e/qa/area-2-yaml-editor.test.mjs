@@ -5,7 +5,9 @@
 // - Ctrl+F opens CodeMirror's search panel; find and replace work
 // - folding from the gutter; bracket matching
 // - Review: unified and side-by-side diffs render and scroll; Save works
-// - a write from kubectl meanwhile: the conflict banner, both options
+// - a write from kubectl meanwhile: to another key, the edit is re-applied
+//   on the latest version (#495); to the same key, the conflict and Reload,
+//   or Compare with the latest and an explicit Save
 // - "Discard changes?" on closing the panel, another kind, another row and
 //   another context (the app gets two contexts on the same cluster)
 // - a locked Secret can't be typed into; after Reveal it can
@@ -312,7 +314,7 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     const changed = await app.js("return Array.from(document.querySelectorAll('[data-testid=\"detail-panel\"] .cm-changedLine'), (l) => l.textContent)");
     console.log(`unified changed lines: ${JSON.stringify(changed)}`);
     assert.ok(changed.some((l) => l.includes("line00: changed")), "the unified diff marks the change");
-    assert.match(await statusText(app), /Server-side validation passed/);
+    assert.match(await statusText(app), /The server accepted these changes in a test run/);
     const scrolls = async () =>
       app.js(`const all = Array.from(document.querySelectorAll('[data-testid="detail-panel"] .diff, [data-testid="detail-panel"] .diff *'));
               const s = all.find((x) => x.scrollHeight > x.clientHeight + 10 && /auto|scroll/.test(getComputedStyle(x).overflowY));
@@ -344,17 +346,16 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     await app.shot("saved");
   });
 
-  it("a kubectl write meanwhile shows the conflict banner; Diff against the latest, then Save", T, async () => {
+  it("a kubectl write to another key meanwhile: the edit is re-applied on the latest, then Save (#495)", T, async () => {
     const { app } = s;
     const el = await openYaml(app, "Config Maps", "qa-yaml", "alpha: one");
     const v = await editorValue(app, el);
     await setEditorValue(app, el, v.replace("alpha: one", "alpha: mine"));
     get(["patch", "cm", "qa-yaml", "--type=merge", "-p", '{"data":{"beta":"theirs"}}']);
     await (await app.find(byTestId("yaml-review"))).click();
-    const banner = await app.find(By.css('[data-testid="detail-panel"] .banner.conflict'));
-    assert.match(await banner.getText(), /changed on the server since you loaded it/);
-    await app.shot("conflict-banner");
-    await (await button(app, "Diff against the latest")).click();
+    const note = await app.find(byTestId("yaml-rebased"));
+    assert.match(await note.getText(), /changed on the server while you were editing \(\.data\.beta\)/);
+    await app.shot("rebased-note");
     await app.find(byTestId("yaml-save"));
     await app.waitFor(() => app.js("return document.querySelector('[data-testid=\"detail-panel\"] .diff')?.dataset.ready === 'true'"), {
       message: "the diff against the latest",
@@ -379,9 +380,10 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     const data = JSON.parse(get(["get", "cm", "qa-yaml", "-o", "jsonpath={.data}"]));
     console.log(`after the save: ${JSON.stringify(data)}`);
     assert.equal(data.alpha, "mine");
+    assert.equal(data.beta, "theirs", "the other write is kept");
   });
 
-  it("a kubectl write meanwhile: Reload (lose my edits) shows the server's version", T, async () => {
+  it("a kubectl write to the same key meanwhile: a conflict naming it; Reload (lose my edits)", T, async () => {
     const { app } = s;
     const el = await editor(app, "yaml-editor");
     await app.waitFor(async () => (await editorValue(app, el)).includes("alpha: mine"), { message: "the reloaded YAML" });
@@ -389,15 +391,48 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
     await setEditorValue(app, el, v.replace("alpha: mine", "alpha: lost"));
     get(["patch", "cm", "qa-yaml", "--type=merge", "-p", '{"data":{"alpha":"server"}}']);
     await (await app.find(byTestId("yaml-review"))).click();
-    await app.find(By.css('[data-testid="detail-panel"] .banner.conflict'));
+    const alert = await app.find(By.css('[data-testid="yaml-status"] [role="alert"]'));
+    assert.match(await alert.getText(), /You and someone else both changed \.data\.alpha/);
+    await app.shot("conflict-banner");
     await (await button(app, "Reload (lose my edits)")).click();
     await app.waitFor(async () => (await editorValue(app, await editor(app, "yaml-editor"))).includes("alpha: server"), {
       message: "alpha: server in the editor",
     });
     const after = await editorValue(app, await editor(app, "yaml-editor"));
     assert.ok(!after.includes("alpha: lost"), "the edit is gone");
-    assert.equal(await app.js("return !!document.querySelector('[data-testid=\"detail-panel\"] .banner.conflict')"), false);
+    assert.equal(await app.js("return !!document.querySelector('[data-testid=\"yaml-status\"] [role=\"alert\"]')"), false);
     assert.equal(await (await app.find(byTestId("yaml-review"))).isEnabled(), false, "nothing to review");
+  });
+
+  it("the same key again: Compare with the latest, then Save replaces the other write only on Save", T, async () => {
+    const { app } = s;
+    const el = await editor(app, "yaml-editor");
+    const v = await editorValue(app, el);
+    await setEditorValue(app, el, v.replace("alpha: server", "alpha: mine2"));
+    get(["patch", "cm", "qa-yaml", "--type=merge", "-p", '{"data":{"alpha":"server2"}}']);
+    await (await app.find(byTestId("yaml-review"))).click();
+    await app.find(By.css('[data-testid="yaml-status"] [role="alert"]'));
+    await (await button(app, "Compare with the latest")).click();
+    await app.find(byTestId("yaml-save"));
+    await app.waitFor(() => app.js("return document.querySelector('[data-testid=\"detail-panel\"] .diff')?.dataset.ready === 'true'"), {
+      message: "the diff against the latest",
+    });
+    const changed = await app.js("return Array.from(document.querySelectorAll('[data-testid=\"detail-panel\"] .cm-changedLine'), (l) => l.textContent)");
+    // Unified diff: the latest version's lines are drawn as deleted chunks.
+    const deleted = await app.js("return Array.from(document.querySelectorAll('[data-testid=\"detail-panel\"] .cm-deletedChunk'), (l) => l.textContent).join('\\n')");
+    console.log(`compare with the latest: ${JSON.stringify({ changed, deleted })}`);
+    assert.ok(changed.some((l) => /alpha: mine2/.test(l)), "the diff shows mine");
+    assert.match(deleted, /alpha: server2/, "replacing theirs");
+    assert.match(await statusText(app), /Saving replaces what changed there with your version/);
+    assert.equal(get(["get", "cm", "qa-yaml", "-o", "jsonpath={.data.alpha}"]), "server2", "nothing replaced before Save");
+    await setTheme(app, "light");
+    await app.shot("compare-latest-light");
+    await setTheme(app, "dark");
+    await app.shot("compare-latest-dark");
+    await setTheme(app, null);
+    await (await app.find(byTestId("yaml-save"))).click();
+    await app.waitFor(async () => /Saved/.test(await statusText(app)), { message: "Saved." });
+    assert.equal(get(["get", "cm", "qa-yaml", "-o", "jsonpath={.data.alpha}"]), "mine2", "replaced after the explicit Save");
   });
 
   it("asks before closing the panel, opening another kind or row; Keep editing keeps the edit", T, async () => {

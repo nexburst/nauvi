@@ -7,6 +7,8 @@ use kube::Client;
 use serde::Serialize;
 use serde_json::Value;
 
+use super::rebase::{rebase_onto, Rebase};
+
 /// Field manager used for server-side apply.
 pub(super) const FIELD_MANAGER: &str = "nauvi";
 
@@ -162,25 +164,28 @@ fn ordered(value: Value) -> serde_yaml::Value {
 /// `managedFields`) is read-only metadata, and `status` is owned by
 /// controllers: applying it would make this field manager a co-owner of
 /// fields it never meant to manage, and later conflict with the controller.
-fn strip_server_fields(value: &mut Value) {
+pub(super) fn strip_server_fields(value: &mut Value) {
     if let Some(root) = value.as_object_mut() {
         root.remove("status");
         if let Some(meta) = root.get_mut("metadata").and_then(Value::as_object_mut) {
-            for key in [
-                "resourceVersion",
-                "managedFields",
-                "uid",
-                "generation",
-                "creationTimestamp",
-                "selfLink",
-                "deletionTimestamp",
-                "deletionGracePeriodSeconds",
-            ] {
+            for key in SERVER_METADATA {
                 meta.remove(key);
             }
         }
     }
 }
+
+/// The `metadata` fields [`strip_server_fields`] removes.
+pub(super) const SERVER_METADATA: [&str; 8] = [
+    "resourceVersion",
+    "managedFields",
+    "uid",
+    "generation",
+    "creationTimestamp",
+    "selfLink",
+    "deletionTimestamp",
+    "deletionGracePeriodSeconds",
+];
 
 /// Fields an apply took over from another field manager.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -216,7 +221,9 @@ pub async fn apply_resource_yaml(
     {
         ApplyOutcome::Applied { takeovers } => Ok(takeovers),
         // Only reported when a resourceVersion was given.
-        ApplyOutcome::Conflict { .. } => bail!("{name} changed on the server"),
+        ApplyOutcome::Conflict { .. } | ApplyOutcome::Rebased { .. } => {
+            bail!("{name} changed on the server")
+        }
     }
 }
 
@@ -230,6 +237,13 @@ pub struct ApplyOptions {
     /// object has changed since, nothing is applied and the outcome is
     /// [`ApplyOutcome::Conflict`].
     pub resource_version: Option<String>,
+    /// The YAML as it was loaded at `resource_version`. With it, a newer
+    /// version on the server is not a conflict by itself (#495): if it
+    /// differs only in what the server owns (`status`, `resourceVersion`,
+    /// `generation`, ...), the edit is applied; if it changed other fields
+    /// than the edit, the outcome is [`ApplyOutcome::Rebased`]; only fields
+    /// changed on both sides are a [`ApplyOutcome::Conflict`].
+    pub base: Option<String>,
 }
 
 /// What an apply did.
@@ -241,8 +255,27 @@ pub enum ApplyOutcome {
     /// it took (or would take) over from other field managers.
     Applied { takeovers: Vec<FieldTakeover> },
     /// Someone else wrote to the object since it was loaded; nothing was
-    /// applied. `resource_version` is the object's current one.
-    Conflict { resource_version: String },
+    /// applied. `resource_version` is the object's current one; `fields`
+    /// the fields both the edit and the other writer changed (empty when
+    /// that is not known); `reason` a sentence when the conflict is not
+    /// about fields (the object was deleted and created again, or is being
+    /// deleted), empty otherwise.
+    Conflict {
+        resource_version: String,
+        fields: Vec<String>,
+        reason: String,
+    },
+    /// The object changed on the server since it was loaded, in other
+    /// fields than the edit; nothing was applied. `yaml` is the edit
+    /// re-applied on the latest version (at `resource_version`), to review
+    /// and save again; `changed` the fields the server changed.
+    Rebased {
+        yaml: String,
+        /// The latest version as the editor loads it: the new base.
+        latest: String,
+        resource_version: String,
+        changed: Vec<String>,
+    },
 }
 
 /// [`apply_resource_yaml`] with a dry run and a check that the object has
@@ -250,7 +283,8 @@ pub enum ApplyOutcome {
 ///
 /// The check is a read before the apply plus the `resourceVersion` as a
 /// precondition in the forced apply itself, so a write that lands between
-/// the two is not overwritten silently either.
+/// the two is not overwritten silently either. With [`ApplyOptions::base`],
+/// a newer version is merged with the edit first (see `rebase.rs`).
 pub async fn apply_resource_yaml_with(
     client: &Client,
     r: &ResourceRef,
@@ -261,8 +295,64 @@ pub async fn apply_resource_yaml_with(
 ) -> Result<ApplyOutcome> {
     let value = prepare_apply(r, name, yaml)?;
     let api = object_api(client, r, namespace)?;
-    Ok(apply_value(&api, name, value, opts).await?.0)
+    let expected = opts.resource_version.as_deref().filter(|v| !v.is_empty());
+    let (Some(expected), Some(base)) = (expected, opts.base.as_deref()) else {
+        return Ok(apply_value(&api, name, value, opts).await?.0);
+    };
+    // A rollout updates the status many times a second: if the object
+    // changes again between the read and the apply, look again.
+    for _ in 0..REBASE_TRIES {
+        let current = api.get(name).await?;
+        let current_rv = current
+            .metadata
+            .resource_version
+            .clone()
+            .unwrap_or_default();
+        let doc = if current_rv == expected {
+            value.clone()
+        } else {
+            match rebase_onto(r, base, &value, current)? {
+                Rebase::Clean(merged) => merged,
+                Rebase::Merged {
+                    yaml,
+                    latest,
+                    changed,
+                } => {
+                    return Ok(ApplyOutcome::Rebased {
+                        yaml,
+                        latest,
+                        resource_version: current_rv,
+                        changed,
+                    })
+                }
+                Rebase::Conflict { fields, reason } => {
+                    return Ok(ApplyOutcome::Conflict {
+                        resource_version: current_rv,
+                        fields,
+                        reason,
+                    })
+                }
+            }
+        };
+        let opts = ApplyOptions {
+            resource_version: Some(current_rv),
+            ..opts.clone()
+        };
+        match apply_value(&api, name, doc, &opts).await?.0 {
+            ApplyOutcome::Conflict { .. } => continue,
+            out => return Ok(out),
+        }
+    }
+    Ok(ApplyOutcome::Conflict {
+        resource_version: current_resource_version(&api, name).await?,
+        fields: Vec::new(),
+        reason: String::new(),
+    })
 }
+
+/// How often [`apply_resource_yaml_with`] reads the object again when it
+/// keeps changing between the read and the apply.
+const REBASE_TRIES: usize = 5;
 
 /// The apply of [`apply_resource_yaml_with`] on a checked document (see
 /// [`check_document`]). Also returns the object as the server answered it
@@ -280,6 +370,8 @@ pub(super) async fn apply_value(
             return Ok((
                 ApplyOutcome::Conflict {
                     resource_version: current,
+                    fields: Vec::new(),
+                    reason: String::new(),
                 },
                 None,
             ));
@@ -295,6 +387,7 @@ pub(super) async fn apply_value(
         Err(kube::Error::Api(e)) if e.code == 409 => (parse_apply_conflicts(&e.message), None),
         Err(e) => return Err(e.into()),
     };
+    let shown = others(takeovers.clone());
     if opts.dry_run {
         // The non-forced dry run stops at the ownership conflicts; validate
         // the rest of the object the way the real save will send it.
@@ -308,7 +401,7 @@ pub(super) async fn apply_value(
                 .await?,
             );
         }
-        return Ok((ApplyOutcome::Applied { takeovers }, answer));
+        return Ok((ApplyOutcome::Applied { takeovers: shown }, answer));
     }
 
     let mut body = value;
@@ -326,12 +419,14 @@ pub(super) async fn apply_value(
         )
         .await
     {
-        Ok(obj) => Ok((ApplyOutcome::Applied { takeovers }, Some(obj))),
+        Ok(obj) => Ok((ApplyOutcome::Applied { takeovers: shown }, Some(obj))),
         // A forced apply has no ownership conflicts: a 409 is the
         // resourceVersion precondition.
         Err(kube::Error::Api(e)) if e.code == 409 && expected.is_some() => Ok((
             ApplyOutcome::Conflict {
                 resource_version: current_resource_version(api, name).await?,
+                fields: Vec::new(),
+                reason: String::new(),
             },
             None,
         )),
@@ -378,6 +473,15 @@ pub(super) fn check_document(r: &ResourceRef, name: &str, mut value: Value) -> R
         bail!("metadata.name must stay \"{name}\" (rename is not supported)");
     }
     Ok(value)
+}
+
+/// The takeovers to report: not those from nauvi's own earlier changes
+/// (#495). A scale or restart from nauvi is an update by the field manager
+/// "nauvi", which server-side apply counts as another manager than nauvi's
+/// apply; taking those fields over changes nothing anyone runs again.
+fn others(mut takeovers: Vec<FieldTakeover>) -> Vec<FieldTakeover> {
+    takeovers.retain(|t| t.manager != FIELD_MANAGER);
+    takeovers
 }
 
 /// Parse the field-ownership conflicts out of a server-side apply 409
@@ -439,6 +543,15 @@ pub async fn delete_resource(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn takeovers_from_nauvi_itself_are_not_reported() {
+        let t = |m: &str| FieldTakeover {
+            manager: m.into(),
+            fields: vec![".spec.replicas".into()],
+        };
+        assert_eq!(others(vec![t("nauvi"), t("helm")]), vec![t("helm")]);
+    }
 
     #[test]
     fn apply_conflicts_single() {
@@ -547,10 +660,12 @@ mod tests {
     fn apply_outcome_is_tagged() {
         let out = ApplyOutcome::Conflict {
             resource_version: "9".into(),
+            fields: vec![".spec.replicas".into()],
+            reason: String::new(),
         };
         assert_eq!(
             serde_json::to_value(&out).unwrap(),
-            json!({"outcome": "conflict", "resource_version": "9"})
+            json!({"outcome": "conflict", "resource_version": "9", "fields": [".spec.replicas"], "reason": ""})
         );
     }
 

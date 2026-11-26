@@ -1,9 +1,8 @@
 // Checks (#140): the generic resource tables at 1280x800 in WebKitGTK.
 // Each header starts where its column's cells do (WebKitGTK's overlay
 // scrollbars take no gutter, so the header must not reserve one), and with
-// the detail panel open a header label that does not fit its column
-// ("EXTERNAL IP" on Services) is cut with an ellipsis instead of running into
-// the next one. Services and Nodes, without and with the panel, light and
+// the detail panel open a header label that does not fit its column is cut
+// with an ellipsis instead of running into the next one. Services and Nodes, without and with the panel, light and
 // dark theme. The Service lives in a temp namespace; the node is only read.
 
 import assert from "node:assert/strict";
@@ -90,11 +89,9 @@ describe("resource table layout (#140)", { timeout: 10 * 60_000 }, () => {
 
       await (await app.find(app.row(SERVICE, ns))).click();
       await waitPanelTitle(app, `${ns}/${SERVICE}`);
-      const l = assertLayout(`services + panel ${theme}`, await layout(app));
-      assert.ok(
-        l.cut.some((c) => c.label.toUpperCase() === "EXTERNAL IP"),
-        `EXTERNAL IP is cut with the panel open: ${JSON.stringify(l.cut)}`,
-      );
+      // Columns fit their headers now (#482): a header is cut only when its
+      // column gives way, and then with an ellipsis and its title (above).
+      assertLayout(`services + panel ${theme}`, await layout(app));
     });
 
     it(`Nodes: headers over their cells, with and without the panel (${theme})`, T, async () => {
