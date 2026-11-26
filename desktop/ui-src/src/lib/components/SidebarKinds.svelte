@@ -252,8 +252,8 @@
       <!-- The open view is never hidden away. -->
       {#each s.more.filter((e) => e.view === app.view) as e (e.view)}{@render item(e)}{/each}
     {/if}
-    {#if isOpen(s.id) && !lens}
-      {@const n = s.more.filter((e) => e.view !== app.view || isMoreOpen(s.id)).length}
+    {@const n = s.more.filter((e) => e.view !== app.view || isMoreOpen(s.id)).length}
+    {#if isOpen(s.id) && !lens && n > 0}
       {@const hidden = isMoreOpen(s.id) ? 0 : problemsOf(s.more.filter((e) => e.view !== app.view))}
       <button
         type="button"
@@ -351,7 +351,7 @@
   /* Section heads: a word in the UI font, sentence case, with a chevron
      that turns when the section is closed (#383, #481). */
   h4 {
-    margin: 8px 0 1px;
+    margin: 6px 0 1px;
     font: inherit;
   }
   button.section {

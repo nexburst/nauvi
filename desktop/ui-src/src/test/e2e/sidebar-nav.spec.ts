@@ -38,9 +38,11 @@ test("each kind has an icon; the common kinds come first and the rest wait under
   await openKind(page, "ReplicaSets");
   await more(page, "workloads").click();
   await expect(kind(page, "ReplicaSets")).toHaveClass(/active/);
-  await expect(more(page, "workloads")).toHaveText("1 more");
+  // Nothing else is hidden there, so there is nothing more to offer.
+  await expect(more(page, "workloads")).toHaveCount(0);
   await openKind(page, "Pods");
   await expect(kind(page, "ReplicaSets")).toHaveCount(0);
+  await expect(more(page, "workloads")).toHaveText("1 more");
   expect(fake.errors).toEqual([]);
 });
 
@@ -68,10 +70,14 @@ test("the filter keeps what matches, drops empty sections, and opens the first m
   await expect(kind(page, "Ingress Classes")).toBeVisible();
   await expect(kinds(page).getByTestId("sidebar-more")).toHaveCount(0);
 
-  // A section's name keeps the whole section.
+  // A section's name keeps the whole section (and API groups that match).
   await filter(page).fill("storage");
-  await expect(kinds(page).locator("[data-group]")).toHaveCount(1);
-  await expect(kinds(page).locator("h4")).toHaveText(["Storage"]);
+  await expect(group(page, "storage").locator("button.kind .label")).toHaveText([
+    "Persistent Volume Claims",
+    "Persistent Volumes",
+    "Storage Classes",
+  ]);
+  await expect(group(page, "workloads")).toHaveCount(0);
 
   // Nothing: said so.
   await filter(page).fill("zzzz");
