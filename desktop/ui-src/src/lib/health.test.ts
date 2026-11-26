@@ -3,7 +3,30 @@ import { CATALOG_VIEW } from "./catalog";
 import { PORT_FORWARDS_VIEW } from "./forwards";
 import { HELM_VIEW } from "./helm";
 import { HELM_CHARTS_VIEW } from "./helmCharts";
-import { healthError, isWatchless, troubleTitle, visibleDot } from "./health";
+import { healthError, isProbeFailure, isReachabilityError, isWatchless, troubleTitle, visibleDot } from "./health";
+
+describe("isProbeFailure", () => {
+  it("is the probe's no-answer, not a login or certificate failure", () => {
+    expect(isProbeFailure("Lost the connection to the cluster (https://x); retrying.")).toBe(true);
+    expect(isProbeFailure("Login to `x` failed: the plugin exited with 1")).toBe(false);
+    expect(isProbeFailure("Certificate problem: unknown issuer")).toBe(false);
+  });
+});
+
+describe("isReachabilityError", () => {
+  it("is a banner that only says the cluster did not answer", () => {
+    expect(isReachabilityError("Cannot reach the cluster for `kind-dev` (https://x): refused")).toBe(true);
+    expect(isReachabilityError("Could not reach the cluster: timeout")).toBe(true);
+    expect(isReachabilityError("Lost the connection to the cluster (https://x). Stopped retrying.")).toBe(true);
+    expect(isReachabilityError("The API server is not answering (no reply within 5 s); retrying.")).toBe(true);
+  });
+
+  it("is not another error", () => {
+    expect(isReachabilityError("")).toBe(false);
+    expect(isReachabilityError("Login to `x` failed: expired")).toBe(false);
+    expect(isReachabilityError("Could not discover the cluster's resource types: x")).toBe(false);
+  });
+});
 
 describe("isWatchless", () => {
   it("is the views that start no watch", () => {

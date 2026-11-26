@@ -88,6 +88,32 @@ test("Port Forwards checks the cluster every 10 s and says when it goes away and
   expect(fake.errors).toEqual([]);
 });
 
+test("a failed login is not checked again on a timer: its login command would run again", async ({ page }) => {
+  await page.clock.install();
+  const fake = await openApp(page);
+  await page.evaluate(() => (window.__fake.cluster.healthError = "Login to `kind-dev` failed: the plugin exited with 1"));
+  await openKind(page, "Port Forwards");
+  await expect(status(page)).toHaveText("Login failed");
+  await expect(page.getByRole("alert")).toContainText("Login to `kind-dev` failed");
+  const checks = (await fake.calls("cmdClusterHealth")).length;
+  await page.clock.runFor(30_000);
+  expect((await fake.calls("cmdClusterHealth")).length).toBe(checks);
+
+  // Refresh asks again.
+  await page.evaluate(() => (window.__fake.cluster.healthError = ""));
+  await page.getByRole("button", { name: "Refresh" }).click();
+  await expect(status(page)).toHaveText("Live");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
+test("from a failing Overview to Port Forwards: an answer clears the old cannot-reach banner", async ({ page }) => {
+  await openApp(page, (_cluster, f) => f.failNext("cmdOverviewStart", "Cannot reach the cluster for `kind-dev`"));
+  await expect(page.getByRole("alert")).toContainText("Cannot reach the cluster");
+  await openKind(page, "Port Forwards");
+  await expect(status(page)).toHaveText("Live");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+});
+
 test("Refresh on Helm checks the cluster at once", async ({ page }) => {
   const fake = await openApp(page);
   await openKind(page, "Releases");

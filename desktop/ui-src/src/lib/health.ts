@@ -36,8 +36,34 @@ export const HEALTH_EVERY_MS = 10_000;
  */
 export function healthError(e: unknown): { status: string; message: string } {
   const message = String(e);
-  if (message.endsWith("; retrying.")) return { status: "Cluster unreachable", message };
+  if (isProbeFailure(message)) return { status: "Cluster unreachable", message };
   return clusterError(e);
+}
+
+/**
+ * Whether a failed health check is the probe's own "no answer" (checked
+ * again in 10 s), not a client that could not be built: a failed login or
+ * certificate is not checked again until Refresh, a cluster switch or the
+ * window showing again, since each check would run the login command
+ * (an exec plugin may open a browser) again.
+ */
+export function isProbeFailure(e: unknown): boolean {
+  return String(e).endsWith("; retrying.");
+}
+
+/**
+ * Whether the banner `message` only says the cluster did not answer (a
+ * view's failed start or reconnect, a health check): it goes once a health
+ * check gets an answer, whichever view set it.
+ */
+export function isReachabilityError(message: string): boolean {
+  return (
+    message.startsWith("Cannot reach the cluster") ||
+    message.startsWith("Could not reach the cluster") ||
+    message.startsWith("Lost the connection to the cluster") ||
+    message.startsWith("The API server is not answering") ||
+    isProbeFailure(message)
+  );
 }
 
 /** The dot of a cluster in the tree: the one shown follows the header. */

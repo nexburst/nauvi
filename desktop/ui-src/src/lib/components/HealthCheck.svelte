@@ -6,7 +6,7 @@
   // while the window is hidden (one more runs when it shows again).
   import { onDestroy, untrack } from "svelte";
   import { api, visibleCluster } from "../cluster";
-  import { HEALTH_EVERY_MS, healthError } from "../health";
+  import { HEALTH_EVERY_MS, healthError, isProbeFailure, isReachabilityError } from "../health";
   import { app, currentContextName, setStatus, showError } from "../stores/app.svelte";
 
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -35,12 +35,18 @@
       if (id !== run || cluster !== visibleCluster()) return;
       if (app.status.ok !== true || app.status.text !== "Live") setStatus(true, "Live");
       clearError();
+      // The cluster answers: another view's "cannot reach" banner is wrong now.
+      if (isReachabilityError(app.error)) showError("");
     } catch (e) {
       if (id !== run || cluster !== visibleCluster()) return;
       const err = healthError(e);
       setStatus(false, err.status);
       shown = err.message;
       showError(err.message);
+      // A failed login or certificate: checking again would run the login
+      // command again (a browser, for some plugins). Refresh, a cluster
+      // switch or the window showing again starts over.
+      if (!isProbeFailure(e)) return;
     }
     schedule(id);
   }
