@@ -403,6 +403,23 @@ export class App {
     return `//nav//*[@data-testid="sidebar-kinds"]//button[normalize-space()=${xq(label)} or normalize-space(text()[1])=${xq(label)} or normalize-space(span[1])=${xq(label)}]`;
   }
 
+  /**
+   * Show every kind in the sidebar: open each section's "N more" (#481) and
+   * each API group fold. Returns once no "more" button is closed.
+   */
+  async expandSidebar() {
+    await this.waitFor(
+      () =>
+        this.js(
+          `document.querySelectorAll("[data-testid=sidebar-kinds] details").forEach((d) => (d.open = true));
+           const closed = document.querySelectorAll('[data-testid="sidebar-more"][aria-expanded="false"]');
+           closed.forEach((b) => b.click());
+           return closed.length === 0;`,
+        ),
+      { message: "every sidebar section's More open" },
+    );
+  }
+
   /** Click a kind (or Overview) in the sidebar. */
   async nav(label) {
     // A less-used kind waits under its section's "More" (#481): open them.
@@ -485,11 +502,24 @@ export class App {
     return By.xpath(`//*[@data-testid='resource-row']${cell(name)}${namespace ? cell(namespace) : ""}`);
   }
 
+  /**
+   * Click the Name cell of a row. The row's middle can be its Namespace
+   * cell's funnel link (#382), and fitted columns (#482) move it as rows come
+   * and go.
+   */
+  async clickRow(name, namespace) {
+    const row = await this.find(this.row(name, namespace));
+    const cell = await row.findElement(
+      By.xpath(`./*[@role='gridcell'][normalize-space()=${xq(name)} or @aria-label=${xq(name)}]`),
+    );
+    await cell.click();
+  }
+
   /** Open a kind, filter to `name` and click its row; waits for the detail panel. */
   async openDetail(kindLabel, namespace, name) {
     await this.nav(kindLabel);
     await this.filter(name);
-    await (await this.find(this.row(name, namespace))).click();
+    await this.clickRow(name, namespace);
     await this.waitFor(
       async () =>
         (await (await this.driver.findElement(By.css('[data-testid="detail-panel"] .title'))).getText()).includes(

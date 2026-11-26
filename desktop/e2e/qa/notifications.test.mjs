@@ -153,9 +153,12 @@ describe("notification history", { timeout: 15 * 60_000 }, () => {
     await openKind(app, "Deployments", ns, "qa-notify");
     await contextMenu(app, "qa-notify", ns);
     await menuItem(app, "Rollout restart");
+    // It asks first, from the menu as from Shift+R (#494).
+    await (await app.find(byTestId("action-confirm"))).click();
     await app.waitFor(async () => /Restarted|restart/i.test(await noticeText(app)), { message: "the restart notice" });
     await contextMenu(app, "qa-notify-locked", ns);
     await menuItem(app, "Rollout restart");
+    await (await app.find(byTestId("action-confirm"))).click();
     const err = await app.waitFor(
       async () => {
         const n = await noticeText(app);

@@ -54,7 +54,8 @@ async function appAges(app) {
     return Array.from(document.querySelectorAll('[data-testid="resource-row"]'), (r) => {
       // The checkbox cell has a header too, so the indexes line up.
       const c = r.querySelectorAll('[role="gridcell"]');
-      return [c[name]?.textContent.trim(), c[at]?.textContent.trim(), c[at]?.getAttribute("title") ?? ""];
+      // A cut name (#482) has its whole value as its aria-label.
+      return [c[name]?.getAttribute("aria-label") ?? c[name]?.textContent.trim(), c[at]?.textContent.trim(), c[at]?.getAttribute("title") ?? ""];
     });
   `);
   return new Map(rows.map(([n, age, title]) => [n, { age, title }]));

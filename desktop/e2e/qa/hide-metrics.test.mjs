@@ -104,8 +104,11 @@ describe("hide metrics per cluster", { timeout: 15 * 60_000 }, () => {
     await setTheme(app, "light");
     await app.nav("Pods");
     await app.filter("logger");
-    const row = await app.find(By.css('[data-testid="resource-row"]'));
-    await row.click();
+    const name = await app.waitFor(async () => {
+      const rows = await app.rows();
+      return rows.length === 1 && rows[0][0].startsWith("logger-") ? rows[0][0] : null;
+    }, { message: "only the logger row" });
+    await app.clickRow(name, "demo");
     await app.find(By.css('[data-testid="detail-panel"] [data-testid="usage-charts"]'));
     await app.waitFor(async () => (await noteText(app, '[data-testid="usage-charts"]')) !== "", {
       message: "the note in the pod panel",

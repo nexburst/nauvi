@@ -243,8 +243,9 @@ describe("area 1: live Pods, Nodes and Namespaces tables", { timeout: 15 * 60_00
     assert.deepEqual(rows.map((r) => r.Name).sort(), want);
     for (const r of rows) {
       assert.equal(r.Ready, "True");
-      assert.match(r.CPU, /^\S+ \/ \S+$/);
-      assert.match(r.Memory, /^\S+ \/ \S+$/);
+      // Sizes read "609 MiB / 15.6 GiB" since #484: a number and a unit.
+      assert.match(r.CPU, /^[\d.]+ ?[A-Za-z]* \/ [\d.]+ ?[A-Za-z]*$/);
+      assert.match(r.Memory, /^[\d.]+ ?[A-Za-z]* \/ [\d.]+ ?[A-Za-z]*$/);
     }
   });
 

@@ -363,7 +363,7 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     const yaml = await app.js("return arguments[0].nauviEditor.getValue()", editor);
     await app.js("arguments[0].nauviEditor.setValue(arguments[1])", editor, yaml.replace(/\n {2}replicas: \d+\n/, "\n  replicas: 2\n"));
     step("5. Deployment: YAML, scale, restart", 0, 1);
-    await clickText("[data-testid=detail-panel]", "Review");
+    await clickText("[data-testid=detail-panel]", "Review & save…");
     await app.find(By.xpath(`//*[@data-testid='detail-panel']//button[normalize-space()='Save']`));
     await app.shot("5-review");
     await clickText("[data-testid=detail-panel]", "Save");

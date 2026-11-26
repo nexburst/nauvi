@@ -224,7 +224,10 @@ async function followFirst(app, group, expectTitle) {
   return name;
 }
 
-/** The opened object's row is in the table, selected, under an empty filter (#108). */
+/**
+ * The opened object's row is in the table, selected, under an empty filter
+ * (#108). A cut cell (#482) has its full text as its aria-label.
+ */
 async function assertOpenedRow(app, ns, name) {
   const filter = await app.js(`return document.querySelector('input[aria-label="Filter"]').value`);
   assert.equal(filter, "", "the filter of the previous kind is cleared");
@@ -232,7 +235,7 @@ async function assertOpenedRow(app, ns, name) {
     () =>
       app.js(
         `return Array.from(document.querySelectorAll('[data-testid="resource-row"].selected'), (r) =>
-           Array.from(r.querySelectorAll('[role="gridcell"]'), (c) => c.textContent.trim()))
+           Array.from(r.querySelectorAll('[role="gridcell"]'), (c) => c.getAttribute("aria-label") ?? c.textContent.trim()))
            .some((cells) => cells[1] === arguments[0] && cells[2] === arguments[1])`,
         name,
         ns,

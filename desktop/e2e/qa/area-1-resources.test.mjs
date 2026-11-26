@@ -103,7 +103,7 @@ function waitListed(app, timeout) {
 
 /** Open a kind and return what is wrong with its table, or "". */
 async function kindProblem(app, label) {
-  await app.js(`document.querySelectorAll("[data-testid=sidebar-kinds] details").forEach((d) => (d.open = true))`);
+  await app.expandSidebar();
   await app.nav(label);
   try {
     await app.find(By.css(`[data-testid="resource-table"] [role="grid"][aria-label=${JSON.stringify(label)}]`));
@@ -191,17 +191,18 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     // Open the API group folds (Custom Resources, Other), and take each
     // label once (metrics.k8s.io has its own Nodes and Pods). Views that are
     // not a kind's table are left out: the Overviews, Applications (checked
-    // on its own below), Port Forwards and the Helm section.
+    // on its own below), Port Forwards and the Helm section. The less-used
+    // kinds wait under each section's "N more" (#481).
+    await app.expandSidebar();
     const labels = await app.js(
       `const views = arguments[0];
-       document.querySelectorAll("[data-testid=sidebar-kinds] details").forEach((d) => (d.open = true));
        let section = "";
        const all = [];
-       for (const el of document.querySelectorAll("[data-testid=sidebar-kinds] h4, [data-testid=sidebar-kinds] button")) {
+       for (const el of document.querySelectorAll("[data-testid=sidebar-kinds] h4, [data-testid=sidebar-kinds] button.kind")) {
          if (el.tagName === "H4") { section = el.textContent.trim(); continue; }
-         // A section heading's collapse toggle (#383), not a kind.
-         if (el.closest("h4")) continue;
-         const label = el.childNodes[0]?.textContent.trim() ?? "";
+         // The pinned copies of kinds listed again in their sections.
+         if (el.closest("[data-testid=sidebar-pinned]")) continue;
+         const label = el.querySelector(".label")?.textContent.trim() ?? "";
          if (label && section !== "Helm" && !views.includes(label)) all.push(label);
        }
        return [...new Set(all)];`,
@@ -237,10 +238,10 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
   it("Component Statuses (no watch verb) lists and says it is not live", T, async () => {
     const { app } = s;
     // Matches the label before and after the sidebar-name fix (#96).
+    await app.expandSidebar();
     const label = await app.js(
-      `document.querySelectorAll("[data-testid=sidebar-kinds] details").forEach((d) => (d.open = true));
-       return [...document.querySelectorAll("[data-testid=sidebar-kinds] button")]
-         .map((b) => b.childNodes[0]?.textContent.trim() ?? "")
+      `return [...document.querySelectorAll("[data-testid=sidebar-kinds] button.kind")]
+         .map((b) => b.querySelector(".label")?.textContent.trim() ?? "")
          .find((l) => /^component ?statuses$/i.test(l)) ?? "";`,
     );
     assert.ok(label, "Component Statuses in the sidebar");
@@ -255,13 +256,18 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
 
   it("sidebar names are readable, unique and fit the sidebar (#96)", T, async () => {
     const { app } = s;
-    await app.js(`document.querySelectorAll("[data-testid=sidebar-kinds] details").forEach((d) => (d.open = true))`);
+    await app.expandSidebar();
     const kinds = await app.js(
       `const nav = document.querySelector("nav").getBoundingClientRect();
-       return Array.from(document.querySelectorAll("[data-testid=sidebar-kinds] button.kind"), (b) => {
+       const buttons = [...document.querySelectorAll("[data-testid=sidebar-kinds] button.kind")]
+         .filter((b) => !b.closest("[data-testid=sidebar-pinned]"));
+       return buttons.map((b) => {
          const label = b.querySelector(".label");
          return {
            label: label.textContent.trim(),
+           // The accessible name tells apart two short labels, like the
+           // cluster's and the Workloads "Overview" (#481).
+           name: b.getAttribute("aria-label") || label.textContent.trim(),
            title: b.title,
            clipped: label.scrollHeight > label.clientHeight + 1 || label.scrollWidth > label.clientWidth + 1,
            wrapped: label.getClientRects().length > 0 && label.clientHeight > 1.5 * parseFloat(getComputedStyle(label).lineHeight),
@@ -271,7 +277,8 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     );
     const labels = kinds.map((k) => k.label);
     console.log(`sidebar kinds: ${labels.join(", ")}`);
-    const dupes = labels.filter((l, i) => labels.indexOf(l) !== i);
+    const names = kinds.map((k) => k.name);
+    const dupes = names.filter((l, i) => names.indexOf(l) !== i);
     assert.deepEqual(dupes, [], "two sidebar entries with the same name");
     for (const name of ["Component Statuses", "Controller Revisions", "Mutating Admission Policies", "Node Metrics", "Pod Metrics"]) {
       assert.ok(labels.includes(name), `"${name}" in the sidebar`);
@@ -286,7 +293,11 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
       "every label in full inside the sidebar",
     );
     console.log(`wrapped: ${kinds.filter((k) => k.wrapped).map((k) => k.label).join(", ")}`);
-    for (const k of kinds) assert.ok(k.title.startsWith(`${k.label}: `), `tooltip of ${k.label}: ${k.title}`);
+    // A kind's tooltip is its full label and API identity; a view's (the
+    // Overviews, Applications, Port Forwards, Helm) is its label.
+    for (const k of kinds) {
+      assert.ok(k.title === k.label || k.title.startsWith(`${k.label}: `), `tooltip of ${k.label}: ${k.title}`);
+    }
     const long = await app.find(app.navButton("Validating Admission Policy Bindings"));
     await app.js("arguments[0].scrollIntoView({ block: 'center' })", long);
     await app.shot("sidebar-names");
