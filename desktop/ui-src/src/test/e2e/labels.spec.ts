@@ -77,12 +77,12 @@ test("the filter's options are labelled toggles, their state plain", async ({ pa
   await expect(page.getByRole("searchbox", { name: "Filter" })).toHaveAttribute("placeholder", "Filter (regex)…");
 });
 
-test("the detail panel names Logs, Shell and Edit; Delete stands apart", async ({ page }) => {
+test("the detail panel names Logs, Shell and Edit YAML; Delete stands apart", async ({ page }) => {
   await openApp(page);
   await openKind(page, "Pods");
   await row(page, "web-1").click();
   const bar = page.getByTestId("detail-panel").getByRole("toolbar", { name: "Actions" });
-  for (const name of ["Logs", "Shell", "Edit"]) {
+  for (const name of ["Logs", "Shell", "Edit YAML"]) {
     const word = bar.getByRole("button", { name, exact: true }).locator(".word");
     await expect(word).toBeVisible();
     await expect(word).toHaveText(name);
@@ -91,7 +91,7 @@ test("the detail panel names Logs, Shell and Edit; Delete stands apart", async (
   await bar.getByRole("button", { name: "Copy link" }).hover();
   await expect(page.getByTestId("action-tip")).toHaveText("Copy link");
   // The destructive group is right of a divider, right of the rest.
-  const edit = (await bar.getByRole("button", { name: "Edit", exact: true }).boundingBox())!;
+  const edit = (await bar.getByRole("button", { name: "Edit YAML", exact: true }).boundingBox())!;
   const evict = (await bar.getByRole("button", { name: "Evict", exact: true }).boundingBox())!;
   expect(evict.x).toBeGreaterThan(edit.x);
 });

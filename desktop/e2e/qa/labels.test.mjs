@@ -153,7 +153,7 @@ describe("labels and the problem pill (#483, #491)", { timeout: 15 * 60_000 }, (
       `return Array.from(document.querySelectorAll('[data-testid="detail-panel"] [role="toolbar"] .word'), (w) => w.textContent.trim())`,
     );
     console.log(`labelled actions: ${words.join(", ")}`);
-    assert.deepEqual(words, ["Logs", "Shell", "Edit"]);
+    assert.deepEqual(words, ["Logs", "Shell", "Edit YAML"]);
     const show = async () => {
       const b = await app.find(By.css('[data-testid="detail-panel"] [data-action="link"]'));
       await app.driver.actions().move({ x: 2, y: 400 }).perform();
