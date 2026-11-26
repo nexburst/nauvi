@@ -143,6 +143,25 @@ export async function openPodLogs(app, namespace, name) {
   return id;
 }
 
+/**
+ * Open a log tab's Options menu (#492): Tail lines, Since, Timestamps, Wrap,
+ * Exclude, Context, Jump to time and Clear live there. A click outside it
+ * closes it again.
+ */
+export async function openLogOptions(app, id) {
+  await app.js(
+    `const b = document.querySelector(arguments[0] + ' button[aria-label="Log options"]');
+     if (b && b.getAttribute('aria-expanded') !== 'true') b.click();`,
+    pane(id),
+  );
+  await app.find(By.css(`${pane(id)} [data-testid="log-options"]:not([hidden])`));
+}
+
+/** A log tab's one control for Follow and Pause (#492): "Following", "Follow" or "Paused". */
+export function followButton(app, id) {
+  return app.find(By.css(`${pane(id)} [data-testid="log-follow"]`));
+}
+
 /** The log lines rendered in a log tab, as text. */
 export function logLines(app, id) {
   return app.js(
@@ -154,7 +173,7 @@ export function logLines(app, id) {
 /** The status text next to the log filter ("123 lines", "paused · …"). */
 export function logStatus(app, id) {
   return app.js(
-    `return Array.from(document.querySelectorAll(arguments[0] + ' .logs-options > span.muted'), (s) => s.textContent.trim()).join(' ');`,
+    `return document.querySelector(arguments[0] + ' [data-testid="log-status"]')?.textContent.trim() ?? '';`,
     pane(id),
   );
 }

@@ -3,12 +3,13 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, tick } from "svelte";
+  import { onDestroy, tick, untrack } from "svelte";
   import type { Snippet } from "svelte";
   import VirtualList from "./VirtualList.svelte";
+  import Icon from "../icons/Icon.svelte";
   import { saveLogs } from "../rawIpc";
   import { api, visibleCluster } from "../cluster";
-  import type { LogContainer, LogEvent, WorkloadNotice } from "../bindings";
+  import type { ContainerDetail, LogContainer, LogEvent, WorkloadNotice } from "../bindings";
   import { logChannel, sendAck } from "../logChannel";
   import {
     ALL_CONTAINERS,
@@ -33,16 +34,18 @@
   } from "../logFilter";
   import type { CompiledQuery, LogQuery } from "../logFilter";
   import { logHeader } from "../logHeader";
+  import { previousOffer, runLabel } from "../logRun";
   import { LogSearcher, SEARCH_CHUNK } from "../logSearch";
   import type { Hits } from "../logSearch";
-  import type { PodRef } from "../stores/detail.svelte";
+  import type { PodTabRef } from "../dock";
   import { settings } from "../stores/settings.svelte";
+  import { keyboard } from "../stores/keyboard.svelte";
   import { TAIL_OPTIONS } from "../settings";
   import { dateTime, zoneName } from "../timeZone";
 
   interface Props {
     /** Single-pod mode: the pod whose logs to show. */
-    pod?: PodRef;
+    pod?: PodTabRef;
     /** Workload mode (instead of `pod`): merged logs of all its pods. */
     workload?: WorkloadRef;
     /** Containers of the pod; the stream starts once `ready`. Unused for workloads. */
@@ -52,13 +55,13 @@
     hidden?: boolean;
     /** The cluster it streams from (ADR 0007): by default the one shown. */
     cluster?: string;
-    /** Above the options: the dock's context line (#386), given the picks. */
-    context?: Snippet<[{ container: string; since: string }]>;
+    /** Above the toolbar: the dock's context line (#386), given the picks
+     *  and which run of the container is shown (#493). */
+    context?: Snippet<[{ container: string; since: string; run: string }]>;
   }
 
   let { pod, workload, containers = [], ready = true, hidden = false, cluster = visibleCluster(), context }: Props = $props();
   const isWorkload = $derived(workload !== undefined);
-  const title = $derived(workload ? `${workload.namespace}/${workload.name}` : pod ? `${pod.namespace}/${pod.name}` : "");
 
   interface Line {
     id: number;
@@ -92,6 +95,8 @@
   const CONTEXT_OPTIONS = [0, 1, 2, 3, 5, 10];
 
   const LINE_HEIGHT = 18;
+  /** How long a new stream has to log before the previous run is offered. */
+  const QUIET_MS = 1500;
   const FILTER_DEBOUNCE_MS = 150;
 
   // Log options.
@@ -133,6 +138,18 @@
   /** Id of the line "Jump to time" went to, or -1. */
   let jumpedId = $state(-1);
   let paused = $state(false);
+  // The Options menu (#492): what is not needed all the time.
+  let optionsOpen = $state(false);
+  let optionsEl = $state<HTMLElement | null>(null);
+  let optionsButton = $state<HTMLButtonElement | null>(null);
+  // Which run is shown (#493): the container's status, read when the stream
+  // starts and when it ends; `quiet` once a new stream has had time to log.
+  let runContainer = $state.raw<ContainerDetail | undefined>(undefined);
+  let runToken = 0;
+  let quiet = $state(false);
+  /** The stream in use reported an error. */
+  let streamFailed = false;
+  let quietTimer: ReturnType<typeof setTimeout> | undefined;
   // Where the last Download went: shown in the header for SAVED_NOTE_MS,
   // apart from the line count that every batch updates (#178).
   let savedPath = $state("");
@@ -203,6 +220,21 @@
   });
   const podNames = $derived(Object.keys(podStates).sort());
   const status = $derived((paused ? "paused · " : "") + lineCountLabel(lineCount));
+  const run = $derived(isWorkload || allContainers ? "" : runLabel(runContainer, previous));
+  const offer = $derived(quiet && !isWorkload && !allContainers ? previousOffer(runContainer, previous, lineCount) : null);
+  /** Options that change which lines show, set away from their default. */
+  const optionsSet = $derived((since !== "all" ? 1 : 0) + (excluding ? 1 : 0) + (contextLines > 0 ? 1 : 0));
+  /** The one control for Follow and Pause (#492). */
+  const followLabel = $derived(previous ? "Follow" : paused ? "Paused" : follow ? "Following" : "Follow");
+  const followTitle = $derived(
+    previous
+      ? "A finished run cannot be followed"
+      : paused
+        ? "Paused: new lines wait. Click to show them and follow the newest"
+        : follow
+          ? "Keeping the newest line in view. Click to pause"
+          : "Click to show the newest line and keep it in view",
+  );
 
   function isAtBottom(): boolean {
     return !scrollEl || scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight < 40;
@@ -596,10 +628,14 @@
         onNotice(e);
         break;
       case "error":
+        streamFailed = true;
         appendLog(e.message, "error-text");
         break;
       case "done":
-        appendLog("[stream ended]", "muted");
+        // A previous run that could not be read has no end to mark.
+        if (!(previous && streamFailed)) appendLog(previous ? "[end of the previous run]" : "[stream ended]", "muted");
+        // The run ended or was read whole: its status has changed.
+        void loadRun();
         break;
     }
   }
@@ -618,6 +654,11 @@
     tagInfoCache = new Map();
     prefixHits = new Map();
     truncatedNote = "";
+    void loadRun();
+    streamFailed = false;
+    quiet = false;
+    clearTimeout(quietTimer);
+    quietTimer = setTimeout(() => (quiet = true), QUIET_MS);
     const id = streamId;
     const onEvent = (channel = logChannel({
       lines: (lines) => id === streamId && onBatch(lines),
@@ -674,6 +715,72 @@
     } catch (e) {
       appendLog("Could not start log stream: " + e, "error-text");
     }
+  }
+
+  /** Read the status of the container shown, for which run it is (#493). */
+  async function loadRun() {
+    const token = ++runToken;
+    if (!pod || isWorkload || container === ALL_CONTAINERS) {
+      runContainer = undefined;
+      return;
+    }
+    const name = container || containers.find((c) => !c.init)?.name;
+    try {
+      const d = await api(cluster).cmdGetResourceDetail(pod.resource, pod.namespace, pod.name);
+      if (token !== runToken) return;
+      runContainer = d.pod.containers.find((c) => c.name === name);
+    } catch {
+      // The stream reports what went wrong (pod gone, forbidden).
+      if (token === runToken) runContainer = undefined;
+    }
+  }
+
+  /** Previous on: a finished run, read once (nothing to follow). */
+  async function onPreviousChange() {
+    await tick();
+    follow = !previous;
+    if (previous && paused) paused = false;
+    restart();
+  }
+
+  function showPrevious() {
+    previous = true;
+    onPreviousChange();
+  }
+
+  /** The Follow / Pause control (#492). */
+  async function onFollowClick() {
+    if (paused) {
+      follow = true;
+      setPaused(false);
+      await tick();
+      list?.scrollToBottom();
+    } else if (follow) {
+      setPaused(true);
+    } else {
+      follow = true;
+      await tick();
+      list?.scrollToBottom();
+    }
+  }
+
+  function onWindowPointer(e: PointerEvent) {
+    if (optionsOpen && optionsEl && !optionsEl.contains(e.target as Node)) optionsOpen = false;
+  }
+
+  /** Escape in the menu or on its button closes it and gives the button focus. */
+  function onOptionsKey(e: KeyboardEvent) {
+    if (e.key === "Escape" && optionsOpen) {
+      e.stopPropagation();
+      optionsOpen = false;
+      optionsButton?.focus();
+    }
+  }
+
+  /** Tabbing (or clicking) out of the button and menu closes it. */
+  function onOptionsFocusOut(e: FocusEvent) {
+    const to = e.relatedTarget as Node | null;
+    if (optionsOpen && to && optionsEl && !optionsEl.contains(to)) optionsOpen = false;
   }
 
   async function downloadLogs() {
@@ -895,12 +1002,6 @@
     renderLogs();
   }
 
-  /** Following again: back to the newest line. */
-  async function toggleFollow() {
-    await tick();
-    if (follow) list?.scrollToBottom();
-  }
-
   async function toggleWrap() {
     await tick();
     followIfNeeded(true);
@@ -918,10 +1019,22 @@
     d.lines = [];
     d.matches = [];
     clearTimeout(savedTimer);
+    clearTimeout(quietTimer);
+    runToken++;
     const ownStream = streamId;
     streamId = ++streamCounter;
     // Stops this tab's stream only; the other tabs keep theirs.
     if (streaming) api(cluster).cmdStopLogs(ownStream).catch(() => {});
+  });
+
+  // While the Options menu is open it takes its own keys (Esc), like the
+  // other menus: the app's shortcuts (Esc closes the panel) wait.
+  $effect(() => {
+    if (!optionsOpen) return;
+    untrack(() => (keyboard.menus += 1));
+    return () => {
+      untrack(() => (keyboard.menus -= 1));
+    };
   });
 
   // A tab that is shown again renders what arrived while it was hidden.
@@ -930,25 +1043,13 @@
   });
 </script>
 
-<!-- One line: what is tailed, how, and what to do with it. The parts keep
-     their own elements (the header, the options); the line lays them out. -->
-{@render context?.({ container, since })}
-<div class="logs-top">
-<div class="logs-header section-header">
-  <h3>Logs<span class="muted"> · {title}</span></h3>
-  <label class="check" title="Keep the newest line in view; going to a match turns it off"
-    ><input type="checkbox" bind:checked={follow} onchange={toggleFollow} /> Follow</label
-  >
-  <button type="button" class="btn" class:active={paused} onclick={() => setPaused(!paused)}>
-    {paused ? "Resume" : "Pause"}
-  </button>
-  <button type="button" class="btn" onclick={resetLogs}>Clear</button>
-  <span class="saved" role="status" data-testid="log-saved" title={savedPath || undefined}
-    >{#if savedPath}Saved to {savedLabel(savedPath)}{/if}</span
-  >
-  <button type="button" class="btn" onclick={downloadLogs}>Download</button>
-</div>
-<div class="logs-options">
+<svelte:window onpointerdown={onWindowPointer} />
+
+<!-- The context line says what is tailed and which run (#386, #493); one
+     toolbar row under it (#492): the picks used all the time, the search,
+     Follow and Download. The rest is in Options. -->
+{@render context?.({ container, since, run })}
+<div class="logs-toolbar" data-testid="log-toolbar">
   {#if isWorkload}
     <select class="mini" title="Pod" bind:value={podFilter} onchange={renderSoon}>
       <option value="">All pods ({podNames.length})</option>
@@ -971,29 +1072,15 @@
         <option value={c.name}>{c.init ? `${c.name} (init)` : c.name}</option>
       {/each}
     </select>
-    <label class="check" title={allContainers ? "Pick one container to see its previous logs" : undefined}>
-      <input type="checkbox" bind:checked={previous} disabled={allContainers} onchange={restart} /> Previous
+    <label
+      class="check"
+      title={allContainers
+        ? "Pick one container to see its previous logs"
+        : "The logs of the run before this one, e.g. the one that crashed"}
+    >
+      <input type="checkbox" bind:checked={previous} disabled={allContainers} onchange={onPreviousChange} /> Previous
     </label>
   {/if}
-  <select class="mini" title="Tail lines" bind:value={tail} onchange={restart}>
-    <option value="100">100 lines</option>
-    <option value="200">200 lines</option>
-    <option value="1000">1000 lines</option>
-    <option value="5000">5000 lines</option>
-    <option value="all">All lines</option>
-  </select>
-  <select class="mini" title="Since" bind:value={since} onchange={restart}>
-    <option value="all">All time</option>
-    <option value="300">Last 5m</option>
-    <option value="3600">Last 1h</option>
-  </select>
-  <label class="check"><input type="checkbox" bind:checked={timestamps} onchange={restart} /> Timestamps</label>
-  <label class="check"><input type="checkbox" bind:checked={wrap} onchange={toggleWrap} /> Wrap</label>
-  <span class="muted">{status}</span>
-  {#if truncatedNote}<span class="warn" title="At most 20 containers are followed at once">{truncatedNote}</span>{/if}
-</div>
-</div>
-<div class="logs-search" data-testid="log-search">
   <input
     class="mini filter"
     class:invalid={searchError !== ""}
@@ -1007,19 +1094,6 @@
     bind:value={filterInput}
     oninput={onFilterInput}
     onkeydown={onSearchKey}
-  />
-  <input
-    class="mini exclude"
-    class:invalid={excludeError !== ""}
-    type="search"
-    placeholder="Exclude…"
-    aria-label="Exclude lines"
-    aria-invalid={excludeError !== "" ? "true" : undefined}
-    title="Hide the lines that match (like grep -v); uses the Aa and .* toggles"
-    spellcheck="false"
-    autocomplete="off"
-    bind:value={excludeInput}
-    oninput={onFilterInput}
   />
   <button
     type="button"
@@ -1045,64 +1119,171 @@
     title="Highlight the matches and keep the other lines, instead of filtering"
     onclick={() => toggle("mode")}>Highlight</button
   >
-  <select
-    class="mini context"
-    aria-label="Context lines"
-    title={highlightMode
-      ? "Context lines are for filtering: Highlight keeps every line"
-      : "Lines of context before and after each match (like grep -C)"}
-    disabled={highlightMode}
-    bind:value={contextLines}
-    onchange={onContextChange}
-  >
-    {#each CONTEXT_OPTIONS as n (n)}
-      <option value={n}>{n === 0 ? "No context" : `Context ±${n}`}</option>
-    {/each}
-  </select>
-  <span class="count" role="status" data-testid="log-match-count">{matchLabel}</span>
-  <button
-    type="button"
-    class="btn icon"
-    title="Previous match (Shift+Enter, or N in the log)"
-    aria-label="Previous match"
-    disabled={matchTotal === 0}
-    onclick={() => goMatch(false)}>↑</button
-  >
-  <button
-    type="button"
-    class="btn icon"
-    title="Next match (Enter, or n in the log)"
-    aria-label="Next match"
-    disabled={matchTotal === 0}
-    onclick={() => goMatch(true)}>↓</button
-  >
+  {#if searching}
+    <span class="count" role="status" data-testid="log-match-count">{matchLabel}</span>
+    <button
+      type="button"
+      class="btn icon"
+      title="Previous match (Shift+Enter, or N in the log)"
+      aria-label="Previous match"
+      disabled={matchTotal === 0}
+      onclick={() => goMatch(false)}>↑</button
+    >
+    <button
+      type="button"
+      class="btn icon"
+      title="Next match (Enter, or n in the log)"
+      aria-label="Next match"
+      disabled={matchTotal === 0}
+      onclick={() => goMatch(true)}>↓</button
+    >
+  {:else}
+    <span class="count" role="status" data-testid="log-match-count"></span>
+  {/if}
   {#if searchError}<span class="search-error" role="alert" data-testid="log-search-error" title={searchError}
       >{searchError}</span
     >{/if}
   {#if excludeError}<span class="search-error" role="alert" data-testid="log-exclude-error" title={excludeError}
       >{excludeError}</span
     >{/if}
-  {#if jumpNote}<span class="jump-note" role="status" data-testid="log-jump-note" title={jumpNote}>{jumpNote}</span>{/if}
-  <form
-    class="jump"
-    onsubmit={(e) => {
-      e.preventDefault();
-      jumpToTime();
-    }}
-  >
-    <input
-      class="mini jump-input"
-      type="text"
-      placeholder="Jump to time"
-      aria-label="Jump to time"
-      title="HH:MM[:SS] ({zoneName(settings.current.time_zone)}) or 2026-11-16 10:30; needs lines with a time (Timestamps)"
-      spellcheck="false"
-      autocomplete="off"
-      bind:value={jumpInput}
-    />
-    <button type="submit" class="btn icon" disabled={jumpInput.trim() === ""}>Go</button>
-  </form>
+  <span class="end">
+    <span class="status muted" data-testid="log-status">{status}</span>
+    {#if truncatedNote}<span class="warn" title="At most 20 containers are followed at once">{truncatedNote}</span>{/if}
+    <span class="saved" role="status" data-testid="log-saved" title={savedPath || undefined}
+      >{#if savedPath}Saved to {savedLabel(savedPath)}{/if}</span
+    >
+    <button
+      type="button"
+      class="btn follow"
+      class:active={!previous && !paused && follow}
+      class:paused
+      aria-pressed={!previous && !paused && follow}
+      data-testid="log-follow"
+      disabled={previous}
+      title={followTitle}
+      onclick={onFollowClick}>{followLabel}</button
+    >
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <span class="options" bind:this={optionsEl} onkeydown={onOptionsKey} onfocusout={onOptionsFocusOut}>
+      <button
+        bind:this={optionsButton}
+        type="button"
+        class="btn"
+        class:active={optionsOpen}
+        aria-label="Log options"
+        aria-expanded={optionsOpen}
+        aria-haspopup="true"
+        title={optionsSet > 0
+          ? `Lines, time, timestamps, wrap, exclude, context, jump to time, clear (${optionsSet} changed)`
+          : "Lines, time, timestamps, wrap, exclude, context, jump to time, clear"}
+        onclick={() => (optionsOpen = !optionsOpen)}
+        >Options{#if optionsSet > 0}<span class="dot" aria-hidden="true">{optionsSet}</span>{/if}<Icon
+          name="chevronDown"
+          size={13}
+          class="chev"
+        /></button
+      >
+      <!-- tabindex: a click on the menu's background keeps the focus in it. -->
+      <div
+        class="menu"
+        class:open={optionsOpen}
+        role="group"
+        aria-label="Log options"
+        data-testid="log-options"
+        hidden={!optionsOpen}
+        tabindex="-1"
+      >
+        <div class="menu-row">
+          <span class="menu-label">Show</span>
+          <select class="mini" title="Tail lines" bind:value={tail} onchange={restart}>
+            <option value="100">100 lines</option>
+            <option value="200">200 lines</option>
+            <option value="1000">1000 lines</option>
+            <option value="5000">5000 lines</option>
+            <option value="all">All lines</option>
+          </select>
+          <select class="mini" title="Since" bind:value={since} onchange={restart}>
+            <option value="all">All time</option>
+            <option value="300">Last 5m</option>
+            <option value="3600">Last 1h</option>
+          </select>
+        </div>
+        <div class="menu-row">
+          <span class="menu-label"></span>
+          <label class="check"><input type="checkbox" bind:checked={timestamps} onchange={restart} /> Timestamps</label>
+          <label class="check"><input type="checkbox" bind:checked={wrap} onchange={toggleWrap} /> Wrap</label>
+        </div>
+        <div class="menu-row">
+          <span class="menu-label">Exclude</span>
+          <input
+            class="mini exclude"
+            class:invalid={excludeError !== ""}
+            type="search"
+            placeholder="Exclude…"
+            aria-label="Exclude lines"
+            aria-invalid={excludeError !== "" ? "true" : undefined}
+            title="Hide the lines that match (like grep -v); uses the Aa and .* toggles"
+            spellcheck="false"
+            autocomplete="off"
+            bind:value={excludeInput}
+            oninput={onFilterInput}
+          />
+        </div>
+        <div class="menu-row">
+          <span class="menu-label">Context</span>
+          <select
+            class="mini context"
+            aria-label="Context lines"
+            title={highlightMode
+              ? "Context lines are for filtering: Highlight keeps every line"
+              : "Lines of context before and after each match (like grep -C)"}
+            disabled={highlightMode}
+            bind:value={contextLines}
+            onchange={onContextChange}
+          >
+            {#each CONTEXT_OPTIONS as n (n)}
+              <option value={n}>{n === 0 ? "No context" : `Context ±${n}`}</option>
+            {/each}
+          </select>
+        </div>
+        <form
+          class="menu-row"
+          onsubmit={(e) => {
+            e.preventDefault();
+            jumpToTime();
+          }}
+        >
+          <span class="menu-label">Jump</span>
+          <input
+            class="mini jump-input"
+            type="text"
+            placeholder="Jump to time"
+            aria-label="Jump to time"
+            title="HH:MM[:SS] ({zoneName(settings.current.time_zone)}) or 2026-11-16 10:30; needs lines with a time (Timestamps)"
+            spellcheck="false"
+            autocomplete="off"
+            bind:value={jumpInput}
+          />
+          <button type="submit" class="btn icon" disabled={jumpInput.trim() === ""}>Go</button>
+        </form>
+        {#if jumpNote}<div class="jump-note" role="status" data-testid="log-jump-note" title={jumpNote}>{jumpNote}</div>{/if}
+        <div class="menu-row">
+          <span class="menu-label"></span>
+          <button type="button" class="btn" title="Empty the view; the stream goes on" onclick={resetLogs}>Clear</button>
+        </div>
+      </div>
+    </span>
+    <button type="button" class="btn" onclick={downloadLogs}>Download</button>
+  </span>
 </div>
+{#if offer}
+  <div class="offer" data-testid="log-offer" role="status">
+    This run has not logged anything yet.
+    <button type="button" class="btn" onclick={showPrevious}
+      >{offer.crashed ? "Show the run that crashed" : "Show the previous run"}</button
+    >
+  </div>
+{/if}
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
 <div
   class="output"
@@ -1148,65 +1329,121 @@
 </div>
 
 <style>
-  .logs-top {
+  /* One row at 1280 px (#492); it wraps rather than hide on a narrow window. */
+  .logs-toolbar {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 12px;
-    padding: 6px 16px;
+    gap: 6px 6px;
+    padding: 5px 16px;
     font-size: 12px;
     border-top: 1px solid var(--border);
-  }
-  .logs-top > .logs-header,
-  .logs-top > .logs-options {
-    display: contents;
-  }
-  /* The title first, then the options, then the actions at the far end. */
-  .logs-top :global(.logs-options > *) {
-    order: 1;
-  }
-  .logs-top .logs-header > :not(h3) {
-    order: 2;
-  }
-  .logs-top .logs-header > .check {
-    margin-left: auto;
-  }
-  /* The saved note takes what is left of its line and never wraps it. */
-  .logs-top .logs-header > .saved {
-    flex: 1 1 0;
-    width: 0;
-    max-width: 320px;
-  }
-  .logs-header h3 {
-    margin: 0;
-    font-size: 13px;
-    flex: 0 1 auto;
-    max-width: 32%;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
-  .logs-header > :not(h3, .saved) {
+  .logs-toolbar > .check {
+    margin-right: 6px;
+  }
+  /* Status, Follow, Options and Download at the far end. */
+  .end {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+    min-width: 0;
+    flex: 0 1 auto;
+  }
+  .end > :not(.saved) {
     flex-shrink: 0;
   }
-  /* One line at most: it never wraps the header or moves the log list. */
+  .status {
+    white-space: nowrap;
+    padding: 0 4px;
+  }
+  /* One line at most: it never wraps the toolbar or moves the log list. */
   .saved {
     min-width: 0;
-    max-width: 45%;
+    max-width: 260px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     color: var(--green, var(--text-muted));
     font-size: 12px;
   }
-  .logs-options {
-    display: flex;
-    flex-wrap: wrap;
+  .saved:empty {
+    display: none;
+  }
+  .follow {
+    min-width: 78px;
+  }
+  .follow.paused {
+    color: var(--amber);
+    border-color: var(--amber);
+  }
+  .follow:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .options {
+    position: relative;
+  }
+  .options > .btn {
+    display: inline-flex;
     align-items: center;
-    gap: 8px 12px;
-    padding: 6px 16px;
+    gap: 3px;
+  }
+  .menu:focus {
+    outline: none;
+  }
+  .dot {
+    display: inline-block;
+    margin-left: 5px;
+    min-width: 15px;
+    padding: 0 4px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: 10.5px;
+    line-height: 15px;
+    text-align: center;
+  }
+  /* Drops down over the log lines, at the right end. */
+  .menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 300px;
+    padding: 10px 12px;
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: var(--shadow-pop);
+  }
+  .menu[hidden] {
+    display: none;
+  }
+  .menu-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .menu-label {
+    flex: 0 0 56px;
+    color: var(--text-muted);
+  }
+  /* The previous run, offered while the new one is silent (#493). */
+  .offer {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 16px;
     font-size: 12px;
+    color: var(--text);
+    background: var(--bg-hover);
+    border-top: 1px solid var(--border);
   }
   .check {
     color: var(--text-muted);
@@ -1226,22 +1463,15 @@
   .mini option {
     background: var(--bg-raised);
   }
-  .logs-search {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 0 16px 6px;
-    font-size: 12px;
-    min-width: 0;
-  }
   /* A set width: an error next to it shrinks (with an ellipsis), not the box. */
   .filter {
-    flex: 0 0 auto;
-    width: clamp(140px, 26vw, 400px);
+    flex: 0 1 auto;
+    width: clamp(140px, 24vw, 360px);
+    min-width: 120px;
   }
   .exclude {
-    flex: 0 0 auto;
-    width: clamp(90px, 13vw, 220px);
+    flex: 1;
+    min-width: 0;
   }
   .context {
     flex-shrink: 0;
@@ -1272,6 +1502,9 @@
     opacity: 0.45;
     cursor: default;
   }
+  .count:empty {
+    display: none;
+  }
   .count {
     min-width: 72px;
     padding: 0 4px;
@@ -1280,39 +1513,21 @@
     text-align: center;
     flex-shrink: 0;
   }
-  .search-error,
-  .jump-note {
+  .search-error {
     flex: 0 1 auto;
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-  .search-error {
     color: var(--red);
-  }
-  /* Next to the box it is about, at the right end. */
-  .jump-note {
-    margin-left: auto;
-    padding-left: 8px;
-  }
-  .jump-note + .jump {
-    margin-left: 0;
   }
   .jump-note {
     color: var(--amber);
-  }
-  .jump {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    /* At the right end: an error or note before it does not move it. */
-    margin-left: auto;
-    padding-left: 8px;
-    flex-shrink: 0;
+    padding-left: 64px;
+    max-width: 360px;
   }
   .jump-input {
-    width: 130px;
+    width: 150px;
   }
   .output:focus {
     outline: none;

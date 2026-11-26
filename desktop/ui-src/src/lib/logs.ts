@@ -108,7 +108,8 @@ export class LogBuffer {
  * between trims, so the count is capped here (#113).
  */
 export function lineCountLabel(count: number): string {
-  return count >= LOG_BUFFER_MAX ? `${LOG_BUFFER_MAX.toLocaleString()}+ lines` : `${count.toLocaleString()} lines`;
+  if (count >= LOG_BUFFER_MAX) return `${LOG_BUFFER_MAX.toLocaleString()}+ lines`;
+  return count === 1 ? "1 line" : `${count.toLocaleString()} lines`;
 }
 
 /** Distinct colours that read on the dark log background. */

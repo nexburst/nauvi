@@ -10,8 +10,14 @@ const panel = (page: Page) => page.getByTestId("detail-panel");
 const logs = (page: Page) => page.getByTestId("dock");
 const logLines = (page: Page) => logs(page).getByTestId("log-line");
 const search = (page: Page) => logs(page).getByRole("searchbox", { name: /^(Filter|Find in) logs$/ });
-const excludeBox = (page: Page) => logs(page).getByRole("searchbox", { name: "Exclude lines" });
-const contextSelect = (page: Page) => logs(page).getByRole("combobox", { name: "Context lines" });
+/** In the Options menu (#492): opened first. */
+async function inOptions(page: Page) {
+  const button = logs(page).getByRole("button", { name: "Log options" });
+  if ((await button.getAttribute("aria-expanded")) !== "true") await button.click();
+  return logs(page).getByTestId("log-options");
+}
+const excludeBox = async (page: Page) => (await inOptions(page)).getByRole("searchbox", { name: "Exclude lines" });
+const contextSelect = async (page: Page) => (await inOptions(page)).getByRole("combobox", { name: "Context lines" });
 const count = (page: Page) => logs(page).getByTestId("log-match-count");
 const toggle = (page: Page, title: string) => logs(page).getByTitle(title, { exact: true });
 const HIGHLIGHT = "Highlight the matches and keep the other lines, instead of filtering";
@@ -45,7 +51,7 @@ test("exclude hides matching lines, with or without a filter, in either mode", a
   await fake.emitLogLines(LINES);
   await expect(logLines(page)).toHaveCount(10);
 
-  await excludeBox(page).fill("health");
+  await (await excludeBox(page)).fill("health");
   await expect(logLines(page)).toHaveCount(7);
   await expect(logLines(page).filter({ hasText: "health" })).toHaveCount(0);
 
@@ -68,22 +74,22 @@ test("exclude hides matching lines, with or without a filter, in either mode", a
   await expect(count(page)).toHaveText("3 matches");
 
   // The match case and regex toggles apply to the exclude box too.
-  await excludeBox(page).fill("HEALTH");
+  await (await excludeBox(page)).fill("HEALTH");
   await expect(logLines(page)).toHaveCount(8);
   await toggle(page, "Match case").click();
   await expect(logLines(page)).toHaveCount(12);
   await toggle(page, "Match case").click();
   await toggle(page, "Regular expression").click();
-  await excludeBox(page).fill("idle|retry");
+  await (await excludeBox(page)).fill("idle|retry");
   await expect(logLines(page)).toHaveCount(8);
   await expect(logLines(page).filter({ hasText: /idle|retry/ })).toHaveCount(0);
 
   // An invalid exclude regex is shown and keeps the last good one.
-  await excludeBox(page).fill("(idle");
+  await (await excludeBox(page)).fill("(idle");
   await expect(logs(page).getByTestId("log-exclude-error")).toContainText("Invalid exclude regex");
-  await expect(excludeBox(page)).toHaveAttribute("aria-invalid", "true");
+  await expect(await excludeBox(page)).toHaveAttribute("aria-invalid", "true");
   await expect(logLines(page)).toHaveCount(8);
-  await excludeBox(page).fill("");
+  await (await excludeBox(page)).fill("");
   await expect(logs(page).getByTestId("log-exclude-error")).toHaveCount(0);
   await expect(logLines(page)).toHaveCount(12);
   expect(fake.errors).toEqual([]);
@@ -95,7 +101,7 @@ test("context lines around matches, with -- between groups that are apart", asyn
   await search(page).fill("ERROR");
   await expect(logLines(page)).toHaveText(["l3 ERROR db timeout", "l9 ERROR db down"]);
 
-  await contextSelect(page).selectOption({ label: "Context ±1" });
+  await (await contextSelect(page)).selectOption({ label: "Context ±1" });
   await expect(logLines(page)).toHaveText([
     "l2 start",
     "l3 ERROR db timeout",
@@ -111,7 +117,7 @@ test("context lines around matches, with -- between groups that are apart", asyn
   await expect(logLines(page).locator("mark")).toHaveText(["ERROR", "ERROR"]);
 
   // Groups that touch or overlap run together, without a separator.
-  await contextSelect(page).selectOption({ label: "Context ±2" });
+  await (await contextSelect(page)).selectOption({ label: "Context ±2" });
   await expect(logLines(page)).toHaveText([
     "l1 GET /health 200",
     "l2 start",
@@ -126,7 +132,7 @@ test("context lines around matches, with -- between groups that are apart", asyn
   ]);
 
   // Excluded lines are gone before the context is taken (grep -v, then -C).
-  await excludeBox(page).fill("health");
+  await (await excludeBox(page)).fill("health");
   await expect(logLines(page)).toHaveText([
     "l2 start",
     "l3 ERROR db timeout",
@@ -136,10 +142,10 @@ test("context lines around matches, with -- between groups that are apart", asyn
     "l8 idle",
     "l9 ERROR db down",
   ]);
-  await excludeBox(page).fill("");
+  await (await excludeBox(page)).fill("");
 
   // Lines that arrive later: "after" context, and "before" context across batches.
-  await contextSelect(page).selectOption({ label: "Context ±1" });
+  await (await contextSelect(page)).selectOption({ label: "Context ±1" });
   await expect(logLines(page)).toHaveCount(7);
   await fake.emitLogLines(["l11 ERROR mid"]);
   await expect(logLines(page).last()).toHaveText("l11 ERROR mid");
@@ -171,7 +177,7 @@ test("context lines around matches, with -- between groups that are apart", asyn
 
   // Highlight shows every line: no context then.
   await toggle(page, HIGHLIGHT).click();
-  await expect(contextSelect(page)).toBeDisabled();
+  await expect(await contextSelect(page)).toBeDisabled();
   await expect(logLines(page)).toHaveCount(15);
   await expect(logs(page).locator('[data-testid="log-line"].context')).toHaveCount(0);
   expect(fake.errors).toEqual([]);
@@ -182,8 +188,8 @@ test("a download has a header and, while filtering, holds the lines shown", asyn
   await fake.emitLogLines(LINES);
   await expect(logLines(page)).toHaveCount(10);
   await search(page).fill("ERROR");
-  await contextSelect(page).selectOption({ label: "Context ±1" });
-  await excludeBox(page).fill("retry");
+  await (await contextSelect(page)).selectOption({ label: "Context ±1" });
+  await (await excludeBox(page)).fill("retry");
   await expect(logLines(page)).toHaveText([
     "l2 start",
     "l3 ERROR db timeout",
@@ -216,7 +222,7 @@ test("a download has a header and, while filtering, holds the lines shown", asyn
 
   // Without a filter: the whole buffer, and the time range of the lines.
   await search(page).fill("");
-  await excludeBox(page).fill("");
+  await (await excludeBox(page)).fill("");
   await fake.emitLogLines(["2026-11-16T10:00:00Z first", "2026-11-16T10:05:00.5Z last"]);
   await expect(logLines(page)).toHaveCount(12);
   await logs(page).getByRole("button", { name: "Download" }).click();
@@ -227,7 +233,7 @@ test("a download has a header and, while filtering, holds the lines shown", asyn
   expect(second.split("\n#\n")[1].split("\n")).toHaveLength(13);
 
   // Download right after typing (before the search ran): what that search shows.
-  await excludeBox(page).fill("health");
+  await (await excludeBox(page)).fill("health");
   await logs(page).getByRole("button", { name: "Download" }).click();
   await expect.poll(() => fake.calls("cmdSaveLogs")).toHaveLength(3);
   const third = (await fake.lastCall("cmdSaveLogs")).content as string;

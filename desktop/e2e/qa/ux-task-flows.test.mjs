@@ -281,9 +281,9 @@ describe("UX task flows (#486)", { timeout: 30 * 60_000 }, () => {
     await app.find(By.css(pane(id)));
     await (await app.find(By.xpath(`//*[@data-testid='dock']//label[contains(normalize-space(),'Previous')]`))).click();
     step("3. Logs: open, previous, search", 1);
-    // The crashed run's lines, or (#486) the raw "unable to retrieve container
-    // logs" when the runtime has already dropped them.
-    await app.waitFor(async () => (await logLines(app, id)).some((l) => /FATAL|unable to retrieve/.test(l)), { message: "the previous run's logs" });
+    // The crashed run's lines, or (#486, #493) the plain "no longer on the node"
+    // sentence when the runtime has already dropped them.
+    await app.waitFor(async () => (await logLines(app, id)).some((l) => /FATAL|no longer on the node/.test(l)), { message: "the previous run's logs" });
     await app.shot("3-previous");
     // A live log to follow and search.
     await typeFilter("checkout");

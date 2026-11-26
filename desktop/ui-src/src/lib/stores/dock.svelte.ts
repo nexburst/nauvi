@@ -3,8 +3,12 @@
 // each runs on the cluster it was opened on.
 
 import { visibleCluster } from "../cluster";
-import { DOCK_DEFAULT_HEIGHT, closeTab as closeIn, openTab as openIn } from "../dock";
+import { DOCK_DEFAULT_HEIGHT, closeTab as closeIn, logDockHeight, openTab as openIn } from "../dock";
 import type { DockTab, DockTabSpec } from "../dock";
+import { settings } from "./settings.svelte";
+
+/** Room kept for the header and the tables above the dock. */
+export const KEEP_ABOVE = 160;
 
 export const dock = $state({
   /** A handful at most (the backend caps log streams at 10). */
@@ -23,6 +27,12 @@ export function openDockTab(spec: DockTabSpec) {
   if (next.tabs !== dock.tabs) dock.tabs = next.tabs;
   dock.active = next.active;
   dock.expanded = true;
+  // Logs need room (#492): until the user sizes the dock, a log tab opens
+  // it to about half the window.
+  const logs = spec.type === "podLogs" || spec.type === "workloadLogs";
+  if (logs && settings.current.dock_height <= 0 && typeof window !== "undefined") {
+    dock.height = logDockHeight(dock.height, window.innerHeight, KEEP_ABOVE);
+  }
 }
 
 export function activateDockTab(id: string) {

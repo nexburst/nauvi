@@ -14,7 +14,7 @@ import { readFileSync } from "node:fs";
 import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { deleteNamespace, kubectl, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { logLines, logStatus, openPodLogs, pane } from "../lib/dock.mjs";
+import { followButton, logLines, logStatus, openLogOptions, openPodLogs, pane } from "../lib/dock.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 
 const T = { timeout: 180_000 };
@@ -104,8 +104,9 @@ async function setOption(app, id, title, value) {
   );
 }
 
-/** The checkbox labelled `label` in a log tab. */
+/** The checkbox labelled `label` in a log tab; Timestamps and Wrap are in Options (#492). */
 async function checkbox(app, id, label) {
+  if (label === "Timestamps" || label === "Wrap") await openLogOptions(app, id);
   return app.find(By.xpath(`//*[@data-tab='${id}']//label[normalize-space()='${label}']/input`));
 }
 
@@ -203,10 +204,10 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
       message: "all lines again",
     });
     // All lines start at the container's first line (scrolled to the top, Follow off).
-    await (await checkbox(app, id, "Follow")).click();
+    await (await followButton(app, id)).click();
     await app.js(`document.querySelector(arguments[0] + ' [data-testid="log-output"] .scroller').scrollTop = 0`, pane(id));
     await app.waitFor(async () => (await logLines(app, id))[0] === "app line 0", { message: '"app line 0" at the top' });
-    await (await checkbox(app, id, "Follow")).click();
+    await (await followButton(app, id)).click();
     await app.js(`document.querySelector(arguments[0] + ' [data-testid="log-output"] .scroller').scrollTop = 1e9`, pane(id));
     console.log(`all lines: ${all}`);
   });
@@ -256,7 +257,7 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
     await (await checkbox(app, id, "Wrap")).click();
   });
 
-  it("Follow keeps the newest line in view; off, the view stays put", T, async () => {
+  it("Following keeps the newest line in view; scrolled up, the view stays put", T, async () => {
     const { app } = s;
     const atBottom = (sc) => sc.height - sc.top - sc.client < 40;
     await app.waitFor(async () => atBottom(await scroller(app, id)), { message: "following at the bottom" });
@@ -264,14 +265,16 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
     await sleep(2000);
     const later = await scroller(app, id);
     assert.ok(later.height > before.height && atBottom(later), "still at the bottom as lines arrive");
-    await (await checkbox(app, id, "Follow")).click();
+    // Scrolled up to read (#492: no separate Follow switch; the one control
+    // pauses): new lines come in below without moving the view.
+    await app.js(`const s = document.querySelector(arguments[0] + ' [data-testid="log-output"] .scroller'); s.scrollTop = Math.max(0, s.scrollTop - 400);`, pane(id));
     await sleep(500);
     const fixed = await scroller(app, id);
     await sleep(3000);
     const after = await scroller(app, id);
     assert.ok(after.height > fixed.height, "lines keep arriving");
-    assert.equal(after.top, fixed.top, "the scroll position does not move with Follow off");
-    await (await checkbox(app, id, "Follow")).click();
+    assert.equal(after.top, fixed.top, "the scroll position does not move while scrolled up");
+    assert.equal(await (await followButton(app, id)).getText(), "Following", "still live");
     // Following again once back at the bottom.
     await app.js(`document.querySelector(arguments[0] + ' [data-testid="log-output"] .scroller').scrollTop = 1e9`, pane(id));
     await sleep(2000);
@@ -281,7 +284,8 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
   it("Pause holds the view, Resume shows what came meanwhile; Clear empties it", T, async () => {
     const { app } = s;
     const button = (label) => app.find(By.xpath(`//*[@data-tab='${id}']//button[normalize-space()='${label}']`));
-    await (await button("Pause")).click();
+    // One control for Follow and Pause (#492): Following -> Paused.
+    await (await followButton(app, id)).click();
     await app.waitFor(async () => (await logStatus(app, id)).startsWith("paused"), { message: '"paused" status' });
     const shown = (await logLines(app, id)).length;
     const status1 = await logStatus(app, id);
@@ -291,8 +295,9 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
     console.log(`paused: ${status1} -> ${status2}`);
     assert.notEqual(status1, status2, "the line count keeps counting while paused");
     await app.shot("paused");
-    await (await button("Resume")).click();
+    await (await button("Paused")).click();
     await app.waitFor(async () => (await logLines(app, id)).length > shown, { message: "lines after resume" });
+    await openLogOptions(app, id);
     await (await button("Clear")).click();
     const cleared = (await logLines(app, id)).length;
     assert.ok(cleared <= 3, `cleared (${cleared} lines left)`);
@@ -398,8 +403,8 @@ describe("area 4: pod log viewer", { timeout: 20 * 60_000 }, () => {
         requestAnimationFrame(f);`);
       // A click answers quickly: Pause flips the button.
       const t0 = Date.now();
-      await (await app.find(By.xpath(`//*[@data-tab='${sid}']//button[normalize-space()='Pause']`))).click();
-      await app.find(By.xpath(`//*[@data-tab='${sid}']//button[normalize-space()='Resume']`));
+      await (await followButton(app, sid)).click();
+      await app.find(By.xpath(`//*[@data-tab='${sid}']//button[normalize-space()='Paused']`));
       const clickMs = Date.now() - t0;
       console.log(`status "${status}"; ${fps.fps.toFixed(1)} fps, worst frame ${fps.worst.toFixed(0)} ms; Pause answered in ${clickMs} ms`);
       await app.shot("busy-pod");

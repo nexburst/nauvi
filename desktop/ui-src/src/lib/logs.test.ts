@@ -90,6 +90,7 @@ describe("LogBuffer", () => {
 describe("lineCountLabel", () => {
   it("counts lines, and shows the cap once the buffer is full, however far over it is (#113)", () => {
     expect(lineCountLabel(0)).toBe("0 lines");
+    expect(lineCountLabel(1)).toBe("1 line");
     expect(lineCountLabel(1234)).toBe((1234).toLocaleString() + " lines");
     const cap = LOG_BUFFER_MAX.toLocaleString() + "+ lines";
     expect(lineCountLabel(LOG_BUFFER_MAX)).toBe(cap);

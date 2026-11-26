@@ -37,7 +37,10 @@
           disabled={elsewhere || !kindOf(l)}
           title={why(l)}
           onclick={() => open(l)}>{p.text}</button
-        >{:else if p.code}<span class="code">{p.text}</span>{:else}{p.text}{/if}{/each}</span
+        >{:else if p.code}<span class="code">{p.text}</span>{:else if p.run}<span
+          class="run"
+          data-testid="log-run">{p.text}</span
+        >{:else}{p.text}{/if}{/each}</span
   >
   {#if elsewhere}
     <span class="on">on <ClusterLabel id={cluster} title={`Runs on ${contextLabel(cluster)}`} /></span>
@@ -70,6 +73,11 @@
   .code {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     color: var(--text);
+  }
+  /* Which run of the container the log shows (#493). */
+  .run {
+    color: var(--text);
+    font-weight: 600;
   }
   .link {
     background: none;

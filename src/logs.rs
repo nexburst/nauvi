@@ -35,6 +35,79 @@ impl LogOptions {
     }
 }
 
+/// A log that cannot be read, in plain words (#493). The text replaces the
+/// API server's, so callers show it as it is.
+#[derive(Debug)]
+pub struct LogUnavailable(pub String);
+
+impl std::fmt::Display for LogUnavailable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for LogUnavailable {}
+
+/// Plain words for the API server's answer `message` to a log request, when
+/// it is one of those that say the log is not there (#493); `None` for any
+/// other error. `previous`: the request asked for the previous run.
+pub fn log_unavailable_text(message: &str, previous: bool) -> Option<String> {
+    if message.contains(RUNTIME_LOG_GONE.trim_end()) {
+        return Some(if previous {
+            "The logs of the previous run are no longer on the node: Kubernetes keeps only the \
+             last finished run, and the container runtime may already have removed it."
+                .into()
+        } else {
+            "The logs of this run are no longer on the node: the container runtime has \
+             removed them."
+                .into()
+        });
+    }
+    if message.contains("previous terminated container") && message.contains("not found") {
+        return Some(
+            "This container has no previous run: it has not restarted since the pod started."
+                .into(),
+        );
+    }
+    if let Some((_, reason)) = message.split_once("is waiting to start: ") {
+        // The whole reason: "ContainerCreating", or a phrase such as
+        // "trying and failing to pull image" (ImagePullBackOff).
+        let reason = reason.trim().trim_end_matches('.');
+        return Some(format!(
+            "The container has not started yet ({reason}), so it has no logs yet."
+        ));
+    }
+    None
+}
+
+/// How the kubelet starts the body it answers (with a 200) when the
+/// runtime no longer has a container's log file.
+const RUNTIME_LOG_GONE: &str = "unable to retrieve container logs for ";
+
+/// Whether `line`, the first of a log, is the kubelet saying the log is gone
+/// rather than a line of it: `unable to retrieve container logs for
+/// containerd://<id>` and nothing else (#493).
+fn gone_line(line: &str, previous: bool) -> Option<LogUnavailable> {
+    let id = line.trim_end().strip_prefix(RUNTIME_LOG_GONE)?;
+    if !id.contains("://") || id.contains(char::is_whitespace) {
+        return None;
+    }
+    log_unavailable_text(line, previous).map(LogUnavailable)
+}
+
+/// The error of a log request: [`LogUnavailable`] when the log is not there.
+fn log_error(e: kube::Error, previous: bool) -> anyhow::Error {
+    // The API server's own message: `Display` adds the reason and code after it.
+    let message = match &e {
+        kube::Error::Api(status) => status.message.clone(),
+        other => other.to_string(),
+    };
+    match log_unavailable_text(&message, previous) {
+        Some(text) => LogUnavailable(text).into(),
+        None => e.into(),
+    }
+}
+
 /// Fetch a pod's logs in one go (non-streaming, for the CLI).
 pub async fn get_pod_logs(
     client: &Client,
@@ -43,7 +116,17 @@ pub async fn get_pod_logs(
     opts: &LogOptions,
 ) -> Result<String> {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
-    Ok(pods.logs(name, &opts.to_params(false)).await?)
+    let text = pods
+        .logs(name, &opts.to_params(false))
+        .await
+        .map_err(|e| log_error(e, opts.previous))?;
+    let mut lines = text.lines();
+    if let (Some(first), None) = (lines.next(), lines.next()) {
+        if let Some(gone) = gone_line(first, opts.previous) {
+            return Err(gone.into());
+        }
+    }
+    Ok(text)
 }
 
 /// Stream a pod's logs, calling `on_line` for each line. Runs until the
@@ -77,8 +160,18 @@ where
 {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
     let params = opts.to_params(follow);
-    let mut lines = pods.log_stream(name, &params).await?.lines();
+    let mut lines = pods
+        .log_stream(name, &params)
+        .await
+        .map_err(|e| log_error(e, opts.previous))?
+        .lines();
+    let mut first = true;
     while let Some(line) = lines.try_next().await? {
+        if std::mem::take(&mut first) {
+            if let Some(gone) = gone_line(&line, opts.previous) {
+                return Err(gone.into());
+            }
+        }
         on_line(line);
     }
     Ok(())
@@ -97,8 +190,18 @@ pub async fn stream_pod_logs_into(
 ) -> Result<()> {
     let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
     let params = opts.to_params(!opts.previous);
-    let mut lines = pods.log_stream(name, &params).await?.lines();
+    let mut lines = pods
+        .log_stream(name, &params)
+        .await
+        .map_err(|e| log_error(e, opts.previous))?
+        .lines();
+    let mut first = true;
     while let Some(line) = lines.try_next().await? {
+        if std::mem::take(&mut first) {
+            if let Some(gone) = gone_line(&line, opts.previous) {
+                return Err(gone.into());
+            }
+        }
         if tx.send(line).await.is_err() {
             break;
         }
@@ -193,6 +296,66 @@ mod tests {
         drop(tx);
         task.await.unwrap();
         assert_eq!(out_rx.recv().await.unwrap(), vec!["c".to_string()]);
+    }
+
+    #[test]
+    fn log_unavailable_text_explains_missing_logs() {
+        let gone = "unable to retrieve container logs for containerd://1176904011d8d1adde";
+        let prev = log_unavailable_text(gone, true).unwrap();
+        assert!(prev.starts_with("The logs of the previous run are no longer on the node"));
+        assert!(!prev.contains("containerd"));
+        assert!(log_unavailable_text(gone, false)
+            .unwrap()
+            .starts_with("The logs of this run"));
+        let none = r#"previous terminated container "app" in pod "web-1" not found"#;
+        assert_eq!(
+            log_unavailable_text(none, true).as_deref(),
+            Some("This container has no previous run: it has not restarted since the pod started.")
+        );
+        let waiting = r#"container "app" in pod "web-1" is waiting to start: ContainerCreating"#;
+        assert_eq!(
+            log_unavailable_text(waiting, false).as_deref(),
+            Some("The container has not started yet (ContainerCreating), so it has no logs yet.")
+        );
+        assert_eq!(log_unavailable_text("pods \"x\" is forbidden", false), None);
+    }
+
+    #[test]
+    fn waiting_keeps_the_whole_reason_of_an_api_error() {
+        let api = kube::Error::Api(Box::new(kube::core::Status {
+            status: Some(kube::core::response::StatusSummary::Failure),
+            message: r#"container "app" in pod "web-1" is waiting to start: trying and failing to pull image"#.into(),
+            reason: "BadRequest".into(),
+            code: 400,
+            ..Default::default()
+        }));
+        let err = log_error(api, false);
+        assert_eq!(
+            err.downcast_ref::<LogUnavailable>().map(|g| g.0.as_str()),
+            Some("The container has not started yet (trying and failing to pull image), so it has no logs yet.")
+        );
+        let pulling =
+            r#"container "app" in pod "web-1" is waiting to start: image can't be pulled"#;
+        assert_eq!(
+            log_unavailable_text(pulling, false).as_deref(),
+            Some(
+                "The container has not started yet (image can't be pulled), so it has no logs yet."
+            )
+        );
+    }
+
+    #[test]
+    fn gone_line_is_only_the_kubelet_answer() {
+        let body = "unable to retrieve container logs for containerd://38505ea6f0ae";
+        assert!(gone_line(body, true).is_some());
+        assert!(gone_line(&format!("{body}\n"), true).is_some());
+        // A log line that happens to start the same way is a log line.
+        assert!(gone_line(
+            "unable to retrieve container logs for my app, retrying",
+            false
+        )
+        .is_none());
+        assert!(gone_line("hello", false).is_none());
     }
 
     #[test]

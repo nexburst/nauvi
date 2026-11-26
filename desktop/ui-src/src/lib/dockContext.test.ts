@@ -26,6 +26,14 @@ describe("dockContext", () => {
     ]);
   });
 
+  it("pod logs name the run they show (#493)", () => {
+    const parts = dockContext({ type: "podLogs", pod }, { container: "app", run: "previous run, exited with code 1, 93s ago" });
+    expect(contextText(parts)).toBe(
+      "Logs of pod web-1 in namespace demo, container app, previous run, exited with code 1, 93s ago, from all time",
+    );
+    expect(parts.filter((p) => p.run).map((p) => p.text)).toEqual(["previous run, exited with code 1, 93s ago"]);
+  });
+
   it("pod logs of all containers", () => {
     const parts = dockContext({ type: "podLogs", pod }, { container: ALL_CONTAINERS });
     expect(contextText(parts)).toBe("Logs of pod web-1 in namespace demo, all containers, from all time");
