@@ -418,8 +418,11 @@ describe("area 2: YAML editor", { timeout: 20 * 60_000 }, () => {
       message: "the diff against the latest",
     });
     const changed = await app.js("return Array.from(document.querySelectorAll('[data-testid=\"detail-panel\"] .cm-changedLine'), (l) => l.textContent)");
-    console.log(`compare with the latest: ${JSON.stringify(changed)}`);
-    assert.ok(changed.some((l) => /alpha: server2/.test(l)) && changed.some((l) => /alpha: mine2/.test(l)), "the diff shows theirs replaced by mine");
+    // Unified diff: the latest version's lines are drawn as deleted chunks.
+    const deleted = await app.js("return Array.from(document.querySelectorAll('[data-testid=\"detail-panel\"] .cm-deletedChunk'), (l) => l.textContent).join('\\n')");
+    console.log(`compare with the latest: ${JSON.stringify({ changed, deleted })}`);
+    assert.ok(changed.some((l) => /alpha: mine2/.test(l)), "the diff shows mine");
+    assert.match(deleted, /alpha: server2/, "replacing theirs");
     assert.match(await statusText(app), /Saving replaces what changed there with your version/);
     assert.equal(get(["get", "cm", "qa-yaml", "-o", "jsonpath={.data.alpha}"]), "server2", "nothing replaced before Save");
     await setTheme(app, "light");
