@@ -11,8 +11,6 @@ A fast Kubernetes IDE written in Rust: a desktop app (Tauri + Svelte) and a
 CLI, both built on the same Rust core. It stays fast while streaming logs and
 watching cluster state, and works as a Lens alternative.
 
-Formerly kubeloupe ([why it was renamed](docs/decisions/0008-rename-to-nauvi.md)).
-
 <picture>
   <source srcset="docs/user/src/img/overview-dark.png" media="(prefers-color-scheme: dark)">
   <img src="docs/user/src/img/overview-light.png" alt="The nauvi window on the Overview of a test cluster" width="1280">

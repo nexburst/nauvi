@@ -43,7 +43,7 @@ recovering) a development machine: `docs/dev-setup.md`.
   `.github/workflows/pages.yml` (see "Website").
 - `scripts/dev/`: `capped.sh` (run a command under a memory ceiling),
   `clean-worktrees.sh` (remove merged agent worktrees) and `check-old-name.sh`
-  (the project's old name appears nowhere but `docs/decisions/0008`).
+  (the project's old name appears nowhere).
 
 ## Rules
 
