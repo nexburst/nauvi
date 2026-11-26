@@ -80,6 +80,8 @@ test("Ask AI about a pod starts the CLI in a dock tab, with the skill and the po
   const term = dock(page).locator('[data-tab="ai:1"] .xterm');
   await expect(term).toContainText("Ask AI: Claude Code, with the nauvi skill, installed now");
   await expect(term).toContainText("this tab is your shell");
+  // #532: not the home folder.
+  await expect(term).toContainText("It runs in its own folder");
   await expect(dock(page).getByTestId("dock-context")).toContainText("AI CLI on this machine");
   // The pick is remembered.
   await expect.poll(async () => (await fake.lastCall("cmdUpdateSettings")).patch).toEqual({ ask_ai_cli: "claude" });

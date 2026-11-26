@@ -62,6 +62,8 @@ describe("Ask AI", () => {
       namespace: "demo",
       kubectl: "",
       nauvi: true,
+      cwd: "/home/me/.local/share/nauvi/ask-ai",
+      cwd_set: false,
     };
     const at = "/home/me/.claude/skills/nauvi";
     const skill = (skill: string, skill_path = at, skill_error = "") => ({
@@ -78,6 +80,13 @@ describe("Ask AI", () => {
     expect(askAiIntro({ ...skill("current"), nauvi: false })).toContain("not on PATH, so only kubectl");
     expect(askAiIntro(skill("current"))).toContain("No MCP server");
     expect(askAiIntro(skill("current"))).toContain("this tab is your shell");
+    // #532: its own folder, not the home folder, unless the cluster sets one.
+    expect(askAiIntro(skill("current"))).toContain(
+      "It runs in its own folder, /home/me/.local/share/nauvi/ask-ai, not your home folder.",
+    );
+    expect(askAiIntro({ ...skill("current"), cwd: "/src/app", cwd_set: true })).toContain(
+      "It runs in /src/app, the working directory set for this cluster.",
+    );
   });
 
   it("tells the dialog and the settings what happens to the skill", () => {

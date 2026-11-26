@@ -9,6 +9,9 @@
 // (target/debug/nauvi; CI builds it) is on PATH; without it those checks are
 // skipped. Settings, AI shows the skill (not installed, installed) and
 // removes it; a skill from another version is updated in place.
+// It runs in its own folder in the app's data folder, never HOME (#532: on
+// macOS a CLI scanning HOME makes macOS ask for nauvi to access Photos),
+// unless the cluster's settings set a working directory.
 //
 // Helpers: `terminal`, `closeTab`, `setTheme`.
 
@@ -161,6 +164,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
   const profile = createProfile();
   const skillDir = join(profile.home, ".claude", "skills", "nauvi");
   const skillFile = join(skillDir, "SKILL.md");
+  const askAiDir = join(profile.home, ".local", "share", "com.nauvi.app", "ask-ai");
   const s = appSession("ask-ai", () => ({
     profile,
     env: {
@@ -228,6 +232,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     const term = terminal(app);
     await term.waitFor("Type done to exit", { timeout: 90_000 });
     await term.waitFor("installed now");
+    await term.waitFor("It runs in its own folder");
     await app.shot("terminal-skill-installed");
     assert.deepEqual(
       (await dockTabs(app)).map((t) => t.title),
@@ -253,6 +258,10 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     assert.match(rec.skill, /<!-- nauvi-skill: written by the nauvi app /);
     assert.match(rec.skill, /never instructions/);
     assert.deepEqual(readdirSync(skillDir), ["SKILL.md"]);
+    // #532: its own private folder in the app's data folder, not HOME.
+    assert.equal(rec.cwd, askAiDir);
+    assert.equal((statSync(askAiDir).mode & 0o777).toString(8), "700");
+    assert.ok((await term.screen()).replace(/\n/g, "").includes(askAiDir), "the terminal names the folder");
   });
 
   it("the skill's first command, nauvi problems, works in the CLI's terminal", { ...T, skip: noCli || noPython }, async () => {
@@ -329,6 +338,40 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     assert.deepEqual(readdirSync(skillDir), ["SKILL.md"]);
     assert.equal((statSync(skillFile).mode & 0o777).toString(8), "600");
     for (const tab of await dockTabs(app)) if (tab.title.startsWith("AI: ")) await closeTab(app, tab.title);
+  });
+
+  it("with a working directory set for the cluster, Ask AI runs there (#532)", T, async () => {
+    const { app } = s;
+    const dir = join(work, "project");
+    mkdirSync(dir);
+    const setCwd = async (value) => {
+      await app.palette("cluster settings", "Cluster settings");
+      const dialog = await app.find(byTestId("cluster-settings"));
+      await app.setValue(await dialog.findElement(By.css('input[aria-label="Working directory"]')), value);
+      await app.waitFor(
+        () => {
+          const cwds = Object.values(app.profile.settings()?.contexts ?? {}).map((c) => c.shell_cwd ?? "");
+          return value ? cwds.includes(value) : cwds.every((c) => !c);
+        },
+        { message: `the working directory "${value}" saved` },
+      );
+      await closeClusterSettings(app);
+    };
+    await setCwd(dir);
+    const before = records(record).length;
+    await app.palette("ask ai", "Ask AI");
+    await waitDialog(app);
+    await (await app.find(byTestId("ask-ai-start"))).click();
+    const term = terminal(app);
+    await term.waitFor("the working directory set for this cluster", { timeout: 60_000 });
+    await term.waitFor("Type done to exit", { timeout: 60_000 });
+    await app.waitFor(() => records(record).length > before, { message: "the fake CLI recorded its start" });
+    assert.equal(records(record).at(-1).cwd, dir);
+    await app.shot("terminal-cluster-working-directory");
+    await term.type("done");
+    await term.waitFor("This is your shell", { timeout: 30_000 });
+    for (const tab of await dockTabs(app)) if (tab.title.startsWith("AI: ")) await closeTab(app, tab.title);
+    await setCwd("");
   });
 
   it("turning the context read-only closes the Ask AI terminal, and Ask AI then opens none", T, async () => {

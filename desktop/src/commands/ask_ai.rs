@@ -13,6 +13,12 @@
 //! whose skill cannot be written, gets the same guidance in its first
 //! prompt. No MCP server is passed: `nauvi mcp` is opt-in, set up by the
 //! user in clients without skills.
+//!
+//! It starts in the working directory set for the context, else in a
+//! folder of its own (`ask-ai` in the app's data folder, #532), never the
+//! home folder: AI CLIs scan their folder at start-up, and on macOS
+//! reading `~/Pictures` or `~/Documents` from a process nauvi started
+//! makes macOS ask for nauvi to access Photos or Documents.
 
 use crate::commands::local_shell::{shell_setup, ShellSetup};
 use crate::commands::term_frame::TermChannel;
@@ -29,7 +35,7 @@ use specta::Type;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::State;
+use tauri::{Manager, State};
 
 /// The version the skill is written for: the app's.
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -104,6 +110,11 @@ pub(crate) struct AskAiStarted {
     nauvi: bool,
     /// As in a local shell: the downloaded kubectl first on `PATH`.
     kubectl: String,
+    /// The folder it runs in.
+    cwd: String,
+    /// `cwd` is the working directory set for the context (else it is Ask
+    /// AI's own folder).
+    cwd_set: bool,
 }
 
 /// Where the user's skill folders are.
@@ -338,6 +349,21 @@ pub(crate) async fn cmd_ask_ai_start(
         temp,
         kubectl,
     } = shell_setup(&cluster, &settings, namespace.as_deref()).await?;
+    let cwd_set = !current
+        .contexts
+        .get(&cluster.target()?.target.id)
+        .is_none_or(|c| c.shell_cwd.trim().is_empty());
+    let cwd = match (cwd_set, shell.cwd.clone()) {
+        (true, Some(dir)) => dir,
+        _ => {
+            let data = cluster
+                .app()
+                .path()
+                .app_local_data_dir()
+                .map_err(|e| format!("cannot find the app's data folder: {e}"))?;
+            own_folder(&data)?
+        }
+    };
     let prompt = ask_ai::clean_prompt(&prompt);
     let (skill, skill_path, skill_error, prompt) =
         give_skill(&kind, &cli, prompt, &Homes::of_this_process());
@@ -375,7 +401,7 @@ pub(crate) async fn cmd_ask_ai_start(
     let spec = ShellSpec {
         program: launch.program.into_os_string(),
         args: launch.args,
-        cwd: shell.cwd,
+        cwd: Some(cwd.clone()),
         env: shell.env.into_iter().chain(launch.env).collect(),
     };
     tracing::info!("Ask AI: starting {label} at {id} (skill: {skill})");
@@ -412,7 +438,32 @@ pub(crate) async fn cmd_ask_ai_start(
         skill_error,
         nauvi,
         kubectl,
+        cwd: cwd.display().to_string(),
+        cwd_set,
     })
+}
+
+/// Ask AI's own folder in the app's data folder `data`, created (only the
+/// user can open it) if missing. Not a link: the CLI scans what is in it.
+fn own_folder(data: &Path) -> Result<PathBuf, String> {
+    let dir = data.join("ask-ai");
+    let fail = |e: &dyn std::fmt::Display| {
+        format!(
+            "Cannot create Ask AI's folder {}: {e}. Set a working directory in the cluster's \
+             settings to run it there.",
+            dir.display()
+        )
+    };
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(&dir).map_err(|e| fail(&e))?;
+    let meta = std::fs::symlink_metadata(&dir).map_err(|e| fail(&e))?;
+    if !meta.is_dir() {
+        return Err(fail(&"it is not a folder"));
+    }
+    Ok(dir)
 }
 
 /// `text` without control, zero-width or bidi characters (a context name
@@ -560,6 +611,40 @@ mod tests {
         let prompt = ask_ai::session_prompt("Look".into(), nauvi_cli(Some(&path)).is_some());
         assert!(prompt.contains("don't run `nauvi`"), "{prompt}");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Without a working directory for the context, Ask AI runs in a
+    /// folder of its own, created once, only the user's (#532).
+    #[test]
+    fn its_own_folder_is_created_once_and_private() {
+        let data = std::env::temp_dir().join(format!("nauvi-ask-ai-data-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        let dir = own_folder(&data).unwrap();
+        assert_eq!(dir, data.join("ask-ai"));
+        assert!(dir.is_dir());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700);
+        }
+        std::fs::write(dir.join("kept"), "x").unwrap();
+        assert_eq!(own_folder(&data).unwrap(), dir);
+        assert!(dir.join("kept").exists());
+
+        // A file in its place is not used.
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::write(&dir, "x").unwrap();
+        let err = own_folder(&data).unwrap_err();
+        assert!(err.contains("Cannot create Ask AI's folder"), "{err}");
+        // Nor a link to another folder.
+        #[cfg(unix)]
+        {
+            std::fs::remove_file(&dir).unwrap();
+            std::os::unix::fs::symlink(std::env::temp_dir(), &dir).unwrap();
+            assert!(own_folder(&data).unwrap_err().contains("not a folder"));
+        }
+        std::fs::remove_dir_all(&data).unwrap();
     }
 
     const NO_HOME: Homes = Homes {
