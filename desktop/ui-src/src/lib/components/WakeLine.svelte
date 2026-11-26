@@ -1,7 +1,7 @@
 <script lang="ts">
   import { recentHours, recentKnots } from "../watch";
   import { toggleWatchPanel, watch } from "../stores/watch.svelte";
-  import { setView } from "../stores/app.svelte";
+  import { currentContextName, setView } from "../stores/app.svelte";
   import { settings } from "../stores/settings.svelte";
   import { hhmmss } from "../timeZone";
 
@@ -31,7 +31,7 @@
 
   function onclick() {
     // The popover lives with the header pill, shown once the Overview ran.
-    if (watch.context) toggleWatchPanel("log");
+    if (watch.context && watch.context === currentContextName()) toggleWatchPanel("log");
     else setView("overview");
   }
 </script>

@@ -102,7 +102,8 @@ test("a title shows as the app's tooltip, on hover and on keyboard focus", async
   await settings.hover();
   await expect(page.getByTestId("tooltip")).toHaveText(/^Settings \(Ctrl\+,\)$/);
   // The engine's own tooltip would be a second one: the title is set aside meanwhile.
-  await expect(settings).not.toHaveAttribute("title");
+  await expect(settings).toHaveAttribute("title", "");
+  await expect(settings).toHaveAccessibleName("Settings");
   await page.mouse.move(640, 500);
   await expect(page.getByTestId("tooltip")).toHaveCount(0);
   await expect(settings).toHaveAttribute("title", /^Settings/);
@@ -141,4 +142,50 @@ test("the footer's timeline is labelled, has a legend and opens the watch log", 
   await line.click();
   await expect(page.getByTestId("watch-tab-log")).toHaveAttribute("aria-selected", "true");
   await expect(page.getByTestId("watch-panel")).toContainText("Watch log");
+});
+
+test("after a switch on another view the pill offers no list of the old cluster (#504)", async ({ page }) => {
+  // prod opens on its Pods (its last view), so its Overview never runs.
+  await openApp(page, (cluster) => {
+    cluster.settings.contexts["prod"] = {
+      view: "v1/pods",
+      namespaces: [],
+      typed_namespaces: [],
+      prometheus: "",
+      display_name: "",
+      color: "",
+      default_namespace: "",
+      shell_cwd: "",
+      last_used: 0,
+      hide_metrics: false,
+      mode: "normal",
+      mode_source: { file: "", given: "", context: "" },
+    };
+  });
+  const pill = page.getByTestId("watch-dial");
+  await expect(pill).toHaveText("2 problem pods");
+  await openKind(page, "Pods");
+  await page.getByRole("combobox", { name: "Cluster context" }).selectOption("prod");
+  await expect(page.getByRole("combobox", { name: "Cluster context" })).toHaveValue("prod");
+  await expect(pill).toHaveText("Problem pods");
+  await expect(pill).toHaveAttribute("title", /Not counted yet/);
+  await pill.click();
+  await expect(page.getByTestId("watch-not-counted")).toBeVisible();
+  await expect(page.getByTestId("watch-problem")).toHaveCount(0);
+  await page.getByTestId("watch-tab-log").click();
+  await expect(page.getByTestId("watch-panel")).toContainText("starts when the Overview is open");
+  await page.getByTestId("watch-tab-problems").click();
+  await page.getByTestId("watch-overview").click();
+  await expect(page.getByTestId("watch-panel")).toHaveCount(0);
+  // The Overview of prod counts its own.
+  await expect(pill).toHaveText(/^\s*(\d+ problem pods?|No problems)$/);
+});
+
+test("left open, the list says when it was taken", async ({ page }) => {
+  await openApp(page);
+  await expect(page.getByTestId("watch-dial")).toHaveText("2 problem pods");
+  await openKind(page, "Pods");
+  await page.getByTestId("watch-dial").click();
+  await expect(page.getByTestId("watch-problem")).toHaveCount(2);
+  await expect(page.getByTestId("watch-as-of")).toContainText("when the Overview was last open");
 });

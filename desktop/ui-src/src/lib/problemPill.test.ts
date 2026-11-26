@@ -6,12 +6,14 @@ describe("the problem pill", () => {
     expect(pillText(0)).toBe("No problems");
     expect(pillText(1)).toBe("1 problem pod");
     expect(pillText(4)).toBe("4 problem pods");
+    expect(pillText(null)).toBe("Problem pods");
   });
 
   it("says what a click shows", () => {
     expect(pillTitle(4)).toBe("4 pods need a look. Click to see them.");
     expect(pillTitle(1)).toBe("1 pod needs a look. Click to see it.");
     expect(pillTitle(0)).toContain("watch log");
+    expect(pillTitle(null)).toContain("Overview");
   });
 
   it("gives one line of reason per pod", () => {

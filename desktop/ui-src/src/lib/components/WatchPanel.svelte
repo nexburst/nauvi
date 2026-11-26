@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
   import { keyboard } from "../stores/keyboard.svelte";
-  import { kinds, openObject, setView } from "../stores/app.svelte";
+  import { currentContextName, kinds, openObject, setView } from "../stores/app.svelte";
   import { openDockTab } from "../stores/dock.svelte";
-  import { scope, watch } from "../stores/watch.svelte";
+  import { problemsOf, scope, watch } from "../stores/watch.svelte";
+  import { hhmmss, zoneSuffix } from "../timeZone";
+  import { settings } from "../stores/settings.svelte";
   import { problemLine } from "../problemPill";
   import { problemTone } from "../sonar";
   import Icon from "../icons/Icon.svelte";
@@ -13,7 +15,13 @@
   // As of opening: the streak is read, not watched tick by tick.
   const now = Date.now();
   const podKind = $derived(kinds.all.find((k) => k.id === "v1/pods"));
-  const more = $derived(scope.total - scope.problems.length);
+  const context = $derived(currentContextName());
+  /** The list, only if it is of the cluster on screen (#504). */
+  const seen = $derived(problemsOf(context));
+  const more = $derived(seen ? seen.total - seen.problems.length : 0);
+  /** The watch log is of the cluster the Overview last watched. */
+  const logOk = $derived(watch.context === context);
+  const zone = $derived(settings.current.time_zone);
 
   function close() {
     watch.panel = false;
@@ -62,7 +70,7 @@
       class="tab"
       aria-selected={watch.tab === "problems"}
       data-testid="watch-tab-problems"
-      onclick={() => (watch.tab = "problems")}>Problem pods{scope.total > 0 ? ` (${scope.total})` : ""}</button
+      onclick={() => (watch.tab = "problems")}>Problem pods{seen && seen.total > 0 ? ` (${seen.total})` : ""}</button
     >
     <button
       type="button"
@@ -77,7 +85,10 @@
 
   {#if watch.tab === "problems"}
     <div class="problems" data-testid="watch-problems">
-      {#each scope.problems as p (p.namespace + "/" + p.name)}
+      {#if !seen}
+        <p class="none" data-testid="watch-not-counted">The Overview lists the problem pods of this cluster. Open it to see them.</p>
+      {:else}
+      {#each seen.problems as p (p.namespace + "/" + p.name)}
         {@const error = problemTone(p) === "error"}
         <div class="row" class:error data-testid="watch-problem">
           <Icon name={error ? "error" : "pending"} size={16} />
@@ -105,17 +116,27 @@
         <p class="none">No pod needs a look right now.</p>
       {/each}
       {#if more > 0}<p class="none">And {more} more on the Overview.</p>{/if}
+      {#if !seen.live}
+        <p class="as-of" data-testid="watch-as-of">As of {hhmmss(seen.at, zone).slice(0, 5)}{zoneSuffix(zone)}, when the Overview was last open.</p>
+      {/if}
+      {/if}
     </div>
     <div class="foot">
-      <button type="button" class="btn" data-testid="watch-overview" onclick={overview}>Show on the Overview</button>
+      <button type="button" class="btn" class:primary={!seen} data-testid="watch-overview" onclick={overview}
+        >{seen ? "Show on the Overview" : "Open the Overview"}</button
+      >
     </div>
   {:else}
+    {#if !logOk}
+      <p class="none">The watch log of this cluster starts when the Overview is open.</p>
+    {:else}
     <div class="log">
       <div class="scope">
         <Sonar blips={scope.blips} recovered={scope.recovered} healthy={scope.healthy} sweep={scope.sweep} />
       </div>
       <WatchLog {now} />
     </div>
+    {/if}
   {/if}
 </div>
 
@@ -241,6 +262,11 @@
     margin: 6px 4px;
     color: var(--text-muted);
     font-size: var(--text-base);
+  }
+  .as-of {
+    margin: 4px 4px 0;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
   }
   .foot {
     display: flex;

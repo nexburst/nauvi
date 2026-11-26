@@ -1210,8 +1210,12 @@
         </div>
         <div class="menu-row">
           <span class="menu-label"></span>
-          <label class="check"><input type="checkbox" bind:checked={timestamps} onchange={restart} /> Timestamps</label>
-          <label class="check"><input type="checkbox" bind:checked={wrap} onchange={toggleWrap} /> Wrap</label>
+          <label class="check" title="Show each line's time, as Kubernetes recorded it (needed to jump to a time)"
+            ><input type="checkbox" bind:checked={timestamps} onchange={restart} /> Timestamps</label
+          >
+          <label class="check" title="Wrap long lines instead of scrolling sideways"
+            ><input type="checkbox" bind:checked={wrap} onchange={toggleWrap} /> Wrap</label
+          >
         </div>
         <div class="menu-row">
           <span class="menu-label">Exclude</span>
@@ -1264,7 +1268,12 @@
             autocomplete="off"
             bind:value={jumpInput}
           />
-          <button type="submit" class="btn icon" disabled={jumpInput.trim() === ""}>Go</button>
+          <button
+            type="submit"
+            class="btn icon"
+            title="Jump to the first line at or after this time"
+            disabled={jumpInput.trim() === ""}>Go</button
+          >
         </form>
         {#if jumpNote}<div class="jump-note" role="status" data-testid="log-jump-note" title={jumpNote}>{jumpNote}</div>{/if}
         <div class="menu-row">
@@ -1273,7 +1282,12 @@
         </div>
       </div>
     </span>
-    <button type="button" class="btn" onclick={downloadLogs}>Download</button>
+    <button
+      type="button"
+      class="btn"
+      title="Save these logs, as the cluster sent them, to Downloads"
+      onclick={downloadLogs}>Download</button
+    >
   </span>
 </div>
 {#if offer}

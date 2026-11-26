@@ -46,7 +46,19 @@ export const scope = $state({
   problems: [] as ProblemPod[],
   /** How many there are in all (the list may be cut short). */
   total: 0,
+  /** The context of that update: the list is only good for it (#504). */
+  context: "",
+  /** When that update came. */
+  at: 0,
+  /** The Overview is on screen and keeps the list up to date. */
+  live: false,
 });
+
+/** The problem list as of the Overview's last update of `context`, or null if it is of another one (or none came yet). */
+export function problemsOf(context: string): { problems: ProblemPod[]; total: number; live: boolean; at: number } | null {
+  if (!context || scope.context !== context) return null;
+  return { problems: scope.problems, total: scope.total, live: scope.live, at: scope.at };
+}
 
 /** Open the header pill's popover on `tab`, or close it if it already shows it. */
 export function toggleWatchPanel(tab: "problems" | "log" = "problems") {

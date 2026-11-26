@@ -7,7 +7,7 @@
   import { live } from "../stores/live.svelte";
   import { openPalette, openSettings } from "../stores/keyboard.svelte";
   import { pillText, pillTitle } from "../problemPill";
-  import { scope, toggleWatchPanel, watch } from "../stores/watch.svelte";
+  import { problemsOf, scope, toggleWatchPanel, watch } from "../stores/watch.svelte";
   import WatchPanel from "./WatchPanel.svelte";
   import { disconnectNode, showNode, tree } from "../stores/clusters.svelte";
 
@@ -32,8 +32,11 @@
   const SETTINGS_SHORTCUT = shortcutHint("settings", isMacPlatform());
   // The problem pill (#491): how many pods need a look, as of the last
   // Overview update; a click lists them.
-  const calm = $derived(scope.total === 0);
-  const dial = $derived(pillText(scope.total));
+  // Only the list of the cluster on screen counts: after a switch, until
+  // the Overview has seen the new one, the pill is neutral (#504).
+  const seen = $derived(problemsOf(app.contexts.find((c) => c.current)?.name ?? ""));
+  const calm = $derived(seen?.total === 0);
+  const dial = $derived(pillText(seen ? seen.total : null));
   const BACK_SHORTCUT = shortcutHint("back", isMacPlatform());
   const FORWARD_SHORTCUT = shortcutHint("forward", isMacPlatform());
 
@@ -209,7 +212,7 @@
     <span class="hint">Go to a kind, an object, an action…</span>
     <kbd>{PALETTE_SHORTCUT.split(" or ")[0]}</kbd>
   </button>
-  {#if watch.context}
+  {#if current}
     <button
       type="button"
       class="dial"
@@ -217,7 +220,7 @@
       aria-label={dial}
       aria-haspopup="dialog"
       aria-expanded={watch.panel}
-      title={pillTitle(scope.total)}
+      title={pillTitle(seen ? seen.total : null)}
       data-testid="watch-dial"
       onclick={() => toggleWatchPanel("problems")}
     >
@@ -225,7 +228,7 @@
       <svg class="mini" viewBox="-10 -10 20 20" width="18" height="18" aria-hidden="true">
         <circle r="9" />
         <circle r="4.5" />
-        {#each scope.blips.slice(0, 6) as b (b.key)}
+        {#each seen ? scope.blips.slice(0, 6) : [] as b (b.key)}
           <circle class="blip {b.tone}" cx={(b.x / 92) * 9} cy={(b.y / 92) * 9} r="1.6" />
         {/each}
         {#key scope.sweep}<circle class="ring" r="9" />{/key}

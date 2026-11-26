@@ -5,10 +5,15 @@
   /**
    * One tooltip for the whole window (#483): any element's `title` shows
    * here, styled like the app, after a short wait under the pointer or at
-   * once on keyboard focus. While the tip shows under the pointer, the
-   * element's `title` is set aside (in `data-tip-title`), so the engine
-   * does not show its own as well (it waits longer than this one); it is
-   * put back when the tip hides.
+   * once on keyboard focus.
+   *
+   * While the tip shows under the pointer, the element's `title` is set to
+   * "" (the old one kept in `data-tip-title`), so the engine does not show
+   * its own as well; it is put back when the tip hides. An element named
+   * only by its title (no aria-label, no text) gets it as its aria-label
+   * meanwhile, so its accessible name never goes. If the page changes the
+   * title meanwhile (Svelte sets a new one or removes it), that change
+   * wins: nothing is put back.
    */
 
   const STASH = "data-tip-title";
@@ -20,35 +25,60 @@
   let anchor: Element | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let lastHidden = 0;
+  /** The element whose title is set aside, and whether we gave it an aria-label. */
+  let stashed: { el: Element; labelled: boolean } | null = null;
+  /** Watches the set-aside title for changes made by the page. */
+  const observer = new MutationObserver(() => {
+    if (!stashed) return;
+    // Someone else wrote the title: theirs stands, ours is dropped.
+    const el = stashed.el;
+    el.removeAttribute(STASH);
+    if (stashed.labelled) el.removeAttribute("aria-label");
+    stashed = null;
+    observer.disconnect();
+    if (el === anchor) hideTip();
+  });
 
   const titled = (t: EventTarget | null): Element | null =>
-    t instanceof Element ? t.closest(`[title]:not([title=""]), [${STASH}]`) : null;
+    t instanceof Element ? t.closest(`[title]:not([title=""])`) : null;
 
   const tipText = (el: Element) => el.getAttribute(STASH) ?? el.getAttribute("title") ?? "";
 
   function stash(el: Element) {
     const t = el.getAttribute("title");
-    if (t === null || t === "") return;
+    if (t === null || t === "" || stashed) return;
+    const labelled = !el.hasAttribute("aria-label") && !el.hasAttribute("aria-labelledby") && !el.textContent?.trim();
+    if (labelled) el.setAttribute("aria-label", t);
     el.setAttribute(STASH, t);
-    el.removeAttribute("title");
+    el.setAttribute("title", "");
+    stashed = { el, labelled };
+    observer.observe(el, { attributes: true, attributeFilter: ["title"] });
   }
 
-  function restore(el: Element) {
+  function restore() {
+    if (!stashed) return;
+    observer.takeRecords();
+    observer.disconnect();
+    const { el, labelled } = stashed;
+    stashed = null;
     const t = el.getAttribute(STASH);
-    if (t === null) return;
     el.removeAttribute(STASH);
-    // Svelte may have set a new title meanwhile: that one wins.
-    if (!el.hasAttribute("title")) el.setAttribute("title", t);
+    if (labelled) el.removeAttribute("aria-label");
+    if (t !== null && el.getAttribute("title") === "") el.setAttribute("title", t);
+  }
+
+  function hideTip() {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (text) lastHidden = Date.now();
+    text = "";
+    pos = { x: -9999, y: -9999 };
   }
 
   /** Hide the tip; the pointer stays on `anchor`, so it shows again only on another element. */
   function hide() {
-    if (timer) clearTimeout(timer);
-    timer = null;
-    if (anchor) restore(anchor);
-    if (text) lastHidden = Date.now();
-    text = "";
-    pos = { x: -9999, y: -9999 };
+    restore();
+    hideTip();
   }
 
   function show(el: Element, delay: number, setAside: boolean) {
@@ -66,6 +96,10 @@
   // Placed once its size is known.
   $effect(() => {
     if (!text || !tipEl || !anchor) return;
+    if (!anchor.isConnected) {
+      queueMicrotask(leave);
+      return;
+    }
     const r = anchor.getBoundingClientRect();
     const p = placeTip(r, { width: tipEl.offsetWidth, height: tipEl.offsetHeight }, {
       width: window.innerWidth,
@@ -80,8 +114,8 @@
   }
 
   function onover(e: PointerEvent) {
-    const el = titled(e.target);
-    if (el === anchor) return;
+    const el = titled(e.target) ?? (stashed && e.target instanceof Node && stashed.el.contains(e.target) ? stashed.el : null);
+    if (el === anchor && anchor?.isConnected) return;
     leave();
     if (!el) return;
     anchor = el;
@@ -92,8 +126,7 @@
     const el = e.target instanceof Element ? e.target : null;
     // Only keyboard focus: a click focuses too, and the pointer is there already.
     if (!el || !el.matches(":focus-visible")) return;
-    const t = el.getAttribute("title") ?? el.getAttribute(STASH);
-    if (!t) return;
+    if (!el.getAttribute(STASH) && !el.getAttribute("title")) return;
     queueMicrotask(() => {
       if (anchor && anchor !== el) leave();
       anchor = el;
@@ -111,6 +144,14 @@
     });
   }
 
+  // Only a scroll that moves the anchor hides the tip (not a log or a
+  // table scrolling elsewhere in the window).
+  function onscroll(e: Event) {
+    const t = e.target;
+    if (!anchor || !text) return;
+    if (t === document || (t instanceof Node && t.contains(anchor))) hide();
+  }
+
   const onkey = (e: KeyboardEvent) => {
     if (e.key === "Escape" && text) hide();
   };
@@ -121,7 +162,7 @@
     document.addEventListener("focusin", onfocusin, true);
     document.addEventListener("focusout", onfocusout, true);
     document.addEventListener("keydown", onkey, true);
-    document.addEventListener("scroll", hide, true);
+    document.addEventListener("scroll", onscroll, true);
     document.documentElement.addEventListener("pointerleave", leave);
   });
   onDestroy(() => {
@@ -130,9 +171,10 @@
     document.removeEventListener("focusin", onfocusin, true);
     document.removeEventListener("focusout", onfocusout, true);
     document.removeEventListener("keydown", onkey, true);
-    document.removeEventListener("scroll", hide, true);
+    document.removeEventListener("scroll", onscroll, true);
     document.documentElement.removeEventListener("pointerleave", leave);
     leave();
+    observer.disconnect();
   });
 </script>
 
