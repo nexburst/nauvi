@@ -200,5 +200,13 @@ export function resourcesHandlers(s: FakeState) {
       removeRow(s, kind, row.key);
       return null;
     },
+    // A short stand-in for `nauvi describe`'s text.
+    cmdDescribeResource: (resource, namespace, name) => {
+      const d = detailOf(s, resource, namespace, name);
+      const lines = [`Name:            ${d.name}`];
+      if (d.namespace) lines.push(`Namespace:       ${d.namespace}`);
+      lines.push(`Kind:            ${d.kind}`, `UID:             ${d.uid}`);
+      return lines.join("\n") + "\n";
+    },
   } satisfies AreaHandlers;
 }

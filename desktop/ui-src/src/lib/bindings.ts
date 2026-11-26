@@ -521,6 +521,11 @@ export const commands = {
 	cmdApplyResourceYaml: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, yaml: string, resourceVersion: string, base: string, dryRun: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ApplyOutcome>("cmd_apply_resource_yaml", { cluster, resource, namespace, name, yaml, resourceVersion, base, dryRun }, options),
 	cmdDeleteResource: (cluster: MutationTarget, resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<null>("cmd_delete_resource", { cluster, resource, namespace, name }, options),
 	/**
+	 *  An object's describe text, as `nauvi describe` prints it, for "Copy
+	 *  kubectl describe" (#513).
+	 */
+	cmdDescribeResource: (cluster: string, resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_describe_resource", { cluster, resource, namespace, name }, options),
+	/**
 	 *  The keys of a Secret (values hidden) or ConfigMap (with values), for the
 	 *  detail panel's data editor.
 	 */

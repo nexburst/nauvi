@@ -4,7 +4,7 @@
 use crate::get::{object_namespace, resolve_kind_named};
 use crate::resources::{
     self, align_columns, ContainerDetail, ContainerKind, PodExtras, Related, ResourceDetail,
-    StateInfo,
+    ResourceRef, StateInfo,
 };
 use crate::text;
 use anyhow::Result;
@@ -24,13 +24,27 @@ pub async fn print_describe(
 ) -> Result<()> {
     let kind = resolve_kind_named(client, kind).await?;
     let ns = object_namespace(client, &kind.resource, namespace);
-    let detail = resources::get_resource_detail(client, &kind.resource, &ns, name).await?;
+    print!(
+        "{}",
+        describe_text(client, &kind.resource, &ns, name).await?
+    );
+    Ok(())
+}
+
+/// One object's describe text, as `nauvi describe` prints it (the app's
+/// "Copy kubectl describe", #513).
+pub async fn describe_text(
+    client: &Client,
+    resource: &ResourceRef,
+    namespace: &str,
+    name: &str,
+) -> Result<String> {
+    let detail = resources::get_resource_detail(client, resource, namespace, name).await?;
     // Best effort: the object itself was readable, its relations may not be.
-    let related = resources::get_related(client, &kind.resource, &ns, name)
+    let related = resources::get_related(client, resource, namespace, name)
         .await
         .unwrap_or_default();
-    print!("{}", render_describe_with(&detail, &related));
-    Ok(())
+    Ok(render_describe_with(&detail, &related))
 }
 
 /// The describe text: metadata, owners, labels and annotations, conditions,

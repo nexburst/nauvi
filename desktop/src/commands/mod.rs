@@ -154,6 +154,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             resources::cmd_apply_manifests,
             resources::cmd_apply_resource_yaml,
             resources::cmd_delete_resource,
+            resources::cmd_describe_resource,
             resources::cmd_get_data_entries,
             resources::cmd_get_related,
             resources::cmd_get_resource_detail,
