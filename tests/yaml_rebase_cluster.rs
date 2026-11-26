@@ -219,6 +219,7 @@ async fn an_edit_is_reapplied_on_a_restart_and_a_shared_field_conflicts() -> Res
             fields == vec![".metadata.labels.edited".to_string()],
             "{fields:?}"
         );
+        ensure!(reason.is_empty(), "{reason}");
         let d = api.get("web").await?;
         ensure!(d.metadata.labels.unwrap_or_default().get("edited") == Some(&"theirs".to_string()));
         Ok(())
