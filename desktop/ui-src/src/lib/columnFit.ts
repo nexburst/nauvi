@@ -154,14 +154,21 @@ export function settle(prev: readonly number[] | undefined, next: number[]): num
 }
 
 /**
- * A short signature of which rows are shown (their count and keys), to
+ * A short signature of which rows are shown (their count and keys, in any
+ * order), to
  * tell values that change on the same rows (kept by `settle`) from a new
  * set of rows (a filter, a namespace): those are fitted afresh, so a width
  * kept for rows no longer shown never cuts a name (#482).
  */
 export function rowsSignature(keys: readonly string[]): string {
+  // Order-independent: a table sorted by CPU reorders the same rows on each
+  // metrics refresh, and that must still count as the same rows.
   let h = 0;
-  for (const k of keys) for (let i = 0; i < k.length; i++) h = (Math.imul(h, 31) + k.charCodeAt(i)) | 0;
+  for (const k of keys) {
+    let x = 0;
+    for (let i = 0; i < k.length; i++) x = (Math.imul(x, 31) + k.charCodeAt(i)) | 0;
+    h = (h + Math.imul(x ^ (x >>> 15), 0x2c1b3c6d)) | 0;
+  }
   return `${keys.length}:${h}`;
 }
 

@@ -94,6 +94,8 @@ describe("settle, longest, sample", () => {
     expect(rowsSignature(["a/x", "a/y"])).toBe(rowsSignature(["a/x", "a/y"]));
     expect(rowsSignature(["a/x", "a/y"])).not.toBe(rowsSignature(["a/x"]));
     expect(rowsSignature(["a/x", "a/y"])).not.toBe(rowsSignature(["a/x", "a/z"]));
+    // A table sorted by a metric reorders the same rows on each refresh.
+    expect(rowsSignature(["a/y", "a/x"])).toBe(rowsSignature(["a/x", "a/y"]));
   });
 
   it("picks the longest values", () => {

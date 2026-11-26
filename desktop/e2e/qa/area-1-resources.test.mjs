@@ -269,6 +269,7 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
            // cluster's and the Workloads "Overview" (#481).
            name: b.getAttribute("aria-label") || label.textContent.trim(),
            title: b.title,
+           view: b.dataset.view,
            clipped: label.scrollHeight > label.clientHeight + 1 || label.scrollWidth > label.clientWidth + 1,
            wrapped: label.getClientRects().length > 0 && label.clientHeight > 1.5 * parseFloat(getComputedStyle(label).lineHeight),
            inside: b.getBoundingClientRect().right <= nav.right + 0.5,
@@ -294,9 +295,11 @@ describe("area 1: the generic resource browser", { timeout: 20 * 60_000 }, () =>
     );
     console.log(`wrapped: ${kinds.filter((k) => k.wrapped).map((k) => k.label).join(", ")}`);
     // A kind's tooltip is its full label and API identity; a view's (the
-    // Overviews, Applications, Port Forwards, Helm) is its label.
+    // Overviews, Applications, Port Forwards, Helm) is its label. Kind ids
+    // have an API version ("v1/pods"), view ids do not ("helm").
     for (const k of kinds) {
-      assert.ok(k.title === k.label || k.title.startsWith(`${k.label}: `), `tooltip of ${k.label}: ${k.title}`);
+      const view = !k.view.includes("/");
+      assert.ok(view ? k.title === k.label : k.title.startsWith(`${k.label}: `), `tooltip of ${k.label} (${k.view}): ${k.title}`);
     }
     const long = await app.find(app.navButton("Validating Admission Policy Bindings"));
     await app.js("arguments[0].scrollIntoView({ block: 'center' })", long);
