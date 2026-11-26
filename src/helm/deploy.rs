@@ -151,8 +151,9 @@ fn count(n: usize) -> String {
 }
 
 /// A dry run's line: what applying it would do to each object (an install
-/// compares with nothing), and that nothing is applied yet.
-fn dry_run_summary(c: &ManifestChanges) -> String {
+/// compares with nothing), and that nothing is applied yet. `hooks`: the
+/// chart has hooks, which are not in the manifests compared.
+fn dry_run_summary(c: &ManifestChanges, hooks: bool) -> String {
     let mut parts = Vec::new();
     if !c.changed.is_empty() {
         parts.push(format!(
@@ -185,8 +186,13 @@ fn dry_run_summary(c: &ManifestChanges) -> String {
             n => format!("none of the {n} objects would change"),
         });
     }
+    let hooks = if hooks {
+        " (hooks are not compared)"
+    } else {
+        ""
+    };
     format!(
-        "Dry run: {}. Nothing has been applied yet",
+        "Dry run: {}{hooks}. Nothing has been applied yet",
         parts.join(", ")
     )
 }
@@ -213,7 +219,10 @@ fn result_from(
     let what = format!("{}/{}", req.namespace, req.name);
     let summary = match (req.dry_run, mode) {
         // Compared unhidden, so a changed Secret value counts.
-        (true, _) => dry_run_summary(&manifest_changes(previous, &r.manifest, &req.namespace)),
+        (true, _) => dry_run_summary(
+            &manifest_changes(previous, &r.manifest, &req.namespace),
+            !r.hooks.is_empty(),
+        ),
         (false, Mode::Install) => format!("Installed {what} (revision {})", r.version),
         (false, Mode::Upgrade) => format!("Upgraded {what} to revision {}", r.version),
     };
@@ -288,7 +297,11 @@ async fn deploy(
     } else {
         String::new()
     };
-    result_from(&out, req, mode, &previous)
+    // Parsing and comparing large manifests is CPU work: off the runtime.
+    let req = req.clone();
+    tokio::task::spawn_blocking(move || result_from(&out, &req, mode, &previous))
+        .await
+        .context("the dry-run comparison stopped")?
 }
 
 /// Helm's error without its `INSTALLATION FAILED: ` / `UPGRADE FAILED: `
@@ -421,6 +434,15 @@ mod tests {
             "Dry run: 1 of 1 object would change (Secret s). Nothing has been applied yet"
         );
         assert!(r.secrets_hidden && !r.previous_manifest.contains("old"));
+        // A chart with hooks: they are not in the manifests compared.
+        let mut hooked: serde_json::Value = serde_json::from_str(&out).unwrap();
+        hooked["hooks"] =
+            serde_json::json!([{ "name": "migrate", "kind": "Job", "manifest": "x" }]);
+        let r = result_from(&hooked.to_string(), &dry, Mode::Install, "").unwrap();
+        assert_eq!(
+            r.summary,
+            "Dry run: 1 object would be created (hooks are not compared). Nothing has been applied yet"
+        );
         let shown = HelmDeployRequest {
             reveal: true,
             ..req()
@@ -442,12 +464,15 @@ mod tests {
                        created: Vec<HelmResource>,
                        deleted: Vec<HelmResource>,
                        total| {
-            dry_run_summary(&ManifestChanges {
-                created,
-                changed,
-                deleted,
-                total,
-            })
+            dry_run_summary(
+                &ManifestChanges {
+                    created,
+                    changed,
+                    deleted,
+                    total,
+                },
+                false,
+            )
         };
         let end = ". Nothing has been applied yet";
         assert_eq!(

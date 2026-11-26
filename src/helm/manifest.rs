@@ -4,6 +4,7 @@
 use crate::resources::REDACTED;
 use serde::Serialize;
 use serde_yaml::Value;
+use std::collections::{HashMap, HashSet};
 
 /// One object of a release's manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -155,29 +156,44 @@ impl ManifestChanges {
     }
 }
 
+/// The API group of an `apiVersion` (`apps/v1` -> `apps`; core `v1` -> `""`).
+fn api_group(api_version: &str) -> &str {
+    api_version.rsplit_once('/').map_or("", |(group, _)| group)
+}
+
+/// What identifies an object across revisions: API group, kind, namespace
+/// and name, borrowed from it.
+type Key<'a> = (&'a str, &'a str, &'a str, &'a str);
+
+fn key(r: &HelmResource) -> Key<'_> {
+    (api_group(&r.api_version), &r.kind, &r.namespace, &r.name)
+}
+
 /// Compare two manifests object by object. An object is the same one when
-/// its kind, namespace and name match (an `apiVersion` change is a change
-/// to it); it changed when its parsed documents differ, so comments,
+/// its API group, kind, namespace and name match (a version change within
+/// the group, `v1beta1` to `v1`, is a change to it; another group is another
+/// object); it changed when its parsed documents differ, so comments,
 /// indentation, quoting and key order do not count, and neither do
 /// documents that are not objects. Compare both sides with the same
-/// redaction, or none.
+/// redaction, or none. Linear in the number of objects.
 pub fn manifest_changes(old: &str, new: &str, release_namespace: &str) -> ManifestChanges {
-    let key = |r: &HelmResource| (r.kind.clone(), r.namespace.clone(), r.name.clone());
     let old = objects(old, release_namespace);
     let new = objects(new, release_namespace);
+    let old_by_key: HashMap<Key<'_>, &Value> = old.iter().map(|(r, doc)| (key(r), doc)).collect();
+    let new_keys: HashSet<Key<'_>> = new.iter().map(|(r, _)| key(r)).collect();
     let mut out = ManifestChanges {
         total: new.len(),
         ..Default::default()
     };
     for (r, doc) in &new {
-        match old.iter().find(|(o, _)| key(o) == key(r)) {
+        match old_by_key.get(&key(r)) {
             None => out.created.push(r.clone()),
-            Some((_, before)) if before != doc => out.changed.push(r.clone()),
+            Some(before) if *before != doc => out.changed.push(r.clone()),
             Some(_) => {}
         }
     }
     for (r, _) in &old {
-        if !new.iter().any(|(n, _)| key(n) == key(r)) {
+        if !new_keys.contains(&key(r)) {
             out.deleted.push(r.clone());
         }
     }
@@ -325,5 +341,48 @@ metadata:
         );
         assert_eq!(short(&c.changed), ["ns/a"]);
         assert!(c.created.is_empty() && c.deleted.is_empty(), "{c:?}");
+    }
+
+    #[test]
+    fn objects_are_matched_by_api_group_and_kind() {
+        assert_eq!(api_group("apps/v1"), "apps");
+        assert_eq!(api_group("v1"), "");
+        assert_eq!(api_group(""), "");
+        // A Deployment of another API group is another object.
+        let old = "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: d\n";
+        let new = "apiVersion: example.com/v1\nkind: Deployment\nmetadata:\n  name: d\n";
+        let c = manifest_changes(old, new, "ns");
+        assert_eq!(
+            (c.created.len(), c.changed.len(), c.deleted.len()),
+            (1, 0, 1),
+            "{c:?}"
+        );
+        // Another version in the same group is the same object, changed.
+        let c = manifest_changes(old, &old.replace("apps/v1", "apps/v1beta2"), "ns");
+        assert_eq!(
+            (c.created.len(), c.changed.len(), c.deleted.len()),
+            (0, 1, 0),
+            "{c:?}"
+        );
+    }
+
+    #[test]
+    fn compares_thousands_of_objects() {
+        const N: usize = 5000;
+        let doc = |i: usize, v: &str| {
+            format!("---\napiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: c{i}\ndata:\n  v: \"{v}\"\n")
+        };
+        let old: String = (0..N).map(|i| doc(i, "a")).collect();
+        // One changed, the last one gone, a new one.
+        let mut new: String = (0..N - 1)
+            .map(|i| doc(i, if i == 1234 { "b" } else { "a" }))
+            .collect();
+        new.push_str(&doc(N, "a"));
+        let c = manifest_changes(&old, &new, "ns");
+        let names = |v: &[HelmResource]| v.iter().map(|r| r.name.clone()).collect::<Vec<_>>();
+        assert_eq!(names(&c.changed), ["c1234"]);
+        assert_eq!(names(&c.created), [format!("c{N}")]);
+        assert_eq!(names(&c.deleted), [format!("c{}", N - 1)]);
+        assert_eq!(c.total, N);
     }
 }
