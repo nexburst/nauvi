@@ -87,28 +87,6 @@ and [the test cluster](https://nexburst.github.io/nauvi/docs/latest/contributing
 are in the docs. [docs/ux-standard.md](docs/ux-standard.md) is the UX
 standard the app is measured against.
 
-## Moved
-
-This README used to hold the whole manual. Its sections are now pages of the
-docs:
-
-| Old section | Now |
-| --- | --- |
-| <a id="desktop-app"></a>Desktop app | [Reference: the desktop app](https://nexburst.github.io/nauvi/docs/latest/reference/app/navigation.html) |
-| <a id="cli"></a>CLI | [Reference: the CLI](https://nexburst.github.io/nauvi/docs/latest/reference/cli/index.html) |
-| <a id="use-nauvi-from-an-ai-assistant-mcp"></a>Use nauvi from an AI assistant (MCP) | [Use nauvi from an AI assistant](https://nexburst.github.io/nauvi/docs/latest/how-to/mcp.html), [MCP tools](https://nexburst.github.io/nauvi/docs/latest/reference/mcp-tools.html) |
-| <a id="ask-ai"></a>Ask AI | [Ask AI](https://nexburst.github.io/nauvi/docs/latest/reference/app/ask-ai.html) |
-| <a id="linux-ubuntu-x86_64"></a>Linux (Ubuntu, x86_64) | [Install: Linux](https://nexburst.github.io/nauvi/docs/latest/how-to/install.html#linux-x86_64) |
-| <a id="with-apt-ubuntu-debian"></a>With apt (Ubuntu, Debian) | [Install: with apt](https://nexburst.github.io/nauvi/docs/latest/how-to/install.html#with-apt-debian-ubuntu) |
-| <a id="macos"></a>macOS | [Install: macOS](https://nexburst.github.io/nauvi/docs/latest/how-to/install.html#macos-apple-silicon-and-intel) |
-| <a id="windows-x64"></a>Windows (x64) | [Install: Windows](https://nexburst.github.io/nauvi/docs/latest/how-to/install.html#windows-x64) |
-| <a id="checking-a-download"></a>Checking a download | [Check a download](https://nexburst.github.io/nauvi/docs/latest/how-to/install.html#check-a-download) |
-| <a id="size-and-memory"></a>Size and memory | [Size and memory](https://nexburst.github.io/nauvi/docs/latest/explanations/memory.html) |
-| <a id="proxies"></a>Proxies | [Use a proxy](https://nexburst.github.io/nauvi/docs/latest/how-to/proxy.html) |
-| <a id="updates"></a>Updates | [Update or uninstall](https://nexburst.github.io/nauvi/docs/latest/how-to/update.html) |
-| <a id="build-and-run-from-source"></a>Build and run from source | [Build from source](https://nexburst.github.io/nauvi/docs/latest/contributing/build.html) |
-| <a id="test-cluster"></a>Test cluster | [The test cluster](https://nexburst.github.io/nauvi/docs/latest/contributing/test-cluster.html) |
-
 ## License
 
 MIT
