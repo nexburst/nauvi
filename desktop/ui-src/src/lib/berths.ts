@@ -11,6 +11,7 @@ import { PORT_FORWARDS_VIEW } from "./forwards";
 import { HELM_VIEW } from "./helm";
 import { HELM_CHARTS_VIEW } from "./helmCharts";
 import { WORKLOADS_VIEW } from "./workloads";
+import { WELCOME_VIEW } from "./welcome";
 
 /** Keys 1 to 9: the Overview is always the first, so eight are the user's. */
 export const BERTHS_MAX = 8;
@@ -27,6 +28,7 @@ const VIEWS: Record<string, [label: string, code: string]> = {
   [HELM_CHARTS_VIEW]: ["Charts", "chrt"],
   [PORT_FORWARDS_VIEW]: ["Port Forwards", "pf"],
   [CATALOG_VIEW]: ["Catalog", "cat"],
+  [WELCOME_VIEW]: ["Welcome", "hi"],
 };
 
 interface KindLike {
@@ -67,7 +69,7 @@ export function idCode(view: string): string {
 
 /** Whether a view can be kept in a berth (the Overview always has one). */
 export function pinnable(view: string): boolean {
-  return !!view && view !== "overview" && view !== CATALOG_VIEW;
+  return !!view && view !== "overview" && view !== CATALOG_VIEW && view !== WELCOME_VIEW;
 }
 
 /** The berths with `view` added at the end, or unchanged when full or there. */

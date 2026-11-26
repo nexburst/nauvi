@@ -16,6 +16,10 @@ import { HELM_VIEW } from "./helm";
 import { HELM_CHARTS_VIEW } from "./helmCharts";
 import { isWatchless } from "./health";
 import { WORKLOADS_VIEW } from "./workloads";
+import { WELCOME_VIEW } from "./welcome";
+import { startTips, tips } from "./stores/welcome.svelte";
+import TipsStrip from "./components/TipsStrip.svelte";
+import Welcome from "./components/Welcome.svelte";
 import { app } from "./stores/app.svelte";
 import { listenDrain } from "./stores/actions.svelte";
 import { listenLinks, takePendingLink } from "./stores/links.svelte";
@@ -105,16 +109,21 @@ export const VIEWS: View[] = [
   { id: WORKLOADS_VIEW, component: WorkloadsOverview, toolbar: true },
   { id: PORT_FORWARDS_VIEW, component: PortForwards, toolbar: false },
   { id: APPLICATIONS_VIEW, component: Applications, toolbar: true },
+  // The first run, and no kubeconfig at all (#485).
+  { id: WELCOME_VIEW, component: Welcome, toolbar: false },
 ];
 
 /** Above the view. */
 export const BANNERS: Slot[] = [
-  slot(ErrorBanner),
+  // The welcome screen says itself that there is no kubeconfig (#485).
+  slot(ErrorBanner, { when: () => !(app.view === WELCOME_VIEW && app.contexts.length === 0) }),
   slot(ActionNotice),
   slot(UpdateBanner),
   slot(NodeShellLeftovers),
   // The views that watch nothing ask whether the cluster answers (#469).
   slot(HealthCheck, { when: () => app.ready && app.contexts.length > 0 && isWatchless(app.view) }),
+  // The first few sessions' tips (#485).
+  slot(TipsStrip, { when: () => tips.show && app.view !== WELCOME_VIEW }),
 ];
 
 /** Right of the view, after the resource detail panel. */
@@ -189,4 +198,6 @@ export const AFTER_START: (() => Promise<void>)[] = [
   takePendingLink,
   // Which AI CLIs are on PATH, for Ask AI (#376).
   loadAskAiSetup,
+  // The first few sessions show the tips strip (#485).
+  startTips,
 ];

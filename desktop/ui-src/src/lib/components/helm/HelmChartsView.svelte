@@ -10,6 +10,15 @@
   import { chartHay, filterCharts } from "../../helmCharts";
   import { ListFilter } from "../../stores/tableFilter.svelte";
   import { watchGutter } from "../../scrollGutter";
+  import EmptyState from "../EmptyState.svelte";
+  import { addRepo } from "../../stores/helmCharts.svelte";
+
+  /** Well-known repositories, one click each from the empty state (#485). */
+  const SUGGESTED = [
+    { name: "bitnami", url: "https://charts.bitnami.com/bitnami" },
+    { name: "prometheus-community", url: "https://prometheus-community.github.io/helm-charts" },
+    { name: "ingress-nginx", url: "https://kubernetes.github.io/ingress-nginx" },
+  ];
 
   /** The charts in the configured repositories (newest version of each), filtered by the toolbar. */
 
@@ -47,6 +56,8 @@
   const visible = $derived(filterCharts(charts.charts, filter.match));
   const getKey = $derived((i: number) => visible[i]?.name ?? i);
   const reposOpen = $derived(showRepos || (charts.reposLoaded && charts.repos.length === 0));
+  /** No repository at all: one empty state with the ways to add one, no table. */
+  const noRepos = $derived(charts.reposLoaded && charts.repos.length === 0 && !charts.reposError);
 
   $effect(() => {
     app.count = `${visible.length} of ${charts.charts.length} charts`;
@@ -57,6 +68,27 @@
   {#if helm.helmMissing}
     <p class="error-text banner" role="alert" data-testid="helm-missing">{helm.helmMissing}</p>
   {/if}
+  {#if noRepos}
+    <div class="start">
+      <EmptyState
+        title="No chart repositories yet"
+        detail="Charts come from repositories, as with helm repo add. Add a well-known one, or any other by its URL below."
+        reason="no-repos"
+      >
+        {#each SUGGESTED as r (r.name)}
+          <button
+            type="button"
+            class="btn"
+            disabled={charts.repoBusy}
+            title={r.url}
+            data-testid="suggest-repo"
+            onclick={() => void addRepo(r.name, r.url)}>Add {r.name}</button
+          >
+        {/each}
+      </EmptyState>
+      <div class="repos start-form"><HelmRepos hint={false} /></div>
+    </div>
+  {:else}
   <div class="repobar">
     <span class="muted">
       {#if !charts.reposLoaded}
@@ -111,6 +143,7 @@
       <p class="empty">Loading…</p>
     {/if}
   </div>
+  {/if}
 
 </div>
 
@@ -141,6 +174,16 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     background: var(--bg-raised);
+  }
+  .start {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-top: 40px;
+    align-items: center;
+  }
+  .start-form {
+    width: min(560px, 100%);
   }
   .grid {
     flex: 1;

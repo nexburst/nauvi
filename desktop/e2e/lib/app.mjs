@@ -140,6 +140,8 @@ function waitForPortFree(port, timeoutMs) {
  *   contexts    otherwise: a kubeconfig made of these contexts (default [E2E_CONTEXT])
  *   profile     a Profile (lib/profile.mjs) to reuse: same HOME, settings and
  *               Downloads. Default: a new one, removed by close().
+ *   firstRun    a new profile without settings: the app starts as on a new
+ *               machine, on its welcome screen (#485)
  *   env         extra environment for the app, e.g. { SHELL: "/bin/sh" }
  *   shellEnv    true to let the app import the login shell's environment
  *               (off by default, so the app sees exactly this environment)
@@ -147,7 +149,7 @@ function waitForPortFree(port, timeoutMs) {
  */
 export async function launch(name, opts = {}) {
   const ownProfile = !opts.profile;
-  const profile = opts.profile ?? createProfile();
+  const profile = opts.profile ?? createProfile({ firstRun: !!opts.firstRun });
   const app = new App(name, { ...opts, profile }, ownProfile);
   try {
     await app.start();

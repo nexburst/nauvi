@@ -8,6 +8,10 @@
   import { ageOf, chartLabel, releaseHay, releaseKey, statusClass, visibleReleases } from "../../helm";
   import { ListFilter } from "../../stores/tableFilter.svelte";
   import { watchGutter } from "../../scrollGutter";
+  import EmptyState from "../EmptyState.svelte";
+  import { listEmptyState } from "../../emptyState";
+  import { setNamespaces, setView } from "../../stores/app.svelte";
+  import { HELM_CHARTS_VIEW } from "../../helmCharts";
 
   /** The Helm releases table. Rows come from labels; charts fill in after. */
 
@@ -106,7 +110,25 @@
   </div>
 
   {#if helm.loaded && visible.length === 0 && !helm.error}
-    <p class="empty">{helm.rows.length ? "No releases match the filter." : "No Helm releases found."}</p>
+    {@const e = listEmptyState({
+      label: "Helm releases",
+      namespaces: app.selectedNamespaces,
+      search: app.search,
+      total: helm.rows.length,
+      synced: true,
+    })}
+    <div class="empty">
+      <EmptyState title={e.title} detail={e.reason === "none" ? "Install one from a chart repository." : e.detail} reason={e.reason}>
+        {#if e.reason === "filter"}
+          <button type="button" class="btn primary" data-testid="clear-filter" onclick={() => (app.search = "")}>Clear filter</button>
+        {:else if e.reason === "namespace"}
+          <button type="button" class="btn primary" onclick={() => setNamespaces([])}>All namespaces</button>
+        {/if}
+        {#if e.reason !== "filter"}
+          <button type="button" class="btn" class:primary={e.reason === "none"} onclick={() => setView(HELM_CHARTS_VIEW)}>Browse charts</button>
+        {/if}
+      </EmptyState>
+    </div>
   {:else if !helm.loaded}
     <p class="empty">Loading…</p>
   {/if}
@@ -177,7 +199,8 @@
     left: 0;
     right: 0;
     margin: 0;
-    text-align: center;
+    display: flex;
+    justify-content: center;
     color: var(--text-muted);
   }
 </style>

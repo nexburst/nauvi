@@ -1,8 +1,8 @@
 // Plain error messages (#131, #103, #99). Checks, in both themes:
 // - no kubeconfig at all (KUBECONFIG unset, no ~/.kube/config in the app's
-//   own HOME): the banner says "No kubeconfig found (looked at …)" and what
-//   to do, the status says "No kubeconfig"; no in-cluster attempt, no Rust
-//   debug text
+//   own HOME): the welcome screen (#485) says "No kubeconfig found", where it
+//   looked and how to add one, the status says "No kubeconfig"; no banner,
+//   no in-cluster attempt, no Rust debug text
 // - as the namespace-scoped user (skipped unless NAUVI_LIMITED_KUBECONFIG
 //   names limited-user.sh's kubeconfig): the 403 banners carry the API
 //   server's message once, without kube's `ErrorResponse { … }` dump; the
@@ -45,19 +45,21 @@ describe("errors: no kubeconfig at all", { timeout: 10 * 60_000 }, () => {
 
   it("says no kubeconfig was found, where it looked, and what to do", T, async () => {
     const { app } = s;
+    // The welcome screen says it (#485), once: not in a banner as well.
     const text = await app.waitFor(
       async () => {
-        const t = await bannerText(app);
-        return t.length > 0 ? t : null;
+        const t = await app.js(`return document.querySelector('[data-testid="welcome"]')?.innerText ?? ""`);
+        return t.includes("No kubeconfig found") && t.includes("does not exist") ? t : null;
       },
-      { timeout: 60_000, message: "an error banner" },
+      { timeout: 60_000, message: "the welcome screen's no-kubeconfig state" },
     );
-    console.log(`banner: ${text}`);
+    console.log(`welcome: ${text}`);
     console.log(`status: ${await app.statusText()}`);
-    assert.match(text, /No kubeconfig found \(looked at .*\.kube[/\\]config; KUBECONFIG is not set\)\./);
-    assert.match(text, /Open the cluster catalog/);
+    assert.match(text, /\.kube[/\\]config/);
+    assert.match(text, /Add a kubeconfig/);
     assert.doesNotMatch(text, RAW);
     assert.doesNotMatch(text, /Could not reach the cluster/);
+    assert.equal(await bannerText(app), "");
     assert.equal(await app.statusText(), "No kubeconfig");
     await bothThemes(app, "no-kubeconfig");
   });

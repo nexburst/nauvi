@@ -181,7 +181,7 @@ describe("applications", { timeout: 15 * 60_000 }, () => {
     const { app } = s;
     await pickNamespaces(app, [empty]);
     const e = await app.find(byTestId("applications-empty"));
-    await app.waitFor(async () => (await e.getText()).includes("No applications found."), { message: "the empty state" });
+    await app.waitFor(async () => (await e.getText()).includes("No applications in"), { message: "the empty state" });
     assert.match(await e.getText(), /app\.kubernetes\.io\/instance/);
     await shots(app, "empty");
   });

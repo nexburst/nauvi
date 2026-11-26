@@ -113,14 +113,20 @@ test("repositories are added, updated and removed, in the Charts view and in Set
   expect(fake.errors).toEqual([]);
 });
 
-test("with no repositories, the Charts view says so and offers to add one", async ({ page }) => {
-  await openApp(page, (c) => {
+test("with no repositories, the Charts view says so once and offers well-known ones, with no table", async ({ page }) => {
+  const fake = await openApp(page, (c) => {
     c.helm.charts.repos = [];
   });
   await openCharts(page);
-  await expect(page.getByTestId("helm-charts")).toContainText("No chart repositories configured.");
-  await expect(page.getByTestId("helm-repos")).toContainText("No chart repositories yet");
-  await expect(page.getByTestId("chart-row")).toHaveCount(0);
+  const view = page.getByTestId("helm-charts");
+  await expect(view.getByTestId("empty-state")).toContainText("No chart repositories yet");
+  // Said once (#486), with no empty table under it, and no "+ Create" (that is YAML, not charts).
+  await expect(view.getByText(/no chart repositories/i)).toHaveCount(1);
+  await expect(view.getByRole("grid")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "+ Create" })).toHaveCount(0);
+  await expect(page.getByTestId("helm-repos").getByLabel("Repository URL")).toBeVisible();
+  await view.getByRole("button", { name: "Add bitnami" }).click();
+  expect((await fake.lastCall("cmdHelmRepoAdd"))).toMatchObject({ name: "bitnami", url: "https://charts.bitnami.com/bitnami" });
 });
 
 test("install: edit the values, dry run the manifest, then install and open the release", async ({ page }) => {

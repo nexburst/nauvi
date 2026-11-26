@@ -39,7 +39,7 @@ test("applications are listed with their rolled-up status, filtered and sorted",
   await page.getByLabel("Filter").fill("nightly");
   await expect(appRows(page)).toHaveCount(1);
   await page.getByLabel("Filter").fill("nothing-like-this");
-  await expect(view(page).getByTestId("applications-empty")).toContainText("No applications match the filter.");
+  await expect(view(page).getByTestId("applications-empty")).toContainText('No applications match "');
   await page.getByLabel("Filter").fill("");
 
   // The namespace selection starts a new feed for it.
@@ -130,7 +130,7 @@ test("without labelled workloads the view explains what it groups", async ({ pag
     c.applications = [];
   });
   await openApplications(page);
-  await expect(view(page).getByTestId("applications-empty")).toContainText("No applications found.");
+  await expect(view(page).getByTestId("applications-empty")).toContainText("No applications in any namespace");
   await expect(view(page).getByTestId("applications-empty")).toContainText("app.kubernetes.io/instance");
 });
 

@@ -9,7 +9,13 @@ import { delimiter, join } from "node:path";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export class Profile {
-  constructor(home) {
+  /**
+   * `firstRun`: no settings.json, so the app starts as on a new machine,
+   * on its welcome screen with the tips strip (#485). Otherwise the profile
+   * starts with an empty settings.json, as an app that has run before: the
+   * scenarios start where they expect, on the Overview.
+   */
+  constructor(home, { firstRun = false } = {}) {
     /** `HOME` of the app. */
     this.home = home;
     /** `app_config_dir()` on Linux: settings.json lives here. */
@@ -21,6 +27,7 @@ export class Profile {
     this.bin = join(home, ".qa-bin");
     this.openedLog = join(home, ".qa-opened");
     for (const d of [this.configDir, this.downloads, this.bin]) mkdirSync(d, { recursive: true });
+    if (!firstRun) writeFileSync(this.settingsPath, "{}\n");
     this.#writeRecorder();
   }
 
@@ -95,6 +102,7 @@ export class Profile {
   }
 }
 
-export function createProfile() {
-  return new Profile(mkdtempSync(join(tmpdir(), "nauvi-qa-home-")));
+/** A new private home; `{ firstRun: true }` for one without settings (see `Profile`). */
+export function createProfile(opts = {}) {
+  return new Profile(mkdtempSync(join(tmpdir(), "nauvi-qa-home-")), opts);
 }
