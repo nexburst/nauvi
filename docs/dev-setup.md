@@ -12,7 +12,7 @@ Linux (Ubuntu/Debian) is the main development platform.
 - Git, the GitHub CLI `gh` (a recent release; distro packages can be years old)
 - Rust stable via rustup, with `rustfmt` and `clippy`
 - Node.js 22 (`desktop/ui-src/.nvmrc`; `engines` in `package.json`)
-- The WebKitGTK and build libraries listed in [README.md](../README.md#build-and-run-from-source)
+- The WebKitGTK and build libraries listed in the docs page [Build from source](user/src/contributing/build.md)
 - Docker (usable without sudo), `kind`, `kubectl`; `scripts/test-cluster/setup.sh`
   installs `kind` and `kubectl` into `~/.local/bin` when missing
 - Optional: `helm` (Helm features and their tests), the Tauri CLI
