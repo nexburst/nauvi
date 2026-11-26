@@ -85,7 +85,7 @@
           bind:value={chart.lens}
           class="lens"
           type="text"
-          placeholder={chart.pinned ? "Filter kinds…" : "Kind: po, deploy, secrets…"}
+          placeholder={chart.pinned ? "Filter kinds…" : "Find a kind: po, deploy…"}
           aria-label="Find a kind"
           data-testid={chart.pinned ? "sidebar-filter" : "chart-lens"}
           onkeydown={onLensKey}
