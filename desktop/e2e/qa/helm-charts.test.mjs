@@ -1,7 +1,9 @@
 // Uses helm (qa.sh puts one on PATH, from the cache if needed).
 // Checks (#80): add a chart repository, open a chart's README, install it with
 // edited values after a dry run, then upgrade the release to another version
-// with new values after a dry-run diff.
+// with new values after a dry-run diff. #497: the dry-run line says which
+// objects would change, the same ones the diff shows (light and dark shots),
+// and that nothing has been applied yet.
 //
 // The repository is demo-chart (0.1.0 and 0.2.0) packaged into a temp dir and
 // served from 127.0.0.1 by this process: no internet. The app's helm gets its
@@ -17,9 +19,11 @@ import { after, before, describe, it } from "node:test";
 import { By } from "selenium-webdriver";
 import { CONTEXT, REPO, byTestId, xq } from "../lib/app.mjs";
 import { deleteNamespace, tempNamespace } from "../lib/cluster.mjs";
+import { setTheme } from "../lib/panels.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 
 const T = { timeout: 180_000 };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const CHART = `${REPO}/scripts/test-cluster/charts/demo-chart`;
 const RELEASE = "qa-chart";
 let skip = false;
@@ -111,6 +115,16 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
     );
   }
 
+  /** A shot in light and in dark theme, then back to the system theme. */
+  async function shots(label) {
+    for (const theme of ["light", "dark"]) {
+      await setTheme(s.app, theme);
+      await sleep(500); // let WebKitGTK repaint before the shot
+      await s.app.shot(`${label}-${theme}`);
+    }
+    await setTheme(s.app, null);
+  }
+
   async function textOf(testid) {
     return s.app.js(`return document.querySelector('[data-testid="${testid}"]')?.innerText ?? ""`);
   }
@@ -158,10 +172,15 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
     );
     await setEditor("deploy-values", "greeting: from-qa\n");
     await (await app.find(byTestId("deploy-preview"))).click();
-    await app.waitFor(async () => /Dry run of .*nothing changed/.test(await textOf("deploy-summary")), {
+    await app.waitFor(async () => /^Dry run: /.test(await textOf("deploy-summary")), {
       timeout: 60_000,
       message: "the dry-run summary",
     });
+    const line = await textOf("deploy-summary");
+    if (line !== "Dry run: 3 objects would be created. Nothing has been applied yet.") {
+      throw new Error(`install dry-run line: ${line}`);
+    }
+    await shots("install-dry-run");
     const manifest = await app.js(
       `return document.querySelector('[data-testid="deploy-manifest"]')?.nauviEditor?.getValue() ?? ""`,
     );
@@ -203,15 +222,21 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
     );
     await setEditor("deploy-values", "greeting: upgraded\nreplicas: 0\n");
     await (await app.find(byTestId("deploy-preview"))).click();
-    await app.waitFor(async () => /Dry run of/.test(await textOf("deploy-summary")), {
+    await app.waitFor(async () => /^Dry run: /.test(await textOf("deploy-summary")), {
       timeout: 60_000,
       message: "the upgrade dry run",
     });
+    // #497: the line names what the diff below changes (greeting in the
+    // ConfigMap, replicas in the Deployment); the Secret stays as it is.
+    const line = await textOf("deploy-summary");
+    const want = `Dry run: 2 of 3 objects would change (ConfigMap ${RELEASE}-config, Deployment ${RELEASE}-app). Nothing has been applied yet.`;
+    if (line !== want) throw new Error(`upgrade dry-run line: ${line}`);
     // The diff shows the new greeting.
     await app.waitFor(
       async () => (await app.js(`return document.querySelector('[data-testid="helm-deploy"] .cm-editor')?.innerText ?? ""`)).includes("upgraded"),
       { message: "the manifest diff" },
     );
+    await shots("upgrade-dry-run");
     await (await app.find(byTestId("deploy-confirm"))).click();
     await app.waitFor(async () => /Upgraded .* to revision 2/.test(await textOf("deploy-result")), {
       timeout: 120_000,
@@ -222,6 +247,32 @@ describe("helm charts", { timeout: 15 * 60_000, skip }, () => {
     const values = JSON.parse(helm(["get", "values", RELEASE, "-n", ns, "-o", "json"]));
     if (values.greeting !== "upgraded" || values.replicas !== 0) throw new Error(`values: ${JSON.stringify(values)}`);
     await (await app.find(button("helm-deploy", "Close"))).click();
+  });
+
+  it("an upgrade dry run with the same values says nothing would change", T, async () => {
+    const { app } = s;
+    const upgrade = await app.find(button("helm-detail", "Upgrade…"));
+    await app.waitFor(() => upgrade.isEnabled(), { message: "Upgrade… to be enabled" });
+    await upgrade.click();
+    await app.find(byTestId("helm-deploy"));
+    await app.waitFor(
+      async () =>
+        (await app.js(
+          `return document.querySelector('[data-testid="deploy-values"]')?.nauviEditor?.getValue() ?? ""`,
+        )).includes("greeting: upgraded"),
+      { message: "the release's values prefilled" },
+    );
+    await (await app.find(byTestId("deploy-preview"))).click();
+    await app.waitFor(async () => /^Dry run: /.test(await textOf("deploy-summary")), {
+      timeout: 60_000,
+      message: "the no-change dry run",
+    });
+    const line = await textOf("deploy-summary");
+    if (line !== "Dry run: none of the 3 objects would change. Nothing has been applied yet.") {
+      throw new Error(`no-change dry-run line: ${line}`);
+    }
+    await shots("upgrade-dry-run-unchanged");
+    await (await app.find(button("helm-deploy", "Cancel"))).click();
   });
 
   // QA area 5 (#83, PR #94 "not verified"): the repository Update and Remove

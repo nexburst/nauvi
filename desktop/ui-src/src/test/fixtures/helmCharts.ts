@@ -167,6 +167,30 @@ function userValues(values: string): string {
   return kept ? `${kept}\n` : "";
 }
 
+/** The objects of a fake manifest as `Kind name` -> document without comments. */
+function objects(text: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const doc of text.split(/^---$/m)) {
+    const kind = /^kind: (\S+)/m.exec(doc)?.[1];
+    const name = /^ {2}name: (\S+)/m.exec(doc)?.[1];
+    if (!kind || !name) continue;
+    out.set(`${kind} ${name}`, doc.replace(/^#.*\n/gm, "").trim());
+  }
+  return out;
+}
+
+/** Like `dry_run_summary` in `src/helm/deploy.rs`, for the fake charts. */
+function drySummary(previous: string, next: string): string {
+  const before = objects(previous);
+  const after = objects(next);
+  const n = after.size;
+  const end = ". Nothing has been applied yet";
+  if (before.size === 0) return `Dry run: ${n} objects would be created${end}`;
+  const changed = [...after].filter(([k, v]) => before.has(k) && before.get(k) !== v).map(([k]) => k);
+  if (changed.length === 0) return `Dry run: none of the ${n} objects would change${end}`;
+  return `Dry run: ${changed.length} of ${n} objects would change (${changed.join(", ")})${end}`;
+}
+
 export function deploy(
   h: FakeHelm,
   namespaces: string[],
@@ -197,6 +221,14 @@ export function deploy(
   rev.description = mode === "install" ? "Install complete" : "Upgrade complete";
   rev.storage = req.storage;
   const what = `${req.namespace}/${req.name}`;
+  const next = manifest(req.name, greeting, req.reveal ? "s3cret" : HIDDEN);
+  const latest = existing.find((r) => r.revision === current);
+  const previous =
+    mode === "upgrade" && req.dry_run && latest
+      ? req.reveal
+        ? (h.revealed[`${what}@${current}`] ?? latest.manifest)
+        : latest.manifest
+      : "";
   const result: HelmDeployResult = {
     name: req.name,
     namespace: req.namespace,
@@ -206,12 +238,13 @@ export function deploy(
     chart_version: ch.version,
     app_version: ch.app_version,
     notes: rev.notes,
-    manifest: manifest(req.name, greeting, req.reveal ? "s3cret" : HIDDEN),
+    manifest: next,
+    previous_manifest: previous,
     secrets_hidden: !req.reveal,
     resources: rev.resources,
     dry_run: req.dry_run,
     summary: req.dry_run
-      ? `Dry run of ${what}: ${rev.resources.length} objects, nothing changed`
+      ? drySummary(previous, next)
       : mode === "install"
         ? `Installed ${what} (revision 1)`
         : `Upgraded ${what} to revision ${rev.revision}`,

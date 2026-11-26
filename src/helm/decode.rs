@@ -29,6 +29,8 @@ pub(crate) struct StoredRelease {
     /// The values the user supplied (`--set`, `-f`), not the chart defaults.
     pub config: Option<Value>,
     pub manifest: String,
+    /// The chart's hooks, which are not in `manifest`: only counted.
+    pub hooks: Vec<serde::de::IgnoredAny>,
 }
 
 #[derive(Debug, Default, Deserialize)]

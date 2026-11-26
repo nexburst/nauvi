@@ -209,7 +209,7 @@ test("a release stored in ConfigMaps is rolled back, upgraded and uninstalled th
   await d.getByRole("button", { name: "Upgrade…" }).click();
   const dlg = page.getByTestId("helm-deploy");
   await dlg.getByTestId("deploy-preview").click();
-  await expect(dlg.getByTestId("deploy-summary")).toContainText("Dry run of demo/web");
+  await expect(dlg.getByTestId("deploy-summary")).toContainText("Dry run: ");
   expect((await fake.lastCall("cmdHelmUpgrade")).request).toMatchObject({ storage: "configmap" });
   await dlg.getByRole("button", { name: "Cancel" }).click();
   await expect(dlg).toBeHidden();

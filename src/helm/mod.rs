@@ -23,7 +23,9 @@ pub use addons::{
 };
 pub use command::{helm_rollback, helm_uninstall, helm_version, HelmTarget};
 pub use deploy::{helm_install, helm_upgrade, HelmDeployRequest, HelmDeployResult};
-pub use manifest::{manifest_resources, redact_manifest, HelmResource};
+pub use manifest::{
+    manifest_changes, manifest_resources, redact_manifest, HelmResource, ManifestChanges,
+};
 pub use print::{print_helm_get, print_helm_list, HelmGetOptions, HelmSection};
 pub use repo::{
     add_repo, chart_details, chart_versions, list_repos, remove_repo, search_charts, update_repos,

@@ -41,7 +41,7 @@ test("without metrics-server, the overview offers to install it after a dry run 
 
   await dlg.getByTestId("addon-preview").click();
   await expect(dlg.getByTestId("addon-summary")).toHaveText(
-    "Dry run of kube-system/metrics-server: 2 objects, nothing changed.",
+    "Dry run: 2 objects would be created. Nothing has been applied yet.",
   );
   const facts = dlg.getByTestId("addon-confirm-facts");
   await expect(facts).toContainText("https://kubernetes-sigs.github.io/metrics-server/");

@@ -3,7 +3,6 @@
   import CodeEditor from "../editor/CodeEditor.svelte";
   import DiffView from "../editor/DiffView.svelte";
   import { commands } from "../../bindings";
-  import { api, visibleCluster } from "../../cluster";
   import type { HelmChartVersion, HelmDeployRequest, HelmDeployResult } from "../../bindings";
   import { app, setView } from "../../stores/app.svelte";
   import { setNotice } from "../../stores/actions.svelte";
@@ -25,7 +24,8 @@
   /**
    * Install a chart, or upgrade a release, with edited values. A dry run
    * (`--dry-run=server`) comes first: the manifest for an install, a diff
-   * against the current revision for an upgrade. Mounted while open.
+   * against the current revision for an upgrade, under a line that says
+   * which objects would change. Mounted while open.
    */
   let { target }: { target: DeployTarget } = $props();
   const mode = untrack(() => target.mode);
@@ -51,8 +51,6 @@
   /** The dry run, and the request it ran. */
   let preview = $state.raw<HelmDeployResult | null>(null);
   let previewed = $state.raw<HelmDeployRequest | null>(null);
-  /** The current revision's manifest (upgrade), redacted like the preview. */
-  let currentManifest = $state("");
   let result = $state.raw<HelmDeployResult | null>(null);
 
   const versions = $derived(sources.get(source) ?? []);
@@ -133,13 +131,10 @@
     error = "";
     const req = { ...request };
     try {
-      const [dry, current] = await Promise.all([
-        runDeploy(mode, req),
-        upgrade ? api(visibleCluster()).cmdHelmGet(namespace, name, 0, reveal) : Promise.resolve(null),
-      ]);
-      preview = dry;
+      // An upgrade's dry run carries the manifest it compared with, so the
+      // diff and the summary describe the same change.
+      preview = await runDeploy(mode, req);
       previewed = req;
-      currentManifest = current?.manifest ?? "";
       step = "preview";
     } catch (e) {
       error = String(e);
@@ -277,7 +272,7 @@
       <p class="lead" data-testid="deploy-summary">{preview.summary}.</p>
       {#if mode === "upgrade"}
         <div class="pane">
-          <DiffView original={currentManifest} modified={preview.manifest} label="Manifest changes" />
+          <DiffView original={preview.previous_manifest} modified={preview.manifest} label="Manifest changes" />
         </div>
       {:else}
         <div class="pane">

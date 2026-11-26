@@ -82,10 +82,11 @@ export function installAddon(fake: FakeMetricsAddons, req: MetricsAddonRequest):
     app_version: addon.app_version,
     notes: `${addon.title} is installed.\n`,
     manifest,
+    previous_manifest: "",
     secrets_hidden: !req.reveal,
     resources: [],
     dry_run: req.dry_run,
-    summary: req.dry_run ? `Dry run of ${what}: 2 objects, nothing changed` : `Installed ${what} (revision 1)`,
+    summary: req.dry_run ? "Dry run: 2 objects would be created. Nothing has been applied yet" : `Installed ${what} (revision 1)`,
   };
   if (!req.dry_run) fake.installed.push(structuredClone(req));
   return result;
