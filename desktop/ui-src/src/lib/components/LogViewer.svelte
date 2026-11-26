@@ -40,6 +40,7 @@
   import type { PodTabRef } from "../dock";
   import { settings } from "../stores/settings.svelte";
   import { keyboard } from "../stores/keyboard.svelte";
+  import { logAsk } from "../stores/logAsk.svelte";
   import { TAIL_OPTIONS } from "../settings";
   import { dateTime, zoneName } from "../timeZone";
 
@@ -981,13 +982,36 @@
 
   // Start streaming once the pod's containers are known (or failed to load).
   let started = false;
+  /** The pod panel's "Logs" / "Previous logs" for one container (#496). */
+  const ask = $derived(pod ? logAsk(cluster, pod.namespace, pod.name) : undefined);
+  let askSeen = 0;
   $effect(() => {
     if (!ready || started) return;
     started = true;
-    // Workloads follow all containers by default.
-    const firstMain = isWorkload ? undefined : containers.find((c) => !c.init);
-    container = firstMain?.name ?? "";
+    const a = untrack(() => ask);
+    if (a && containers.some((c) => c.name === a.container)) {
+      askSeen = a.seq;
+      container = a.container;
+      previous = a.previous;
+      follow = !previous;
+    } else {
+      // Workloads follow all containers by default.
+      const firstMain = isWorkload ? undefined : containers.find((c) => !c.init);
+      container = firstMain?.name ?? "";
+    }
     startLogs();
+  });
+  // An ask while the tab is open: switch to it.
+  $effect(() => {
+    const a = ask;
+    if (!a || a.seq <= askSeen || !started) return;
+    askSeen = a.seq;
+    untrack(() => {
+      if (!containers.some((c) => c.name === a.container)) return;
+      container = a.container;
+      previous = a.previous;
+      void onPreviousChange();
+    });
   });
 
   // The stream restarts when an option changes (but not for wrap/filter/follow).

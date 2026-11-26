@@ -7,6 +7,7 @@
   import DetailNotices from "./DetailNotices.svelte";
   import EventsTable from "./EventsTable.svelte";
   import MetaSection from "./MetaSection.svelte";
+  import PodWhy from "./PodWhy.svelte";
   import PortForward from "./PortForward.svelte";
   import RelatedGroups from "./RelatedGroups.svelte";
   import UsageCharts from "./UsageCharts.svelte";
@@ -16,6 +17,7 @@
   import type { Target } from "../stores/detail.svelte";
   import { LiveDetail } from "../stores/live-detail.svelte";
   import { LiveRelated } from "../stores/related.svelte";
+  import { podWhy } from "../podWhy";
 
   /** The pod panel: the generic overview plus the pod section (containers,
    *  QoS, IPs...), the header of actions (logs and a shell in the dock,
@@ -37,6 +39,9 @@
     if (live.info) related.seen(live.info);
   });
   let portForward: PortForward | undefined = $state();
+  /** What is wrong, for a pod that needs a look (#496): the panel leads with it. */
+  const why = $derived(info && extras && !live.deleted ? podWhy(extras, info.events, chart.verdict) : null);
+  let eventsEl = $state<HTMLDivElement | null>(null);
 
   onMount(() => {
     void live.start();
@@ -102,6 +107,16 @@
     {:else if !info || !extras}
       <p class="muted">Loading…</p>
     {:else}
+      {#if why}
+        <PodWhy
+          {why}
+          pod={{ resource: target.resource, namespace: target.namespace, name: target.name }}
+          logContainers={extras.log_containers}
+          events={info.events.length}
+          onEvents={() => eventsEl?.scrollIntoView({ block: "start", behavior: "smooth" })}
+          disabled={live.deleted}
+        />
+      {/if}
       <MetaSection {info}>
         <dt>Phase</dt>
         <dd class="phase-{extras.phase}" class:overruled={!!chart.verdict}>
@@ -139,9 +154,15 @@
         <p class="muted">No containers.</p>
       {/each}
 
+      <!-- A pod that needs a look has its events right after its containers. -->
+      {#if why}
+        <div class="events" bind:this={eventsEl}><EventsTable events={info.events} /></div>
+      {/if}
       <RelatedGroups {related} />
       <ConditionsTable conditions={info.conditions} />
-      <EventsTable events={info.events} />
+      {#if !why}
+        <div class="events" bind:this={eventsEl}><EventsTable events={info.events} /></div>
+      {/if}
     {/if}
   </div>
 
@@ -186,7 +207,8 @@
     background: var(--bg-raised);
     border-bottom: 1px solid var(--border);
   }
-  .yaml {
+  .yaml,
+  .events {
     scroll-margin-top: 90px;
   }
   .header {
