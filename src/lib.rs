@@ -50,6 +50,7 @@ pub mod problems;
 pub mod proxy;
 pub mod proxy_tls;
 pub mod reconnect;
+pub mod registry_tags;
 pub mod resources;
 pub mod terminal;
 pub mod text;
