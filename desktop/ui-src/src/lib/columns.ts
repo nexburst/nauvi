@@ -162,7 +162,7 @@ function column(def: ColumnDef, index: number): Column {
         },
         title: (r, _zone, c) => {
           const m = c.metrics.pods.get(r.key);
-          return m ? cpuCores(m.cpu_millicores) : "";
+          return m ? `${formatCpu(m.cpu_millicores)} (${cpuCores(m.cpu_millicores)})` : "";
         },
         sort: (r, c) => c.metrics.pods.get(r.key)?.cpu_millicores ?? -1,
         spark: (r, c) => c.metrics.sparks.get(r.key)?.cpu ?? NO_SPARK,

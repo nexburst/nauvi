@@ -26,14 +26,15 @@ const TARGET = "monitoring/prometheus-server:http";
 const trim = (n) => n.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
 const formatCpu = (m) => (m >= 1000 ? trim(m / 1000) : `${m}m`);
 function formatMemory(bytes) {
-  const units = ["B", "Ki", "Mi", "Gi", "Ti", "Pi"];
+  const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
   let v = bytes;
   let u = 0;
   while (v >= 1024 && u < units.length - 1) {
     v /= 1024;
     u++;
   }
-  return u === 0 ? `${bytes}B` : trim(v) + units[u];
+  if (u === 0) return `${bytes} B`;
+  return `${v < 100 ? v.toFixed(1).replace(/\.0$/, "") : Math.round(v)} ${units[u]}`;
 }
 
 function cpuOf(q) {

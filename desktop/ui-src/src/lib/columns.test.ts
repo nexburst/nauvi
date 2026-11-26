@@ -135,7 +135,7 @@ describe("columnsFor", () => {
     expect(cpu.text(row(["", ""]), ctx)).toBe("250m");
     expect(mem.text(row(["", ""]), ctx)).toBe("64 MiB");
     // The tooltip says the cores (#484).
-    expect(cpu.title?.(row(["", ""]), "utc", ctx)).toBe("0.25 cores");
+    expect(cpu.title?.(row(["", ""]), "utc", ctx)).toBe("250m (0.25 cores)");
     expect(cpu.sort(row(["", ""]), ctx)).toBe(250);
     const other = row(["", ""], { key: "demo/other" });
     expect(cpu.text(other, ctx)).toBe("—");
