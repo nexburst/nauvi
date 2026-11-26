@@ -1274,7 +1274,7 @@ jobs:
     if: needs.prepare.outputs.dry_run == 'false'
     permissions:
       contents: write
-    # The self-repository form: pages.yml of this same commit.
-    uses: $/.github/workflows/pages.yml
+    # pages.yml of this same commit (a local reusable workflow).
+    uses: ./.github/workflows/pages.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}

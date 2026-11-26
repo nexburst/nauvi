@@ -93,7 +93,8 @@
         : "These are the docs of nauvi " + current + ". The newest release is " + info.latest + ". ";
     box.appendChild(document.createTextNode(text));
     var a = document.createElement("a");
-    a.href = samePage("latest");
+    var latest = sameSite(samePage("latest"));
+    a.href = latest ? latest.href : base + "latest/";
     a.textContent = "Read this page for the latest release";
     a.addEventListener("click", function (e) {
       e.preventDefault();
