@@ -160,7 +160,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
       const [first] = payments(await layout(app));
       await (await app.find(app.row(first.Name.name || first.Name.text))).click();
       await waitPanelTitle(app, `${ns}/`);
-      assertCutWell(`pods + panel ${theme}`, await layout(app), { canary: true });
+      assertCutWell(`pods + panel ${theme}`, await layout(app));
     });
 
     it(`Pods in a narrow window, without and with the panel (${theme})`, T, async () => {
