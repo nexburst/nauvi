@@ -99,7 +99,7 @@ export interface ListFilterOptions<T> {
   lower: (t: T) => string;
   /** What match case matches: the same text as typed. */
   text: (t: T) => string;
-  /** What a regex matches: one field per line (`rawHay`). Default: `text`. */
+  /** What a regex matches: one field per line (as `shownText`). Default: `text`. */
   lines?: (t: T) => string;
 }
 

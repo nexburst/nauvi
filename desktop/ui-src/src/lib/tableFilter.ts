@@ -34,7 +34,12 @@ export function compileFilter(q: FilterQuery): CompiledFilter {
     const negate = typed.startsWith("!") && typed.length > 1;
     const t = negate ? typed.slice(1).trim() : typed;
     if (!t || typed === "!") return NO_FILTER;
-    return { kind: "text", needle: q.matchCase ? t : t.toLowerCase(), matchCase: q.matchCase, ...(negate ? { negate } : {}) };
+    return {
+      kind: "text",
+      needle: q.matchCase ? t : t.toLowerCase(),
+      matchCase: q.matchCase,
+      ...(negate ? { negate } : {}),
+    };
   }
   if (!q.text) return NO_FILTER;
   const flags = q.matchCase ? "m" : "im";
@@ -60,30 +65,75 @@ export function filterKey(f: CompiledFilter): string {
   }
 }
 
-const rawCache = new WeakMap<object, string>();
-
-/**
- * Every field of a row as typed, one per line (arrays such as table cells
- * one value per line): what match case and a regex look at. Rows are
- * replaced, never mutated, so the text is cached per row object.
- */
-export function rawHay(row: object): string {
-  let out = rawCache.get(row);
-  if (out !== undefined) return out;
-  const parts: string[] = [];
-  for (const v of Object.values(row)) {
-    if (Array.isArray(v)) for (const x of v) parts.push(String(x));
-    else parts.push(String(v));
-  }
-  out = parts.join("\n");
-  rawCache.set(row, out);
-  return out;
-}
-
 /** Whether `name` (an object opened from elsewhere) passes a plain filter;
  *  null when that cannot be told here (a regex runs only in the worker). */
 export function nameMatches(f: CompiledFilter, name: string): boolean | null {
   if (f.kind === "none" || f.kind === "error") return true;
   if (f.kind === "regex") return null;
-  return (f.matchCase ? name : name.toLowerCase()).includes(f.needle) !== !!f.negate;
+  return (
+    (f.matchCase ? name : name.toLowerCase()).includes(f.needle) !== !!f.negate
+  );
+}
+
+/** What a resource table row is matched on (#512). */
+export interface TableRowLike {
+  name: string;
+  namespace: string;
+  cells: readonly string[];
+}
+
+/** What the table filter matches in a resource table row, given which cells are shown. */
+export interface ShownText {
+  /** The row's name, namespace and shown cells as typed, one per line
+   *  (match case, and a regex in the worker). */
+  raw(row: TableRowLike): string;
+  /** The same, lower-cased (plain text). */
+  lower(row: TableRowLike): string;
+}
+
+const shownCache = new WeakMap<
+  object,
+  { sig: string; raw: string; lower: string }
+>();
+
+/**
+ * The text a resource table's filter matches (#512): what the row shows.
+ * That is its name and namespace and the cells of the shown columns
+ * (`cells`: indexes into `row.cells`), never an off-by-default column the
+ * user has not turned on (QoS "Burstable" used to match "burst") nor the
+ * creation time or the row's key. A cell cut in the middle (#482) still
+ * matches on its whole value; `cutHit` tells the table to mark it.
+ */
+export function shownText(cells: readonly number[]): ShownText {
+  const sig = cells.join(",");
+  const entry = (row: TableRowLike) => {
+    const hit = shownCache.get(row);
+    if (hit && hit.sig === sig) return hit;
+    const parts = [row.name, row.namespace];
+    for (const i of cells) {
+      const c = row.cells[i];
+      if (c) parts.push(c);
+    }
+    const raw = parts.join("\n");
+    const out = { sig, raw, lower: raw.toLowerCase() };
+    shownCache.set(row, out);
+    return out;
+  };
+  return { raw: (r) => entry(r).raw, lower: (r) => entry(r).lower };
+}
+
+/**
+ * Whether a cell cut in the middle (#482) matches a plain filter only in
+ * the part it does not show: the table marks it, so the row shows why it is
+ * listed. `shown` is what the cell shows (with its "…"). A regex, or a
+ * filter that keeps what does not match, marks nothing.
+ */
+export function cutHit(
+  f: CompiledFilter,
+  full: string,
+  shown: string,
+): boolean {
+  if (f.kind !== "text" || f.negate) return false;
+  const fold = (s: string) => (f.matchCase ? s : s.toLowerCase());
+  return fold(full).includes(f.needle) && !fold(shown).includes(f.needle);
 }

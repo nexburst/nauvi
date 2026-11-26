@@ -36,8 +36,8 @@
   import RowQuickActions, { type Quick } from "./RowQuickActions.svelte";
   import type { KeyedStore } from "../stores/keyed.svelte";
   import type { Sort } from "../view";
-  import { ListFilter } from "../stores/tableFilter.svelte";
-  import { rawHay } from "../tableFilter";
+  import { activeFilter, ListFilter } from "../stores/tableFilter.svelte";
+  import { cutHit, shownText } from "../tableFilter";
   import { sortOf, withSort } from "../settings";
   import { kindSettings, settings, updateKind, updateSettings } from "../stores/settings.svelte";
   import { registerTableExport } from "../stores/tableExport.svelte";
@@ -179,10 +179,14 @@
   // Re-evaluated when the rows, the filter, the sort, or (only when sorting by
   // a metric / age column) the metrics or clock change.
   // The toolbar filter (#219): text, match case or a regex in the worker.
-  const filter = new ListFilter(() => store.entries, {
+  // It matches what the rows show (#512): name, namespace and the cells of
+  // the shown columns; a regex runs again when the columns change.
+  const cellIndexes = $derived(columns.map((c) => kind.columns.findIndex((d) => d.key === c.key)).filter((i) => i >= 0));
+  const hay = $derived(shownText(cellIndexes));
+  const filter = new ListFilter(() => (void hay, store.entries), {
     key: (e) => e.key,
-    lower: (e) => e.hay,
-    text: (e) => rawHay(e.row),
+    lower: (e) => hay.lower(e.row),
+    text: (e) => hay.raw(e.row),
   });
   // The clock is read untracked there: an age tick redraws the Age cells only.
   const rows = visibleRows(
@@ -755,14 +759,18 @@
               {@const cls = col.cls?.(entry.row) ?? ""}
               {@const shown = col.draw ? { text, cut: false } : fit.shown(c, text)}
               {@const own = col.title?.(entry.row, settings.current.time_zone, { metrics, now })}
+              {@const hit = shown.cut && cutHit(activeFilter(), text, shown.text)}
               <!-- The whole value in the tooltip when the cell cuts it (#482). -->
               <div
                 class="td {cls}"
                 class:cut={shown.cut}
+                class:hit
                 role="gridcell"
                 aria-label={shown.text !== text ? text : undefined}
                 title={shown.cut
-                  ? text
+                  ? hit
+                    ? `${text} (matches the filter)`
+                    : text
                   : spark && spark.length > 1
                     ? `${own || text}, trend since ${clockTime(metrics.since)}`
                     : own || undefined}
@@ -1051,6 +1059,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* A cut cell that matches the filter only in the part it hides (#512):
+     the row shows why it is listed; the tooltip has the whole value. */
+  .td.hit {
+    background: var(--accent-soft);
+    box-shadow: inset 0 -2px 0 var(--accent);
   }
   /* One quiet line under the rows: the keys for the focused row. */
   .keys {
