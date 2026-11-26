@@ -268,10 +268,14 @@ pub(crate) async fn cmd_log_ack(
 /// Report how a log stream ended.
 fn end_stream(out: &LogChannel, result: anyhow::Result<()>) {
     if let Err(e) = result {
-        let message = format!(
-            "Log stream ended with an error: {}",
-            nauvi::errors::error_text(&e)
-        );
+        // A log that is not there (#493) is said in plain words, as is.
+        let message = match e.downcast_ref::<nauvi::LogUnavailable>() {
+            Some(gone) => gone.to_string(),
+            None => format!(
+                "Log stream ended with an error: {}",
+                nauvi::errors::error_text(&e)
+            ),
+        };
         send(out, LogFrame::Event(LogEvent::Error { message }));
     }
     send(out, LogFrame::Event(LogEvent::Done));

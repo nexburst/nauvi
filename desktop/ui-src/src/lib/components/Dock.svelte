@@ -5,13 +5,11 @@
   import { clampHeight, labelClusters } from "../dock";
   import { currentContextName } from "../stores/app.svelte";
   import { contextLabel } from "../stores/catalog.svelte";
-  import { activateDockTab, closeDockTab, dock, toggleDock, toggleMaximized } from "../stores/dock.svelte";
+  import { activateDockTab, closeDockTab, dock, KEEP_ABOVE, toggleDock, toggleMaximized } from "../stores/dock.svelte";
   import { setDockHeight } from "../stores/settings.svelte";
   import { openLocalShell } from "../stores/localShell";
   import { isMacPlatform, shortcutHint } from "../keys";
 
-  /** Room kept for the header and the tables above a resized dock. */
-  const KEEP_ABOVE = 160;
   const NEW_SHELL_SHORTCUT = shortcutHint("newLocalShell", isMacPlatform());
   const SHORTCUT = shortcutHint("toggleDock", isMacPlatform());
 

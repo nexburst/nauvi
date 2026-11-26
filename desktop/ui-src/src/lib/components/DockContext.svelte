@@ -1,5 +1,6 @@
 <script lang="ts">
   import ClusterLabel from "./ClusterLabel.svelte";
+  import { contextText } from "../dockContext";
   import type { ContextLink, ContextPart } from "../dockContext";
   import { app, currentContextName, kinds, openObject, setNamespaces } from "../stores/app.svelte";
   import { contextLabel } from "../stores/catalog.svelte";
@@ -29,7 +30,7 @@
 </script>
 
 <div class="context" data-testid="dock-context">
-  <span class="text"
+  <span class="text" title={contextText(parts)}
     >{#each parts as p, i (i)}{#if p.link}{@const l = p.link}<button
           type="button"
           class="link"
@@ -37,7 +38,10 @@
           disabled={elsewhere || !kindOf(l)}
           title={why(l)}
           onclick={() => open(l)}>{p.text}</button
-        >{:else if p.code}<span class="code">{p.text}</span>{:else}{p.text}{/if}{/each}</span
+        >{:else if p.code}<span class="code">{p.text}</span>{:else if p.run}<span
+          class="run"
+          data-testid="log-run">{p.text}</span
+        >{:else}{p.text}{/if}{/each}</span
   >
   {#if elsewhere}
     <span class="on">on <ClusterLabel id={cluster} title={`Runs on ${contextLabel(cluster)}`} /></span>
@@ -58,6 +62,8 @@
   .text {
     min-width: 0;
     overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .on {
     display: inline-flex;
@@ -70,6 +76,11 @@
   .code {
     font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
     color: var(--text);
+  }
+  /* Which run of the container the log shows (#493). */
+  .run {
+    color: var(--text);
+    font-weight: 600;
   }
   .link {
     background: none;

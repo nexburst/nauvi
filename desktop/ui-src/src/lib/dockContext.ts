@@ -20,6 +20,8 @@ export interface ContextPart {
   link?: ContextLink;
   /** Shown in a monospace face (names, containers, images). */
   code?: boolean;
+  /** Which run of the container a log tab shows (#493): stands out a little. */
+  run?: boolean;
 }
 
 /** What the log options are set to (unused by shells). */
@@ -28,6 +30,8 @@ export interface LogOptions {
   container?: string;
   /** The "since" option: "all", or seconds. */
   since?: string;
+  /** Which run of the container is shown (#493, `logRun.ts`); empty: say nothing. */
+  run?: string;
 }
 
 /** The "since" option in words, as the log picker shows it. */
@@ -76,6 +80,7 @@ export function dockContext(spec: DockTabSpec, opts: LogOptions & { shellContain
         text(" in namespace "),
         ns(spec.pod.namespace),
         ...containerParts(opts.container, "all containers"),
+        ...(opts.run ? [text(", "), { text: opts.run, run: true }] : []),
         text(`, from ${sinceLabel(opts.since)}`),
       ];
     case "workloadLogs": {
