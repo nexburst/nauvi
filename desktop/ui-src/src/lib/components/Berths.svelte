@@ -81,7 +81,7 @@
       type="button"
       class="tool"
       class:on={chart.open}
-      aria-label="Chart of kinds"
+      aria-label="All kinds"
       aria-expanded={chart.open}
       title="Every kind of this cluster (G)"
       data-testid="chart-toggle"
