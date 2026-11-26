@@ -11,12 +11,16 @@
 </script>
 
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onDestroy, onMount, untrack } from "svelte";
   import CodeEditor from "./editor/CodeEditor.svelte";
   import DiffView from "./editor/DiffView.svelte";
+  import YamlStatusBar from "./editor/YamlStatusBar.svelte";
   import { api, visibleCluster } from "../cluster";
   import { rawText } from "../rawIpc";
-  import type { FieldTakeover } from "../bindings";
+  import type { ApplyOutcome, FieldTakeover } from "../bindings";
+  import { currentContextName } from "../stores/app.svelte";
+  import { notify } from "../stores/notifications.svelte";
+  import { hhmmss } from "../timeZone";
   import type { Target } from "../stores/detail.svelte";
   import { confirmDiscard, markSaved, markUnsaved } from "../stores/unsaved.svelte";
   import { errorLine, resourceVersionOf } from "../yamlEdit";
@@ -48,8 +52,17 @@
   /** Reviewing the diff before saving. */
   let reviewing = $state(false);
   let layout = $state<DiffLayout>("unified");
-  /** Set when the object changed on the server since it was loaded. */
-  let conflict = $state(false);
+  /** Set when a save stopped because the object changed on the server:
+   *  the fields both sides changed (empty if not known). */
+  let conflict = $state.raw<string[] | null>(null);
+  /** The fields the server changed that the edit was re-applied on top
+   *  of, while reviewing that (#495). */
+  let rebased = $state.raw<string[]>([]);
+  /** Reviewing the edit against a latest version that changed the same
+   *  fields: saving replaces those changes. */
+  let overwrite = $state(false);
+  /** When the last save went through, until the next edit. */
+  let savedAt = $state("");
   /** Fields the save would take over (review), or took over (after it). */
   let pendingTakeovers = $state.raw<FieldTakeover[]>([]);
   let takeovers = $state.raw<FieldTakeover[]>([]);
@@ -61,19 +74,24 @@
     if (dirty) markUnsaved(id, discardEdits);
     else markSaved(id);
   });
+  // A new edit: the last save's notice is old news.
+  $effect(() => {
+    if (dirty) untrack(() => (savedAt = ""));
+  });
 
   /** The user discarded the edits (here, or from the guard dialog). */
   function discardEdits() {
     drafts.delete(id);
     text = base;
     reviewing = false;
+    rebased = [];
   }
 
   function clearMessages() {
     status = "";
     error = "";
     errorAt = null;
-    conflict = false;
+    conflict = null;
     takeovers = [];
     pendingTakeovers = [];
   }
@@ -84,6 +102,9 @@
 
   async function load() {
     clearMessages();
+    savedAt = "";
+    rebased = [];
+    overwrite = false;
     reviewing = false;
     loaded = false;
     status = "Loading…";
@@ -113,27 +134,52 @@
     reviewing = false;
   }
 
-  function apply(dryRun: boolean) {
-    return api(visibleCluster()).cmdApplyResourceYaml(
-      target.resource,
-      target.namespace,
-      target.name,
-      text,
-      resourceVersion,
-      dryRun,
-    );
+  /** How often a review takes the server's newer version in a row. */
+  const REBASES = 3;
+
+  /**
+   * Apply (or test) the edit. The backend sends the YAML as it was loaded
+   * too: a newer version on the server that changed only its own fields
+   * (a rollout's status) is no conflict, and one that changed other fields
+   * comes back with the edit re-applied on it ("rebased", #495).
+   */
+  async function apply(dryRun: boolean): Promise<ApplyOutcome> {
+    for (let i = 0; ; i++) {
+      const res = await api(visibleCluster()).cmdApplyResourceYaml(
+        target.resource,
+        target.namespace,
+        target.name,
+        text,
+        resourceVersion,
+        base,
+        dryRun,
+      );
+      if (res.outcome !== "rebased" || i >= REBASES) return res;
+      // Review the edit on the latest version: the new base of the diff.
+      base = res.latest;
+      text = res.yaml;
+      resourceVersion = res.resource_version;
+      rebased = res.changed;
+      // Nothing was saved: a save goes back to the review.
+      if (!dryRun) return res;
+    }
   }
 
   /** Validate with a server dry run, then show the diff. */
   async function review() {
     clearMessages();
+    savedAt = "";
     busy = true;
-    status = "Validating…";
+    status = "Checking with the server…";
     try {
       const res = await apply(true);
       status = "";
       if (res.outcome === "conflict") {
-        conflict = true;
+        conflict = res.fields;
+        return;
+      }
+      if (res.outcome === "rebased") {
+        conflict = [];
         return;
       }
       pendingTakeovers = res.takeovers;
@@ -154,14 +200,25 @@
       if (res.outcome === "conflict") {
         status = "";
         reviewing = false;
-        conflict = true;
+        conflict = res.fields;
+        return;
+      }
+      if (res.outcome === "rebased") {
+        // Changed again since the review: review the new version.
+        busy = false;
+        await review();
         return;
       }
       // Reload so the editor shows what the server now holds.
       await load();
       drafts.delete(id);
       takeovers = res.takeovers;
-      status = "Saved.";
+      savedAt = hhmmss(Date.now());
+      notify("success", `Saved the YAML of ${target.resource.kind} ${target.name}.`, currentContextName(), {
+        resource: target.resource,
+        namespace: target.namespace,
+        name: target.name,
+      });
     } catch (e) {
       status = "";
       showError("Could not save YAML: ", e);
@@ -177,6 +234,8 @@
       const latest = await fetchYaml();
       base = latest;
       resourceVersion = resourceVersionOf(latest);
+      rebased = [];
+      overwrite = true;
     } catch (e) {
       busy = false;
       status = "Could not load YAML: " + e;
@@ -223,26 +282,29 @@
     {/if}
     <button type="button" class="btn" disabled={busy} onclick={() => reloadAsking(revealed)}>Reload</button>
     <button type="button" class="btn primary" data-testid="yaml-review" onclick={review} disabled={locked || !dirty || busy}
-      >Review</button
+      >Review & save…</button
     >
   {/if}
 </div>
 
-{#if conflict}
-  <div class="banner conflict" role="alert">
-    This object changed on the server since you loaded it.
-    <div class="banner-actions">
-      <button type="button" class="btn" disabled={busy} onclick={load}>Reload (lose my edits)</button>
-      <button type="button" class="btn" disabled={busy} onclick={diffLatest}>Diff against the latest</button>
-    </div>
-  </div>
-{/if}
-{#if error}
-  <div class="banner error" role="alert">
-    {error}
-    {#if errorAt !== null}<span class="muted"> (line {errorAt})</span>{/if}
-  </div>
-{/if}
+<YamlStatusBar
+  progress={status}
+  hint={locked ? "Values are hidden. Reveal them to edit this Secret." : ""}
+  {savedAt}
+  {reviewing}
+  {rebased}
+  {overwrite}
+  {pendingTakeovers}
+  {takeovers}
+  {conflict}
+  {error}
+  {errorAt}
+>
+  {#snippet conflictActions()}
+    <button type="button" class="btn" disabled={busy} onclick={load}>Reload (lose my edits)</button>
+    <button type="button" class="btn" disabled={busy} onclick={diffLatest}>Compare with the latest</button>
+  {/snippet}
+</YamlStatusBar>
 
 <div class="pane">
   {#if reviewing}
@@ -265,39 +327,6 @@
     />
   {/if}
 </div>
-
-<p class="detail-status muted" data-testid="yaml-status" aria-live="polite">
-  {#if reviewing}
-    Server-side validation passed. Review the changes, then save.
-  {:else}
-    {status}{#if locked && !status}Values are hidden. Reveal them to edit this Secret.{/if}
-  {/if}
-</p>
-{#if reviewing && pendingTakeovers.length > 0}
-  <div class="takeover" role="note">
-    Saving will take over fields another tool is managing. That tool may change them back the next time it
-    runs.
-    {@render fieldList(pendingTakeovers)}
-  </div>
-{/if}
-{#if takeovers.length > 0}
-  <div class="takeover" role="note">
-    This save took over fields another tool was managing. That tool may change them back the next time it
-    runs.
-    {@render fieldList(takeovers)}
-  </div>
-{/if}
-
-{#snippet fieldList(list: FieldTakeover[])}
-  <ul>
-    {#each list as t (t.manager)}
-      <li>
-        from <strong>{t.manager}</strong>:
-        {#each t.fields as f, i (f)}<code>{f}</code>{i < t.fields.length - 1 ? ", " : ""}{/each}
-      </li>
-    {/each}
-  </ul>
-{/snippet}
 
 <style>
   /* The tab already says YAML: this row is for the unsaved mark and the
@@ -340,40 +369,6 @@
     padding: 10px 16px;
     margin: 0;
     font-size: 12px;
-  }
-  .banner {
-    margin: 0 16px 8px;
-    padding: 8px 10px;
-    border-radius: 4px;
-    font-size: 12px;
-    word-break: break-word;
-  }
-  .banner.conflict {
-    border: 1px solid var(--amber);
-  }
-  .banner.error {
-    border: 1px solid var(--red);
-    color: var(--error-text);
-  }
-  .banner-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 6px;
-  }
-  .takeover {
-    margin: 0 16px 12px;
-    padding: 8px 10px;
-    border: 1px solid var(--amber);
-    border-radius: 4px;
-    font-size: 12px;
-  }
-  .takeover ul {
-    margin: 6px 0 0;
-    padding-left: 18px;
-  }
-  .takeover code {
-    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-    word-break: break-all;
   }
   .btn:disabled {
     opacity: 0.4;

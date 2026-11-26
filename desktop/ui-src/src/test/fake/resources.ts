@@ -138,12 +138,28 @@ export function resourcesHandlers(s: FakeState) {
       // Raw UTF-8, like the backend (#115).
       return new TextEncoder().encode(withResourceVersion(yaml, cluster.resourceVersions[key] ?? 1)).buffer;
     },
-    cmdApplyResourceYaml: (resource, namespace, name, yaml, resourceVersion, dryRun) => {
+    cmdApplyResourceYaml: (resource, namespace, name, yaml, resourceVersion, base, dryRun) => {
       const { kind, row } = findRow(s, resource, namespace, name);
       const key = `${kind.id}|${row.key}`;
       const current = String(cluster.resourceVersions[key] ?? 1);
       if (resourceVersion && resourceVersion !== current) {
-        return { outcome: "conflict", resource_version: current };
+        // Like the backend: with the loaded YAML, a newer version is merged
+        // with the edit (#495).
+        const write = base ? cluster.serverWrites[key] : undefined;
+        if (!write) return { outcome: "conflict", resource_version: current, fields: [] };
+        if (typeof write === "object" && "conflict" in write) {
+          return { outcome: "conflict", resource_version: current, fields: write.conflict };
+        }
+        if (typeof write === "object") {
+          const latest = withResourceVersion(cluster.yaml[key] || defaultYaml(kind, row), Number(current));
+          return {
+            outcome: "rebased",
+            yaml: withResourceVersion(yaml, Number(current)),
+            latest,
+            resource_version: current,
+            changed: write.changed,
+          };
+        }
       }
       // A dry run reports what the save would take over, without using it up.
       if (dryRun) return { outcome: "applied", takeovers: cluster.nextTakeovers };
@@ -166,7 +182,7 @@ export function resourcesHandlers(s: FakeState) {
       const key = `${kind.id}|${row.key}`;
       const current = String(cluster.resourceVersions[key] ?? 1);
       if (resourceVersion && resourceVersion !== current) {
-        return { outcome: "conflict", resource_version: current };
+        return { outcome: "conflict", resource_version: current, fields: [] };
       }
       const d = (cluster.data[key] ??= { immutable: false, entries: {} });
       for (const c of changes) {
