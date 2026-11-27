@@ -1,6 +1,7 @@
 //! The settings of image security (#534, ADR 0011): off by default, for
 //! the app and per context.
 
+use nauvi::image_security::ignore::{self, IgnoreRule};
 use nauvi::image_security::local::ScannerKind;
 use nauvi::image_security::Severity;
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,14 @@ pub(crate) struct ImageSecuritySettings {
     pub(crate) skip_db_update: bool,
     /// A Trivy server (`--server`), empty to scan on this computer.
     pub(crate) server_url: String,
+    /// A `.trivyignore` whose ids are ignored everywhere (#537), empty for
+    /// none.
+    pub(crate) ignore_file: String,
+    /// nauvi's own ignores (#537): each with a scope and a reason.
+    pub(crate) ignores: Vec<IgnoreRule>,
+    /// Download CISA's catalogue of known exploited vulnerabilities
+    /// (#537). Off: nothing is downloaded.
+    pub(crate) kev_download: bool,
 }
 
 /// Where vulnerabilities come from (#536).
@@ -74,6 +83,9 @@ impl Default for ImageSecuritySettings {
             db_repository: String::new(),
             skip_db_update: false,
             server_url: String::new(),
+            ignore_file: String::new(),
+            ignores: Vec::new(),
+            kev_download: false,
         }
     }
 }
@@ -95,6 +107,10 @@ impl ImageSecuritySettings {
         self.excluded_namespaces = seen;
         self.db_repository = self.db_repository.trim().to_string();
         self.server_url = self.server_url.trim().to_string();
+        self.ignore_file = self.ignore_file.trim().to_string();
+        // Only nauvi's own: the file's are read from the file.
+        let own = self.ignores.into_iter().filter(|r| !r.from_file).collect();
+        self.ignores = ignore::normalized(own);
         self
     }
 }
@@ -179,7 +195,27 @@ mod tests {
         assert_eq!(i.min_severity, Severity::Critical);
         assert_eq!(i.excluded_namespaces, ["kube-system", "istio"]);
         assert_eq!(i.cache_ttl_hours, 1);
+        assert!(!i.kev_download, "off by default");
         let json = serde_json::to_value(&s).unwrap();
         assert_eq!(json["image_security"]["min_severity"], "critical");
+    }
+
+    /// #537: an ignore without a reason (or from the file) is not kept.
+    #[test]
+    fn ignores_need_a_reason() {
+        let mut s = Settings::default();
+        let patch: SettingsPatch = serde_json::from_str(
+            r#"{"image_security":{"ignore_file":" /tmp/.trivyignore ","kev_download":true,"ignores":[
+                {"id":"CVE-2026-1","scope":"image","image":"nginx:1.27","reason":"not used"},
+                {"id":"CVE-2026-2","scope":"image","image":"nginx:1.27","reason":" "},
+                {"id":"CVE-2026-3","scope":"everywhere","reason":"x","from_file":true}]}}"#,
+        )
+        .unwrap();
+        s.apply(patch);
+        let i = &s.image_security;
+        assert_eq!(i.ignore_file, "/tmp/.trivyignore");
+        assert!(i.kev_download);
+        assert_eq!(i.ignores.len(), 1);
+        assert_eq!(i.ignores[0].id, "CVE-2026-1");
     }
 }

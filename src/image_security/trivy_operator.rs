@@ -6,6 +6,7 @@
 //! it is parsed), so a namespace of large reports never sits in memory. One
 //! full report is read only when it is shown.
 
+use super::triage::Mark;
 use super::{Severity, SeverityCounts, Vulnerability, Workload};
 use crate::resources::{can_list, ResourceKind};
 use kube::api::ListParams;
@@ -143,6 +144,8 @@ struct Summary {
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct LiteVuln {
+    #[serde(rename = "vulnerabilityID")]
+    vulnerability_id: String,
     severity: String,
     fixed_version: String,
 }
@@ -246,6 +249,9 @@ pub struct ReportSummary {
     pub scanned_at: i64,
     pub counts: SeverityCounts,
     pub fixable: SeverityCounts,
+    /// The vulnerabilities the listing's triage wants (#537): ignored or
+    /// known exploited ones, nothing else.
+    pub marks: Vec<Mark>,
 }
 
 /// One full report.
@@ -322,6 +328,7 @@ fn summarize<V>(raw: &Raw<V>, fixable: SeverityCounts) -> ReportSummary {
             unknown: s.unknown_count,
         },
         fixable,
+        marks: Vec::new(),
     }
 }
 
@@ -346,14 +353,29 @@ pub fn safe_link(s: &str) -> String {
     }
 }
 
-fn lite_summary(raw: Raw<LiteVuln>) -> ReportSummary {
+/// A report as a listing keeps it: counts, and the vulnerabilities
+/// `wants` names (#537).
+fn lite_summary(raw: Raw<LiteVuln>, wants: &dyn Fn(&str) -> bool) -> ReportSummary {
     let mut fixable = SeverityCounts::default();
+    let mut marks = Vec::new();
     for v in &raw.report.vulnerabilities {
-        if !clean(&v.fixed_version).is_empty() {
+        let has_fix = !clean(&v.fixed_version).is_empty();
+        if has_fix {
             fixable.add(Severity::parse(&v.severity));
         }
+        let id = v.vulnerability_id.trim();
+        if !id.is_empty() && wants(id) {
+            marks.push(Mark {
+                id: clean(id),
+                severity: Severity::parse(&v.severity),
+                fixable: has_fix,
+                kev: false,
+            });
+        }
     }
-    summarize(&raw, fixable)
+    let mut out = summarize(&raw, fixable);
+    out.marks = marks;
+    out
 }
 
 fn full_report(raw: Raw<FullVuln>) -> FullReport {
@@ -370,6 +392,7 @@ fn full_report(raw: Raw<FullVuln>) -> FullReport {
             score: v.score.filter(|s| s.is_finite()).unwrap_or(0.0),
             title: clean(&v.title),
             link: safe_link(&v.primary_link),
+            exploit: Default::default(),
         })
         .collect();
     let mut fixable = SeverityCounts::default();
@@ -388,9 +411,22 @@ fn full_report(raw: Raw<FullVuln>) -> FullReport {
 /// Parse a `VulnerabilityReportList` (a listing's page) into summaries and
 /// its continue token.
 pub fn parse_list(json: &[u8]) -> serde_json::Result<(Vec<ReportSummary>, String)> {
+    parse_list_marking(json, &|_| false)
+}
+
+/// [`parse_list`], keeping the vulnerabilities `wants` names (#537).
+pub fn parse_list_marking(
+    json: &[u8],
+    wants: &dyn Fn(&str) -> bool,
+) -> serde_json::Result<(Vec<ReportSummary>, String)> {
     let list: RawList<LiteVuln> = serde_json::from_slice(json)?;
     let token = list.metadata.continue_;
-    Ok((list.items.into_iter().map(lite_summary).collect(), token))
+    let reports = list
+        .items
+        .into_iter()
+        .map(|r| lite_summary(r, wants))
+        .collect();
+    Ok((reports, token))
 }
 
 /// Parse one full `VulnerabilityReport`.
@@ -429,6 +465,16 @@ pub async fn list_summaries(
     namespace: Option<&str>,
     cap: usize,
 ) -> kube::Result<Listed> {
+    list_summaries_marking(client, namespace, cap, &|_| false).await
+}
+
+/// [`list_summaries`], keeping the vulnerabilities `wants` names (#537).
+pub async fn list_summaries_marking(
+    client: &Client,
+    namespace: Option<&str>,
+    cap: usize,
+    wants: &(dyn Fn(&str) -> bool + Sync),
+) -> kube::Result<Listed> {
     let cap = cap.max(1);
     let path = url_path(namespace);
     let mut out = Listed::default();
@@ -449,7 +495,8 @@ pub async fn list_summaries(
             }
             Err(e) => return Err(e),
         };
-        out.reports.extend(list.items.into_iter().map(lite_summary));
+        out.reports
+            .extend(list.items.into_iter().map(|r| lite_summary(r, wants)));
         token = list.metadata.continue_;
         if token.is_empty() {
             break;

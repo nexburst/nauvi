@@ -4,7 +4,7 @@
 use super::local::ScannerVersion;
 use super::trivy_json::MAX_VULNS;
 use super::trivy_operator::safe_link;
-use super::{Severity, Vulnerability};
+use super::{Exploit, Severity, Vulnerability};
 use crate::text::single_line;
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -33,6 +33,17 @@ struct Vuln {
     urls: Option<Vec<String>>,
     cvss: Option<Vec<Cvss>>,
     fix: Fix,
+    /// CISA KEV entries for it (Grype 0.87 and later).
+    known_exploited: Option<Vec<serde::de::IgnoredAny>>,
+    epss: Option<Vec<Epss>>,
+    risk: Option<f64>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Epss {
+    epss: Option<f64>,
+    percentile: Option<f64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -65,6 +76,29 @@ fn severity(s: &str) -> Severity {
     match s.trim().to_ascii_lowercase().as_str() {
         "negligible" => Severity::Low,
         other => Severity::parse(other),
+    }
+}
+
+fn unit(p: Option<f64>) -> Option<f64> {
+    p.filter(|p| p.is_finite() && (0.0..=1.0).contains(p))
+}
+
+/// KEV, EPSS and risk of a match (#537): from its vulnerability, else from
+/// the related ones (a GHSA's CVE).
+fn exploit_of(v: &Vuln, related: &[Vuln]) -> Exploit {
+    let all = || std::iter::once(v).chain(related.iter());
+    let kev = all().any(|x| x.known_exploited.as_ref().is_some_and(|k| !k.is_empty()));
+    let epss = all()
+        .flat_map(|x| x.epss.iter().flatten())
+        .filter_map(|e| unit(e.epss).map(|p| (p, unit(e.percentile))))
+        .max_by(|a, b| a.0.total_cmp(&b.0));
+    Exploit {
+        kev,
+        epss: epss.map(|e| e.0),
+        epss_percentile: epss.and_then(|e| e.1),
+        risk: all()
+            .filter_map(|x| x.risk)
+            .find(|r| r.is_finite() && *r >= 0.0),
     }
 }
 
@@ -125,6 +159,7 @@ pub fn parse_scan(json: &[u8]) -> serde_json::Result<Vec<Vulnerability>> {
                 .unwrap_or(0.0),
             title: single_line(description).chars().take(300).collect(),
             link,
+            exploit: exploit_of(v, related),
         });
         if out.len() >= MAX_VULNS {
             break;
@@ -195,6 +230,14 @@ mod tests {
         let low = v.iter().find(|x| x.id == "CVE-2026-1004").unwrap();
         assert_eq!(low.severity, Severity::Low, "negligible");
         assert_eq!(low.link, "");
+        // #537: EPSS and risk where Grype gives them; KEV from a related CVE.
+        assert_eq!(ssl.exploit.epss, Some(0.5));
+        assert_eq!(ssl.exploit.epss_percentile, Some(0.9));
+        assert_eq!(ssl.exploit.risk, Some(42.1));
+        assert!(!ssl.exploit.kev);
+        assert!(curl.exploit.kev);
+        assert_eq!(curl.exploit.epss, None);
+        assert_eq!(low.exploit, Exploit::default());
     }
 
     #[test]

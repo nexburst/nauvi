@@ -92,6 +92,7 @@ pub fn parse_scan(json: &[u8]) -> serde_json::Result<Vec<Vulnerability>> {
             score: score(&v.cvss),
             title: single_line(&v.title).chars().take(300).collect(),
             link: safe_link(&v.primary_url),
+            exploit: Default::default(),
         });
         if out.len() >= MAX_VULNS {
             break;

@@ -13,6 +13,7 @@ use super::report::{
     sort_rows, MAX_PODS,
 };
 use super::{ImageDetail, ImageVulns, ScanSource, VulnsArgs, VulnsState, VulnsSummary};
+use super::triage::{Mark, Triage};
 use crate::bounded_list::list_bounded;
 use anyhow::{bail, Result};
 use k8s_openapi::api::core::v1::{Node, Pod};
@@ -131,12 +132,35 @@ pub fn apply_scan(row: &mut ImageVulns, scan: &CachedScan) {
 /// `summary` without a report, then the rows sorted again and
 /// `unscanned` counted again.
 pub fn overlay(summary: &mut VulnsSummary, lookup: impl Fn(&str) -> Option<CachedScan>) {
+    overlay_triaged(summary, lookup, &Triage::default());
+}
+
+/// The marks of a local scan for [`Triage::apply_row`]: all its
+/// vulnerabilities.
+pub fn marks_of(scan: &CachedScan) -> Vec<Mark> {
+    scan.vulnerabilities().iter().map(Mark::of).collect()
+}
+
+/// [`apply_scan`], then `triage`'s ignores and KEV (#537).
+pub fn apply_scan_triaged(row: &mut ImageVulns, scan: &CachedScan, triage: &Triage) {
+    apply_scan(row, scan);
+    if !triage.is_empty() {
+        triage.apply_row(row, &marks_of(scan));
+    }
+}
+
+/// [`overlay`] with `triage`'s ignores and KEV on the scans (#537).
+pub fn overlay_triaged(
+    summary: &mut VulnsSummary,
+    lookup: impl Fn(&str) -> Option<CachedScan>,
+    triage: &Triage,
+) {
     for row in &mut summary.images {
         if row.scanned || !row.running || row.digest.is_empty() {
             continue;
         }
         if let Some(scan) = lookup(&row.digest) {
-            apply_scan(row, &scan);
+            apply_scan_triaged(row, &scan, triage);
         }
     }
     sort_rows(&mut summary.images);
@@ -149,6 +173,22 @@ pub fn overlay(summary: &mut VulnsSummary, lookup: impl Fn(&str) -> Option<Cache
 
 /// `row` with the vulnerabilities and fixes of `scan` after `args`'
 /// filters.
+/// [`detail_of_scan`] with `triage`'s ignores and KEV (#537), on the row
+/// and the findings.
+pub fn triaged_detail_of_scan(
+    row: ImageVulns,
+    scan: &CachedScan,
+    args: &VulnsArgs,
+    triage: &Triage,
+) -> ImageDetail {
+    let mut d = detail_of_scan(row, scan, args);
+    if !triage.is_empty() {
+        triage.apply_row(&mut d.image, &marks_of(scan));
+        triage.apply_detail(&mut d);
+    }
+    d
+}
+
 pub fn detail_of_scan(mut row: ImageVulns, scan: &CachedScan, args: &VulnsArgs) -> ImageDetail {
     apply_scan(&mut row, scan);
     let vulnerabilities = filter_vulnerabilities(scan.vulnerabilities(), args);
@@ -157,6 +197,7 @@ pub fn detail_of_scan(mut row: ImageVulns, scan: &CachedScan, args: &VulnsArgs) 
         image: row,
         vulnerabilities,
         fix_groups,
+        ignored: Vec::new(),
     }
 }
 
@@ -244,6 +285,8 @@ mod tests {
             scanned,
             counts: SeverityCounts::default(),
             fixable: SeverityCounts::default(),
+            ignored: SeverityCounts::default(),
+            kev: 0,
             workloads: vec![Workload {
                 kind: "Deployment".into(),
                 namespace: "a".into(),
@@ -268,6 +311,7 @@ mod tests {
             score: 0.0,
             title: String::new(),
             link: String::new(),
+            exploit: Default::default(),
         };
         CachedScan::new(
             ScannerKind::Trivy,

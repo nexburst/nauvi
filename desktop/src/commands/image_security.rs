@@ -13,14 +13,16 @@
 //! and the kept local scans are put on the rows no report covers.
 
 use super::image_scan::{self, ScanDirs};
+use super::image_triage;
 use crate::settings::image_security::VulnSource;
 use crate::settings::SettingsStore;
 use crate::state::{Cluster, ClusterSession};
 use nauvi::image_security::cache::CachedScan;
 use nauvi::image_security::local::ScannerKind;
-use nauvi::image_security::running::{apply_scan, running_images};
+use nauvi::image_security::running::{apply_scan_triaged, running_images};
+use nauvi::image_security::triage::Triage;
 use nauvi::image_security::{
-    image_detail_of, image_vulns_in_namespaces, ImageDetail, ScanSource, VulnsArgs, VulnsState,
+    image_detail_of, image_vulns_triaged, ImageDetail, ScanSource, VulnsArgs, VulnsState,
     VulnsSummary,
 };
 use nauvi::resources;
@@ -43,6 +45,9 @@ pub(crate) struct VulnsCache {
     /// When it was read, unix seconds.
     read_at: i64,
     summary: VulnsSummary,
+    /// The ignores and KEV it applied (#537), and their key.
+    triage: Arc<Triage>,
+    triage_key: u64,
 }
 
 #[cfg(test)]
@@ -56,6 +61,8 @@ impl VulnsCache {
             at: Instant::now(),
             read_at: 0,
             summary: tests::empty_summary(),
+            triage: Arc::default(),
+            triage_key: Triage::default().key(),
         }
     }
 }
@@ -98,11 +105,15 @@ pub(crate) async fn listing(
     let namespaces = sorted(namespaces);
     let s = settings.get().image_security;
     let ttl = Duration::from_secs(u64::from(s.cache_ttl_hours) * 3600);
+    // Ignores and KEV (#537): a change to them reads the listing again.
+    let (triage, triage_notes) = triage_of(cluster, &s, dirs).await;
+    let triage_key = triage.key();
     if !refresh {
         if let Some(c) = cluster.image_security.lock().unwrap().as_ref() {
             if c.namespaces == namespaces
                 && c.source == s.source
                 && c.scanner == s.scanner
+                && c.triage_key == triage_key
                 && c.at.elapsed() < ttl
             {
                 return Ok(ImageSecurityList {
@@ -122,9 +133,15 @@ pub(crate) async fn listing(
         *cluster.kinds.lock().unwrap() = kinds.clone();
     }
     let mut summary = if s.source.uses_cluster() {
-        image_vulns_in_namespaces(&client, &kinds, &namespaces, &VulnsArgs::default())
-            .await
-            .map_err(|e| nauvi::error_text(&e))?
+        image_vulns_triaged(
+            &client,
+            &kinds,
+            &namespaces,
+            &VulnsArgs::default(),
+            &triage,
+        )
+        .await
+        .map_err(|e| nauvi::error_text(&e))?
     } else {
         empty_local()
     };
@@ -149,12 +166,13 @@ pub(crate) async fn listing(
                 .map_err(|e| nauvi::error_text(&e))?;
             summary.notes.extend(notes);
         }
-        image_scan::overlay(dirs, s.scanner, &mut summary);
+        image_scan::overlay(dirs, s.scanner, &mut summary, &triage);
         // Images the local scanner can scan: a list, not "not scanned yet".
         if summary.state == VulnsState::NoReports && !summary.images.is_empty() {
             summary.state = VulnsState::Ok;
         }
     }
+    summary.notes.extend(triage_notes);
     let read_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
@@ -167,6 +185,8 @@ pub(crate) async fn listing(
             at: Instant::now(),
             read_at,
             summary: summary.clone(),
+            triage: Arc::new(triage),
+            triage_key,
         });
     }
     Ok(ImageSecurityList { summary, read_at })
@@ -206,11 +226,12 @@ fn empty_local() -> VulnsSummary {
 /// shows it without reading the reports again.
 pub(crate) fn remember_scan(cluster: &ClusterSession, scan: &CachedScan) {
     if let Some(c) = cluster.image_security.lock().unwrap().as_mut() {
+        let triage = c.triage.clone();
         let s = &mut c.summary;
         for row in s.images.iter_mut().filter(|r| {
             r.digest == scan.digest && (!r.scanned || r.source == ScanSource::LocalScanner)
         }) {
-            apply_scan(row, scan);
+            apply_scan_triaged(row, scan, &triage);
         }
         nauvi::image_security::report::sort_rows(&mut s.images);
         s.unscanned = s.images.iter().filter(|r| !r.scanned).count() as u32;
@@ -242,14 +263,32 @@ pub(crate) async fn cmd_image_security_image(
         .ok_or_else(|| format!("{image} is no longer in the list; refresh it."))?;
     let s = settings.get().image_security;
     let args = image_scan::args_of(&s);
+    let (triage, _) = triage_of(&cluster, &s, dirs.as_ref()).await;
     if row.source == ScanSource::LocalScanner && row.scanned {
         let dirs = dirs.ok_or("cannot find the app's cache folder")?;
-        return image_scan::kept_detail(&dirs, s.scanner, row, &args);
+        return image_scan::kept_detail(&dirs, s.scanner, row, &args, &triage);
     }
     let client = cluster.client().await?;
-    image_detail_of(&client, row, &args)
+    let mut detail = image_detail_of(&client, row, &args)
         .await
-        .map_err(|e| nauvi::error_text(&e))
+        .map_err(|e| nauvi::error_text(&e))?;
+    triage.apply_detail(&mut detail);
+    Ok(detail)
+}
+
+/// The ignores and KEV for a listing of `cluster` (#537), the catalogue
+/// downloaded first when it is on and a day old; and the notes to show.
+pub(crate) async fn triage_of(
+    cluster: &ClusterSession,
+    s: &crate::settings::ImageSecuritySettings,
+    dirs: Option<&ScanDirs>,
+) -> (Triage, Vec<String>) {
+    let kev_dir = dirs.map(image_triage::kev_dir_of);
+    let note = image_triage::refresh_kev(s, kev_dir.as_deref()).await;
+    let context = cluster.context_id().unwrap_or_default();
+    let (triage, mut notes) = image_triage::triage_for(s, &context, kev_dir.as_deref());
+    notes.extend(note);
+    (triage, notes)
 }
 
 #[cfg(test)]
@@ -315,6 +354,8 @@ pub(crate) mod tests {
             at: Instant::now(),
             read_at: 7,
             summary: empty_summary(),
+            triage: Arc::default(),
+            triage_key: Triage::default().key(),
         });
         let got = listing(
             &cluster,

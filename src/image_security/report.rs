@@ -2,6 +2,7 @@
 //! and a report's fixes grouped by package.
 
 use super::images::{normalize, pod_images, short_reference, RunningImage};
+use super::triage::Triage;
 use super::trivy_operator::{self as trivy, Access, ReportSummary};
 use super::{
     FixGroup, ImageDetail, ImageVulns, ScanSource, Severity, SeverityCounts, Vulnerability,
@@ -42,6 +43,8 @@ fn empty_row(image: String, digest: String) -> ImageVulns {
         scanned: false,
         counts: SeverityCounts::default(),
         fixable: SeverityCounts::default(),
+        ignored: SeverityCounts::default(),
+        kev: 0,
         workloads: Vec::new(),
         report_namespace: String::new(),
         report_name: String::new(),
@@ -410,6 +413,7 @@ async fn read_scope(
     namespace: Option<&str>,
     budget: &mut Budget,
     notes: &mut Vec<String>,
+    triage: &Triage,
 ) -> Result<Read> {
     let mut out = Read::default();
     let place = namespace.map_or("all namespaces".to_string(), |n| n.to_string());
@@ -419,7 +423,8 @@ async fn read_scope(
         budget.mark_unread(namespace, None);
         return Ok(out);
     }
-    match trivy::list_summaries(client, namespace, budget.reports).await {
+    let wants = |id: &str| triage.wants(id);
+    match trivy::list_summaries_marking(client, namespace, budget.reports, &wants).await {
         Ok(listed) => {
             if listed.more {
                 let last = listed.reports.iter().map(|r| r.namespace.clone()).max();
@@ -479,7 +484,7 @@ pub async fn image_vulns(client: &Client, args: &VulnsArgs) -> Result<VulnsSumma
     let served = trivy::served(client)
         .await
         .map_err(|e| api_error("the API groups", e))?;
-    read_vulns(client, args, served, None).await
+    read_vulns(client, args, served, None, &Triage::default()).await
 }
 
 /// [`image_vulns`] for a caller that has the discovered kinds (the app):
@@ -490,7 +495,7 @@ pub async fn image_vulns_in(
     args: &VulnsArgs,
 ) -> Result<VulnsSummary> {
     check_args(args)?;
-    read_vulns(client, args, trivy::served_in(kinds), None).await
+    read_vulns(client, args, trivy::served_in(kinds), None, &Triage::default()).await
 }
 
 /// [`image_vulns_in`] for the namespaces the app's picker selected (none:
@@ -503,6 +508,19 @@ pub async fn image_vulns_in_namespaces(
     kinds: &[ResourceKind],
     namespaces: &[String],
     args: &VulnsArgs,
+) -> Result<VulnsSummary> {
+    image_vulns_triaged(client, kinds, namespaces, args, &Triage::default()).await
+}
+
+/// [`image_vulns_in_namespaces`] with ignores and KEV applied (#537): the
+/// ignored vulnerabilities leave the counts (into `ignored`), the known
+/// exploited ones are counted in `kev`.
+pub async fn image_vulns_triaged(
+    client: &Client,
+    kinds: &[ResourceKind],
+    namespaces: &[String],
+    args: &VulnsArgs,
+    triage: &Triage,
 ) -> Result<VulnsSummary> {
     let mut list: Vec<String> = Vec::new();
     for ns in namespaces.iter().filter(|n| !n.is_empty()) {
@@ -519,7 +537,7 @@ pub async fn image_vulns_in_namespaces(
         ..args.clone()
     };
     let several = (list.len() > 1).then_some(list.as_slice());
-    let mut out = read_vulns(client, &args, trivy::served_in(kinds), several).await?;
+    let mut out = read_vulns(client, &args, trivy::served_in(kinds), several, triage).await?;
     // Not allowed here: say whether all namespaces would be (one review,
     // only in this case), so the app offers that only when it helps.
     if out.state == VulnsState::Forbidden && !list.is_empty() {
@@ -585,6 +603,7 @@ async fn read_vulns(
     args: &VulnsArgs,
     served: bool,
     several: Option<&[String]>,
+    triage: &Triage,
 ) -> Result<VulnsSummary> {
     let namespace = args.namespace.as_deref().filter(|n| !n.is_empty());
     if !served {
@@ -598,7 +617,14 @@ async fn read_vulns(
     let mut forbidden = Vec::new();
     let mut budget = Budget::new();
     for scope in &scopes {
-        let read = read_scope(client, scope.as_deref(), &mut budget, &mut out.notes).await?;
+        let read = read_scope(
+            client,
+            scope.as_deref(),
+            &mut budget,
+            &mut out.notes,
+            triage,
+        )
+        .await?;
         if read.forbidden {
             forbidden.push(scope.clone().unwrap_or_default());
         }
@@ -614,6 +640,7 @@ async fn read_vulns(
     }
     let running = pod_images(&pods);
     let mut rows = aggregate(&running, &reports);
+    apply_triage(&mut rows, &reports, triage);
     let left_out = drop_unread(&mut rows, &budget.unread);
     budget.notes(left_out, &mut out.notes);
     out.unscanned = rows.iter().filter(|r| !r.scanned).count() as u32;
@@ -622,6 +649,25 @@ async fn read_vulns(
     }
     out.images = filter(rows, args);
     Ok(out)
+}
+
+/// Ignores and KEV (#537) on each scanned row, from the marks of the
+/// report that gave its counts; then the rows sorted again.
+fn apply_triage(rows: &mut [ImageVulns], reports: &[ReportSummary], triage: &Triage) {
+    if triage.is_empty() {
+        return;
+    }
+    let by_name: HashMap<(&str, &str), &ReportSummary> = reports
+        .iter()
+        .map(|r| ((r.namespace.as_str(), r.name.as_str()), r))
+        .collect();
+    for row in rows.iter_mut().filter(|r| r.scanned) {
+        let key = (row.report_namespace.as_str(), row.report_name.as_str());
+        if let Some(r) = by_name.get(&key) {
+            triage.apply_row(row, &r.marks);
+        }
+    }
+    sort_rows(rows);
 }
 
 /// Drop the running images without a report that run in a namespace whose
@@ -702,6 +748,7 @@ pub async fn image_detail_of(
             image: row,
             vulnerabilities: Vec::new(),
             fix_groups: Vec::new(),
+            ignored: Vec::new(),
         });
     }
     check_namespace(&row.report_namespace)?;
@@ -715,6 +762,7 @@ pub async fn image_detail_of(
         image: row,
         vulnerabilities,
         fix_groups,
+        ignored: Vec::new(),
     })
 }
 
@@ -762,6 +810,48 @@ pub(crate) mod tests {
         let pods: Vec<Pod> = serde_json::from_value(v["items"].clone()).unwrap();
         let (reports, _) = parse_list(include_bytes!("testdata/reports.json")).unwrap();
         aggregate(&pod_images(&pods), &reports)
+    }
+
+    /// #537: an ignored critical leaves the counts (into `ignored`), a KEV
+    /// one is counted, and only the wanted ids are kept from the listing.
+    #[test]
+    fn a_listing_applies_ignores_and_kev() {
+        use crate::image_security::ignore::{IgnoreRule, IgnoreScope};
+        use crate::image_security::trivy_operator::parse_list_marking;
+        let triage = Triage {
+            rules: vec![IgnoreRule {
+                id: "CVE-2026-0001".into(),
+                scope: IgnoreScope::Image,
+                image: "nginx:1.26".into(),
+                reason: "not reachable".into(),
+                ..Default::default()
+            }],
+            kev: ["CVE-2026-0002".to_string()].into(),
+            context: "kind".into(),
+            now: 1,
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(include_str!("testdata/pods.json")).unwrap();
+        let pods: Vec<Pod> = serde_json::from_value(v["items"].clone()).unwrap();
+        let wants = |id: &str| triage.wants(id);
+        let (reports, _) =
+            parse_list_marking(include_bytes!("testdata/reports.json"), &wants).unwrap();
+        let web = reports
+            .iter()
+            .find(|r| r.name == "replicaset-web-5f6b7c-nginx")
+            .unwrap();
+        let ids: Vec<_> = web.marks.iter().map(|m| m.id.as_str()).collect();
+        assert_eq!(ids, ["CVE-2026-0001", "CVE-2026-0002"]);
+        let mut rows = aggregate(&pod_images(&pods), &reports);
+        let before = rows[0].clone();
+        apply_triage(&mut rows, &reports, &triage);
+        let nginx = rows.iter().find(|r| r.image == "nginx:1.27").unwrap();
+        assert_eq!(nginx.counts.critical, before.counts.critical - 1);
+        assert_eq!(nginx.ignored.critical, 1);
+        assert_eq!(nginx.fixable.critical, before.fixable.critical - 1);
+        assert_eq!(nginx.kev, 1);
+        let redis = rows.iter().find(|r| r.image == "redis:7").unwrap();
+        assert_eq!(redis.ignored.total(), 0);
     }
 
     fn w(kind: &str, name: &str, container: &str) -> Workload {
@@ -820,6 +910,7 @@ pub(crate) mod tests {
                 ..Default::default()
             },
             fixable: SeverityCounts::default(),
+            marks: Vec::new(),
         }
     }
 

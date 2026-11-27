@@ -9,7 +9,7 @@
 
 use super::local::{is_digest, ScannerKind};
 use super::trivy_operator::safe_link;
-use super::{Severity, SeverityCounts, Vulnerability};
+use super::{Exploit, Severity, SeverityCounts, Vulnerability};
 use crate::text::single_line;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -30,6 +30,10 @@ pub struct CachedVuln {
     pub score: f64,
     pub title: String,
     pub link: String,
+    /// KEV, EPSS and risk as the scanner gave them (#537); none in a scan
+    /// kept before.
+    #[serde(default)]
+    pub exploit: Exploit,
 }
 
 /// One scan of one image digest.
@@ -80,6 +84,7 @@ impl CachedScan {
                     score: v.score,
                     title: v.title.clone(),
                     link: v.link.clone(),
+                    exploit: v.exploit.clone(),
                 })
                 .collect(),
         }
@@ -99,6 +104,15 @@ impl CachedScan {
                 score: if v.score.is_finite() { v.score } else { 0.0 },
                 title: single_line(&v.title),
                 link: safe_link(&v.link),
+                exploit: Exploit {
+                    kev: v.exploit.kev,
+                    epss: v.exploit.epss.filter(|p| p.is_finite() && (0.0..=1.0).contains(p)),
+                    epss_percentile: v
+                        .exploit
+                        .epss_percentile
+                        .filter(|p| p.is_finite() && (0.0..=1.0).contains(p)),
+                    risk: v.exploit.risk.filter(|r| r.is_finite() && *r >= 0.0),
+                },
             })
             .collect()
     }
@@ -248,7 +262,31 @@ mod tests {
             score: 7.0,
             title: "t".into(),
             link: "https://example.com".into(),
+            exploit: Exploit::default(),
         }
+    }
+
+    /// #537: KEV and EPSS are kept; a scan kept before has none, and a
+    /// value out of range from an edited file is dropped.
+    #[test]
+    fn exploit_signals_are_kept_and_checked() {
+        let mut v = vuln("CVE-1", Severity::High, "");
+        v.exploit = Exploit {
+            kev: true,
+            epss: Some(0.4),
+            epss_percentile: Some(0.97),
+            risk: Some(30.0),
+        };
+        let scan = CachedScan::new(ScannerKind::Grype, "0.87.0", "db", "", &digest('e'), "r", 1, &[v]);
+        let back: CachedScan = serde_json::from_slice(&serde_json::to_vec(&scan).unwrap()).unwrap();
+        assert_eq!(back.vulnerabilities()[0].exploit, scan.vulnerabilities[0].exploit);
+        let mut json = serde_json::to_value(&scan).unwrap();
+        json["vulnerabilities"][0]["exploit"]["epss"] = serde_json::json!(7.0);
+        let edited: CachedScan = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(edited.vulnerabilities()[0].exploit.epss, None);
+        json["vulnerabilities"][0].as_object_mut().unwrap().remove("exploit");
+        let old: CachedScan = serde_json::from_value(json).unwrap();
+        assert_eq!(old.vulnerabilities()[0].exploit, Exploit::default());
     }
 
     fn dir(name: &str) -> PathBuf {
