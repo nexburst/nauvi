@@ -3410,6 +3410,12 @@ export type VulnsSummary = {
 	 */
 	forbidden_namespaces: string[],
 	/**
+	 *  With [`VulnsState::Forbidden`] for chosen namespaces: the reports
+	 *  may be listed across all namespaces (so offering that helps).
+	 *  False otherwise.
+	 */
+	all_namespaces_allowed: boolean,
+	/**
 	 *  Running images no report covers (before the filters). Images in
 	 *  namespaces whose reports were not read (the read budget ran out)
 	 *  are neither counted here nor listed: a note says so.

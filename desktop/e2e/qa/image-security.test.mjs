@@ -189,6 +189,8 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
     assert.equal(by("busybox:1.36").verdict, "No known vulnerabilities.");
     assert.match(await viewText(app), /2 images have fixes waiting/);
     assert.match(by("nginx:1.27").text, /Trivy 0\.69\.3 through Trivy Operator/);
+    // Nothing to create in this view.
+    assert.equal(await app.js(`return document.querySelectorAll(".toolbar .create").length`), 0);
     // On for this context only, after the debounced write.
     await app.waitFor(() => s.app.profile.settings()?.contexts?.[CONTEXT]?.image_security === "on", {
       message: "image_security on in settings.json",
@@ -275,5 +277,10 @@ describe("image security as the limited user", { timeout: 10 * 60_000, skip: lim
     // It opens in its own namespace (or all it may see): forbidden either way.
     await app.waitFor(async () => (await stateOf(app)) === "forbidden", { timeout: 60_000, message: "forbidden" });
     assert.match(await viewText(app), /You are not allowed to list vulnerabilityreports in (namespace team-a|any namespace)/);
+    // It may not list them across all namespaces either: not offered.
+    assert.equal(
+      await app.js(`return [...document.querySelectorAll('[data-testid="image-security-state"] button')].length`),
+      0,
+    );
   });
 });

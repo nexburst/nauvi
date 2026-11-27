@@ -74,7 +74,7 @@
     <ColumnChooser {kind} />
     <ExportCsv {kind} />
   {/if}
-  {#if !overview && app.view !== HELM_CHARTS_VIEW}
+  {#if !overview && app.view !== HELM_CHARTS_VIEW && app.view !== IMAGE_SECURITY_VIEW}
     <button type="button" class="btn primary create" title="Create resources from YAML" onclick={openCreate}
       >+ Create</button
     >

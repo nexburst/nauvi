@@ -460,6 +460,7 @@ fn summary(state: VulnsState, args: &VulnsArgs) -> VulnsSummary {
         namespaces_read: Vec::new(),
         images: Vec::new(),
         forbidden_namespaces: Vec::new(),
+        all_namespaces_allowed: false,
         unscanned: 0,
         notes: Vec::new(),
     }
@@ -514,7 +515,13 @@ pub async fn image_vulns_in_namespaces(
         ..args.clone()
     };
     let several = (list.len() > 1).then_some(list.as_slice());
-    read_vulns(client, &args, trivy::served_in(kinds), several).await
+    let mut out = read_vulns(client, &args, trivy::served_in(kinds), several).await?;
+    // Not allowed here: say whether all namespaces would be (one review,
+    // only in this case), so the app offers that only when it helps.
+    if out.state == VulnsState::Forbidden && !list.is_empty() {
+        out.all_namespaces_allowed = can_list(client, trivy::GROUP, trivy::PLURAL, None).await;
+    }
+    Ok(out)
 }
 
 fn check_args(args: &VulnsArgs) -> Result<()> {
@@ -1191,6 +1198,8 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(s.state, VulnsState::Forbidden);
         assert_eq!(s.forbidden_namespaces, ["ns-1"]);
+        // The fake cluster allows only namespaced lists.
+        assert!(!s.all_namespaces_allowed);
         let bad = ["a/b".to_string()];
         assert!(image_vulns_in_namespaces(&client, &kinds, &bad, &all)
             .await

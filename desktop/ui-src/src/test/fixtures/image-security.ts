@@ -15,6 +15,8 @@ export interface FakeImageSecurity {
   forbidden: string[];
   /** Notes every listing carries. */
   notes: string[];
+  /** The reports may be listed across all namespaces (default: yes). */
+  allNamespaces?: boolean;
 }
 
 const zero: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };

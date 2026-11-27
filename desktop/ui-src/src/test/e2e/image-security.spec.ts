@@ -91,6 +91,8 @@ test("one row per image with a verdict; the panel says what to do", async ({ pag
   await expect(imageRow(page, "ghcr.io/team-a/worker:3")).toContainText("Not scanned yet.");
   await expect(imageRow(page, "postgres:15")).toContainText("old scan");
   await expect(page.locator("footer")).toContainText("6 of 6 images");
+  // Nothing to create here.
+  await expect(page.getByRole("button", { name: "+ Create" })).toHaveCount(0);
   // One listing, for all namespaces.
   expect((await fake.calls("cmdImageSecuritySummary")).map((c) => c.namespaces)).toEqual([[]]);
 
@@ -179,6 +181,14 @@ test("the empty states look different: no operator, not scanned, not allowed", a
   await toggleNamespaces(page, "demo");
   await expect(state).toHaveAttribute("data-state", "forbidden");
   await expect(state).toContainText("You are not allowed to list vulnerabilityreports in namespace demo");
+  // All namespaces would work here: offered.
+  await expect(state.getByRole("button", { name: "All namespaces" })).toBeVisible();
+  await page.evaluate(() => {
+    window.__fake.cluster.imageSecurity!.allNamespaces = false;
+  });
+  await page.getByRole("button", { name: "Refresh" }).first().click();
+  await expect(state.getByRole("button", { name: "All namespaces" })).toHaveCount(0);
+  await expect(state).toHaveAttribute("data-state", "forbidden");
 
   // An error is not an empty state.
   await fake.failNext("cmdImageSecuritySummary", "cannot read VulnerabilityReports: connection refused");

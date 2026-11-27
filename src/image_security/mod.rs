@@ -225,6 +225,10 @@ pub struct VulnsSummary {
     /// namespaces were read (or, with the [`VulnsState::Forbidden`] state,
     /// the namespaces asked for).
     pub forbidden_namespaces: Vec<String>,
+    /// With [`VulnsState::Forbidden`] for chosen namespaces: the reports
+    /// may be listed across all namespaces (so offering that helps).
+    /// False otherwise.
+    pub all_namespaces_allowed: bool,
     /// Running images no report covers (before the filters). Images in
     /// namespaces whose reports were not read (the read budget ran out)
     /// are neither counted here nor listed: a note says so.

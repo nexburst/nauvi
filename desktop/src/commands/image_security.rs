@@ -194,6 +194,7 @@ pub(crate) mod tests {
             namespaces_read: vec![],
             images: vec![],
             forbidden_namespaces: vec![],
+            all_namespaces_allowed: false,
             unscanned: 0,
             notes: vec![],
         }

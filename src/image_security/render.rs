@@ -363,6 +363,7 @@ mod tests {
             namespaces_read: Vec::new(),
             images: Vec::new(),
             forbidden_namespaces: Vec::new(),
+            all_namespaces_allowed: false,
             unscanned: 0,
             notes: Vec::new(),
         }

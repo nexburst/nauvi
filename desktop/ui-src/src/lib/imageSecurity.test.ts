@@ -30,6 +30,7 @@ function summary(p: Partial<VulnsSummary>): VulnsSummary {
     namespaces_read: [],
     images: [],
     forbidden_namespaces: [],
+    all_namespaces_allowed: false,
     unscanned: 0,
     notes: [],
     ...p,

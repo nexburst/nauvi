@@ -93,7 +93,7 @@
   {:else if empty}
     <div class="center" data-testid="image-security-state" data-state={summary.state}>
       <EmptyState title={empty.title} detail={empty.detail} reason={empty.reason}>
-        {#if summary.state === "forbidden" && app.selectedNamespaces.length > 0}
+        {#if summary.state === "forbidden" && app.selectedNamespaces.length > 0 && summary.all_namespaces_allowed}
           <button type="button" class="btn" onclick={() => setNamespaces([])}>All namespaces</button>
         {/if}
         {#if summary.state === "no_reports" && summary.unscanned > 0}

@@ -147,11 +147,9 @@
   }
   h3 {
     margin: 12px 0 6px;
-    font-size: 12px;
+    font-size: var(--text-sm, 12px);
     font-weight: 600;
     color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
   .fixes {
     list-style: none;

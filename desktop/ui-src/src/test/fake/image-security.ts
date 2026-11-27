@@ -33,6 +33,7 @@ function summary(s: FakeState, namespaces: string[]): VulnsSummary {
     namespaces_read: [],
     images: [],
     forbidden_namespaces: [],
+    all_namespaces_allowed: false,
     unscanned: 0,
     notes: [...d.notes],
   };
@@ -42,7 +43,13 @@ function summary(s: FakeState, namespaces: string[]): VulnsSummary {
   }
   const forbidden = namespaces.filter((n) => d.forbidden.includes(n));
   if (namespaces.length > 0 && forbidden.length === namespaces.length) {
-    return { ...base, state: "forbidden", forbidden_namespaces: forbidden, notes: [] };
+    return {
+      ...base,
+      state: "forbidden",
+      forbidden_namespaces: forbidden,
+      all_namespaces_allowed: d.allNamespaces ?? true,
+      notes: [],
+    };
   }
   const read = namespaces.filter((n) => !forbidden.includes(n));
   const images = d.images.filter(
