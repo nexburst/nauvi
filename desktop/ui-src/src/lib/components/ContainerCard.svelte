@@ -4,6 +4,10 @@
   import ContainerEnvList from "./ContainerEnvList.svelte";
   import { settings } from "../stores/settings.svelte";
   import { envTitle } from "../podEnv";
+  import { containerImage } from "../imageFindings";
+  import { verdict } from "../imageSecurity";
+  import { findingsIndex, openImageFindings, useFindings } from "../stores/imageFindings.svelte";
+  import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
   import {
     envSourceText,
     envSummary,
@@ -46,6 +50,15 @@
   let envOpen = $state(false);
   /** The number of variables, once the list has loaded them (#525). */
   let envLoaded = $state<number | null>(null);
+
+  // What image security says about this container's image (#535), from the
+  // listing the app holds; nothing while the feature is off.
+  useFindings();
+  const finding = $derived.by(() => {
+    const index = findingsIndex();
+    return index ? containerImage(index, c.image, c.image_id) : null;
+  });
+  const findingVerdict = $derived(finding ? verdict(finding, imageSecuritySettings()) : null);
 </script>
 
 {#snippet longValue(key: string, text: string)}
@@ -82,6 +95,15 @@
     <dd class="mono image" title={c.image_id ? `${c.image}\n${c.image_id}` : c.image}>{c.image}</dd>
     {#if settings.current.registry_tags}
       <dd class="tags-row"><AvailableTags image={c.image} imageId={c.image_id} label={c.name} /></dd>
+    {/if}
+    {#if finding && findingVerdict}
+      <dt>Vulns</dt>
+      <dd class="vulns vulns-{findingVerdict.tone}" data-testid="container-vulns">
+        <span>{findingVerdict.text}</span>
+        {#if finding.scanned}
+          <button type="button" class="link" onclick={() => openImageFindings(finding)}>Details</button>
+        {/if}
+      </dd>
     {/if}
     {#if c.command.length > 0}
       <dt>Command</dt>
@@ -283,6 +305,19 @@
     margin-top: 2px;
     word-break: break-word;
     color: var(--text-muted);
+  }
+  .vulns {
+    padding-left: 8px;
+    border-left: 3px solid var(--border-strong, var(--border));
+  }
+  .vulns-critical {
+    border-left-color: var(--red);
+  }
+  .vulns-high {
+    border-left-color: var(--amber);
+  }
+  .vulns .link {
+    margin-left: 6px;
   }
   .tone-ok {
     color: var(--green);

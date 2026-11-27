@@ -1128,7 +1128,13 @@ export type ColumnKind = "text" |
  *  line is what the cell shows (`mongo:7.0.1 +1`), each line after it a
  *  full reference, for the tooltip (see `image_column`).
  */
-"image";
+"image" | 
+/**
+ *  Image vulnerabilities (#535): filled by the UI from the image
+ *  security listing it already holds, keyed by workload. Off by
+ *  default, and not offered while image security is off.
+ */
+"vulns";
 
 export type ConditionInfo = {
 	type: string,

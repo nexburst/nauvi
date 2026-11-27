@@ -40,6 +40,7 @@
   import MetricsOffer from "./helm/MetricsOffer.svelte";
   import MetricsHiddenNote from "./MetricsHiddenNote.svelte";
   import OverviewUsage from "./OverviewUsage.svelte";
+  import ImageFindingsCard from "./ImageFindingsCard.svelte";
   import { metricsHidden } from "../stores/metricsHidden.svelte";
   import { settingsSaved } from "../stores/settings.svelte";
   import { openDockTab } from "../stores/dock.svelte";
@@ -308,6 +309,8 @@
           </div>
         {/each}
       {/if}
+      <!-- Image security (#535): only while it is on. -->
+      <ImageFindingsCard />
     </div>
 
     <!-- Wide: what needs you and the capacity on the left, the namespaces

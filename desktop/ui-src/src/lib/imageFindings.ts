@@ -163,7 +163,7 @@ export function promptLines(images: readonly WorkloadImage[], s: ImageSecuritySe
   const found = images.filter((w) => w.row.scanned && verdict(w.row, s).kind === "findings");
   if (found.length === 0) return [];
   const lines = found.slice(0, PROMPT_IMAGES).map((w) => {
-    const age = w.row.scanned_at > 0 ? `, report ${agoText(nowSecs - w.row.scanned_at)}` : "";
+    const age = w.row.scanned_at > 0 ? ` Scanned ${agoText(nowSecs - w.row.scanned_at)}.` : "";
     return `- ${imageLine(w, s)}${age}`;
   });
   if (found.length > PROMPT_IMAGES) lines.push(`- +${found.length - PROMPT_IMAGES} more images`);

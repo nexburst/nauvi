@@ -93,8 +93,10 @@ test("one row per image with a verdict; the panel says what to do", async ({ pag
   await expect(page.locator("footer")).toContainText("6 of 6 images");
   // Nothing to create here.
   await expect(page.getByRole("button", { name: "+ Create" })).toHaveCount(0);
-  // One listing, for all namespaces.
-  expect((await fake.calls("cmdImageSecuritySummary")).map((c) => c.namespaces)).toEqual([[]]);
+  // One listing, for all namespaces (the Overview card asked for the same
+  // one first, #535; the backend answers again from its cache).
+  const asked = (await fake.calls("cmdImageSecuritySummary")).map((c) => JSON.stringify([c.namespaces, c.refresh]));
+  expect([...new Set(asked)]).toEqual([JSON.stringify([[], false])]);
 
   await imageRow(page, "nginx:1.27").click();
   await expect(panel(page).getByTestId("findings-verdict")).toHaveText("2 critical and 5 high. 6 of 7 have a fix.");
