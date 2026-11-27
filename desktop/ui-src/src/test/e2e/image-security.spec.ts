@@ -120,8 +120,12 @@ test("the view follows the namespace picker, and Refresh reads the reports again
   const fake = await openApp(page, turnOn);
   await goToImageSecurity(page);
   await expect(imageRows(page)).toHaveCount(6);
+  await imageRow(page, "nginx:1.27").click();
+  await expect(panel(page)).toBeVisible();
   await toggleNamespaces(page, "demo");
   await expect(imageRows(page)).toHaveCount(3);
+  // Another list: the panel of the last one closes.
+  await expect(panel(page)).toHaveCount(0);
   const last = await fake.lastCall("cmdImageSecuritySummary");
   expect(last.namespaces).toEqual(["demo"]);
   expect(last.refresh).toBe(false);

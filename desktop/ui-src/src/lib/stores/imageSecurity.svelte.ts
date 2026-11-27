@@ -52,8 +52,10 @@ export async function loadImageSecurity(namespaces: string[], refresh = false) {
     if (seq !== loadSeq) return;
     imageSecurity.list = list;
     imageSecurity.error = "";
+    // Other namespaces: the panel was about another list.
+    const same = listedFor.length === namespaces.length && listedFor.every((n, i) => n === namespaces[i]);
     listedFor = namespaces;
-    const still = imageSecurity.selected && list.summary.images.some((r) => rowKey(r) === imageSecurity.selected);
+    const still = same && imageSecurity.selected && list.summary.images.some((r) => rowKey(r) === imageSecurity.selected);
     if (!still) selectImage(null);
     else if (refresh) void loadDetail();
   } catch (e) {

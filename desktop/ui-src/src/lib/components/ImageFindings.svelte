@@ -44,8 +44,7 @@
                 <span class="muted ids">
                   {g.package} {g.installed_version}:
                   {#each g.ids.slice(0, 6) as id, i (id)}
-                    {#if i > 0},
-                    {/if}{#if links.get(id)}<button
+                    {#if i > 0}{", "}{/if}{#if links.get(id)}<button
                         type="button"
                         class="advisory"
                         title={`Open ${links.get(id)} in the browser`}

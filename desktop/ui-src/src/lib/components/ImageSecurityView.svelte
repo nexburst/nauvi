@@ -149,7 +149,7 @@
                   <span class="dot" aria-hidden="true"></span>{r.verdict.text}
                 </span>
                 <span class="source muted" class:stale={src.stale}>
-                  {src.text}{#if src.stale}<span class="stale-tag" title="The report is more than 7 days old: the operator may have stopped scanning this image."> · old scan</span>{/if}
+                  {src.text}{#if src.stale}{" · "}<span class="stale-tag" title="The report is more than 7 days old: the operator may have stopped scanning this image.">old scan</span>{/if}
                 </span>
               </div>
             </div>
