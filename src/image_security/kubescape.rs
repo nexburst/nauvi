@@ -31,6 +31,10 @@ pub const GROUP: &str = "spdx.softwarecomposition.kubescape.io";
 pub const VERSION: &str = "v1beta1";
 pub const PLURAL: &str = "vulnerabilitymanifestsummaries";
 pub const MANIFESTS: &str = "vulnerabilitymanifests";
+/// The resourceVersion that makes Kubescape's storage send the spec in a
+/// list: without it every item is metadata only
+/// (`softwarecomposition.ResourceVersionFullSpec`).
+pub const FULL_SPEC: &str = "fullSpec";
 /// Where kubevuln keeps the manifests when a summary does not say.
 const DEFAULT_NAMESPACE: &str = "kubescape";
 /// Most vulnerabilities kept of one manifest.
@@ -200,7 +204,7 @@ pub async fn list_summaries(
     cap: usize,
 ) -> kube::Result<super::trivy_operator::Listed> {
     let path = url_path(GROUP, VERSION, PLURAL, namespace);
-    let page = paged::list_paged(client, &path, cap, summarize).await?;
+    let page = paged::list_paged(client, &path, cap, Some(FULL_SPEC), summarize).await?;
     Ok(super::trivy_operator::Listed {
         reports: page.items,
         more: page.more,
@@ -351,6 +355,151 @@ fn vulnerabilities(raw: RawManifest) -> Vec<Vulnerability> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    /// How the fake API server answers a list of summaries.
+    #[derive(Clone, Copy)]
+    enum Server {
+        /// Kubescape's storage: `total` summaries, with their spec only
+        /// when the request has `resourceVersion=fullSpec`.
+        Storage { total: usize },
+        /// A plain CRD: 400 for `resourceVersion=fullSpec`.
+        Crd { total: usize },
+        /// Empty pages with a continue token, for ever.
+        Endless,
+        /// Discovery of Kubescape's group answers 503 (its APIService is
+        /// down); the Trivy Operator's is 404.
+        Unavailable,
+    }
+
+    fn summary_json(i: usize, full: bool) -> serde_json::Value {
+        let mut item = serde_json::json!({
+            "metadata": { "name": format!("s{i}"), "namespace": "shop",
+                "labels": { "kubescape.io/workload-kind": "deployment",
+                    "kubescape.io/workload-name": format!("w{i}"),
+                    "kubescape.io/workload-namespace": "shop",
+                    "kubescape.io/workload-container-name": "app" } }
+        });
+        if full {
+            item["spec"] = serde_json::json!({
+                "severities": { "high": { "all": 1 } },
+                "vulnerabilitiesRef": { "all": { "name": format!("m{i}"), "namespace": "kubescape" } }
+            });
+        }
+        item
+    }
+
+    fn server(kind: Server) -> (Client, Arc<Mutex<Vec<String>>>) {
+        use kube::client::Body;
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let svc = tower::service_fn(move |req: http::Request<Body>| {
+            let path = req.uri().path().to_string();
+            let query = req.uri().query().unwrap_or_default().to_string();
+            log.lock().unwrap().push(format!("{path}?{query}"));
+            let param = |name: &str| {
+                query
+                    .split('&')
+                    .find_map(|kv| kv.strip_prefix(&format!("{name}=")))
+                    .map(str::to_string)
+            };
+            let full = param("resourceVersion").as_deref() == Some(FULL_SPEC);
+            let status = |code: u16| {
+                (
+                    code,
+                    serde_json::json!({ "kind": "Status", "apiVersion": "v1", "status": "Failure",
+                        "code": code, "message": "no" }),
+                )
+            };
+            let (code, body) = match kind {
+                // The Trivy Operator's group is not there at all.
+                Server::Unavailable if path.contains("aquasecurity") => status(404),
+                Server::Unavailable => status(503),
+                Server::Crd { .. } if full => status(400),
+                Server::Endless => (
+                    200,
+                    serde_json::json!({ "metadata": { "continue": "more" }, "items": [] }),
+                ),
+                Server::Storage { total } | Server::Crd { total } => {
+                    // A CRD always has the spec; the storage only with fullSpec.
+                    let spec = full || matches!(kind, Server::Crd { .. });
+                    let limit: usize = param("limit").and_then(|l| l.parse().ok()).unwrap_or(total);
+                    let start: usize = param("continue").and_then(|c| c.parse().ok()).unwrap_or(0);
+                    let end = (start + limit).min(total);
+                    let items: Vec<_> = (start..end).map(|i| summary_json(i, spec)).collect();
+                    let token = if end < total {
+                        end.to_string()
+                    } else {
+                        String::new()
+                    };
+                    (
+                        200,
+                        serde_json::json!({ "metadata": { "continue": token }, "items": items }),
+                    )
+                }
+            };
+            let mut resp = http::Response::new(Body::from(body.to_string().into_bytes()));
+            *resp.status_mut() = http::StatusCode::from_u16(code).unwrap();
+            std::future::ready(Ok::<_, std::convert::Infallible>(resp))
+        });
+        (Client::new(svc, "default"), seen)
+    }
+
+    /// Kubescape's storage sends the spec only for `resourceVersion=fullSpec`:
+    /// every page asks for it, continue pages too.
+    #[tokio::test]
+    async fn every_page_asks_for_the_full_spec() {
+        let (client, seen) = server(Server::Storage { total: 45 });
+        let listed = list_summaries(&client, Some("shop"), 2000).await.unwrap();
+        assert_eq!(listed.reports.len(), 45);
+        assert!(!listed.more);
+        assert_eq!(listed.reports[0].counts.high, 1);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 3, "{seen:?}");
+        for r in seen.iter() {
+            assert!(r.contains("resourceVersion=fullSpec"), "{r}");
+            assert!(r.contains("limit=20"), "{r}");
+            assert!(!r.contains("resourceVersionMatch"), "{r}");
+        }
+        assert!(seen[1].contains("continue=20"), "{seen:?}");
+    }
+
+    /// A plain CRD (the test stand-ins) refuses `fullSpec`: asked again
+    /// without it, and the later pages go without it too.
+    #[tokio::test]
+    async fn a_crd_that_refuses_full_spec_is_asked_without_it() {
+        let (client, seen) = server(Server::Crd { total: 25 });
+        let listed = list_summaries(&client, None, 2000).await.unwrap();
+        assert_eq!(listed.reports.len(), 25);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 3, "{seen:?}");
+        assert!(seen[0].contains("resourceVersion=fullSpec"));
+        assert!(!seen[1].contains("resourceVersion"), "{seen:?}");
+        assert!(!seen[2].contains("resourceVersion"), "{seen:?}");
+    }
+
+    /// Empty pages that always continue end the read.
+    #[tokio::test]
+    async fn endless_empty_pages_end() {
+        let (client, seen) = server(Server::Endless);
+        let listed = list_summaries(&client, None, 40).await.unwrap();
+        assert!(listed.more);
+        assert!(listed.reports.is_empty());
+        assert!(seen.lock().unwrap().len() <= 12);
+    }
+
+    /// Kubescape's APIService down (503): not served, so a cluster with
+    /// neither scanner says so instead of failing.
+    #[tokio::test]
+    async fn an_unavailable_api_service_is_not_served() {
+        let (client, _) = server(Server::Unavailable);
+        assert!(!served(&client).await.unwrap());
+        let args = crate::image_security::VulnsArgs::default();
+        let s = crate::image_security::image_vulns(&client, &args)
+            .await
+            .unwrap();
+        assert_eq!(s.state, crate::image_security::VulnsState::NoOperator);
+    }
 
     #[test]
     fn a_summary_page_is_read_as_kubevuln_writes_it() {

@@ -518,7 +518,7 @@ async fn read(client: &Client, served: bool, namespaces: &[String]) -> Result<Co
             break;
         }
         let path = url_path(GROUP, VERSION, PLURAL, scope.as_deref());
-        let page = match paged::list_paged(client, &path, left, |r| Some(lite_row(r))).await {
+        let page = match paged::list_paged(client, &path, left, None, |r| Some(lite_row(r))).await {
             Ok(p) => p,
             Err(e) if is_forbidden(&e) => {
                 forbidden += 1;
