@@ -29,7 +29,7 @@ function row(p: Partial<ImageVulns> = {}): ImageVulns {
     ignored: zero,
     kev: 0,
     fixes_known: true,
-    workloads: [{ kind: "Deployment", namespace: "shop", name: "web", container: "nginx" }],
+    workloads: [{ kind: "Deployment", namespace: "shop", name: "web", container: "nginx", cron_job: "" }],
     report_namespace: "shop",
     report_name: "r",
     reports: 1,
@@ -73,8 +73,8 @@ describe("ignores (#537)", () => {
     expect(scopeChoices(row()).map((c) => c.scope)).toEqual(["image", "workload", "namespace"]);
     const two = row({
       workloads: [
-        { kind: "Deployment", namespace: "shop", name: "web", container: "a" },
-        { kind: "Deployment", namespace: "blog", name: "site", container: "a" },
+        { kind: "Deployment", namespace: "shop", name: "web", container: "a", cron_job: "" },
+        { kind: "Deployment", namespace: "blog", name: "site", container: "a", cron_job: "" },
       ],
     });
     expect(scopeChoices(two).map((c) => c.scope)).toEqual(["image"]);

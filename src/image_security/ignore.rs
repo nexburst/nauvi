@@ -293,6 +293,7 @@ mod tests {
                     namespace: ns.to_string(),
                     name: name.to_string(),
                     container: "c".into(),
+                    cron_job: String::new(),
                 })
                 .collect(),
             report_namespace: String::new(),

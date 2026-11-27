@@ -354,7 +354,7 @@ pub fn merge(reports: Vec<WorkloadConfig>, owners: &Owners) -> Vec<WorkloadConfi
 /// The controllers of the ReplicaSets or Jobs in `namespace` (`None`:
 /// all), metadata only, at most [`MAX_OWNERS`]. Errors leave them out: the
 /// rows then name the ReplicaSet.
-async fn owners_of<K>(
+pub(super) async fn owners_of<K>(
     client: &Client,
     namespace: Option<&str>,
     kind: &str,

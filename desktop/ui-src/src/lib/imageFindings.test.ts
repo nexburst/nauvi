@@ -5,7 +5,6 @@ import { columnsFor, shownColumns, EMPTY_METRICS } from "./columns";
 import {
   buildIndex,
   containerImage,
-  cronJobOf,
   digestOf,
   overviewFindings,
   podWorkload,
@@ -50,28 +49,28 @@ const nginx = img({
   counts: c({ critical: 2, high: 5, medium: 3 }),
   fixable: c({ critical: 2, high: 4 }),
   workloads: [
-    { kind: "Deployment", namespace: "demo", name: "web", container: "nginx" },
-    { kind: "Deployment", namespace: "demo", name: "web", container: "proxy" },
+    { kind: "Deployment", namespace: "demo", name: "web", container: "nginx", cron_job: "" },
+    { kind: "Deployment", namespace: "demo", name: "web", container: "proxy", cron_job: "" },
   ],
 });
 const envoy = img({
   image: "envoy:1.31",
   digest: "sha256:2222",
   counts: c({ medium: 1 }),
-  workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "sidecar" }],
+  workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "sidecar", cron_job: "" }],
 });
 const worker = img({
   image: "worker:3",
   scanned: false,
   scanned_at: 0,
-  workloads: [{ kind: "Deployment", namespace: "team-a", name: "worker", container: "main" }],
+  workloads: [{ kind: "Deployment", namespace: "team-a", name: "worker", container: "main", cron_job: "" }],
 });
 const hidden = img({
   image: "secret:1",
   digest: "sha256:3333",
   counts: c({ critical: 9 }),
   fixable: c({ critical: 9 }),
-  workloads: [{ kind: "Deployment", namespace: "kube-system", name: "dns", container: "main" }],
+  workloads: [{ kind: "Deployment", namespace: "kube-system", name: "dns", container: "main", cron_job: "" }],
 });
 const S = { ...DEFAULT_IMAGE_SECURITY, excluded_namespaces: ["kube-system"] };
 const images = [nginx, envoy, worker, hidden];
@@ -102,8 +101,8 @@ describe("the findings index", () => {
       digest: "sha256:4444",
       counts: c({ high: 1 }),
       workloads: [
-        { kind: "Deployment", namespace: "demo", name: "tools", container: "main" },
-        { kind: "Deployment", namespace: "kube-system", name: "tools", container: "main" },
+        { kind: "Deployment", namespace: "demo", name: "tools", container: "main", cron_job: "" },
+        { kind: "Deployment", namespace: "kube-system", name: "tools", container: "main", cron_job: "" },
       ],
     });
     const idx = buildIndex([...images, shared], S);
@@ -122,28 +121,31 @@ describe("the findings index", () => {
   });
 
   it("gives a CronJob its own reports and its Jobs' running pods", () => {
-    expect(cronJobOf("nightly-29384100")).toBe("nightly");
-    expect(cronJobOf("my-backup-123456789")).toBe("my-backup");
-    // Not a scheduled minute: a Job of its own.
-    expect(cronJobOf("migrate-2")).toBe("");
-    expect(cronJobOf("29384100")).toBe("");
-    // The report names the CronJob; the running pod its Job (same image).
+    // The report names the CronJob; the running pod its Job (same image),
+    // whose controller is the CronJob (#559).
     const alpine = img({
       image: "alpine:3.20",
       digest: "sha256:6666",
       counts: c({ high: 1 }),
       workloads: [
-        { kind: "CronJob", namespace: "demo", name: "nightly", container: "main" },
-        { kind: "Job", namespace: "demo", name: "nightly-29384100", container: "main" },
+        { kind: "CronJob", namespace: "demo", name: "nightly", container: "main", cron_job: "" },
+        { kind: "Job", namespace: "demo", name: "nightly-29384100", container: "main", cron_job: "nightly" },
       ],
     });
     // Only the Job's running pod knows this one (not scanned).
     const sidecar = img({
       image: "sidecar:1",
       scanned: false,
-      workloads: [{ kind: "Job", namespace: "demo", name: "nightly-29384101", container: "side" }],
+      workloads: [{ kind: "Job", namespace: "demo", name: "nightly-29384101", container: "side", cron_job: "nightly" }],
     });
-    const idx = buildIndex([...images, alpine, sidecar], S);
+    // A standalone Job named like a scheduled one: no controller, so not
+    // the CronJob's, whatever its name.
+    const lookalike = img({
+      image: "lookalike:1",
+      scanned: false,
+      workloads: [{ kind: "Job", namespace: "demo", name: "nightly-1732700000", container: "x", cron_job: "" }],
+    });
+    const idx = buildIndex([...images, alpine, sidecar, lookalike], S);
     const cron = workloadImages(idx, "CronJob", "demo", "nightly", S);
     expect(cron.map((w) => w.row)).toEqual([alpine, sidecar]);
     expect(cron[0].containers).toEqual(["main"]);
@@ -153,7 +155,7 @@ describe("the findings index", () => {
     expect(rowImages(idx, true, "Pod", "demo", "nightly-29384100-x", "Job/nightly-29384100")?.map((w) => w.row)).toEqual([
       alpine,
     ]);
-    expect(idx.byWorkload.has("demo/CronJob/migrate")).toBe(false);
+    expect(workloadImages(idx, "Job", "demo", "nightly-1732700000", S).map((w) => w.row)).toEqual([lookalike]);
   });
 
   it("keeps a bare ReplicaSet's pods under the ReplicaSet", () => {
@@ -165,7 +167,7 @@ describe("the findings index", () => {
       image: "redis:7",
       digest: "sha256:5555",
       counts: c({ low: 1 }),
-      workloads: [{ kind: "ReplicaSet", namespace: "demo", name: "web-5d8f", container: "redis" }],
+      workloads: [{ kind: "ReplicaSet", namespace: "demo", name: "web-5d8f", container: "redis", cron_job: "" }],
     });
     const idx = buildIndex([...images, bare], S);
     const known = (k: string, n: string) => idx.byWorkload.has(`demo/${k}/${n}`);

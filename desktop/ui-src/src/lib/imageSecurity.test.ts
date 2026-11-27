@@ -138,6 +138,7 @@ describe("image security", () => {
       namespace: i < 2 ? "x" : "y",
       name: n,
       container: "c",
+      cron_job: "",
     }));
     expect(workloadsText(many)).toBe("pod/a, pod/b, pod/c +1 more in 2 namespaces");
     expect(workloadsText([])).toBe("");

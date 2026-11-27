@@ -176,6 +176,7 @@ test("Kubescape's counts never claim a fix; the panel's full report does", async
           namespace: "demo",
           name: "web",
           container: "nginx",
+          cron_job: "",
         },
       ],
       report_namespace: "kubescape",

@@ -1,10 +1,13 @@
 //! The images the pods run: one per distinct image, keyed by digest (from
 //! `status.containerStatuses[].imageID`), by reference when there is none.
 
+use super::config_audit::{owners_of, Owners};
 use super::Workload;
 use crate::registry_tags::ImageRef;
 use crate::text::single_line;
+use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::Pod;
+use kube::Client;
 use std::collections::BTreeMap;
 
 /// One container of a pod, with the owner Trivy Operator names in its
@@ -62,19 +65,37 @@ pub fn short_reference(reference: &str) -> String {
         .map_or(n.clone(), str::to_string)
 }
 
+/// The controller owner of a pod, else its first owner.
+fn pod_owner(pod: &Pod) -> Option<&k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference> {
+    let refs = pod.metadata.owner_references.iter().flatten();
+    refs.clone()
+        .find(|o| o.controller == Some(true))
+        .or_else(|| refs.clone().next())
+}
+
+/// The CronJobs of the Jobs whose pods are in `pods` (#559), from each
+/// Job's controller owner reference: one metadata list of the Jobs of
+/// `namespace` (`None`: all), and only when a pod belongs to a Job. A list
+/// that is not allowed or fails leaves them out: the Jobs then stand on
+/// their own, and the listing does not fail.
+pub async fn job_owners(client: &Client, namespace: Option<&str>, pods: &[Pod]) -> Owners {
+    let mut owners = Owners::new();
+    if pods
+        .iter()
+        .any(|p| pod_owner(p).is_some_and(|o| o.kind == "Job"))
+    {
+        owners_of::<Job>(client, namespace, "Job", "CronJob", &mut owners).await;
+    }
+    owners
+}
+
 /// The workload a pod belongs to, from its controller owner: a ReplicaSet
 /// with the pod's `pod-template-hash` is its Deployment's, so the
 /// Deployment is shown. Returns (owner kind, owner name, workload kind,
 /// workload name); a pod without an owner is its own.
 fn owner_of(pod: &Pod) -> (String, String, String, String) {
     let name = pod.metadata.name.clone().unwrap_or_default();
-    let owner = pod
-        .metadata
-        .owner_references
-        .iter()
-        .flatten()
-        .find(|o| o.controller == Some(true))
-        .or_else(|| pod.metadata.owner_references.iter().flatten().next());
+    let owner = pod_owner(pod);
     let Some(o) = owner else {
         return ("Pod".into(), name.clone(), "Pod".into(), name);
     };
@@ -104,7 +125,8 @@ fn owner_of(pod: &Pod) -> (String, String, String, String) {
 /// The distinct images of `pods`, in the order first seen: the same image
 /// in N pods is one entry with every workload container that uses it
 /// (once each). Init containers count; ephemeral (debug) containers do not.
-pub fn pod_images(pods: &[Pod]) -> Vec<RunningImage> {
+/// A Job's workload names its CronJob when `jobs` ([`job_owners`]) has it.
+pub fn pod_images(pods: &[Pod], jobs: &Owners) -> Vec<RunningImage> {
     let mut out: Vec<RunningImage> = Vec::new();
     let mut index: BTreeMap<String, usize> = BTreeMap::new();
     for pod in pods {
@@ -112,6 +134,10 @@ pub fn pod_images(pods: &[Pod]) -> Vec<RunningImage> {
         let (owner_kind, owner_name, kind, name) = owner_of(pod);
         let [owner_kind, owner_name, kind, name] =
             [owner_kind, owner_name, kind, name].map(|s| single_line(&s));
+        let cron_job = match jobs.get(&(namespace.clone(), kind.clone(), name.clone())) {
+            Some((owner, cron)) if kind == "Job" && owner == "CronJob" => cron.clone(),
+            _ => String::new(),
+        };
         let Some(spec) = &pod.spec else { continue };
         let status = pod.status.as_ref();
         let statuses = status
@@ -163,6 +189,7 @@ pub fn pod_images(pods: &[Pod]) -> Vec<RunningImage> {
                     namespace: namespace.clone(),
                     name: name.clone(),
                     container: single_line(&c.name),
+                    cron_job: cron_job.clone(),
                 },
             };
             if !out[i].uses.contains(&usage) {
@@ -234,7 +261,7 @@ mod tests {
         other.metadata.owner_references = None;
         other.metadata.name = Some("lonely".into());
         list.push(other);
-        let images = pod_images(&list);
+        let images = pod_images(&list, &Owners::new());
         let nginx: Vec<_> = images
             .iter()
             .filter(|i| i.reference == "nginx:1.27")
@@ -245,6 +272,49 @@ mod tests {
         assert!(nginx[0].uses.iter().all(|u| u.workload.namespace == "shop"));
         assert_eq!(nginx[1].digest, "");
         assert_eq!(nginx[1].uses[0].workload.name, "lonely");
+    }
+
+    fn job_pod(name: &str, job: &str) -> Pod {
+        serde_json::from_value(serde_json::json!({
+            "metadata": {
+                "name": name, "namespace": "demo",
+                "ownerReferences": [{ "apiVersion": "batch/v1", "kind": "Job", "name": job, "uid": "j", "controller": true }]
+            },
+            "spec": { "containers": [{ "name": "main", "image": "alpine:3.20" }] }
+        }))
+        .unwrap()
+    }
+
+    /// A Job names its CronJob only when the Job's controller says so
+    /// (#559): a standalone Job named like a scheduled one does not.
+    #[test]
+    fn a_jobs_cron_job_comes_from_its_owner_not_its_name() {
+        let pods = [
+            job_pod("nightly-29384100-x", "nightly-29384100"),
+            job_pod("nightly-1732700000-y", "nightly-1732700000"),
+        ];
+        let mut jobs = Owners::new();
+        jobs.insert(
+            ("demo".into(), "Job".into(), "nightly-29384100".into()),
+            ("CronJob".into(), "nightly".into()),
+        );
+        let images = pod_images(&pods, &jobs);
+        let uses: Vec<_> = images[0]
+            .uses
+            .iter()
+            .map(|u| (u.workload.name.as_str(), u.workload.cron_job.as_str()))
+            .collect();
+        assert_eq!(
+            uses,
+            [("nightly-29384100", "nightly"), ("nightly-1732700000", "")]
+        );
+        assert!(images[0].uses.iter().all(|u| u.workload.kind == "Job"));
+        // Without the Jobs (not allowed to list them) no Job has one.
+        let images = pod_images(&pods, &Owners::new());
+        assert!(images[0]
+            .uses
+            .iter()
+            .all(|u| u.workload.cron_job.is_empty()));
     }
 
     #[test]
@@ -293,7 +363,7 @@ mod tests {
 
     #[test]
     fn the_same_image_in_many_pods_is_one_entry() {
-        let images = pod_images(&pods());
+        let images = pod_images(&pods(), &Owners::new());
         let refs: Vec<_> = images.iter().map(|i| i.reference.as_str()).collect();
         assert_eq!(refs, ["nginx:1.27", "busybox:1.36", "redis:7"]);
 

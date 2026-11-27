@@ -6,7 +6,8 @@
 //! the cached local scans on them.
 
 use super::cache::CachedScan;
-use super::images::pod_images;
+use super::config_audit::Owners;
+use super::images::{job_owners, pod_images};
 use super::local::check_platform;
 use super::report::{
     aggregate, api_error, check_namespace, filter_vulnerabilities, fix_groups, is_forbidden,
@@ -55,6 +56,7 @@ pub async fn running_images(client: &Client, namespaces: &[String]) -> Result<Vu
         notes: Vec::new(),
     };
     let mut pods: Vec<Pod> = Vec::new();
+    let mut jobs = Owners::new();
     let mut left = MAX_PODS;
     let mut cut = false;
     for scope in &scopes {
@@ -70,6 +72,7 @@ pub async fn running_images(client: &Client, namespaces: &[String]) -> Result<Vu
             Ok(b) => {
                 cut |= b.more;
                 left -= b.items.len().min(left);
+                jobs.extend(job_owners(client, scope.as_deref(), &b.items).await);
                 pods.extend(b.items);
             }
             Err(e) if is_forbidden(&e) => {
@@ -106,7 +109,7 @@ pub async fn running_images(client: &Client, namespaces: &[String]) -> Result<Vu
             .cloned()
             .collect();
     }
-    let mut rows = aggregate(&pod_images(&pods), &[]);
+    let mut rows = aggregate(&pod_images(&pods, &jobs), &[]);
     for r in &mut rows {
         r.source = ScanSource::LocalScanner;
     }
@@ -305,6 +308,7 @@ mod tests {
                 namespace: "a".into(),
                 name: "web".into(),
                 container: "app".into(),
+                cron_job: String::new(),
             }],
             report_namespace: String::new(),
             report_name: String::new(),

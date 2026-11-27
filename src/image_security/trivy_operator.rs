@@ -325,6 +325,7 @@ fn summarize<V>(raw: &Raw<V>, fixable: SeverityCounts) -> ReportSummary {
             namespace: clean(namespace),
             name: clean(label(m, "trivy-operator.resource.name")),
             container: clean(label(m, "trivy-operator.container.name")),
+            cron_job: String::new(),
         },
         reference: clean(&reference),
         tagged: !r.artifact.tag.trim().is_empty(),
@@ -650,6 +651,7 @@ mod tests {
                 namespace: "shop".into(),
                 name: "web-5f6b7c".into(),
                 container: "nginx".into(),
+                cron_job: String::new(),
             }
         );
         assert_eq!(web.reference, "index.docker.io/library/nginx:1.27");

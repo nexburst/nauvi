@@ -49,9 +49,9 @@ export function buildIndex(images: readonly ImageVulns[], s: ImageSecuritySettin
     if (!row.digest && !byImage.has(row.image)) byImage.set(row.image, row);
     for (const w of workloads) {
       add(byWorkload, workloadKey(w.kind, w.namespace, w.name), row, w.container);
-      // A CronJob's running pods are its Job's: listed under the CronJob too.
-      const cron = w.kind === "Job" ? cronJobOf(w.name) : "";
-      if (cron) add(byWorkload, workloadKey("CronJob", w.namespace, cron), row, w.container);
+      // A CronJob's running pods are its Job's: listed under the CronJob
+      // too, by the Job's controller (#559), never by the Job's name.
+      if (w.kind === "Job" && w.cron_job) add(byWorkload, workloadKey("CronJob", w.namespace, w.cron_job), row, w.container);
     }
   }
   return { byWorkload, byDigest, byImage, excluded };
@@ -64,15 +64,6 @@ function add(byWorkload: Map<string, WorkloadImage[]>, key: string, row: ImageVu
     if (!at.containers.includes(container)) at.containers.push(container);
   } else list.push({ row, containers: [container] });
   byWorkload.set(key, list);
-}
-
-/** The Jobs a CronJob makes are named `<cronjob>-<scheduled minute>`
- *  (minutes since 1970: 8 digits and more). The listing names a CronJob's
- *  running pods by their Job and its reports by the CronJob, so a Job named
- *  like that counts for the CronJob too. "" for any other name. */
-const CRONJOB_JOB = /^(.+)-\d{8,}$/;
-export function cronJobOf(job: string): string {
-  return CRONJOB_JOB.exec(job)?.[1] ?? "";
 }
 
 /** The repository digest of a container's `imageID`, "" when it has none

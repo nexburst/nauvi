@@ -430,6 +430,7 @@ mod tests {
             namespace: ns.into(),
             name: name.into(),
             container: "c".into(),
+            cron_job: String::new(),
         };
         let list = [
             w("a", "x"),
