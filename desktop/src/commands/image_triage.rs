@@ -279,11 +279,18 @@ pub(crate) async fn cmd_image_kev_update(
         );
     }
     let dir = kev_dir(&app)?;
+    let before = kev::load(&dir).map(|c| c.fetched_at);
     let mut failed = DOWNLOAD.lock().await;
+    let last = *LAST_MANUAL.lock().unwrap();
+    // Turned on, a listing may have downloaded it while this waited for
+    // the lock: that one is used, not downloaded twice.
+    if downloaded_meanwhile(before, kev::load(&dir).map(|c| c.fetched_at)) {
+        *LAST_MANUAL.lock().unwrap() = after_manual(last, Instant::now(), true);
+        return Ok(status_of(&s, Some(&dir)));
+    }
     // A catalogue downloaded this way a moment ago is not downloaded again
     // (a failed download does not count: retrying it is not refused).
     // `DOWNLOAD` is held, so no other download runs in between.
-    let last = *LAST_MANUAL.lock().unwrap();
     if let Some(wait) = cooldown_left(last, kev::load(&dir).is_some(), Instant::now()) {
         return Err(format!(
             "The list was downloaded less than a minute ago. Try again in {} s.",
@@ -296,6 +303,16 @@ pub(crate) async fn cmd_image_kev_update(
     *LAST_MANUAL.lock().unwrap() = after_manual(last, started, result.is_ok());
     result?;
     Ok(status_of(&s, Some(&dir)))
+}
+
+/// Whether another download kept a catalogue between `before` and `now`
+/// (the `fetched_at` of the kept one, `None` when none is kept).
+fn downloaded_meanwhile(before: Option<i64>, now: Option<i64>) -> bool {
+    match (before, now) {
+        (None, Some(_)) => true,
+        (Some(b), Some(n)) => n > b,
+        _ => false,
+    }
 }
 
 /// What [`LAST_MANUAL`] becomes after a manual download that started at
@@ -355,6 +372,15 @@ mod tests {
         let last = after_manual(Some(t0), t1, true);
         assert_eq!(last, Some(t1));
         assert!(cooldown_left(last, true, t1 + Duration::from_secs(1)).is_some());
+    }
+
+    #[test]
+    fn a_download_while_waiting_for_the_lock_is_used() {
+        assert!(downloaded_meanwhile(None, Some(100)));
+        assert!(downloaded_meanwhile(Some(100), Some(200)));
+        assert!(!downloaded_meanwhile(Some(100), Some(100)));
+        assert!(!downloaded_meanwhile(None, None));
+        assert!(!downloaded_meanwhile(Some(100), None));
     }
 
     #[test]
