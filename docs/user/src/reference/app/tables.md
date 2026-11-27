@@ -79,7 +79,10 @@ context. Hover a header to see where its column reads from.
 On Secrets, a column cannot read `.data` or `.stringData`, or the
 `kubectl.kubernetes.io/last-applied-configuration` annotation: their values
 only show in the Secret's panel, after **Reveal**. Another annotation on a
-Secret that holds JSON shows as `{…}`.
+Secret that holds JSON shows as `{…}`, and one that spans lines or is longer
+than 63 characters shows as **(hidden: open the Secret)**: read it in the
+Secret's panel. The same goes for a field path under
+`.metadata.annotations`.
 
 ### Pods
 
