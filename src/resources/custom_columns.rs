@@ -7,7 +7,7 @@
 //! Field paths are kept simple: `.spec.priorityClassName`,
 //! `.spec.containers[0].image`. No wildcards or filters.
 
-use super::jsonpath::{cell_text, eval_str, Seg};
+use super::jsonpath::{eval, Seg};
 use super::{ColumnDef, ColumnKind, Source};
 use crate::text::one_line;
 use serde::{Deserialize, Serialize};
@@ -71,7 +71,11 @@ impl Pick {
         let raw = match self {
             Pick::Label(k) => map_value(v, "labels", k),
             Pick::Annotation(k) => map_value(v, "annotations", k),
-            Pick::Path(segs) => eval_str(v, segs),
+            Pick::Path(segs) => eval(v, segs)
+                .into_iter()
+                .map(summary)
+                .collect::<Vec<_>>()
+                .join(","),
         };
         one_line(&raw, MAX_CUSTOM_VALUE)
     }
@@ -81,8 +85,39 @@ fn map_value(v: &Value, map: &str, key: &str) -> String {
     v.get("metadata")
         .and_then(|m| m.get(map))
         .and_then(|m| m.get(key))
-        .map(cell_text)
+        .map(summary)
         .unwrap_or_default()
+}
+
+/// A value as a cell, without ever serializing a subtree: a path such as
+/// `.metadata` or `.spec` is read on every watch event of every row, so an
+/// object is `{…}` and an array of objects or arrays is `[n items]`. An
+/// array of plain values is joined with commas, up to the cell's length.
+fn summary(v: &Value) -> String {
+    match v {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        Value::Bool(_) | Value::Number(_) => v.to_string(),
+        Value::Object(o) if o.is_empty() => "{}".into(),
+        Value::Object(_) => "{…}".into(),
+        Value::Array(a) if a.iter().any(|x| x.is_object() || x.is_array()) => match a.len() {
+            1 => "[1 item]".into(),
+            n => format!("[{n} items]"),
+        },
+        Value::Array(a) => {
+            let mut out = String::new();
+            for (i, x) in a.iter().enumerate() {
+                if out.len() > MAX_CUSTOM_VALUE {
+                    break;
+                }
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push_str(&summary(x));
+            }
+            out
+        }
+    }
 }
 
 /// Check a field path, in plain words when it is wrong.
@@ -355,8 +390,40 @@ mod tests {
         assert_eq!(row.cells[2], "10.0.0.7");
         assert_eq!(row.cells[3], "b:2");
         assert_eq!(row.cells[4], "");
-        assert_eq!(row.cells[5], r#"{"containerPort":80}"#);
+        assert_eq!(row.cells[5], "[1 item]");
         assert_eq!(cols[0].key, "custom:v");
         assert_eq!(cols[0].label, "Col v");
+    }
+
+    #[test]
+    fn objects_and_arrays_are_summed_up_not_serialized() {
+        assert_eq!(summary(&json!({"a": {"b": [1, 2]}})), "{…}");
+        assert_eq!(summary(&json!({})), "{}");
+        assert_eq!(summary(&json!([{"a": 1}, {"b": 2}, [3]])), "[3 items]");
+        assert_eq!(summary(&json!([{"a": 1}])), "[1 item]");
+        assert_eq!(summary(&json!(["x", 2, true, null])), "x,2,true,");
+        assert_eq!(summary(&json!([])), "");
+        assert_eq!(summary(&json!(7)), "7");
+        // A long array of plain values stops once the cell is full.
+        let long: Vec<String> = (0..10_000).map(|i| format!("item-{i}")).collect();
+        assert!(summary(&json!(long)).len() < MAX_CUSTOM_VALUE + 20);
+
+        let r = rref("", "Pod", "pods", true);
+        let custom = [
+            col("m", CustomSource::Field, ".metadata"),
+            col("s", CustomSource::Field, ".spec.containers"),
+            col("f", CustomSource::Field, ".metadata.finalizers"),
+        ];
+        let cols = custom_column_defs(&custom).unwrap();
+        let obj: DynamicObject = serde_json::from_value(json!({
+            "apiVersion": "v1", "kind": "Pod",
+            "metadata": {"name": "p", "namespace": "ns", "finalizers": ["a/b", "c/d"]},
+            "spec": {"containers": [{"name": "a"}, {"name": "b"}]}
+        }))
+        .unwrap();
+        let row = make_row(&r, &cols, &obj);
+        assert_eq!(row.cells[0], "{…}");
+        assert_eq!(row.cells[1], "[2 items]");
+        assert_eq!(row.cells[2], "a/b,c/d");
     }
 }

@@ -206,6 +206,9 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     await click(app, button("Add"));
     assert.equal(await addColumn(app, { name: "Version", from: "Label", value: "app.kubernetes.io/version" }), "");
     assert.equal(await addColumn(app, { name: "Team", from: "Annotation", value: "qa.nauvi.dev/team" }), "");
+    // An object or an array of objects is summed up, never shown as JSON.
+    assert.equal(await addColumn(app, { name: "Meta", from: "Field path", value: ".metadata" }), "");
+    assert.equal(await addColumn(app, { name: "Containers", from: "Field path", value: ".spec.containers" }), "");
     await app.shot("chooser-with-custom-dark");
     await closeChooser(app);
     await app.waitFor(
@@ -219,6 +222,8 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     for (const p of pods) {
       assert.equal(rows[p.name].Version, p.app === "qa-col-duo" ? "2.5.0" : "1.0.0");
       assert.equal(rows[p.name].Team, p.app === "qa-col-duo" ? "blue" : "green");
+      assert.equal(rows[p.name].Meta, "{…}");
+      assert.match(rows[p.name].Containers, /^\[\d+ items?\]$/);
     }
     // They are past the right edge at 1280 px: the table scrolls to them.
     await app.js(`document.querySelector('[data-testid="resource-table"] .scroller').scrollLeft = 1e6`);
@@ -226,6 +231,12 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     await setTheme(app, "light");
     await app.shot("custom-columns-light");
     await setTheme(app, "dark");
+    // The later tests work with the first three only.
+    await openChooser(app);
+    await click(app, inDialog("//button[@aria-label='Remove column Meta']"));
+    await click(app, inDialog("//button[@aria-label='Remove column Containers']"));
+    await closeChooser(app);
+    await app.waitFor(async () => !(await headers(app)).includes("Meta"), { message: "Meta removed" });
   });
 
   it("they sort and filter; with them on, the page asks the backend for nothing more", T, async () => {
@@ -301,6 +312,8 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
 
   it("a header's right-click menu hides it or opens the chooser; the chooser can be searched", T, async () => {
     const { app } = s;
+    // The restart at the end of the last test brought back the saved theme.
+    await setTheme(app, "dark");
     await scrollTableLeft(app);
     const node = await app.find(By.xpath("//*[@role='columnheader'][normalize-space()='Node']"));
     await app.driver.actions().contextClick(node).perform();
