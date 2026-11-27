@@ -12,12 +12,23 @@
 //!   report only when it is shown).
 //! - [`report`]: one row per image, filters, and fixes grouped by package.
 //! - [`render`]: the text of the CLI (and later the MCP tool).
+//! - [`local`]: a Trivy or Grype the user installed (#536), run on an
+//!   approved path; [`trivy_json`], [`grype_json`] read its output,
+//!   [`cache`] keeps its results on disk by digest, and [`running`] lists
+//!   the running images to scan. [`go_buildinfo`] reads a scanner's
+//!   version from its file, before it is ever run.
 //!
 //! Results are never "problems": no pill, no notification.
 
+pub mod cache;
+pub mod go_buildinfo;
+pub mod grype_json;
 pub mod images;
+pub mod local;
 pub mod render;
 pub mod report;
+pub mod running;
+pub mod trivy_json;
 pub mod trivy_operator;
 
 use serde::{Deserialize, Serialize};
@@ -157,6 +168,8 @@ pub struct Workload {
 pub enum ScanSource {
     /// The Trivy Operator's VulnerabilityReports in the cluster.
     TrivyOperator,
+    /// A Trivy or Grype the user installed, run on this computer (#536).
+    LocalScanner,
 }
 
 /// One distinct image (by digest, else by reference) and what is known

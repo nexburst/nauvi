@@ -6,7 +6,7 @@
 import type { ImageDetail, ImageSecurityList, ImageSecuritySettings_Serialize as ImageSecuritySettings, ImageVulns } from "../bindings";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import { DEFAULT_IMAGE_SECURITY, imageSecurityOn, rowKey } from "../imageSecurity";
-import { contextSettings, settings, updateContext } from "./settings.svelte";
+import { contextSettings, settings, settingsSaved, updateContext } from "./settings.svelte";
 import { shareFindings } from "./imageFindings.svelte";
 
 class ImageSecurityStore {
@@ -26,6 +26,9 @@ let loadSeq = 0;
 let detailSeq = 0;
 /** The namespaces of the shown listing, for the panel's request. */
 let listedFor: string[] = [];
+/** Bumped by `resetImageSecurity` (another cluster, Source or Scanner):
+ *  a scan started before it can't patch the listing that follows. */
+let generation = 0;
 /** `rowKey` of an image to show once the view has its listing (#535). */
 let showOnLoad: string | null = null;
 
@@ -56,6 +59,9 @@ export async function loadImageSecurity(namespaces: string[], refresh = false) {
   const seq = ++loadSeq;
   imageSecurity.loading = true;
   try {
+    // A Source or Scanner just changed: read with what the backend has.
+    await settingsSaved();
+    if (seq !== loadSeq) return;
     const list = await api(visibleCluster()).cmdImageSecuritySummary(namespaces, refresh);
     if (seq !== loadSeq) return;
     imageSecurity.list = list;
@@ -76,6 +82,37 @@ export async function loadImageSecurity(namespaces: string[], refresh = false) {
     imageSecurity.list = null;
   } finally {
     if (seq === loadSeq) imageSecurity.loading = false;
+  }
+}
+
+/** The namespaces of the shown listing (a scan names its image in it). */
+export function listedNamespaces(): string[] {
+  return listedFor;
+}
+
+/** The listing's generation, for `patchImage`. */
+export function imageListGeneration(): number {
+  return generation;
+}
+
+/** Put a scan's row (#536) in the listing, and its findings in the panel
+ *  when it is the one shown. `gen`: `imageListGeneration()` when the scan
+ *  started; a scan from before a reset is dropped. */
+export function patchImage(detail: ImageDetail, gen: number) {
+  if (gen !== generation) return;
+  const list = imageSecurity.list;
+  if (!list) return;
+  const key = rowKey(detail.image);
+  const images = list.summary.images.map((r) => (rowKey(r) === key ? detail.image : r));
+  const patched = { ...list, summary: { ...list.summary, images, unscanned: images.filter((r) => !r.scanned).length } };
+  imageSecurity.list = patched;
+  // The Vulns column, Security tab, cards and Overview show it too.
+  shareFindings(patched, listedFor);
+  if (imageSecurity.selected === key) {
+    detailSeq++;
+    imageSecurity.detail = detail;
+    imageSecurity.detailError = "";
+    imageSecurity.detailLoading = false;
   }
 }
 
@@ -121,6 +158,7 @@ export function reloadDetail() {
 /** Forget everything (another cluster, or the view closed). */
 export function resetImageSecurity() {
   loadSeq++;
+  generation++;
   imageSecurity.list = null;
   imageSecurity.loading = false;
   imageSecurity.error = "";

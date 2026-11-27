@@ -167,6 +167,8 @@ export interface FakeCluster {
   askAi?: FakeAskAi;
   /** Image security (#534): the Trivy Operator's reports; `fixtures/image-security.ts` by default. */
   imageSecurity?: import("./image-security").FakeImageSecurity;
+  /** The local scanner (#536); `fixtures/image-scan.ts` by default. */
+  imageScan?: import("./image-scan").FakeImageScan;
 }
 
 /** What `cmd_ask_ai_setup` finds in the fake (#376). */

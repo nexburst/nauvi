@@ -19,6 +19,8 @@ class FindingsStore {
   list = $state.raw<ImageSecurityList | null>(null);
   /** The namespaces `list` is for, sorted (empty: all). */
   namespaces = $state.raw<string[]>([]);
+  /** Bumped by `resetFindings`: mounted surfaces read the listing again. */
+  generation = $state(0);
 }
 export const findings = new FindingsStore();
 
@@ -67,6 +69,7 @@ export function useFindings() {
   $effect(() => {
     if (!findingsOn()) return;
     const namespaces = [...app.selectedNamespaces];
+    void findings.generation;
     untrack(() => void ensureFindings(namespaces));
   });
 }
@@ -119,4 +122,5 @@ export function resetFindings() {
   memo = null;
   findings.list = null;
   findings.namespaces = [];
+  findings.generation++;
 }

@@ -61,6 +61,10 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdHelmCharts", "reads"),
     ("cmdHelmGet", "reads"),
     ("cmdHelmList", "reads"),
+    (
+        "cmdImageScan",
+        "reads the pods and nodes; the scanner runs on this computer",
+    ),
     ("cmdImageSecurityImage", "reads one VulnerabilityReport"),
     (
         "cmdImageSecuritySummary",

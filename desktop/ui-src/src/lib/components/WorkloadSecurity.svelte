@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { WorkloadImage } from "../imageFindings";
-  import { imageLine } from "../imageFindings";
+  import { imageLine, sourcesText } from "../imageFindings";
   import { sourceText, verdict } from "../imageSecurity";
   import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
   import { openImageFindings } from "../stores/imageFindings.svelte";
@@ -17,7 +17,7 @@
 
 <div class="security" data-testid="workload-security">
   <p class="muted lead">
-    From the Trivy Operator's VulnerabilityReports. A vulnerability is not an outage: nothing here counts as a problem.
+    From {sourcesText(images.map((w) => w.row), "the Trivy Operator's VulnerabilityReports")}. A vulnerability is not an outage: nothing here counts as a problem.
   </p>
   <ul>
     {#each images as w (w.row.image + w.row.digest)}

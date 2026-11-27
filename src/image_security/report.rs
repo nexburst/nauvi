@@ -262,7 +262,7 @@ pub fn fix_groups(vulns: &[Vulnerability]) -> Vec<FixGroup> {
 
 /// A namespace as the API accepts it (a DNS label), so it can go into a
 /// request path.
-fn check_namespace(ns: &str) -> Result<()> {
+pub(crate) fn check_namespace(ns: &str) -> Result<()> {
     let ok = !ns.is_empty()
         && ns.len() <= 63
         && ns
@@ -292,11 +292,11 @@ fn check_object_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-fn api_error(what: &str, e: kube::Error) -> anyhow::Error {
+pub(crate) fn api_error(what: &str, e: kube::Error) -> anyhow::Error {
     anyhow::Error::from(e).context(format!("cannot read {what}"))
 }
 
-fn is_forbidden(e: &kube::Error) -> bool {
+pub(crate) fn is_forbidden(e: &kube::Error) -> bool {
     matches!(e, kube::Error::Api(resp) if resp.code == 403)
 }
 

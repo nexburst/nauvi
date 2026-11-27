@@ -12,6 +12,7 @@ import {
   promptLines,
   rowImages,
   shortCounts,
+  sourcesText,
   vulnsCell,
   workloadImages,
 } from "./imageFindings";
@@ -256,6 +257,25 @@ describe("the prompt and the Overview", () => {
     const text = agentPrompt({ cluster: "kind", kind: "Deployment", namespace: "demo", name: "web", problem: "", findings: lines });
     expect(text).toContain("Known image vulnerabilities");
     expect(promptLines([{ row: envoy, containers: ["x"] }], S, NOW)).toEqual([]);
+  });
+
+  it("names local scans as the source when the rows come from them (#536)", () => {
+    const local = img({ image: "a:1", source: "local_scanner" });
+    const op = img({ image: "b:1" });
+    expect(sourcesText([op])).toBe("the Trivy Operator's reports");
+    expect(sourcesText([local])).toBe("local scans");
+    expect(sourcesText([local, op])).toBe("the Trivy Operator's reports and local scans");
+    // Unscanned rows say nothing about the source.
+    expect(sourcesText([local, img({ image: "c:1", scanned: false })])).toBe("local scans");
+  });
+
+  it("points to the MCP tool only for the operator's reports (#536)", () => {
+    const op = index.byWorkload.get("demo/Deployment/web")!;
+    expect(promptLines(op, S, NOW).at(-1)).toContain("image_vulnerabilities");
+    const local = op.map((w) => ({ ...w, row: { ...w.row, source: "local_scanner" as const } }));
+    const lines = promptLines(local, S, NOW);
+    expect(lines[0]).toContain("local scans");
+    expect(lines.at(-1)).not.toContain("image_vulnerabilities");
   });
 
   it("counts images with a fix waiting, never red", () => {

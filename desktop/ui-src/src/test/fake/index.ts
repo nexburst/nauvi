@@ -18,6 +18,7 @@ import { filesHandlers } from "./files";
 import { helpHandlers } from "./help";
 import { helmHandlers } from "./helm";
 import { helmChartsHandlers } from "./helm-charts";
+import { imageScanHandlers } from "./image-scan";
 import { imageSecurityHandlers } from "./image-security";
 import { kubectlHandlers } from "./kubectl";
 import { linksHandlers } from "./links";
@@ -56,6 +57,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...helpHandlers(s),
     ...helmHandlers(s),
     ...helmChartsHandlers(s),
+    ...imageScanHandlers(s),
     ...imageSecurityHandlers(s),
     ...kubectlHandlers(s),
     ...linksHandlers(s),
