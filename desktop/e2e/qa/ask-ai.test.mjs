@@ -34,12 +34,14 @@ import { closeTab, dockTabs, panelButton } from "../lib/dock.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { createProfile } from "../lib/profile.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { cannotLaunchTwice, startBus } from "../lib/second-launch.mjs";
 import { terminal } from "../lib/terminal.mjs";
 
 const T = { timeout: 180_000 };
 const target = process.env.CARGO_TARGET_DIR || join(REPO, "target");
 const CLI = process.env.NAUVI_CLI || join(target, "debug", "nauvi");
 const noCli = existsSync(CLI) ? false : `no nauvi CLI at ${CLI} (cargo build -p nauvi)`;
+const noBus = cannotLaunchTwice();
 const noPython = existsSync("/usr/bin/python3") ? false : "no /usr/bin/python3 for the fake AI CLI";
 const AI_NAMES = ["claude", "codex", "gemini"];
 // A pod that keeps failing, for `nauvi problems` to find.
@@ -105,15 +107,16 @@ print("FAKE-AI started with %d arguments" % len(args))
 print("skill: " + ("found" if rec["skill_exists"] else "missing"))
 for line in rec.get("problems", "").splitlines()[:6]:
     print("| " + line[:110])
-if rec.get("link"):
-    print("Pod %s/broken keeps failing:" % ns)
-    print(rec["link"])
-    print("\x1b]8;;%s\x07OSC-BROKEN\x1b]8;;\x07" % rec["link"])
 print("Type done to exit")
 for line in sys.stdin:
     cmd = line.strip()
     if cmd == "done":
         break
+    # "links": the answer the skill asks for, a pod and its link.
+    if cmd == "links" and rec.get("link"):
+        print("Pod %s/broken keeps failing:" % ns)
+        print(rec["link"])
+        print("\x1b]8;;%s\x07OSC-BROKEN\x1b]8;;\x07" % rec["link"])
     # "show pod/x": what the skill does when the user asks to see something.
     if cmd.startswith("show "):
         out, err, _ = nauvi("show", *cmd.split()[1:], "-n", ns)
@@ -196,17 +199,25 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
   const skillDir = join(profile.home, ".claude", "skills", "nauvi");
   const skillFile = join(skillDir, "SKILL.md");
   const askAiDir = join(profile.home, ".local", "share", "com.nauvi.app", "ask-ai");
-  const s = appSession("ask-ai", () => ({
-    profile,
-    env: {
-      PATH: pathWithoutAiClis([profile.bin, bin]),
-      TMPDIR: tmp,
-      ASK_AI_RECORD: record,
-      ASK_AI_NS: ns,
-      CLAUDE_CONFIG_DIR: "",
-    },
-  }));
+  // A private session bus, so `nauvi show` reaches this app through the
+  // single-instance hand-over (as single-instance.test.mjs).
+  let bus = null;
+  const s = appSession("ask-ai", async () => {
+    if (!noBus) bus = await startBus();
+    return {
+      profile,
+      env: {
+        PATH: pathWithoutAiClis([profile.bin, bin]),
+        TMPDIR: tmp,
+        ASK_AI_RECORD: record,
+        ASK_AI_NS: ns,
+        CLAUDE_CONFIG_DIR: "",
+        ...(bus ? { DBUS_SESSION_BUS_ADDRESS: bus.address } : {}),
+      },
+    };
+  });
   after(() => {
+    bus?.stop();
     profile.remove();
     deleteNamespace(ns);
     rmSync(work, { recursive: true, force: true });
@@ -450,6 +461,8 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     assert.equal(rec.link_code, 0, rec.link_err);
     assert.equal(rec.link, brokenLink());
     assert.equal(rec.link_context, CONTEXT);
+    await term.type("links");
+    await term.waitFor("OSC-BROKEN");
     // The setting is off: no token, and `nauvi show` gives the link instead.
     assert.equal(rec.show_token, "");
     assert.match(rec.show_first, /Let Ask AI open views/);
@@ -495,7 +508,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     for (const tab of await dockTabs(app)) await closeTab(app, tab.title);
   });
 
-  it("with Let Ask AI open views on, nauvi show opens the pod; Back returns; one per 3 s (light and dark)", { ...T, skip: noCli || noPython }, async () => {
+  it("with Let Ask AI open views on, nauvi show opens the pod; Back returns; one per 3 s (light and dark)", { ...T, skip: noCli || noPython || noBus }, async () => {
     const { app } = s;
     await setTheme(app, "light");
     await openAiSettings(app);
