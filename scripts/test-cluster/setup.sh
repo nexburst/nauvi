@@ -125,6 +125,9 @@ kubectl "${KCTX[@]}" apply -f "$SCRIPT_DIR/demo.yaml"
 # security tests create fixture reports (#533).
 kubectl "${KCTX[@]}" apply -f "$SCRIPT_DIR/trivy-vulnerabilityreports-crd.yaml"
 
+# 7. Its ConfigAuditReport CRD (misconfigurations, #538), likewise.
+kubectl "${KCTX[@]}" apply -f "$SCRIPT_DIR/trivy-configauditreports-crd.yaml"
+
 echo "Waiting for metrics-server and the demo workload..."
 kubectl "${KCTX[@]}" -n kube-system rollout status deploy/metrics-server --timeout=180s
 kubectl "${KCTX[@]}" -n demo rollout status deploy/web --timeout=180s
