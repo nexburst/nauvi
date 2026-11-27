@@ -125,6 +125,7 @@ fn an_untouched_background_cluster_is_disconnected_after_the_timeout() {
     assert!(b.usage.lock().unwrap().is_empty());
     assert!(b.prometheus.lock().unwrap().is_none());
     assert!(b.image_security.lock().unwrap().is_none());
+    assert!(b.image_config.lock().unwrap().is_none());
     // Still connected to the window: the next command connects again.
     assert!(!b.is_closed());
     assert!(Arc::ptr_eq(&b, &state.cluster(MAIN_WINDOW, "b")));

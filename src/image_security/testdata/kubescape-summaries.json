@@ -1,0 +1,72 @@
+{
+  "apiVersion": "spdx.softwarecomposition.kubescape.io/v1beta1",
+  "kind": "VulnerabilityManifestSummaryList",
+  "metadata": { "continue": "" },
+  "items": [
+    {
+      "metadata": {
+        "name": "deployment-web-nginx",
+        "namespace": "shop",
+        "creationTimestamp": "2026-11-20T10:00:00Z",
+        "labels": {
+          "kubescape.io/context": "non-filtered",
+          "kubescape.io/workload-api-group": "apps",
+          "kubescape.io/workload-api-version": "v1",
+          "kubescape.io/workload-kind": "deployment",
+          "kubescape.io/workload-name": "web",
+          "kubescape.io/workload-namespace": "shop",
+          "kubescape.io/workload-container-name": "nginx"
+        },
+        "annotations": {
+          "kubescape.io/image-id": "docker.io/library/nginx@sha256:1111",
+          "kubescape.io/image-tag": "docker.io/library/nginx:1.27",
+          "kubescape.io/timestamp": "1795000000",
+          "kubescape.io/wlid": "wlid://cluster-kind/namespace-shop/deployment-web",
+          "kubescape.io/workload-container-name": "nginx"
+        }
+      },
+      "spec": {
+        "severities": {
+          "critical": { "all": 1, "relevant": 0 },
+          "high": { "all": 2, "relevant": 1 },
+          "medium": { "all": 0 },
+          "low": { "all": 1 },
+          "negligible": { "all": 2 },
+          "unknown": { "all": 0 }
+        },
+        "vulnerabilitiesRef": {
+          "all": { "kind": "VulnerabilityManifest", "name": "docker.io-library-nginx-1.27-abcdef", "namespace": "kubescape" },
+          "relevant": { "kind": "VulnerabilityManifest", "name": "", "namespace": "" }
+        }
+      }
+    },
+    {
+      "metadata": {
+        "name": "statefulset-api-app",
+        "namespace": "shop",
+        "creationTimestamp": "2026-11-18T08:00:00Z",
+        "labels": {
+          "kubescape.io/workload-kind": "statefulset",
+          "kubescape.io/workload-name": "api",
+          "kubescape.io/workload-namespace": "shop",
+          "kubescape.io/workload-container-name": "app"
+        },
+        "annotations": {
+          "kubescape.io/image-id": "ghcr.io/acme/api@sha256:2222"
+        }
+      },
+      "spec": {
+        "severities": { "medium": { "all": 4 } },
+        "vulnerabilitiesRef": { "all": { "kind": "VulnerabilityManifest", "name": "ghcr.io-acme-api-2222" } }
+      }
+    },
+    {
+      "metadata": {
+        "name": "deployment-broken-app",
+        "namespace": "shop",
+        "labels": { "kubescape.io/workload-kind": "deployment", "kubescape.io/workload-name": "broken" },
+        "annotations": { "kubescape.io/status": "Unauthorized" }
+      }
+    }
+  ]
+}

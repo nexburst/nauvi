@@ -144,6 +144,8 @@ pub(crate) struct ClusterSession {
     pub(crate) server_version: tokio::sync::OnceCell<String>,
     /// The last image security listing (#534), read only when asked.
     pub(crate) image_security: Mutex<Option<crate::commands::image_security::VulnsCache>>,
+    /// The last misconfiguration listing (#538), read only when asked.
+    pub(crate) image_config: Mutex<Option<crate::commands::image_config::ConfigCache>>,
     /// When it was last used, and what the idle reaper reported (ADR 0007).
     idle: idle::IdleMark,
     /// Set once the window left the cluster (switched, disconnected, closed

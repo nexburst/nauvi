@@ -61,6 +61,11 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdHelmCharts", "reads"),
     ("cmdHelmGet", "reads"),
     ("cmdHelmList", "reads"),
+    ("cmdImageConfigDetail", "reads one ConfigAuditReport"),
+    (
+        "cmdImageConfigSummary",
+        "reads ConfigAuditReports and ReplicaSet and Job metadata",
+    ),
     ("cmdImageSecurityImage", "reads one VulnerabilityReport"),
     (
         "cmdImageSecuritySummary",

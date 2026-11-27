@@ -178,6 +178,7 @@ impl ClusterSession {
         *self.usage.lock().unwrap() = nauvi::UsageHistory::new();
         *self.prometheus.lock().unwrap() = None;
         *self.image_security.lock().unwrap() = None;
+        *self.image_config.lock().unwrap() = None;
         self.access.clear();
         true
     }

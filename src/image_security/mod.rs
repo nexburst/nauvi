@@ -6,6 +6,11 @@
 //! with the user's own RBAC, only when asked: no watch, no polling. nauvi
 //! never scans an image itself here and never reads `imagePullSecrets`.
 //!
+//! - [`kubescape`]: the same from Kubescape's
+//!   `VulnerabilityManifestSummary`s, when the cluster has no Trivy
+//!   Operator reports (#538).
+//! - [`config_audit`]: misconfigurations from the Trivy Operator's
+//!   `ConfigAuditReport`s, one row per workload, with what to change.
 //! - [`images`]: the pods' containers to distinct images, keyed by digest.
 //! - [`trivy_operator`]: whether the cluster serves the reports, who may
 //!   list them, and reading them (summaries in small pages, one full
@@ -15,7 +20,10 @@
 //!
 //! Results are never "problems": no pill, no notification.
 
+pub mod config_audit;
 pub mod images;
+pub mod kubescape;
+mod paged;
 pub mod render;
 pub mod report;
 pub mod trivy_operator;
@@ -157,6 +165,58 @@ pub struct Workload {
 pub enum ScanSource {
     /// The Trivy Operator's VulnerabilityReports in the cluster.
     TrivyOperator,
+    /// Kubescape's VulnerabilityManifestSummaries (#538), read when the
+    /// cluster has no Trivy Operator reports.
+    Kubescape,
+}
+
+impl ScanSource {
+    /// The API group of its per-workload reports.
+    pub fn group(self) -> &'static str {
+        match self {
+            ScanSource::TrivyOperator => trivy_operator::GROUP,
+            ScanSource::Kubescape => kubescape::GROUP,
+        }
+    }
+
+    /// The resource a listing reads (`vulnerabilityreports`).
+    pub fn plural(self) -> &'static str {
+        match self {
+            ScanSource::TrivyOperator => trivy_operator::PLURAL,
+            ScanSource::Kubescape => kubescape::PLURAL,
+        }
+    }
+
+    /// The kind, plural, as people read it in a sentence.
+    pub fn reports(self) -> &'static str {
+        match self {
+            ScanSource::TrivyOperator => "VulnerabilityReports",
+            ScanSource::Kubescape => "VulnerabilityManifestSummaries",
+        }
+    }
+
+    /// Who made the reports: `the Trivy Operator`, `Kubescape`.
+    pub fn maker(self) -> &'static str {
+        match self {
+            ScanSource::TrivyOperator => "the Trivy Operator",
+            ScanSource::Kubescape => "Kubescape",
+        }
+    }
+
+    /// Whether `kinds` (the app's discovery) has its reports.
+    pub fn served_in(self, kinds: &[crate::resources::ResourceKind]) -> bool {
+        kinds
+            .iter()
+            .any(|k| k.resource.group == self.group() && k.resource.plural == self.plural())
+    }
+
+    /// The source to read from `kinds`: the Trivy Operator when it is
+    /// there, else Kubescape; `None` when the cluster has neither.
+    pub fn of_kinds(kinds: &[crate::resources::ResourceKind]) -> Option<ScanSource> {
+        [ScanSource::TrivyOperator, ScanSource::Kubescape]
+            .into_iter()
+            .find(|s| s.served_in(kinds))
+    }
 }
 
 /// One distinct image (by digest, else by reference) and what is known
@@ -179,10 +239,14 @@ pub struct ImageVulns {
     pub counts: SeverityCounts,
     /// How many of `counts` have a fixed version.
     pub fixable: SeverityCounts,
+    /// Whether `fixable` is known: false for Kubescape's summaries, which
+    /// count by severity only (its full report has the fixes).
+    pub fixes_known: bool,
     /// The workload containers that use it (running pods and reports),
     /// sorted, each once.
     pub workloads: Vec<Workload>,
-    /// The newest report: namespace and name, empty when not scanned.
+    /// The newest report: namespace and name, empty when not scanned. For
+    /// Kubescape, the VulnerabilityManifest its summary points to.
     pub report_namespace: String,
     pub report_name: String,
     /// How many reports cover this image.
@@ -200,7 +264,8 @@ pub struct ImageVulns {
 pub enum VulnsState {
     /// Reports were read (`images` may still be empty after filters).
     Ok,
-    /// The cluster does not serve VulnerabilityReports: no Trivy Operator.
+    /// The cluster does not serve the reports: no Trivy Operator (nor
+    /// Kubescape, for vulnerabilities).
     NoOperator,
     /// The CRD is there but no report exists in the scope yet.
     NoReports,
@@ -296,6 +361,6 @@ pub struct VulnsArgs {
 }
 
 pub use report::{
-    cli_vulns, image_detail, image_detail_of, image_vulns, image_vulns_in,
-    image_vulns_in_namespaces,
+    cli_vulns, image_detail, image_detail_of, image_vulns, image_vulns_from, image_vulns_in,
+    image_vulns_in_namespaces, served_source,
 };

@@ -1,0 +1,63 @@
+{
+  "apiVersion": "aquasecurity.github.io/v1alpha1",
+  "kind": "ConfigAuditReportList",
+  "metadata": { "continue": "" },
+  "items": [
+    {
+      "metadata": {
+        "name": "replicaset-web-5f6b7c",
+        "namespace": "shop",
+        "creationTimestamp": "2026-11-20T09:00:00Z",
+        "labels": {
+          "trivy-operator.resource.kind": "ReplicaSet",
+          "trivy-operator.resource.name": "web-5f6b7c",
+          "trivy-operator.resource.namespace": "shop",
+          "plugin-config-hash": "659b7b9c46"
+        }
+      },
+      "report": {
+        "scanner": { "name": "Trivy", "vendor": "Aqua Security", "version": "0.69.3" },
+        "summary": { "criticalCount": 0, "highCount": 1, "mediumCount": 2, "lowCount": 3 },
+        "updateTimestamp": "2026-11-20T10:00:00Z",
+        "checks": [
+          { "checkID": "KSV014", "severity": "HIGH", "success": false, "title": "Root file system is not read-only" }
+        ]
+      }
+    },
+    {
+      "metadata": {
+        "name": "replicaset-web-old",
+        "namespace": "shop",
+        "creationTimestamp": "2026-11-01T09:00:00Z",
+        "labels": {
+          "trivy-operator.resource.kind": "ReplicaSet",
+          "trivy-operator.resource.name": "web-old",
+          "trivy-operator.resource.namespace": "shop"
+        }
+      },
+      "report": {
+        "scanner": { "name": "Trivy", "vendor": "Aqua Security", "version": "0.69.3" },
+        "summary": { "criticalCount": 2, "highCount": 4, "mediumCount": 0, "lowCount": 0 },
+        "updateTimestamp": "2026-11-01T10:00:00Z",
+        "checks": []
+      }
+    },
+    {
+      "metadata": {
+        "name": "service-api",
+        "namespace": "shop",
+        "creationTimestamp": "2026-11-18T08:00:00Z",
+        "labels": {
+          "trivy-operator.resource.kind": "Service",
+          "trivy-operator.resource.name": "api",
+          "trivy-operator.resource.namespace": "shop"
+        }
+      },
+      "report": {
+        "scanner": { "name": "Trivy", "vendor": "Aqua Security", "version": "0.69.3" },
+        "summary": { "criticalCount": 0, "highCount": 0, "mediumCount": 0, "lowCount": 0 },
+        "checks": []
+      }
+    }
+  ]
+}

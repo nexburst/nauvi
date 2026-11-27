@@ -10,6 +10,7 @@ import type {
   ImageSecurityMode,
   ImageSecuritySettings_Serialize as ImageSecuritySettings,
   ImageVulns,
+  ScanSource,
   Severity,
   SeverityCounts,
   Vulnerability,
@@ -73,7 +74,8 @@ function only(c: SeverityCounts, min: Severity): SeverityCounts {
 
 /** The counts a row is judged by: its findings (or only those with a fix), `min` or worse. */
 export function countedOf(row: ImageVulns, s: ImageSecuritySettings): SeverityCounts {
-  return only(s.only_fixable ? row.fixable : row.counts, s.min_severity);
+  // Kubescape's summaries do not say which have a fix: count them all.
+  return only(s.only_fixable && row.fixes_known ? row.fixable : row.counts, s.min_severity);
 }
 
 /** `2 critical and 5 high`, `1 medium`. */
@@ -122,10 +124,14 @@ export function verdict(row: ImageVulns, s: ImageSecuritySettings): Verdict {
     const text =
       lower === 0
         ? "No known vulnerabilities."
-        : s.only_fixable
+        : s.only_fixable && row.fixes_known
           ? `No ${scopeWords(s.min_severity)} vulnerabilities with a fix.`
           : `No ${scopeWords(s.min_severity)} vulnerabilities; ${lower} lower ${lower === 1 ? "one" : "ones"}.`;
     return { kind: "clean", tone: "neutral", text, counted: 0, fixable: 0 };
+  }
+  if (!row.fixes_known) {
+    const tone: Tone = counted.critical + counted.high > 0 ? "high" : "neutral";
+    return { kind: "findings", tone, text: `${countsText(counted)}. Open it to see which have a fix.`, counted: n, fixable: 0 };
   }
   let fix: string;
   if (s.only_fixable) fix = n === 1 ? "It has a fix." : "Each has a fix.";
@@ -190,6 +196,9 @@ const plural = (n: number, one: string, many: string) => (n === 1 ? one : many);
 export function headline(rows: readonly ImageRow[]): string {
   const waiting = rows.filter((r) => r.verdict.kind === "findings" && r.verdict.fixable > 0).length;
   if (waiting > 0) return `${waiting} ${plural(waiting, "image has a fix", "images have fixes")} waiting`;
+  // Kubescape: whether they have a fix is known only per image.
+  const unknown = rows.filter((r) => r.verdict.kind === "findings" && !r.row.fixes_known).length;
+  if (unknown > 0) return `${unknown} ${plural(unknown, "image has", "images have")} known vulnerabilities`;
   if (rows.some((r) => r.verdict.kind === "findings")) return "No fixes waiting";
   if (rows.length > 0 && rows.every((r) => r.verdict.kind === "unscanned")) return "Not scanned yet";
   return "No known vulnerabilities";
@@ -270,11 +279,20 @@ export function agoText(secs: number): string {
 
 /** Where the data comes from and how old it is: "Trivy 0.69.3 through Trivy Operator, 2 days ago". */
 export function sourceText(row: ImageVulns, nowSecs: number): { text: string; stale: boolean } {
-  if (!row.scanned) return { text: "No VulnerabilityReport for it yet", stale: false };
-  const scanner = row.scanner || "Trivy";
+  const kubescape = row.source === "kubescape";
+  if (!row.scanned)
+    return { text: kubescape ? "No Kubescape scan for it yet" : "No VulnerabilityReport for it yet", stale: false };
   const age = row.scanned_at > 0 ? nowSecs - row.scanned_at : 0;
   const when = row.scanned_at > 0 ? `, ${agoText(age)}` : "";
-  return { text: `${scanner} through Trivy Operator${when}`, stale: row.scanned_at > 0 && age > STALE_SECS };
+  const text = kubescape ? `Kubescape scan${when}` : `${row.scanner || "Trivy"} through Trivy Operator${when}`;
+  return { text, stale: row.scanned_at > 0 && age > STALE_SECS };
+}
+
+/** The resource a source's listing reads, as RBAC names it. */
+export function reportsResource(source: ScanSource): string {
+  return source === "kubescape"
+    ? "vulnerabilitymanifestsummaries.spdx.softwarecomposition.kubescape.io"
+    : "vulnerabilityreports.aquasecurity.github.io";
 }
 
 const SHORT_KIND: Record<string, string> = {
@@ -317,20 +335,22 @@ export function stateMessage(summary: VulnsSummary): { title: string; detail: st
         reason: "no-operator",
         title: "This cluster has no Trivy Operator reports",
         detail:
-          "It does not serve VulnerabilityReports (aquasecurity.github.io). nauvi shows the scans the Trivy Operator makes in the cluster; install it there to see which images have known vulnerabilities.",
+          "It does not serve VulnerabilityReports (aquasecurity.github.io), nor Kubescape's VulnerabilityManifestSummaries. nauvi shows the scans the Trivy Operator (or Kubescape) makes in the cluster; install one there to see which images have known vulnerabilities.",
       };
     case "forbidden":
       return {
         reason: "forbidden",
-        title: `You are not allowed to list vulnerabilityreports in ${namespacesText(summary.forbidden_namespaces)}`,
-        detail: "Ask for list access to vulnerabilityreports.aquasecurity.github.io, or pick a namespace you may read.",
+        title: `You are not allowed to list ${reportsResource(summary.source).split(".")[0]} in ${namespacesText(summary.forbidden_namespaces)}`,
+        detail: `Ask for list access to ${reportsResource(summary.source)}, or pick a namespace you may read.`,
       };
     case "no_reports":
       return {
         reason: "no-reports",
         title: "Not scanned yet",
         detail:
-          "The Trivy Operator is installed but has no VulnerabilityReports here yet. It scans new workloads within minutes; check that it watches these namespaces.",
+          summary.source === "kubescape"
+            ? "Kubescape is installed but has no VulnerabilityManifestSummaries here yet. It scans new workloads within minutes; check that its vulnerability scanning is on for these namespaces."
+            : "The Trivy Operator is installed but has no VulnerabilityReports here yet. It scans new workloads within minutes; check that it watches these namespaces.",
       };
     default:
       return null;
@@ -342,7 +362,9 @@ export function viewNotes(summary: VulnsSummary): string[] {
   const notes = summary.notes.map((n) => n.replace(/; narrow with -n\.$/, "; pick fewer namespaces to see the rest."));
   if (summary.state === "ok" || summary.state === "no_reports") {
     if (summary.forbidden_namespaces.length > 0)
-      notes.unshift(`You are not allowed to list vulnerabilityreports in ${namespacesText(summary.forbidden_namespaces)}.`);
+      notes.unshift(
+        `You are not allowed to list ${reportsResource(summary.source).split(".")[0]} in ${namespacesText(summary.forbidden_namespaces)}.`,
+      );
   }
   return notes;
 }

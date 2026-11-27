@@ -52,17 +52,24 @@ pub(crate) struct ImageSecurityList {
     pub(crate) read_at: i64,
 }
 
-fn enabled(cluster: &ClusterSession, settings: &SettingsStore) -> bool {
+pub(crate) fn enabled(cluster: &ClusterSession, settings: &SettingsStore) -> bool {
     cluster
         .context_id()
         .is_ok_and(|id| settings.get().image_security_enabled(&id))
 }
 
-fn sorted(mut namespaces: Vec<String>) -> Vec<String> {
+pub(crate) fn sorted(mut namespaces: Vec<String>) -> Vec<String> {
     namespaces.retain(|n| !n.is_empty());
     namespaces.sort();
     namespaces.dedup();
     namespaces
+}
+
+/// Now, unix seconds.
+pub(crate) fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// The listing of `namespaces`, from the cache while it is younger than
@@ -100,9 +107,7 @@ async fn listing(
     let summary = image_vulns_in_namespaces(&client, &kinds, &namespaces, &VulnsArgs::default())
         .await
         .map_err(|e| nauvi::error_text(&e))?;
-    let read_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64);
+    let read_at = now_secs();
     // Not kept if the window left the cluster meanwhile.
     if !cluster.is_closed() {
         *cluster.image_security.lock().unwrap() = Some(VulnsCache {
@@ -167,7 +172,7 @@ pub(crate) mod tests {
     use crate::settings::ImageSecurityMode;
 
     /// A session on context `id` of an added kubeconfig in a temp dir.
-    fn session(id: &str) -> (ClusterSession, std::path::PathBuf) {
+    pub(crate) fn session(id: &str) -> (ClusterSession, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("nauvi-534-{id}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("kubeconfig.yaml");
