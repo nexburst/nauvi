@@ -459,6 +459,19 @@ pub(crate) fn cmd_image_scan_cancel() {
 
 pub(crate) const CANCELLED: &str = "The scan was cancelled.";
 
+/// `work`'s output, unless the scan is cancelled first (then `work` is
+/// dropped). A Cancel that came before this is awaited counts too:
+/// `notify_one` keeps it.
+async fn or_cancelled<T>(
+    cancel: &Notify,
+    work: impl std::future::Future<Output = T>,
+) -> Result<T, String> {
+    tokio::select! {
+        r = work => Ok(r),
+        _ = cancel.notified() => Err(CANCELLED.into()),
+    }
+}
+
 fn options_of(s: &crate::settings::ImageSecuritySettings) -> ScanOptions {
     ScanOptions {
         db_repository: s.db_repository.clone(),
@@ -520,7 +533,9 @@ pub(crate) async fn cmd_image_scan(
     };
     let (_slot, cancel) = Slot::take(&row.image)?;
     let client = cluster.client().await?;
-    let platform = platform_of(&client, &row).await;
+    // Reading the nodes and the registry's lookups can be slow: Cancel
+    // stops them too (#583).
+    let platform = or_cancelled(&cancel, platform_of(&client, &row)).await?;
     let target = scan_target(&row.image, &row.digest, &platform)?;
     let results = dirs.results();
     let kept = results
@@ -531,17 +546,16 @@ pub(crate) async fn cmd_image_scan(
         None => {
             // The registry's addresses (#572): best effort, the scanner
             // resolves the name again.
-            local::check_target_resolves(&target).await?;
+            or_cancelled(&cancel, local::check_target_resolves(&target)).await??;
             // The file once more, right before it runs (#573): the lookups
             // above took a while.
             let path = still_approved(&dirs, s.scanner, &status, &path).await?;
             let work = dirs.work()?;
             let opts = options_of(&s);
             let run = local::scan(s.scanner, &path, &status.version, &target, &opts, &work);
-            let vulns = tokio::select! {
-                r = run => r.map_err(|e| nauvi::error_text(&e))?,
-                _ = cancel.notified() => return Err(CANCELLED.into()),
-            };
+            let vulns = or_cancelled(&cancel, run)
+                .await?
+                .map_err(|e| nauvi::error_text(&e))?;
             // The scan may have updated the database.
             let (after, _) = scanner_status(&dirs, s.scanner, true).await;
             let db = if after.db.is_empty() {

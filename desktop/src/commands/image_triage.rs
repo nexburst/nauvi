@@ -280,24 +280,35 @@ pub(crate) async fn cmd_image_kev_update(
     }
     let dir = kev_dir(&app)?;
     let mut failed = DOWNLOAD.lock().await;
-    // A catalogue downloaded this way a moment ago is not downloaded again.
-    {
-        let mut last = LAST_MANUAL.lock().unwrap();
-        if let Some(wait) = cooldown_left(*last, kev::load(&dir).is_some(), Instant::now()) {
-            return Err(format!(
-                "The list was downloaded less than a minute ago. Try again in {} s.",
-                wait.as_secs().max(1)
-            ));
-        }
-        *last = Some(Instant::now());
+    // A catalogue downloaded this way a moment ago is not downloaded again
+    // (a failed download does not count: retrying it is not refused).
+    // `DOWNLOAD` is held, so no other download runs in between.
+    let last = *LAST_MANUAL.lock().unwrap();
+    if let Some(wait) = cooldown_left(last, kev::load(&dir).is_some(), Instant::now()) {
+        return Err(format!(
+            "The list was downloaded less than a minute ago. Try again in {} s.",
+            wait.as_secs().max(1)
+        ));
     }
+    let started = Instant::now();
     let result = download_kev(&dir).await;
     *failed = result.is_err().then(Instant::now);
+    *LAST_MANUAL.lock().unwrap() = after_manual(last, started, result.is_ok());
     result?;
     Ok(status_of(&s, Some(&dir)))
 }
 
-/// When the last download of [`cmd_image_kev_update`] started.
+/// What [`LAST_MANUAL`] becomes after a manual download that started at
+/// `started`: that time when it succeeded, else what it was.
+fn after_manual(last: Option<Instant>, started: Instant, ok: bool) -> Option<Instant> {
+    if ok {
+        Some(started)
+    } else {
+        last
+    }
+}
+
+/// When the last successful download of [`cmd_image_kev_update`] started.
 static LAST_MANUAL: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
 /// The least time between two of them, while a catalogue is kept.
 const MANUAL_COOLDOWN: Duration = Duration::from_secs(60);
@@ -329,6 +340,21 @@ mod tests {
             cooldown_left(Some(t0), false, t0 + Duration::from_secs(5)),
             None
         );
+    }
+
+    #[test]
+    fn only_a_successful_manual_download_starts_the_wait() {
+        let t0 = Instant::now();
+        let t1 = t0 + Duration::from_secs(90);
+        // A failed download keeps what was there: none, or an older one.
+        assert_eq!(after_manual(None, t1, false), None);
+        assert_eq!(after_manual(Some(t0), t1, false), Some(t0));
+        let last = after_manual(None, t1, false);
+        assert_eq!(cooldown_left(last, true, t1 + Duration::from_secs(1)), None);
+        // A successful one starts it.
+        let last = after_manual(Some(t0), t1, true);
+        assert_eq!(last, Some(t1));
+        assert!(cooldown_left(last, true, t1 + Duration::from_secs(1)).is_some());
     }
 
     #[test]

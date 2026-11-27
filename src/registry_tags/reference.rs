@@ -378,15 +378,44 @@ fn legacy_ipv4(host: &str) -> Option<Ipv4Addr> {
 /// AWS's instance metadata over IPv6 (Nitro): not link-local, so named.
 const AWS_METADATA_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254);
 
+/// Alibaba Cloud's instance metadata: in the shared address space
+/// (100.64.0.0/10), not link-local, so named.
+const ALIBABA_METADATA: Ipv4Addr = Ipv4Addr::new(100, 100, 100, 200);
+
 /// Why nauvi does not connect to `ip` as a registry (`None`: it may).
 pub(crate) fn ip_refused(ip: IpAddr, allow_loopback: bool) -> Option<&'static str> {
     if ip == IpAddr::V6(AWS_METADATA_V6) {
         return Some("a cloud metadata endpoint");
     }
-    let ip = match ip {
-        IpAddr::V6(v6) => embedded_v4(v6).map_or(ip, IpAddr::V4),
-        v4 => v4,
-    };
+    match ip {
+        IpAddr::V6(v6) => match embedded_v4(v6) {
+            Some(v4) => v4_refused(v4, allow_loopback),
+            None => {
+                let local = nat64_local_v4(v6);
+                // A position that reads 0.0.0.0 is the zeros around the
+                // address at another one; all of them 0.0.0.0 is refused.
+                if !local.is_empty() && local.iter().all(|v4| v4.is_unspecified()) {
+                    return v4_refused(Ipv4Addr::UNSPECIFIED, allow_loopback);
+                }
+                local
+                    .into_iter()
+                    .filter(|v4| !v4.is_unspecified())
+                    .find_map(|v4| v4_refused(v4, allow_loopback))
+                    .or_else(|| plain_refused(ip, allow_loopback))
+            }
+        },
+        IpAddr::V4(v4) => v4_refused(v4, allow_loopback),
+    }
+}
+
+fn v4_refused(v4: Ipv4Addr, allow_loopback: bool) -> Option<&'static str> {
+    if v4 == ALIBABA_METADATA {
+        return Some("a cloud metadata endpoint");
+    }
+    plain_refused(IpAddr::V4(v4), allow_loopback)
+}
+
+fn plain_refused(ip: IpAddr, allow_loopback: bool) -> Option<&'static str> {
     if ip.is_loopback() {
         return (!allow_loopback).then_some("this machine (a loopback address)");
     }
@@ -417,6 +446,24 @@ fn embedded_v4(v6: Ipv6Addr) -> Option<Ipv4Addr> {
         return Some(last);
     }
     None
+}
+
+/// The IPv4 addresses an address of the NAT64 local-use prefix
+/// `64:ff9b:1::/48` (RFC 8215) may stand for. Its operator picks the prefix
+/// length (/48 to /96) and nauvi cannot tell which, so every RFC 6052
+/// position that fits under it is checked: /48, /56, /64 (around the
+/// reserved octet 8) and /96. Empty for any other address.
+fn nat64_local_v4(v6: Ipv6Addr) -> Vec<Ipv4Addr> {
+    if v6.segments()[..3] != [0x64, 0xff9b, 1] {
+        return Vec::new();
+    }
+    let o = v6.octets();
+    vec![
+        Ipv4Addr::new(o[6], o[7], o[9], o[10]),
+        Ipv4Addr::new(o[7], o[9], o[10], o[11]),
+        Ipv4Addr::new(o[9], o[10], o[11], o[12]),
+        Ipv4Addr::new(o[12], o[13], o[14], o[15]),
+    ]
 }
 
 fn is_link_local(ip: IpAddr) -> bool {
@@ -540,6 +587,56 @@ mod tests {
         for ok in ["64:ff9b::8.8.8.8", "::8.8.8.8", "2001:db8::1"] {
             assert_eq!(ip_refused(ip(ok), false), None, "{ok}");
         }
+    }
+
+    #[test]
+    fn nat64_local_use_prefix_is_checked_at_every_prefix_length() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        for bad in [
+            "64:ff9b:1::7f00:1",          // /96: 127.0.0.1
+            "64:ff9b:1::169.254.169.254", // /96: metadata
+            "64:ff9b:1:7f00:0:100::",     // /48: 127.0.0.1 (octets 6-7, 9-10)
+            "64:ff9b:1:a9:fe:a9fe::",     // /56: 169.254.169.254
+            "64:ff9b:1:0:7f:0:100:0",     // /64: 127.0.0.1 (octets 9-12)
+            "64:ff9b:1::100.100.100.200", // /96: Alibaba metadata
+            "64:ff9b:1::",                // /96: 0.0.0.0
+        ] {
+            assert!(ip_refused(ip(bad), false).is_some(), "{bad} was allowed");
+            assert!(
+                check_host(&format!("[{bad}]:443"), false).is_err(),
+                "[{bad}]"
+            );
+        }
+        assert!(ip_refused(ip("64:ff9b:1::7f00:1"), false)
+            .unwrap()
+            .contains("loopback"));
+        assert_eq!(ip_refused(ip("64:ff9b:1::7f00:1"), true), None);
+        for ok in [
+            "64:ff9b:1::8.8.8.8",    // /96: 8.8.8.8
+            "64:ff9b:1:808:8:800::", // /48: 8.8.8.8
+            "64:ff9b:2::7f00:1",     // outside the /48
+        ] {
+            assert_eq!(ip_refused(ip(ok), false), None, "{ok}");
+        }
+    }
+
+    #[test]
+    fn alibaba_metadata_is_refused() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        for bad in [
+            "100.100.100.200",
+            "::ffff:100.100.100.200",
+            "64:ff9b::100.100.100.200",
+        ] {
+            let why = ip_refused(ip(bad), true).unwrap();
+            assert!(why.contains("metadata"), "{bad}: {why}");
+        }
+        assert!(check_host("100.100.100.200", true)
+            .unwrap_err()
+            .contains("a cloud metadata endpoint"));
+        // Its neighbours in the shared address space are ordinary.
+        assert_eq!(ip_refused(ip("100.100.100.201"), false), None);
+        assert_eq!(ip_refused(ip("100.64.0.1"), false), None);
     }
 
     #[test]

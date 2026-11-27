@@ -373,3 +373,29 @@ async fn one_scan_at_a_time() {
     drop(slot);
     assert!(Slot::take("redis:7").is_ok());
 }
+
+#[tokio::test]
+async fn cancel_stops_a_slow_step_before_the_scanner() {
+    // A Cancel while a step (the nodes, the DNS check) hangs stops it.
+    let cancel = Arc::new(Notify::new());
+    let c = cancel.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        c.notify_one();
+    });
+    let r = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        or_cancelled(&cancel, std::future::pending::<()>()),
+    )
+    .await
+    .expect("Cancel did not interrupt the step");
+    assert_eq!(r, Err(CANCELLED.to_string()));
+    // A Cancel that came before the step started counts too.
+    cancel.notify_one();
+    assert_eq!(
+        or_cancelled(&cancel, std::future::pending::<()>()).await,
+        Err(CANCELLED.to_string())
+    );
+    // Without one, the step's output.
+    assert_eq!(or_cancelled(&cancel, async { 7 }).await, Ok(7));
+}
