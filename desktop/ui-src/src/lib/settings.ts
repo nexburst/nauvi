@@ -80,6 +80,8 @@ export interface SettingsPatch {
   tips_left?: number;
   /** The whole image security section (#534). */
   image_security?: ImageSecuritySettings;
+  /** The k9s keys that clash with nauvi's own (#575). */
+  k9s_keys?: boolean;
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -133,6 +135,7 @@ export function defaultSettings(): Settings {
       ignores: [],
       kev_download: false,
     },
+    k9s_keys: false,
   };
 }
 
@@ -213,6 +216,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.ask_ai_command != null) next.ask_ai_command = patch.ask_ai_command.trim();
   if (patch.ask_ai_open_views != null) next.ask_ai_open_views = patch.ask_ai_open_views;
   if (patch.welcomed != null) next.welcomed = patch.welcomed;
+  if (patch.k9s_keys != null) next.k9s_keys = patch.k9s_keys;
   if (patch.tips_left != null) next.tips_left = Math.max(0, Math.min(TIPS_SESSIONS, patch.tips_left));
   if (patch.image_security != null) next.image_security = patch.image_security;
   return next;

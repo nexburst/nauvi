@@ -270,6 +270,10 @@ pub(crate) struct Settings {
     pub(crate) tips_left: u32,
     /// Image security (#534): off by default.
     pub(crate) image_security: ImageSecuritySettings,
+    /// The k9s keys that clash with nauvi's own (#575): Ctrl+K kills a
+    /// pod (the palette stays on Ctrl+P outside macOS) and Shift+L opens
+    /// a pod's previous logs. Off by default.
+    pub(crate) k9s_keys: bool,
 }
 
 /// The starts that show the tips strip on a first run (#485).
@@ -416,6 +420,7 @@ impl Default for Settings {
             welcomed: true,
             tips_left: 0,
             image_security: ImageSecuritySettings::default(),
+            k9s_keys: false,
         }
     }
 }
@@ -527,6 +532,8 @@ pub(crate) struct SettingsPatch {
     /// The whole image security section (#534).
     #[specta(optional)]
     pub(crate) image_security: Option<ImageSecuritySettings>,
+    #[specta(optional)]
+    pub(crate) k9s_keys: Option<bool>,
 }
 
 impl Settings {
@@ -612,6 +619,9 @@ impl Settings {
         }
         if let Some(v) = patch.image_security {
             self.image_security = v.normalized();
+        }
+        if let Some(v) = patch.k9s_keys {
+            self.k9s_keys = v;
         }
         for (id, mut ctx) in patch.contexts.unwrap_or_default() {
             // The mode has its own command (#338).
@@ -1161,6 +1171,19 @@ mod tests {
             ..Default::default()
         });
         assert_eq!((s.zoom, s.terminal_font_size), (125, 16));
+    }
+
+    #[test]
+    fn k9s_keys_are_off_until_turned_on() {
+        let mut s = Settings::default();
+        assert!(!s.k9s_keys);
+        assert!(!parse("{}").unwrap().k9s_keys);
+        s.apply(SettingsPatch {
+            k9s_keys: Some(true),
+            ..Default::default()
+        });
+        assert!(s.k9s_keys);
+        assert!(parse(r#"{"k9s_keys":true}"#).unwrap().k9s_keys);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bindingFor, formatBinding, KEYMAP, leftToTerminal, shortcutHint } from "./keys";
+import { bindingFor, formatBinding, KEYMAP, leftToTerminal, shortcutHint, SORT_KEYS } from "./keys";
 import type { KeyEventLike } from "./keys";
 
 const press = (key: string, mods: Partial<KeyEventLike> = {}): KeyEventLike => ({
@@ -24,7 +24,8 @@ describe("bindingFor", () => {
   it("tells plain letters from their modified forms", () => {
     expect(command(press("k"))).toBe("rowUp");
     expect(command(press("j"))).toBe("rowDown");
-    expect(command(press("J", { shiftKey: true }))).toBeNull();
+    expect(command(press("J", { shiftKey: true }))).toBe("rowOwner");
+    expect(command(press("G", { shiftKey: true }))).toBeNull();
     expect(command(press("j", { altKey: true }))).toBeNull();
   });
 
@@ -135,7 +136,8 @@ describe("bindingFor", () => {
     expect(command(press("r", { ctrlKey: true }))).toBe("refresh");
     expect(command(press("R", { ctrlKey: true, shiftKey: true }))).toBe("refresh");
     expect(command(press("r", { metaKey: true }), true)).toBe("refresh");
-    expect(command(press("r"))).toBeNull();
+    // Plain r restarts the row's workload, as in k9s (#575).
+    expect(command(press("r"))).toBe("rowRestart");
     expect(command(press("r", { ctrlKey: true }), true)).toBeNull();
   });
 
@@ -177,8 +179,8 @@ describe("formatBinding", () => {
     expect(formatBinding(of("rowDown"), false)).toEqual(["↓", "j"]);
     expect(formatBinding(of("rowMenu"), false)).toEqual(["Shift+F10", "Menu"]);
     expect(formatBinding(of("detailTab"), false)).toEqual(["Ctrl+1…9"]);
-    expect(formatBinding(of("deleteRows"), false)).toEqual(["Delete"]);
-    expect(formatBinding(of("deleteRows"), true)).toEqual(["Delete", "⌘Backspace"]);
+    expect(formatBinding(of("deleteRows"), false)).toEqual(["Delete", "Ctrl+D"]);
+    expect(formatBinding(of("deleteRows"), true)).toEqual(["Delete", "⌘Backspace", "⌃D"]);
     expect(formatBinding(of("toggleRow"), false)).toEqual(["Space"]);
     expect(formatBinding(of("toggleDock"), false)).toEqual(["Ctrl+`", "Ctrl+J"]);
     expect(formatBinding(of("toggleDock"), true)).toEqual(["⌘J", "⌃`"]);
@@ -195,7 +197,51 @@ describe("formatBinding", () => {
   it("covers every binding with a label", () => {
     for (const b of KEYMAP) {
       expect(b.label).not.toBe("");
-      expect(formatBinding(b, false).length).toBeGreaterThan(0);
+      expect(formatBinding(b, false, b.keys.some((k) => k.k9s === true)).length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("k9s keys (#575)", () => {
+  const k9s = (e: KeyEventLike, on: boolean, mac = false) => bindingFor(e, mac, on)?.binding.command ?? null;
+  it("binds the keys that clash with nothing for everyone", () => {
+    expect(command(press("d", { ctrlKey: true }))).toBe("deleteRows");
+    expect(command(press("d", { ctrlKey: true }), true)).toBe("deleteRows");
+    expect(command(press("d", { metaKey: true }), true)).toBeNull();
+    expect(command(press("d"))).toBe("openRow");
+    expect(command(press("o"))).toBe("rowNode");
+    expect(command(press("r"))).toBe("rowRestart");
+    expect(command(press("F", { shiftKey: true }))).toBe("rowForward");
+    expect(command(press(" ", { ctrlKey: true }))).toBe("markRange");
+    expect(command(press(" "))).toBe("toggleRow");
+    expect(command(press("\\", { ctrlKey: true }))).toBe("clearMarks");
+    expect(command(press(":", { shiftKey: true }))).toBe("commandMode");
+    const sort = bindingFor(press("A", { shiftKey: true }), false);
+    expect(sort?.binding.command).toBe("sortBy");
+    expect(SORT_KEYS[sort!.index]).toBe("age");
+    expect(SORT_KEYS[bindingFor(press("C", { shiftKey: true }), false)!.index]).toBe("cpu");
+  });
+
+  it("keeps Ctrl+K for the palette and Shift+L unbound until the setting is on", () => {
+    expect(k9s(press("k", { ctrlKey: true }), false)).toBe("palette");
+    expect(k9s(press("k", { ctrlKey: true }), true)).toBe("rowKill");
+    expect(k9s(press("p", { ctrlKey: true }), true)).toBe("palette");
+    // On macOS ⌘K stays the palette and Ctrl+K kills.
+    expect(k9s(press("k", { metaKey: true }), true, true)).toBe("palette");
+    expect(k9s(press("k", { ctrlKey: true }), true, true)).toBe("rowKill");
+    expect(k9s(press("k", { ctrlKey: true }), false, true)).toBeNull();
+    expect(k9s(press("L", { shiftKey: true }), false)).toBeNull();
+    expect(k9s(press("L", { shiftKey: true }), true)).toBe("rowPreviousLogs");
+  });
+
+  it("lists in the help what the setting turns on", () => {
+    const of = (c: string) => KEYMAP.find((b) => b.command === c)!;
+    expect(formatBinding(of("palette"), false, true)).toEqual(["Ctrl+P"]);
+    expect(formatBinding(of("palette"), true, true)).toEqual(["⌘K", "⌘P"]);
+    expect(formatBinding(of("rowKill"), false)).toEqual([]);
+    expect(formatBinding(of("rowKill"), false, true)).toEqual(["Ctrl+K"]);
+    expect(formatBinding(of("rowPreviousLogs"), true, true)).toEqual(["⇧L"]);
+    expect(formatBinding(of("sortBy"), false)).toEqual(["Shift+C", "Shift+M", "Shift+N", "Shift+A", "Shift+S"]);
+    expect(shortcutHint("palette", false, true)).toBe("Ctrl+P");
   });
 });

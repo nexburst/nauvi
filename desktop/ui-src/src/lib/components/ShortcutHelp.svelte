@@ -1,15 +1,30 @@
 <script lang="ts">
   import { formatBinding, isMacPlatform, KEYMAP } from "../keys";
   import type { Binding } from "../keys";
-  import { closeHelp } from "../stores/keyboard.svelte";
+  import { closeHelp, openSettings } from "../stores/keyboard.svelte";
+  import { settings } from "../stores/settings.svelte";
 
   /** `?`: every shortcut, generated from the keymap. */
   const mac = isMacPlatform();
+  // The k9s keys (#575) are listed while they are on.
+  const k9s = $derived(settings.current.k9s_keys);
   const groups = $derived.by(() => {
     const out = new Map<Binding["group"], Binding[]>();
-    for (const b of KEYMAP) out.set(b.group, [...(out.get(b.group) ?? []), b]);
+    for (const b of KEYMAP) {
+      if (formatBinding(b, mac, k9s).length > 0) out.set(b.group, [...(out.get(b.group) ?? []), b]);
+    }
     return [...out.entries()];
   });
+
+  /** Settings, on its Keyboard section. */
+  function keyboardSettings() {
+    try {
+      localStorage.setItem("nauvi.settings.section", "keyboard");
+    } catch {
+      // Storage blocked: Settings opens on its first section.
+    }
+    openSettings();
+  }
 
   function focus(node: HTMLElement) {
     node.focus();
@@ -30,7 +45,7 @@
       <dl>
         {#each bindings as b (b.command)}
           <dt>
-            {#each formatBinding(b, mac) as k, i (k)}
+            {#each formatBinding(b, mac, k9s) as k, i (k)}
               {#if i > 0}<span class="or">or</span>{/if}<kbd>{k}</kbd>
             {/each}
           </dt>
@@ -40,7 +55,13 @@
       </section>
     {/each}
     </div>
-    <p class="muted note">Shortcuts are off while typing in a field, the YAML editor or the terminal.</p>
+    <p class="muted note">
+      Shortcuts are off while typing in a field, the YAML editor or the terminal.
+      <span data-testid="k9s-keys-note"
+        >k9s keys are {k9s ? "on" : "off"}: <button type="button" class="link" onclick={keyboardSettings}>Settings → Keyboard</button
+        >.</span
+      >
+    </p>
   </div>
 </div>
 
@@ -155,5 +176,16 @@
   .note {
     margin: 14px 0 0;
     font-size: 12px;
+  }
+  .link {
+    background: transparent;
+    border: none;
+    color: var(--accent);
+    padding: 0;
+    font: inherit;
+    cursor: pointer;
+  }
+  .link:hover {
+    text-decoration: underline;
   }
 </style>

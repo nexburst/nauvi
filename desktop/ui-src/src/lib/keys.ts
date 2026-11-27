@@ -21,6 +21,15 @@ export type Command =
   | "rowEdit"
   | "rowRestart"
   | "rowPrompt"
+  | "rowKill"
+  | "rowPreviousLogs"
+  | "rowForward"
+  | "rowOwner"
+  | "rowNode"
+  | "markRange"
+  | "clearMarks"
+  | "sortBy"
+  | "commandMode"
   | "problemsOnly"
   | "detailTab"
   | "toggleDock"
@@ -68,6 +77,11 @@ export interface Key {
    * like mc and htop use).
    */
   terminal?: false | "always";
+  /**
+   * The "k9s keys" setting (#575): true, this key only while it is on;
+   * false, only while it is off (the key it takes over).
+   */
+  k9s?: boolean;
 }
 
 export interface Binding {
@@ -91,8 +105,10 @@ const digits = Array.from({ length: 9 }, (_, i) => ({ key: String(i + 1), mod: t
 export const KEYMAP: Binding[] = [
   {
     command: "palette",
+    // With the k9s keys on, Ctrl+K kills a pod outside macOS (⌘K stays).
     keys: [
-      { key: "k", mod: true },
+      { key: "k", mod: true, mac: true },
+      { key: "k", mod: true, mac: false, k9s: false },
       { key: "p", mod: true },
     ],
     label: "Command palette (> actions, ns namespaces, ctx contexts)",
@@ -127,8 +143,26 @@ export const KEYMAP: Binding[] = [
   { command: "rowUp", keys: [{ key: "ArrowUp" }, { key: "k" }], label: "Previous row", group: "Table" },
   { command: "rowFirst", keys: [{ key: "Home" }], label: "First row", group: "Table" },
   { command: "rowLast", keys: [{ key: "End" }], label: "Last row", group: "Table" },
-  { command: "openRow", keys: [{ key: "Enter" }], label: "Open the row's details", group: "Table" },
+  {
+    command: "openRow",
+    keys: [{ key: "Enter" }, { key: "d" }],
+    label: "Open the row's details (d: describe, as in k9s)",
+    group: "Table",
+  },
   { command: "toggleRow", keys: [{ key: " " }], label: "Select or unselect the row", group: "Table" },
+  // k9s (#575): the real Ctrl key on macOS too.
+  {
+    command: "markRange",
+    keys: [{ key: " ", ctrl: true }],
+    label: "Select every row from the last selected one to this one",
+    group: "Table",
+  },
+  {
+    command: "clearMarks",
+    keys: [{ key: "\\", ctrl: true, code: "Backslash" }],
+    label: "Clear the selection",
+    group: "Table",
+  },
   {
     command: "rowMenu",
     keys: [{ key: "F10", shift: true }, { key: "ContextMenu" }],
@@ -137,8 +171,8 @@ export const KEYMAP: Binding[] = [
   },
   {
     command: "deleteRows",
-    keys: [{ key: "Delete" }, { key: "Backspace", mod: true, mac: true }],
-    label: "Delete the selected rows, or the focused one",
+    keys: [{ key: "Delete" }, { key: "Backspace", mod: true, mac: true }, { key: "d", ctrl: true }],
+    label: "Delete the selected rows, or the focused one (asks first)",
     group: "Table",
   },
   { command: "rowPrompt", keys: [{ key: "a" }], label: "Copy a prompt about the row, for your own agent", group: "Table" },
@@ -146,7 +180,46 @@ export const KEYMAP: Binding[] = [
   { command: "rowLogs", keys: [{ key: "l" }], label: "Logs of the row (a pod or a workload)", group: "Table" },
   { command: "rowShell", keys: [{ key: "s" }], label: "Shell in the row's pod", group: "Table" },
   { command: "rowEdit", keys: [{ key: "e" }, { key: "y" }], label: "Edit the row's YAML", group: "Table" },
-  { command: "rowRestart", keys: [{ key: "R", shift: true }], label: "Restart the row's workload (asks first)", group: "Table" },
+  {
+    command: "rowRestart",
+    keys: [{ key: "R", shift: true }, { key: "r" }],
+    label: "Restart the row's workload (asks first)",
+    group: "Table",
+  },
+  {
+    command: "rowKill",
+    keys: [{ key: "k", ctrl: true, k9s: true }],
+    label: "Kill: force delete the row's pod (asks first)",
+    group: "Table",
+  },
+  {
+    command: "rowPreviousLogs",
+    keys: [{ key: "L", shift: true, k9s: true }],
+    label: "Logs of the pod's previous run",
+    group: "Table",
+  },
+  { command: "rowForward", keys: [{ key: "F", shift: true }], label: "Port-forward the row", group: "Table" },
+  { command: "rowOwner", keys: [{ key: "J", shift: true }], label: "Jump to the row's owner", group: "Table" },
+  { command: "rowNode", keys: [{ key: "o" }], label: "Open the pod's node", group: "Table" },
+  {
+    command: "sortBy",
+    // In SORT_KEYS' order.
+    keys: [
+      { key: "C", shift: true },
+      { key: "M", shift: true },
+      { key: "N", shift: true },
+      { key: "A", shift: true },
+      { key: "S", shift: true },
+    ],
+    label: "Sort by CPU, memory, name, age or status (again: the other way)",
+    group: "Table",
+  },
+  {
+    command: "commandMode",
+    keys: [{ key: ":" }],
+    label: "Go to a kind, as k9s's command mode (:pods, :deploy)",
+    group: "General",
+  },
   {
     command: "detailTab",
     keys: digits,
@@ -279,8 +352,15 @@ export interface KeyEventLike {
   shiftKey: boolean;
 }
 
+/** The column each `sortBy` key sorts by. */
+export const SORT_KEYS = ["cpu", "memory", "name", "age", "status"] as const;
+
+/** Whether key `k` is live: its platform, and the k9s keys setting. */
+function keyLive(k: Key, mac: boolean, k9s: boolean): boolean {
+  return (k.mac === undefined || k.mac === mac) && (k.k9s === undefined || k.k9s === k9s);
+}
+
 function matchesKey(e: KeyEventLike, k: Key, mac: boolean): boolean {
-  if (k.mac !== undefined && k.mac !== mac) return false;
   if (k.ctrl) {
     if (!e.ctrlKey || e.metaKey || e.altKey) return false;
     if (e.key === k.key) return true;
@@ -303,9 +383,13 @@ function matchesKey(e: KeyEventLike, k: Key, mac: boolean): boolean {
 }
 
 /** The binding `e` triggers, and for `detailTab` the digit's index (0-based). */
-export function bindingFor(e: KeyEventLike, mac: boolean): { binding: Binding; index: number } | null {
+export function bindingFor(
+  e: KeyEventLike,
+  mac: boolean,
+  k9s = false,
+): { binding: Binding; index: number } | null {
   for (const binding of KEYMAP) {
-    const index = binding.keys.findIndex((k) => matchesKey(e, k, mac));
+    const index = binding.keys.findIndex((k) => keyLive(k, mac, k9s) && matchesKey(e, k, mac));
     if (index >= 0) return { binding, index };
   }
   return null;
@@ -331,22 +415,24 @@ export function formatKey(k: Key, mac: boolean): string {
   return parts.filter(Boolean).join(mac ? "" : "+");
 }
 
-/** Every way to press `b`, for the help overlay. */
-export function formatBinding(b: Binding, mac: boolean): string[] {
+/** Every way to press `b`, for the help overlay (none: off with this setting). */
+export function formatBinding(b: Binding, mac: boolean, k9s = false): string[] {
   if (b.display) return b.display.map((d) => d.replace("Mod+", mac ? "⌘" : "Ctrl+"));
   // `?` is typed with Shift anyway; lower-case letters read better as typed.
   // On macOS ⌘J comes first: which key ⌃` names depends on the keyboard
   // (left of 1, or next to the left Shift on ISO keyboards).
   const keys = mac ? [...b.keys].sort((x, y) => Number(!!x.ctrl) - Number(!!y.ctrl)) : b.keys;
   return keys
-    .filter((k) => k.mac === undefined || k.mac === mac)
-    .map((k) => (!k.mod && !k.ctrl && k.key.length === 1 && k.key !== " " ? k.key : formatKey(k, mac)));
+    .filter((k) => keyLive(k, mac, k9s))
+    .map((k) =>
+      !k.mod && !k.ctrl && !k.shift && k.key.length === 1 && k.key !== " " ? k.key : formatKey(k, mac),
+    );
 }
 
 /** "Ctrl+` or Ctrl+J": a command's keys for a tooltip. */
-export function shortcutHint(command: Command, mac: boolean): string {
+export function shortcutHint(command: Command, mac: boolean, k9s = false): string {
   const b = KEYMAP.find((x) => x.command === command);
-  return b ? formatBinding(b, mac).join(" or ") : "";
+  return b ? formatBinding(b, mac, k9s).join(" or ") : "";
 }
 
 /** Whether the key `hit` matched goes to the terminal instead of the app. */

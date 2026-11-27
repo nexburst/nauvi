@@ -32,20 +32,24 @@ export interface PaletteItem {
   run: () => void;
 }
 
-export type Scope = "all" | "actions" | "namespaces" | "contexts" | "windows";
+export type Scope = "all" | "actions" | "namespaces" | "contexts" | "windows" | "kinds";
 
 /** The prefix that lists the contexts to open in a new window. */
 export const WINDOW_PREFIX = "win ";
 
+/** The prefix that lists the kinds, as k9s's command mode (`:pods`, #575). */
+export const KIND_PREFIX = ":";
+
 const PREFIXES: Record<string, Scope> = { ns: "namespaces", ctx: "contexts", win: "windows" };
 
 /**
- * `>` limits the palette to actions, `ns ` to namespaces, `ctx ` to contexts,
- * `win ` to opening a context in a new window.
+ * `>` limits the palette to actions, `:` to kinds, `ns ` to namespaces,
+ * `ctx ` to contexts, `win ` to opening a context in a new window.
  */
 export function parseQuery(raw: string): { scope: Scope; text: string } {
   const q = raw.trimStart();
   if (q.startsWith(">")) return { scope: "actions", text: q.slice(1).trim() };
+  if (q.startsWith(KIND_PREFIX)) return { scope: "kinds", text: q.slice(1).trim() };
   const m = /^(ns|ctx|win)(\s+|$)(.*)$/i.exec(q);
   // "ns" alone is also the Namespaces kind's alias: only a space makes it a prefix.
   if (m && m[2]) return { scope: PREFIXES[m[1].toLowerCase()], text: m[3].trim() };
@@ -58,6 +62,7 @@ const IN_SCOPE: Record<Scope, PaletteItem["group"][] | null> = {
   namespaces: ["Namespace"],
   contexts: ["Pinned", "Context"],
   windows: ["Window"],
+  kinds: ["Kind"],
 };
 
 /**

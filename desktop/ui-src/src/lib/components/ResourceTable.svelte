@@ -29,7 +29,8 @@
   import { openDockTab } from "../stores/dock.svelte";
   import { copyLink, prefetchLink } from "../stores/links.svelte";
   import { registerTable } from "../stores/keyboard.svelte";
-  import type { RowMove } from "../stores/keyboard.svelte";
+  import type { RowMove, RowVerb } from "../stores/keyboard.svelte";
+  import { askLogs } from "../stores/logAsk.svelte";
   import type { ResourceKind } from "../bindings";
   import { columnsFor, shownColumns, statusIcon } from "../columns";
   import type { Metrics, Row } from "../columns";
@@ -341,7 +342,7 @@
   }
 
   /** The keys of registry actions that have one (keys.ts). */
-  const ACTION_KEYS: Partial<Record<string, string>> = { restart: "⇧R", delete: "Del" };
+  const ACTION_KEYS: Partial<Record<string, string>> = { restart: "⇧R", delete: "Del", portForward: "⇧F" };
 
   // Right-click menu, built from the same registry as the detail panels.
   let menu = $state.raw<{ x: number; y: number; title: string; items: MenuItem[] } | null>(null);
@@ -598,10 +599,44 @@
     return promptLines(images, imageSecuritySettings(), Math.floor(Date.now() / 1000));
   }
 
-  type Verb = "logs" | "shell" | "edit" | "restart" | "prompt";
+  type Verb = RowVerb;
   function rowVerb(verb: Verb) {
+    // A force delete names one pod (its dialog asks for the name).
+    if (verb === "kill" && selected.size > 1)
+      return setNotice(false, "Kill force deletes one pod at a time: clear the selection first.", { level: "warning" });
     const row = (focusedEntry() ?? visible.find((e) => e.key === selectedKey))?.row;
     if (row) void verbOn(row, verb);
+  }
+
+  /** k9s's verbs that are an action of the registry (#575), each asked as the menu would. */
+  async function actionOn(row: Row, id: string, none: string, confirm = false) {
+    const action = kind.actions.find((a) => a.id === id);
+    if (!action) return setNotice(true, none, { level: "info" });
+    const token = ++verbCheck;
+    const asked = visibleCluster();
+    const reason = (await deniedActions(kind.resource, row.namespace, [id])).get(id);
+    if (token !== verbCheck || visibleCluster() !== asked) return;
+    if (reason) return setNotice(false, reason, { level: "warning" });
+    const keys = kind.columns.map((c) => c.key);
+    requestAction(kind, [{ namespace: row.namespace, name: row.name }], action, replicasFromRow(row, keys), confirm);
+  }
+
+  /** Shift+J and o (k9s): the row's owner or node, as a click on its cell. */
+  function linkOn(row: Row, to: "owner" | "node") {
+    const col = columnsFor(kind).find((c) => (to === "owner" ? c.link === "owner" : c.key === "node"));
+    const text = col ? col.text(row, { metrics, now }) : "";
+    const link = col ? cellLink(kinds.all, kind, col, text, row.namespace) : null;
+    if (link) return followLink(link);
+    if (!col) setNotice(true, `${kind.label} have no ${to}.`, { level: "info" });
+    else setNotice(true, `${row.name} has no ${to === "owner" ? "owner" : "node yet"}.`, { level: "info" });
+  }
+
+  /** Shift+C/M/N/A/S (k9s): sort by a column the table shows; again, the other way. */
+  function sortBy(key: string) {
+    const col = columns.find((c) => c.key === key);
+    if (!col) return setNotice(true, `This table has no ${key === "cpu" ? "CPU" : key} column.`, { level: "info" });
+    sort = sort?.key === key && sort.dir === "asc" ? { key, dir: "desc" } : { key, dir: "asc" };
+    updateSettings({ kinds: { [kind.id]: withSort(kindSettings(kind.id), sort) } });
   }
 
   /** The row's quick actions, shown on hover (#482): its dock tabs and its YAML. */
@@ -641,6 +676,12 @@
       onselect?.(row);
       return;
     }
+    if (verb === "kill") return actionOn(row, "forceDelete", `${kind.label} cannot be force deleted.`);
+    if (verb === "forward") return actionOn(row, "portForward", `${kind.label} have no port-forward.`);
+    if (verb === "owner" || verb === "node") return linkOn(row, verb);
+    // `s` on a workload without a shell scales it, as in k9s.
+    if (verb === "shell" && !dockMenuFor(kind.resource, "", "x").some((d) => d.label === "Shell") && kind.actions.some((a) => a.id === "scale"))
+      return actionOn(row, "scale", "");
     if (verb === "restart") {
       // The action's own dialog confirms it.
       const action = kind.actions.find((a) => a.id === "restart");
@@ -654,16 +695,22 @@
       return;
     }
     const item = dockMenuFor(kind.resource, row.namespace, row.name).find((d) => d.label === (verb === "shell" ? "Shell" : "Logs"));
-    if (!item) {
-      setNotice(true, `${kind.label} have no ${verb === "shell" ? "shell" : "logs"}.`, { level: "info" });
+    // A previous run is a pod's container's (Shift+L, k9s keys).
+    const previous = verb === "previousLogs";
+    if (!item || (previous && item.spec.type !== "podLogs")) {
+      const what = verb === "shell" ? "shell" : previous ? "previous logs: open one of their pods" : "logs";
+      setNotice(true, `${kind.label} have no ${what}.`, { level: "info" });
       return;
     }
+    const access = previous ? "logs" : verb;
     const token = ++verbCheck;
     const asked = visibleCluster();
-    const reason = (await deniedActions(kind.resource, row.namespace, [verb])).get(verb);
+    const reason = (await deniedActions(kind.resource, row.namespace, [access])).get(access);
     if (token !== verbCheck || visibleCluster() !== asked) return;
-    if (reason) setNotice(false, reason, { level: "warning" });
-    else openDockTab(item.spec);
+    if (reason) return setNotice(false, reason, { level: "warning" });
+    // "": the container the tab would pick.
+    if (previous) askLogs(row.namespace, row.name, "", true);
+    openDockTab(item.spec);
   }
 
   async function deleteRows() {
@@ -706,6 +753,14 @@
       menuForFocused,
       deleteRows,
       rowVerb,
+      markRange: () => {
+        if (focusedKey !== null && focusedIndex >= 0) toggleRow(focusedKey, true);
+      },
+      clearMarks: () => {
+        selected = new Set();
+        anchor = null;
+      },
+      sortBy,
       rows: () => store.entries.map((e) => e.row),
       actionTargets: () => {
         if (selected.size > 0) return { targets: targetsOf(selected), row: null };

@@ -11,6 +11,9 @@ describe("parseQuery", () => {
     expect(parseQuery("win stag")).toEqual({ scope: "windows", text: "stag" });
     expect(parseQuery("win ")).toEqual({ scope: "windows", text: "" });
     expect(parseQuery("ns ")).toEqual({ scope: "namespaces", text: "" });
+    // k9s's command mode (#575).
+    expect(parseQuery(":pods")).toEqual({ scope: "kinds", text: "pods" });
+    expect(parseQuery(":")).toEqual({ scope: "kinds", text: "" });
   });
 
   it("keeps `ns` alone as a search (the Namespaces alias)", () => {

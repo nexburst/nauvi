@@ -7,6 +7,7 @@
 import { visibleCluster } from "../cluster";
 
 export interface LogAsk {
+  /** "": the container the tab would pick (Shift+L in the table, #575). */
   container: string;
   previous: boolean;
   /** Each ask is new, also when it asks the same again. */
