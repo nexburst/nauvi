@@ -122,6 +122,7 @@ fn the_reference_is_the_last_item_after_a_double_dash() {
             "--format=json",
             "--quiet",
             "--scanners=vuln",
+            "--image-src=remote",
             "--skip-version-check",
             "--platform=linux/amd64",
             "--db-repository=mirror.gcr.io/aquasec/trivy-db:2",
@@ -155,6 +156,24 @@ fn the_reference_is_the_last_item_after_a_double_dash() {
         let dash = args.iter().position(|a| a == "--").unwrap();
         assert_eq!(dash, args.len() - 2);
     }
+}
+
+#[test]
+fn trivy_runs_without_telemetry_or_a_version_check() {
+    for o in [
+        ScanOptions::default(),
+        ScanOptions {
+            skip_db_update: true,
+            ..Default::default()
+        },
+    ] {
+        let env = env_of(ScannerKind::Trivy, &o);
+        assert!(env.contains(&("TRIVY_DISABLE_TELEMETRY".into(), "true".into())));
+        assert!(env.contains(&("TRIVY_SKIP_VERSION_CHECK".into(), "true".into())));
+    }
+    let grype = env_of(ScannerKind::Grype, &ScanOptions::default());
+    assert!(grype.contains(&("GRYPE_CHECK_FOR_APP_UPDATE".into(), "false".into())));
+    assert!(!grype.iter().any(|(k, _)| k.starts_with("TRIVY_")));
 }
 
 #[test]
@@ -349,7 +368,7 @@ async fn a_scan_runs_the_binary_without_a_shell_in_its_own_folder() {
         &dir,
         "trivy",
         &format!(
-            "for a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; done\npwd > {argv}.cwd\ncat {json}",
+            "for a in \"$@\"; do printf '%s\\n' \"$a\" >> {argv}; done\npwd > {argv}.cwd\necho \"$TRIVY_DISABLE_TELEMETRY $TRIVY_SKIP_VERSION_CHECK\" > {argv}.env\ncat {json}",
             argv = argv.display(),
             json = concat!(env!("CARGO_MANIFEST_DIR"), "/src/image_security/testdata/trivy-scan.json"),
         ),
@@ -373,6 +392,12 @@ async fn a_scan_runs_the_binary_without_a_shell_in_its_own_folder() {
     assert_eq!(
         Path::new(cwd.trim()).canonicalize().unwrap(),
         work.canonicalize().unwrap()
+    );
+    let env = std::fs::read_to_string(format!("{}.env", argv.display())).unwrap();
+    assert_eq!(
+        env.trim(),
+        "true true",
+        "telemetry and the version check off"
     );
     // A refused version never runs.
     std::fs::remove_file(&argv).unwrap();
@@ -431,6 +456,43 @@ async fn output_is_capped_and_a_dropped_scan_is_killed() {
     if cfg!(target_os = "linux") {
         assert!(gone, "the scanner still runs after the scan was dropped");
     }
+    // Exited, but something it started still holds stderr: the group is
+    // killed after a short wait instead of running until the timeout.
+    let pidfile2 = dir.join("pid2");
+    let holder = script(
+        &dir,
+        "holder",
+        &format!(
+            "sleep 60 >&2 &\necho $! > {}\necho done",
+            pidfile2.display()
+        ),
+    );
+    let started = std::time::Instant::now();
+    let out = run_capped(&holder, &[], &dir, &[], 1024, Duration::from_secs(60))
+        .await
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "done");
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "{:?}",
+        started.elapsed()
+    );
+    let pid2 = std::fs::read_to_string(&pidfile2)
+        .unwrap()
+        .trim()
+        .to_string();
+    let mut gone2 = false;
+    for _ in 0..50 {
+        let stat = std::fs::read_to_string(format!("/proc/{pid2}/stat")).unwrap_or_default();
+        if stat.is_empty() || stat.contains(") Z") {
+            gone2 = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    if cfg!(target_os = "linux") {
+        assert!(gone2, "a process the scanner started outlived it");
+    }
     let missing = run_capped(&dir.join("nope"), &[], &dir, &[], 1, Duration::from_secs(1))
         .await
         .unwrap_err();
@@ -445,7 +507,8 @@ async fn versions_are_read_from_the_scanner() {
     let trivy = script(
         &dir,
         "trivy",
-        r#"echo '{"Version":"0.58.1","VulnerabilityDB":{"UpdatedAt":"2026-11-25T06:00:00Z"}}'"#,
+        r#"[ "$TRIVY_DISABLE_TELEMETRY" = true ] && [ "$TRIVY_SKIP_VERSION_CHECK" = true ] || exit 9
+echo '{"Version":"0.58.1","VulnerabilityDB":{"UpdatedAt":"2026-11-25T06:00:00Z"}}'"#,
     );
     let v = scanner_version(ScannerKind::Trivy, &trivy, &dir)
         .await

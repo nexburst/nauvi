@@ -60,6 +60,7 @@ test("the source is the cluster by default; choosing the local scanner asks to a
   const status = section.getByTestId("image-scanner-status");
   await expect(status).toHaveAttribute("data-state", "unapproved");
   await expect(status).toContainText("Trivy found at /usr/local/bin/trivy (on PATH). nauvi runs it only once you approve it.");
+  await expect(section.getByTestId("image-scanner-file")).toHaveText("48.2 MB, SHA-256 3f1a9c0b7d2e…");
   await expect(section).toContainText("nauvi never downloads a scanner or a vulnerability database");
   await section.getByTestId("image-scanner-approve").click();
   await expect(status).toHaveAttribute("data-state", "ready");

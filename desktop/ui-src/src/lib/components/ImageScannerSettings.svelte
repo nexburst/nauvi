@@ -74,6 +74,9 @@
         <p class:error-text={status.state === "refused" || status.state === "broken"} class:muted={status.state !== "refused" && status.state !== "broken"}>
           {scannerStateText(status)}
         </p>
+        {#if status.file && status.state !== "not_installed"}
+          <p class="muted file" data-testid="image-scanner-file">{status.file}</p>
+        {/if}
         {#if status.state === "unapproved" || status.state === "changed"}
           <div class="actions">
             <button
@@ -169,6 +172,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .file {
+    font-family: var(--font-mono, monospace);
   }
   .hint {
     margin: 0;

@@ -162,6 +162,16 @@ pub fn parse_db_status(json: &[u8]) -> String {
         .unwrap_or_default()
 }
 
+/// The `Built:` line of `grype db status` as text (older Grype has no
+/// JSON for it), empty when there is none.
+pub fn parse_db_status_text(text: &[u8]) -> String {
+    String::from_utf8_lossy(text)
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("Built:"))
+        .map(|v| single_line(v).chars().take(64).collect())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -200,6 +210,13 @@ mod tests {
             "2026-11-25T04:07:12Z"
         );
         assert_eq!(parse_db_status(b"garbage"), "");
+        assert_eq!(
+            parse_db_status_text(
+                b"Location:  /home/u/.cache/grype/db/5\nBuilt:     2026-11-24 01:31:44 +0000 UTC\nSchema:    5\nStatus:    valid\n"
+            ),
+            "2026-11-24 01:31:44 +0000 UTC"
+        );
+        assert_eq!(parse_db_status_text(b"no db\n"), "");
         assert!(parse_scan(br#"{"matches":null}"#).unwrap().is_empty());
     }
 }

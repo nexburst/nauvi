@@ -41,6 +41,7 @@ async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
     let (s, path) = scanner_status(&d, ScannerKind::Trivy, false).await;
     assert_eq!(s.state, ScannerState::Unapproved, "{s:?}");
     assert_eq!(s.path, real);
+    assert!(s.file.contains("SHA-256 "), "{}", s.file);
     assert_eq!(s.from, "NAUVI_TRIVY");
     assert!(path.is_none());
     assert!(!ran.exists(), "the binary ran before it was approved");
@@ -98,6 +99,58 @@ async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
     assert_eq!(s.state, ScannerState::NotInstalled);
     std::env::remove_var("NAUVI_TRIVY");
     let _ = std::fs::remove_dir_all(d.config.parent().unwrap());
+}
+
+/// A same-size rewrite with the modification time set back is hashed
+/// again (the change time moved), and so is a swap (another inode).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_same_size_swap_with_an_old_mtime_is_hashed_again() {
+    let d = dirs("swap");
+    let p = d.config.parent().unwrap().join("bin-trivy");
+    std::fs::write(&p, "aaaa").unwrap();
+    let old = std::fs::metadata(&p).unwrap().modified().unwrap();
+    let a = fingerprint_of(&p).await.unwrap();
+    assert_eq!(
+        file_text(&a),
+        format!("4 bytes, SHA-256 {}…", &a.sha256[..12])
+    );
+    // Let the change time move on.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(&p, "bbbb").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&p)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    let b = fingerprint_of(&p).await.unwrap();
+    assert_eq!((a.size, a.modified), (b.size, b.modified));
+    assert_ne!(a.sha256, b.sha256, "the memo was used for another file");
+    // A swap by rename: another inode.
+    let other = p.with_extension("new");
+    std::fs::write(&other, "cccc").unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(&other)
+        .unwrap()
+        .set_modified(old)
+        .unwrap();
+    std::fs::rename(&other, &p).unwrap();
+    let c = fingerprint_of(&p).await.unwrap();
+    assert_ne!(c.sha256, b.sha256);
+    let _ = std::fs::remove_dir_all(d.config.parent().unwrap());
+}
+
+#[test]
+fn file_text_is_short() {
+    let fp = Fingerprint {
+        path: "/x".into(),
+        size: 50_000_000,
+        modified: 0,
+        sha256: "0123456789abcdef".into(),
+    };
+    assert_eq!(file_text(&fp), "47.7 MB, SHA-256 0123456789ab…");
 }
 
 #[tokio::test]

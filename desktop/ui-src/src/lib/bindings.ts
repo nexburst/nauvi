@@ -2917,6 +2917,11 @@ export type ScannerStatus = {
 	db: string,
 	/**  What to do, or what is wrong (empty when ready). */
 	message: string,
+	/**
+	 *  The file found, so the user sees what they approve:
+	 *  `48.2 MB, SHA-256 1a2b3c4d5e6f…` (empty when none was read).
+	 */
+	file: string,
 };
 
 /**

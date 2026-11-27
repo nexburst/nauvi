@@ -63,6 +63,7 @@ export const scannerStatusOf = (kind: ScannerKind, f: FakeImageScan): ScannerSta
     version: "",
     db: "",
     message: "",
+    file: "",
   };
   if (!found) {
     return {
@@ -70,7 +71,7 @@ export const scannerStatusOf = (kind: ScannerKind, f: FakeImageScan): ScannerSta
       message: `${kind} is not installed or not on PATH. Install it yourself, or set ${kind === "trivy" ? "NAUVI_TRIVY" : "NAUVI_GRYPE"} to its path: nauvi never downloads a scanner.`,
     };
   }
-  const withPath = { ...base, path: found.path, from: found.from ?? "PATH" };
+  const withPath = { ...base, path: found.path, from: found.from ?? "PATH", file: "48.2 MB, SHA-256 3f1a9c0b7d2e…" };
   const approved = f.approved[kind];
   if (!approved) return { ...withPath, state: "unapproved", message: `nauvi runs ${kind} only once you approve this file.` };
   if (approved !== found.path || f.changed.includes(found.path))

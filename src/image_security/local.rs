@@ -39,6 +39,8 @@ pub const MAX_OUTPUT: usize = 64 * 1024 * 1024;
 pub const MAX_STDERR: usize = 256 * 1024;
 /// Give up on one scan after this long.
 pub const SCAN_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+/// How long the rest of its stderr is awaited once the scanner exited.
+const STDERR_GRACE: Duration = Duration::from_secs(5);
 /// Give up on `version` after this long.
 const VERSION_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -301,6 +303,12 @@ pub async fn scanner_version(
             if let Ok(out) = run(&["db", "status", "-o", "json"]).await {
                 v.db = grype_json::parse_db_status(&out.stdout);
             }
+            // Older Grype prints its status only as text (`Built: …`).
+            if v.db.is_empty() {
+                if let Ok(out) = run(&["db", "status"]).await {
+                    v.db = grype_json::parse_db_status_text(&out.stdout);
+                }
+            }
             Ok(v)
         }
     }
@@ -445,8 +453,20 @@ pub fn scan_args(
     let mut args: Vec<String> = Vec::new();
     match kind {
         ScannerKind::Trivy => {
-            args.extend(["image", "--format=json", "--quiet", "--scanners=vuln"].map(String::from));
-            // The version notice phones home; 0.54 added the switch.
+            // From the registry (like Grype), not a local daemon's copy.
+            args.extend(
+                [
+                    "image",
+                    "--format=json",
+                    "--quiet",
+                    "--scanners=vuln",
+                    "--image-src=remote",
+                ]
+                .map(String::from),
+            );
+            // The version check phones home. Trivy skips it only with
+            // telemetry off as well (`TRIVY_DISABLE_TELEMETRY`, see
+            // `env_of`); 0.54 added this switch.
             if parse_version(version).is_some_and(|v| v >= (0, 54, 0)) {
                 args.push("--skip-version-check".into());
             }
@@ -482,11 +502,17 @@ pub fn scan_args(
     args
 }
 
-/// The environment added for the scanner: no update checks, and Grype's
-/// database left alone when asked.
-fn env_of(kind: ScannerKind, o: &ScanOptions) -> Vec<(String, String)> {
+/// The environment added for the scanner (also for `version`): no update
+/// check and no telemetry, and Grype's database left alone when asked.
+/// Trivy sends its version check (with a `Trivy-Identifier`) unless both
+/// the check is skipped and telemetry is off; an older Trivy ignores the
+/// variables it does not know.
+pub(crate) fn env_of(kind: ScannerKind, o: &ScanOptions) -> Vec<(String, String)> {
     match kind {
-        ScannerKind::Trivy => Vec::new(),
+        ScannerKind::Trivy => vec![
+            ("TRIVY_DISABLE_TELEMETRY".into(), "true".into()),
+            ("TRIVY_SKIP_VERSION_CHECK".into(), "true".into()),
+        ],
         ScannerKind::Grype => {
             let mut env = vec![("GRYPE_CHECK_FOR_APP_UPDATE".into(), "false".into())];
             if o.skip_db_update {
@@ -637,7 +663,7 @@ pub async fn run_capped(
             std::io::ErrorKind::NotFound => RunError::NotFound,
             _ => RunError::Io(e),
         })?;
-        let mut group = Group {
+        let group = Group {
             pid: child.id(),
             armed: true,
         };
@@ -661,8 +687,25 @@ pub async fn run_capped(
             return Err(RunError::TooLarge(limit));
         };
         let status = child.wait().await.map_err(RunError::Io)?;
-        group.armed = false;
-        let stderr = String::from_utf8_lossy(&err_task.await.unwrap_or_default()).into_owned();
+        // Its stderr ends when every process holding it is gone. One it
+        // started may still hold it: wait briefly, then kill the group.
+        // The group id is still in use while such a process lives, so it
+        // cannot name another process's group. The group stays armed until
+        // then, so the overall timeout (or a cancel) kills it too.
+        let mut err_task = err_task;
+        let tail = match tokio::time::timeout(STDERR_GRACE, &mut err_task).await {
+            Ok(r) => {
+                let mut group = group;
+                group.armed = false;
+                r.unwrap_or_default()
+            }
+            Err(_) => {
+                drop(group);
+                err_task.abort();
+                Vec::new()
+            }
+        };
+        let stderr = String::from_utf8_lossy(&tail).into_owned();
         if !status.success() {
             return Err(RunError::Failed {
                 status: status.to_string(),

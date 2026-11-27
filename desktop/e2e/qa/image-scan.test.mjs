@@ -69,6 +69,7 @@ if [ "$1" = version ]; then
   exit 0
 fi
 echo $$ > "$d/pid"
+echo "$TRIVY_DISABLE_TELEMETRY $TRIVY_SKIP_VERSION_CHECK" > "$d/env"
 for a in "$@"; do printf '%s\\n' "$a"; done > "$d/argv"
 echo scan >> "$d/calls"
 if [ -f "$d/slow" ]; then sleep 120; fi
@@ -160,6 +161,8 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     await openSettings(app);
     await app.waitFor(async () => (await scannerState(app)) === "unapproved", { timeout: 30_000, message: "unapproved" });
     assert.match(await scannerText(app), /Trivy found at .*trivy \(on PATH\)\. nauvi runs it only once you approve it\./);
+    // What is approved: its size and the start of its SHA-256.
+    assert.match(await scannerText(app), /\d+(\.\d)? (bytes|KB|MB), SHA-256 [0-9a-f]{12}…/);
     assert.deepEqual(calls(), [], "the scanner ran before it was approved");
   });
 
@@ -214,8 +217,10 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     const argv = readFileSync(join(dir, "argv"), "utf8").split("\n").filter(Boolean);
     assert.equal(argv[0], "image");
     assert.ok(argv.includes("--format=json"), argv.join(" "));
+    assert.ok(argv.includes("--image-src=remote"), argv.join(" "));
     assert.ok(argv.includes("--platform=linux/amd64"), argv.join(" "));
     assert.equal(argv[argv.length - 2], "--");
+    assert.equal(readFileSync(join(dir, "env"), "utf8").trim(), "true true", "telemetry and the version check off");
     assert.match(argv[argv.length - 1], /^docker\.io\/library\/(nginx|busybox)@sha256:[0-9a-f]{64}$/);
     if (unscannable.length === 0) assert.match(await viewText(app), /Every running image here was scanned\./);
     else {

@@ -109,13 +109,16 @@ pub(crate) struct ScannerStatus {
     pub(crate) db: String,
     /// What to do, or what is wrong (empty when ready).
     pub(crate) message: String,
+    /// The file found, so the user sees what they approve:
+    /// `48.2 MB, SHA-256 1a2b3c4d5e6f…` (empty when none was read).
+    pub(crate) file: String,
 }
 
 /// Fingerprints by (path, size, time), so a 100 MB binary is hashed again
 /// only when it changed; versions by SHA-256.
 #[derive(Default)]
 struct Known {
-    fingerprints: HashMap<(String, u64, i64), Fingerprint>,
+    fingerprints: HashMap<FileKey, Fingerprint>,
     versions: HashMap<String, ScannerVersion>,
 }
 
@@ -126,16 +129,52 @@ fn with_known<T>(f: impl FnOnce(&mut Known) -> T) -> T {
     f(k.get_or_insert_with(Known::default))
 }
 
-async fn fingerprint_of(path: &Path) -> Result<Fingerprint, String> {
-    let meta =
-        std::fs::metadata(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+/// What must be unchanged for a file's hash to be reused. On Unix the
+/// inode and the change time too: a write can keep the size and set the
+/// modification time back, but not the change time, and a swap gives
+/// another inode.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct FileKey {
+    path: String,
+    size: u64,
+    modified: (i64, u32),
+    #[cfg(unix)]
+    unix: (u64, u64, i64, i64),
+}
+
+/// The key of `path`; `None` where nothing safe is known (Windows: the
+/// file is hashed every time).
+fn file_key(path: &Path, meta: &std::fs::Metadata) -> Option<FileKey> {
     let modified = meta
         .modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |d| d.as_secs() as i64);
-    let key = (path.display().to_string(), meta.len(), modified);
-    if let Some(fp) = with_known(|k| k.fingerprints.get(&key).cloned()) {
+        .map_or((0, 0), |d| (d.as_secs() as i64, d.subsec_nanos()));
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Some(FileKey {
+            path: path.display().to_string(),
+            size: meta.len(),
+            modified,
+            unix: (meta.dev(), meta.ino(), meta.ctime(), meta.ctime_nsec()),
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (path, modified);
+        None
+    }
+}
+
+async fn fingerprint_of(path: &Path) -> Result<Fingerprint, String> {
+    let meta =
+        std::fs::metadata(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    let key = file_key(path, &meta);
+    if let Some(fp) = key
+        .as_ref()
+        .and_then(|key| with_known(|k| k.fingerprints.get(key).cloned()))
+    {
         return Ok(fp);
     }
     let p = path.to_path_buf();
@@ -143,7 +182,9 @@ async fn fingerprint_of(path: &Path) -> Result<Fingerprint, String> {
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
-    with_known(|k| k.fingerprints.insert(key, fp.clone()));
+    if let Some(key) = key {
+        with_known(|k| k.fingerprints.insert(key, fp.clone()));
+    }
     Ok(fp)
 }
 
@@ -157,7 +198,22 @@ fn status(scanner: ScannerKind, state: ScannerState) -> ScannerStatus {
         version: String::new(),
         db: String::new(),
         message: String::new(),
+        file: String::new(),
     }
+}
+
+/// `48.2 MB, SHA-256 1a2b3c4d5e6f…`.
+pub(crate) fn file_text(fp: &Fingerprint) -> String {
+    let size = fp.size as f64;
+    let size = if size >= 1024.0 * 1024.0 {
+        format!("{:.1} MB", size / (1024.0 * 1024.0))
+    } else if size >= 1024.0 {
+        format!("{:.1} KB", size / 1024.0)
+    } else {
+        format!("{} bytes", fp.size)
+    };
+    let short: String = fp.sha256.chars().take(12).collect();
+    format!("{size}, SHA-256 {short}…")
 }
 
 /// The scanner found, whether it is approved, and (only then) its version.
@@ -191,6 +247,7 @@ pub(crate) async fn scanner_status(
             return (s, None);
         }
     };
+    s.file = file_text(&fp);
     let Some(ok) = approval::approved(&dirs.approvals(), scanner) else {
         s.message = format!(
             "nauvi runs {} only once you approve this file.",
