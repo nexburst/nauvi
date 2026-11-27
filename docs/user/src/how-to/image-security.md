@@ -247,10 +247,11 @@ runs it only when it can tell the version that way:
   file. nauvi reads the version from the folder it was installed in, and
   Settings says so: "Version 0.58.1 from its Homebrew folder."
 - Any other Trivy that does not record its version is refused before it
-  runs, approved or not: one built from source (without
-  `-X github.com/aquasecurity/trivy/pkg/version/app.ver=<version>`, or with
-  `-trimpath`), a packed binary, a script around Trivy, or a distribution's
-  own build such as Arch's.
+  runs, approved or not: one built from a source tarball or checkout that
+  records no version, a packed binary, a script around Trivy, or a
+  distribution's own build such as Arch's. (`go install
+  github.com/aquasecurity/trivy/cmd/trivy@<version>` records its version, so
+  it is accepted.)
 
 Trivy 0.69.4 to 0.69.6 are refused either way, wherever the version comes
 from. A refused Trivy shows the reason in red in Settings, with no
