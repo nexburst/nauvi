@@ -43,7 +43,7 @@ export function registryTagsHandlers(s: FakeState) {
     },
     cmdWorkloadImages: (_resource: unknown, _namespace: string, name: string): ContainerImage[] => {
       if (!s.cluster.settings.registry_tags) return [];
-      return [{ container: name, image: "nginx:1.27", kind: "regular" }];
+      return s.cluster.workloadImages?.[name] ?? [{ container: name, image: "nginx:1.27", kind: "regular" }];
     },
   } satisfies AreaHandlers;
 }

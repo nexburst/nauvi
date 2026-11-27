@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import type { ContainerImage } from "../bindings";
+  import { onDestroy, onMount, untrack } from "svelte";
+  import type { ContainerImage, ResourceDetail } from "../bindings";
   import { api, visibleCluster } from "../cluster";
   import type { Target } from "../stores/detail.svelte";
   import AvailableTags from "./AvailableTags.svelte";
@@ -8,18 +8,51 @@
   /** The images of a workload's pod template, each with Available tags
    *  (#539). Shown only with the setting on (the parent checks). There is no
    *  running `imageID` here, so whether a tag was pushed again is only said
-   *  in the pod panel. */
-  let { target }: { target: Target } = $props();
+   *  in the pod panel. `info` is the panel's live detail: when it changes
+   *  (a rollout to a new image, say), the images are read again. */
+  let { target, info }: { target: Target; info: ResourceDetail | null } = $props();
 
   let images = $state.raw<ContainerImage[]>([]);
   let error = $state("");
 
-  onMount(async () => {
+  /** Wait this long after a change before reading again, like LiveRelated. */
+  const DEBOUNCE_MS = 500;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let stopped = false;
+  /** The last detail seen, as JSON. */
+  let lastDetail = "";
+
+  async function load() {
     try {
-      images = await api(visibleCluster()).cmdWorkloadImages(target.resource, target.namespace, target.name);
+      const next = await api(visibleCluster()).cmdWorkloadImages(target.resource, target.namespace, target.name);
+      if (stopped) return;
+      error = "";
+      // Keep the list (and the open boxes) when nothing changed.
+      if (JSON.stringify(next) !== JSON.stringify(images)) images = next;
     } catch (e) {
-      error = String(e);
+      if (!stopped) error = String(e);
     }
+  }
+
+  onMount(load);
+  onDestroy(() => {
+    stopped = true;
+    clearTimeout(timer);
+  });
+
+  $effect(() => {
+    if (!info) return;
+    const key = JSON.stringify(info);
+    untrack(() => {
+      if (lastDetail === "") {
+        lastDetail = key;
+        return;
+      }
+      if (key === lastDetail) return;
+      lastDetail = key;
+      clearTimeout(timer);
+      timer = setTimeout(load, DEBOUNCE_MS);
+    });
   });
 </script>
 
@@ -32,7 +65,8 @@
   <section data-testid="workload-images">
     <h3>Images</h3>
     <dl>
-      {#each images as img (img.kind + "/" + img.container)}
+      <!-- Keyed by the image too: a new image gets a new box, not the old answer. -->
+      {#each images as img (img.kind + "/" + img.container + "@" + img.image)}
         <dt title={img.kind === "init" ? "init container" : undefined}>
           {img.container}{#if img.kind === "init"}<span class="muted"> (init)</span>{/if}
         </dt>

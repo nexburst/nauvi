@@ -5,6 +5,7 @@
 import type {
   Application,
   ColumnKind,
+  ContainerImage,
   DataField,
   FieldTakeover,
   ClusterForward,
@@ -157,6 +158,9 @@ export interface FakeCluster {
   /** Available tags (#539) by image: a report, or the error the command
    *  fails with; others get `fake/registry-tags.ts`'s default. */
   registryTags?: Record<string, TagReport | string>;
+  /** A workload's template images (#539) by its name; by default one
+   *  container named after it, running `nginx:1.27`. */
+  workloadImages?: Record<string, ContainerImage[]>;
   /** Ask AI (#376): the CLIs on PATH (by id), whether the nauvi CLI is
    *  there too, and why the custom command cannot run. By default no CLI
    *  (so no Ask AI anywhere), and nauvi. */

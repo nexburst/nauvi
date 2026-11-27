@@ -37,12 +37,14 @@ pub(crate) async fn cmd_registry_tags(
     let report = cache().report(&image, &image_id, refresh).await;
     match &report {
         Ok(r) => tracing::info!(
-            "available tags of {}: {} tags, {:?}",
+            "available tags of {:?}: {} tags, {:?}",
             r.image,
             r.tag_count,
             r.state
         ),
-        Err(e) => tracing::info!("available tags of {image}: {e}"),
+        // The image comes from the cluster: `{:?}` escapes control
+        // characters, so it cannot forge lines in the app log.
+        Err(e) => tracing::info!("available tags of {image:?}: {e:?}"),
     }
     report
 }

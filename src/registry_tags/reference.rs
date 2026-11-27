@@ -259,7 +259,7 @@ pub fn check_host(authority: &str, allow_loopback: bool) -> Result<(), String> {
 /// Why nauvi does not connect to `ip` as a registry (`None`: it may).
 pub(crate) fn ip_refused(ip: IpAddr, allow_loopback: bool) -> Option<&'static str> {
     let ip = match ip {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        IpAddr::V6(v6) => embedded_v4(v6).map_or(ip, IpAddr::V4),
         v4 => v4,
     };
     if ip.is_loopback() {
@@ -271,6 +271,25 @@ pub(crate) fn ip_refused(ip: IpAddr, allow_loopback: bool) -> Option<&'static st
         || ip == IpAddr::V4(Ipv4Addr::BROADCAST)
     {
         return Some("a link-local, multicast or unspecified address");
+    }
+    None
+}
+
+/// The IPv4 address an IPv6 one stands for, so it is checked as that:
+/// IPv4-mapped (`::ffff:a.b.c.d`), NAT64 (`64:ff9b::a.b.c.d`, RFC 6052) and
+/// IPv4-compatible (`::a.b.c.d`, deprecated; not `::` or `::1`).
+fn embedded_v4(v6: Ipv6Addr) -> Option<Ipv4Addr> {
+    if let Some(v4) = v6.to_ipv4_mapped() {
+        return Some(v4);
+    }
+    let s = v6.segments();
+    let [.., a, b, c, d] = v6.octets();
+    let last = Ipv4Addr::new(a, b, c, d);
+    if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+        return Some(last);
+    }
+    if s[..6] == [0; 6] && !v6.is_unspecified() && !v6.is_loopback() {
+        return Some(last);
     }
     None
 }
@@ -342,6 +361,36 @@ mod tests {
             assert!(ImageRef::parse(bad).is_err(), "{bad:?} was accepted");
         }
         assert!(ImageRef::parse(&"a".repeat(600)).is_err());
+    }
+
+    #[test]
+    fn nat64_and_ipv4_compatible_forms_are_checked_as_ipv4() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        for bad in [
+            "64:ff9b::7f00:1", // NAT64 127.0.0.1
+            "64:ff9b::127.0.0.1",
+            "64:ff9b::a9fe:a9fe", // NAT64 169.254.169.254 (metadata)
+            "::127.0.0.1",        // IPv4-compatible loopback
+            "::169.254.169.254",
+            "::ffff:169.254.169.254",
+            "::1",
+            "::",
+        ] {
+            assert!(ip_refused(ip(bad), false).is_some(), "{bad} was allowed");
+            assert!(
+                check_host(&format!("[{bad}]:443"), false).is_err(),
+                "[{bad}]"
+            );
+        }
+        assert!(ip_refused(ip("64:ff9b::7f00:1"), false)
+            .unwrap()
+            .contains("loopback"));
+        assert!(ip_refused(ip("::169.254.169.254"), true)
+            .unwrap()
+            .contains("link-local"));
+        for ok in ["64:ff9b::8.8.8.8", "::8.8.8.8", "2001:db8::1"] {
+            assert_eq!(ip_refused(ip(ok), false), None, "{ok}");
+        }
     }
 
     #[test]

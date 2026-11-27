@@ -31,7 +31,7 @@ pub use versions::{group, Grouped, Version};
 use ::http::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION};
 use ::http::{Method, StatusCode, Uri};
 use auth::{Challenge, Credentials, Source};
-use http::{host_of, query_escape, resolve, Https, Reply};
+use http::{query_escape, resolve, Https, Reply};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -504,9 +504,10 @@ impl Session<'_> {
                             self.registry()
                         )
                     })?;
+                // Only the registry's own token service (#545 security
+                // review): never another host the registry names.
+                auth::check_realm(&self.registry(), &self.api, &realm)?;
                 self.http.check(&realm)?;
-                let realm_host = host_of(&realm);
-                let creds = creds.filter(|_| auth::may_send_credentials(&self.api, &realm_host));
                 let mut url = realm.to_string();
                 url.push(if realm.query().is_some() { '&' } else { '?' });
                 if let Some(service) = challenge.params.get("service") {

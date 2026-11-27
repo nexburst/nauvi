@@ -6,6 +6,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { openApp, openKind, row } from "./helpers";
+import { detail } from "../fixtures/cluster";
 
 const panel = (page: Page) => page.locator("aside");
 const card = (page: Page, name: string) => panel(page).getByRole("region", { name: `Container ${name}` });
@@ -120,6 +121,36 @@ test("the workload panel lists its template's images with the button", async ({ 
   // No running image here, so nothing is said about the tag itself.
   await expect(box.getByTestId("tags-state")).toHaveCount(0);
   expect(await fake.lastCall("cmdRegistryTags")).toEqual(expect.objectContaining({ image: "nginx:1.27", imageId: "" }));
+});
+
+test("a rollout to a new image while the workload panel is open shows the new image", async ({ page }) => {
+  const fake = await openApp(page, (cluster) => {
+    cluster.settings = { ...cluster.settings, registry_tags: true };
+  });
+  await openKind(page, "Deployments");
+  await row(page, "web").click();
+  const images = panel(page).getByTestId("workload-images");
+  await expect(images).toContainText("nginx:1.27");
+  await tagsButton(page, "web").click();
+  await expect(tagsBox(page, "web").getByTestId("tags-minor")).toContainText("1.29");
+  const before = (await fake.calls("cmdWorkloadImages")).length;
+
+  // The template changes and the detail watch reports the object again.
+  await page.evaluate(() => {
+    window.__fake.cluster.workloadImages = { web: [{ container: "web", image: "nginx:1.29", kind: "regular" }] };
+  });
+  const deployments = (await page.evaluate(() => window.__fake.cluster.kinds)).find((k) => k.id === "apps/v1/deployments")!;
+  await fake.emitDetail({
+    state: "detail",
+    detail: detail(deployments, "demo", "web", { annotations: { "deployment.kubernetes.io/revision": "2" } }),
+  });
+  await expect(images).toContainText("nginx:1.29");
+  await expect(images).not.toContainText("nginx:1.27");
+  // The new image gets its own button, not the old image's answer.
+  await expect(tagsButton(page, "web")).toBeVisible();
+  await expect(tagsBox(page, "web")).toHaveCount(0);
+  expect((await fake.calls("cmdWorkloadImages")).length).toBe(before + 1);
+  expect(fake.errors).toEqual([]);
 });
 
 test("the workload panel asks nothing with the setting off", async ({ page }) => {

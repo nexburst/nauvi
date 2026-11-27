@@ -129,7 +129,7 @@
         {/if}
         {#if isWorkload && settings.current.registry_tags}
           <!-- Available tags of the template's images (#539). -->
-          <WorkloadImages {target} />
+          <WorkloadImages {target} {info} />
         {/if}
         {#if target.resource.group === "" && target.resource.kind === "Service"}
           <ServicePorts namespace={target.namespace} name={target.name} disabled={live.deleted} />

@@ -16,7 +16,7 @@
 //!   output is capped.
 //! - Neither credentials nor tokens are ever logged or put in a message.
 
-use super::reference::DOCKER_HUB;
+use super::reference::{split_host, DOCKER_HUB};
 use base64::Engine as _;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -127,8 +127,32 @@ pub(crate) fn may_send_credentials(registry_host: &str, realm_host: &str) -> boo
     if r == "registry-1.docker.io" && t == "auth.docker.io" {
         return true;
     }
-    // A parent domain with at least two labels (`gitlab.com`, never `com`).
-    t.contains('.') && r.ends_with(&format!(".{t}"))
+    // A parent domain with at least two labels (`gitlab.com`, never `com`),
+    // of host names only: `10.0.0.5` does not "end with" `0.0.5`.
+    let is_ip = |a: &str| {
+        split_host(a)
+            .map(|(h, _)| h.parse::<std::net::IpAddr>().is_ok())
+            .unwrap_or(true)
+    };
+    !is_ip(&r) && !is_ip(&t) && t.contains('.') && r.ends_with(&format!(".{t}"))
+}
+
+/// The Bearer token service `realm` a challenge from `api` (the registry
+/// API's `host[:port]`) names is followed only on a host credentials may go
+/// to ([`may_send_credentials`]): the registry's own host, its parent
+/// domain, or `auth.docker.io` for Docker Hub. Anything else (another
+/// host, an internal address) is refused, so a registry named by the
+/// cluster cannot send nauvi to an arbitrary URL.
+pub(crate) fn check_realm(registry: &str, api: &str, realm: &http::Uri) -> Result<(), String> {
+    let host = realm.authority().map(|a| a.as_str()).unwrap_or("");
+    if !host.is_empty() && may_send_credentials(api, host) {
+        return Ok(());
+    }
+    let shown: String = host.chars().filter(|c| !c.is_control()).take(120).collect();
+    Err(format!(
+        "{registry} sent its sign-in to another host, {shown}: nauvi signs in only at the \
+         registry's own host or its parent domain."
+    ))
 }
 
 /// The docker config file, if there is one.
@@ -343,6 +367,64 @@ mod tests {
         assert!(!may_send_credentials("evil-gitlab.com", "gitlab.com"));
         assert!(!may_send_credentials("gitlab.com", "registry.gitlab.com"));
         assert!(!may_send_credentials("ghcr.io:443", "ghcr.io"));
+        // IP literals: only the same address and port.
+        assert!(may_send_credentials("10.0.0.5:5000", "10.0.0.5:5000"));
+        assert!(!may_send_credentials("10.0.0.5", "0.0.5"));
+        assert!(!may_send_credentials("192.168.1.10", "168.1.10"));
+        assert!(!may_send_credentials("10.0.0.5:5000", "10.0.0.5"));
+    }
+
+    #[test]
+    fn a_token_service_on_another_host_is_not_followed() {
+        let uri = |s: &str| s.parse::<http::Uri>().unwrap();
+        assert_eq!(
+            check_realm("ghcr.io", "ghcr.io", &uri("https://ghcr.io/token")),
+            Ok(())
+        );
+        assert_eq!(
+            check_realm(
+                "Docker Hub",
+                "registry-1.docker.io",
+                &uri("https://auth.docker.io/token")
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            check_realm(
+                "registry.gitlab.com",
+                "registry.gitlab.com",
+                &uri("https://gitlab.com/jwt/auth")
+            ),
+            Ok(())
+        );
+        let e = check_realm(
+            "ghcr.io",
+            "ghcr.io",
+            &uri("https://internal.example.com/admin?x=1"),
+        )
+        .unwrap_err();
+        assert!(
+            e.starts_with("ghcr.io sent its sign-in to another host, internal.example.com:"),
+            "{e}"
+        );
+        // An IP literal: another address, or the registry's own on another port.
+        let e = check_realm("ghcr.io", "ghcr.io", &uri("https://10.0.0.1/token")).unwrap_err();
+        assert!(e.contains("another host, 10.0.0.1:"), "{e}");
+        let e = check_realm(
+            "10.0.0.5:5000",
+            "10.0.0.5:5000",
+            &uri("https://10.0.0.5:8443/token"),
+        )
+        .unwrap_err();
+        assert!(e.contains("another host, 10.0.0.5:8443:"), "{e}");
+        assert_eq!(
+            check_realm(
+                "10.0.0.5:5000",
+                "10.0.0.5:5000",
+                &uri("https://10.0.0.5:5000/token")
+            ),
+            Ok(())
+        );
     }
 
     #[test]
