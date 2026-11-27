@@ -64,12 +64,20 @@ pub(super) enum Pick {
     Label(String),
     /// On a Secret (`secret`), a value that holds a JSON object or array,
     /// as tools that keep a copy of the whole Secret in an annotation do,
-    /// is shown as `{…}` (#571).
+    /// is shown as `{…}` (#571), and one that spans lines or is longer
+    /// than [`SECRET_ANNOTATION_MAX`], as a YAML or base64 copy would, as
+    /// [`SECRET_ANNOTATION_HIDDEN`] (#585).
     Annotation {
         key: String,
         secret: bool,
     },
-    Path(Vec<Seg>),
+    /// A field path. `secret`: on a Secret, a path under
+    /// `.metadata.annotations`, whose values are checked as a
+    /// [`Pick::Annotation`]'s are.
+    Path {
+        segs: Vec<Seg>,
+        secret: bool,
+    },
 }
 
 impl Pick {
@@ -78,17 +86,24 @@ impl Pick {
             Pick::Label(k) => map_value(v, "labels", k),
             Pick::Annotation { key, secret } => {
                 let raw = map_value(v, "annotations", key);
-                if *secret && holds_json(&raw) {
-                    "{…}".into()
+                if *secret {
+                    secret_annotation(raw)
                 } else {
                     raw
                 }
             }
-            Pick::Path(segs) => eval(v, segs)
-                .into_iter()
-                .map(summary)
-                .collect::<Vec<_>>()
-                .join(","),
+            Pick::Path { segs, secret } => {
+                let raw = eval(v, segs)
+                    .into_iter()
+                    .map(summary)
+                    .collect::<Vec<_>>()
+                    .join(",");
+                if *secret {
+                    secret_annotation(raw)
+                } else {
+                    raw
+                }
+            }
         };
         one_line(&raw, MAX_CUSTOM_VALUE)
     }
@@ -100,6 +115,44 @@ fn map_value(v: &Value, map: &str, key: &str) -> String {
         .and_then(|m| m.get(key))
         .map(summary)
         .unwrap_or_default()
+}
+
+/// The longest annotation value a column on Secrets shows, in characters:
+/// that of a label value. Owners, teams, revisions and short notes fit; a
+/// copy of a Secret does not: in YAML it spans lines, and in base64 even a
+/// one-letter name and one key (`apiVersion`, `kind`, `metadata.name`,
+/// `data`) take 88 characters (#585).
+pub const SECRET_ANNOTATION_MAX: usize = 63;
+/// The cell of an annotation on a Secret that may hold a copy of it.
+pub const SECRET_ANNOTATION_HIDDEN: &str = "(hidden: open the Secret)";
+
+/// An annotation's value on a Secret as a cell: `{…}` for JSON, hidden
+/// when too long or on several lines, and as it is otherwise.
+fn secret_annotation(raw: String) -> String {
+    if holds_json(&raw) {
+        "{…}".into()
+    } else if too_long_for_secret(&raw) {
+        SECRET_ANNOTATION_HIDDEN.into()
+    } else {
+        raw
+    }
+}
+
+/// Whether a field path reads `.metadata.annotations` or a value in it.
+/// Field names are looked up with their case, so only this spelling
+/// reaches the annotations.
+fn under_annotations(segs: &[Seg]) -> bool {
+    matches!(
+        segs,
+        [Seg::Field(m), Seg::Field(a), ..] if m == "metadata" && a == "annotations"
+    )
+}
+
+/// Whether an annotation's value on a Secret is too long, or spans lines,
+/// to be shown in a column.
+fn too_long_for_secret(raw: &str) -> bool {
+    let t = raw.trim();
+    t.contains(['\n', '\r']) || t.chars().count() > SECRET_ANNOTATION_MAX
 }
 
 /// Whether an annotation's value is a JSON object or array.
@@ -333,7 +386,13 @@ pub fn custom_column_defs(
                     key: c.value.trim().to_string(),
                     secret: is_secret(resource),
                 },
-                CustomSource::Field => Pick::Path(field_path(&c.value)?),
+                CustomSource::Field => {
+                    let segs = field_path(&c.value)?;
+                    Pick::Path {
+                        secret: is_secret(resource) && under_annotations(&segs),
+                        segs,
+                    }
+                }
             };
             Ok(ColumnDef {
                 key: custom_key(&c.id),
@@ -517,6 +576,125 @@ mod tests {
             custom_column_defs(&config, &[col("j", CustomSource::Annotation, "copy")]).unwrap();
         let row = make_row(&config, &cols, &obj);
         assert!(row.cells.last().unwrap().starts_with("{\"apiVersion\""));
+    }
+
+    #[test]
+    fn long_or_multi_line_annotations_on_secrets_are_hidden() {
+        let yaml = "apiVersion: v1\nkind: Secret\ndata:\n  password: aHVudGVyMg==\n";
+        let b64 = "YXBpVmVyc2lvbjogdjEKa2luZDogU2VjcmV0Cm1ldGFkYXRhOgogIG5hbWU6IHMK\
+                   ZGF0YToKICBwYXNzd29yZDogYUhWdWRHVnlNZz09Cg==";
+        let at_max = "r".repeat(SECRET_ANNOTATION_MAX);
+        let over = format!("{at_max}x");
+        let wide = "é".repeat(SECRET_ANNOTATION_MAX);
+        let annotations = json!({
+            "owner": "team-blue", "revision": "  42  ", "at-max": at_max, "wide": wide,
+            "yaml": yaml, "b64": b64, "over": over, "two": "a\r\nb", "empty": ""
+        });
+        let keys = [
+            "owner", "revision", "at-max", "wide", "empty", "yaml", "b64", "over", "two",
+        ];
+        let custom: Vec<_> = keys
+            .iter()
+            .map(|k| col(k, CustomSource::Annotation, k))
+            .collect();
+        let obj: DynamicObject = serde_json::from_value(json!({
+            "apiVersion": "v1", "kind": "Secret",
+            "metadata": {"name": "s", "namespace": "ns", "annotations": annotations},
+        }))
+        .unwrap();
+        let secrets = rref("", "Secret", "secrets", true);
+        let cols = custom_column_defs(&secrets, &custom).unwrap();
+        let row = make_row(&secrets, &cols, &obj);
+        let cells = &row.cells[row.cells.len() - keys.len()..];
+        let short = ["team-blue", "42", &"r".repeat(63), &"é".repeat(63), ""];
+        assert_eq!(&cells[..5], short);
+        for (k, c) in keys[5..].iter().zip(&cells[5..]) {
+            assert_eq!(c, SECRET_ANNOTATION_HIDDEN, "{k}");
+        }
+        assert!(row.cells.iter().all(|c| !c.contains("aHVudGVyMg")));
+
+        // ConfigMaps, and a Secret kind of another group, show them as they are.
+        for r in [
+            rref("", "ConfigMap", "configmaps", true),
+            rref("example.com", "Secret", "secrets", true),
+        ] {
+            let cols = custom_column_defs(&r, &custom).unwrap();
+            let row = make_row(&r, &cols, &obj);
+            let cells = &row.cells[row.cells.len() - keys.len()..];
+            assert!(
+                cells[5].starts_with("apiVersion: v1 kind: Secret"),
+                "{cells:?}"
+            );
+            assert_eq!(cells[6], b64);
+            assert_eq!(cells[8], "a b");
+        }
+    }
+
+    #[test]
+    fn annotation_field_paths_on_secrets_are_checked_like_annotations() {
+        let copy = r#"{"apiVersion":"v1","kind":"Secret","data":{"password":"aHVudGVyMg=="}}"#;
+        let yaml = "apiVersion: v1\nkind: Secret\ndata:\n  password: aHVudGVyMg==\n";
+        let b64 = "YXBpVmVyc2lvbjogdjEKa2luZDogU2VjcmV0Cm1ldGFkYXRhOgogIG5hbWU6IHMK\
+                   ZGF0YToKICBwYXNzd29yZDogYUhWdWRHVnlNZz09Cg==";
+        let obj: DynamicObject = serde_json::from_value(json!({
+            "apiVersion": "v1", "kind": "Secret",
+            "metadata": {"name": "s", "namespace": "ns", "annotations": {
+                "owner": "team-blue", "backup": copy, "yaml": yaml, "b64": b64,
+                "list": "[1, 2]"
+            }},
+        }))
+        .unwrap();
+        let paths = [
+            ".metadata.annotations.owner",
+            ".metadata.annotations.backup",
+            " .metadata.annotations.yaml ",
+            ".metadata.annotations.b64",
+            ".metadata.annotations.list",
+            ".metadata.annotations",
+            ".metadata.annotations.missing",
+            ".metadata.annotations.backup[0]",
+        ];
+        let custom: Vec<_> = paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| col(&i.to_string(), CustomSource::Field, p))
+            .collect();
+        let secrets = rref("", "Secret", "secrets", true);
+        let cols = custom_column_defs(&secrets, &custom).unwrap();
+        let row = make_row(&secrets, &cols, &obj);
+        let cells = &row.cells[row.cells.len() - paths.len()..];
+        assert_eq!(
+            cells,
+            [
+                "team-blue",
+                "{…}",
+                SECRET_ANNOTATION_HIDDEN,
+                SECRET_ANNOTATION_HIDDEN,
+                "{…}",
+                "{…}",
+                "",
+                ""
+            ]
+        );
+        assert!(row.cells.iter().all(|c| !c.contains("aHVudGVyMg")));
+
+        // The copy annotations have "." and "/" in their keys, which a field
+        // path cannot hold: such a path is refused as any wrong path is.
+        for key in COPY_ANNOTATIONS {
+            let path = format!(".metadata.annotations.{key}");
+            assert!(
+                custom_column_defs(&secrets, &[col("a", CustomSource::Field, &path)]).is_err(),
+                "{path}"
+            );
+        }
+
+        // On a ConfigMap, the same paths show the values as they are.
+        let config = rref("", "ConfigMap", "configmaps", true);
+        let cols = custom_column_defs(&config, &custom).unwrap();
+        let row = make_row(&config, &cols, &obj);
+        let cells = &row.cells[row.cells.len() - paths.len()..];
+        assert_eq!(cells[1], copy);
+        assert_eq!(cells[3], b64);
     }
 
     #[test]

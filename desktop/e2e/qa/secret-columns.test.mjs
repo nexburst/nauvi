@@ -3,8 +3,10 @@
 // path under .data or .stringData (any case) and the last-applied
 // annotation, which `kubectl apply` fills with the whole Secret. The
 // Secret's other fields work, and an annotation that holds a JSON copy of
-// it shows as {…}. The Secret's value appears nowhere on the page. At
-// 1280x800, dark and light.
+// it shows as {…}; one that holds a YAML or base64 copy (multi-line or
+// longer than 63 characters, #585) as "(hidden: open the Secret)", while a
+// short one (a team) still shows. The Secret's value appears nowhere on the
+// page. At 1280x800, dark and light.
 //
 // Objects it creates live in a temporary qa-secret-cols-* namespace.
 
@@ -21,6 +23,9 @@ import { resizeWindow } from "../lib/window.mjs";
 const T = { timeout: 180_000 };
 const PASSWORD = "qa-571-hunter2";
 const B64 = Buffer.from(PASSWORD).toString("base64");
+const HIDDEN = "(hidden: open the Secret)";
+const YAML_COPY = `apiVersion: v1\nkind: Secret\nmetadata:\n  name: qa-secret-cols\ndata:\n  password: ${B64}\n`;
+const B64_COPY = Buffer.from(YAML_COPY).toString("base64");
 const REFUSED = "A column on Secrets cannot show their data: open the Secret and press Reveal to see it.";
 
 const secret = `
@@ -31,6 +36,9 @@ metadata:
   annotations:
     qa.nauvi.dev/copy: '{"data":{"password":"${B64}"}}'
     qa.nauvi.dev/team: blue
+    qa.nauvi.dev/yaml: |
+${YAML_COPY.trimEnd().split("\n").map((l) => `      ${l}`).join("\n")}
+    qa.nauvi.dev/b64: ${B64_COPY}
 type: Opaque
 data:
   password: ${B64}
@@ -122,12 +130,14 @@ describe("custom columns on Secrets", { timeout: 10 * 60_000 }, () => {
     );
   });
 
-  it("the Secret's other fields work; a JSON copy in an annotation shows as {…}; the value is nowhere", T, async () => {
+  it("the Secret's other fields work; a JSON copy shows as {…}, a YAML or base64 copy as hidden; the value is nowhere", T, async () => {
     const { app } = s;
     await openChooser(app);
     assert.equal(await tryColumn(app, { name: "Secret type", from: "Field path", value: ".type" }), "");
     assert.equal(await tryColumn(app, { name: "Team", from: "Annotation", value: "qa.nauvi.dev/team" }), "");
     assert.equal(await tryColumn(app, { name: "Copy", from: "Annotation", value: "qa.nauvi.dev/copy" }), "");
+    assert.equal(await tryColumn(app, { name: "YAML copy", from: "Annotation", value: "qa.nauvi.dev/yaml" }), "");
+    assert.equal(await tryColumn(app, { name: "Base64 copy", from: "Annotation", value: "qa.nauvi.dev/b64" }), "");
     await closeChooser(app);
     await app.waitFor(async () => (await tableData(app)).rows[0]?.["Secret type"] === "Opaque", {
       message: "the custom cells",
@@ -135,13 +145,16 @@ describe("custom columns on Secrets", { timeout: 10 * 60_000 }, () => {
     const [row] = (await tableData(app)).rows;
     assert.equal(row.Team, "blue");
     assert.equal(row.Copy, "{…}");
+    assert.equal(row["YAML copy"], HIDDEN);
+    assert.equal(row["Base64 copy"], HIDDEN);
     await app.js(`document.querySelector('[data-testid="resource-table"] .scroller').scrollLeft = 1e6`);
     await app.shot("allowed-columns-dark");
     await setTheme(app, "light");
     await app.shot("allowed-columns-light");
     const text = await pageText(app);
-    assert.ok(!text.includes(B64) && !text.includes(PASSWORD), "the Secret's value is not on the page");
+    const leaks = (t) => [B64, PASSWORD, B64_COPY.slice(0, 40), "kind: Secret"].filter((x) => t.includes(x));
+    assert.deepEqual(leaks(text), [], "the Secret's value is not on the page");
     const html = await app.js("return document.documentElement.outerHTML");
-    assert.ok(!html.includes(B64) && !html.includes(PASSWORD), "nor in its markup");
+    assert.deepEqual(leaks(html), [], "nor in its markup");
   });
 });
