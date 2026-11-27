@@ -35,7 +35,9 @@ or protected in the app refuses the write tools, even with `--allow-writes`.
   `columns` picks columns and their order; `compact` drops NODE, and
   NAMESPACE when a namespace is given.
 - **`image_vulnerabilities`** reads the Trivy Operator's reports in the
-  cluster; it never starts a scanner. One row per image, worst first, with
+  cluster (or Kubescape's, when there is no Trivy Operator); it never
+  starts a scanner, and does not apply the app's ignores or its known
+  exploited list. One row per image, worst first, with
   counts by severity, how many have a fix, the report's age and the
   workloads that run it: 50 images by default, at most 200. Give `image` (a
   reference such as `nginx:1.27`, or a digest) for one image's fixes by

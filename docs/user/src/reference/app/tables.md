@@ -106,8 +106,10 @@ image, with its registry, and for a pod the digest it runs.
 [image security](../../how-to/image-security.md) is on for the cluster.
 `2C 5H` means 2 critical and 5 high vulnerabilities, at the severity you
 chose to count; **None** means none, and **Not scanned** that no report
-covers the image yet. Hover it for each image. It sorts by severity: one
-critical outweighs any number of high ones.
+covers the image yet. **KEV** (as in `KEV 2H`) means one of them is known to
+be exploited in the wild; ignored vulnerabilities are not counted. Hover it
+for each image. It sorts by severity, known exploited first: one critical
+outweighs any number of high ones.
 
 ### Deployments, StatefulSets, DaemonSets
 
