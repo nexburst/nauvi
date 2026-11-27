@@ -221,7 +221,17 @@ pub struct VulnsSummary {
     pub namespaces_read: Vec<String>,
     /// One row per image, worst first, after the filters.
     pub images: Vec<ImageVulns>,
-    /// Running images no report covers (before the filters).
+    /// Namespaces where listing the reports was not allowed, while other
+    /// namespaces were read (or, with the [`VulnsState::Forbidden`] state,
+    /// the namespaces asked for).
+    pub forbidden_namespaces: Vec<String>,
+    /// With [`VulnsState::Forbidden`] for chosen namespaces: the reports
+    /// may be listed across all namespaces (so offering that helps).
+    /// False otherwise.
+    pub all_namespaces_allowed: bool,
+    /// Running images no report covers (before the filters). Images in
+    /// namespaces whose reports were not read (the read budget ran out)
+    /// are neither counted here nor listed: a note says so.
     pub unscanned: u32,
     /// Plain notes: what could not be read, what was cut.
     pub notes: Vec<String>,
@@ -285,4 +295,7 @@ pub struct VulnsArgs {
     pub fixable: bool,
 }
 
-pub use report::{cli_vulns, image_detail, image_vulns, image_vulns_in};
+pub use report::{
+    cli_vulns, image_detail, image_detail_of, image_vulns, image_vulns_in,
+    image_vulns_in_namespaces,
+};

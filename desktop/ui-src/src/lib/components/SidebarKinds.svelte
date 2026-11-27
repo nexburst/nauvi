@@ -5,6 +5,9 @@
   import { HELM_CHARTS_VIEW } from "../helmCharts";
   import { WORKLOADS_VIEW } from "../workloads";
   import { APPLICATIONS_VIEW } from "../applications";
+  import { IMAGE_SECURITY_VIEW } from "../imageSecurity";
+  import { imageSecurityEnabled } from "../stores/imageSecurity.svelte";
+  import { currentContextName } from "../stores/app.svelte";
   import { isCrdDefinitions } from "../crd";
   import { PORT_FORWARDS_VIEW } from "../forwards";
   import { forwards, refreshForwards } from "../stores/forwards.svelte";
@@ -98,6 +101,8 @@
       if (s.category === "workloads" && list.length > 0) {
         // Not kinds: counts of every workload kind (#79), workloads by app (#226).
         head.push({ ...ofView(WORKLOADS_VIEW, "Overview"), aria: "Workloads overview" }, ofView(APPLICATIONS_VIEW));
+        // Image security (#534): only where it is on; asks nothing until opened.
+        if (imageSecurityEnabled(currentContextName())) head.push(ofView(IMAGE_SECURITY_VIEW));
       }
       if (s.category === "network" && (list.length > 0 || forwards.list.length > 0)) {
         // Not a cluster kind: the forwards this app runs.

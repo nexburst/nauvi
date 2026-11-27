@@ -312,6 +312,18 @@ export const commands = {
 	 */
 	cmdLogUiError: (source: string, message: string, stack: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_log_ui_error", { source, message, stack }, options),
 	/**
+	 *  One image of the listing of `namespaces` (by its reference and digest
+	 *  as listed) with its newest full report, filtered by the settings'
+	 *  severity and "only fixable".
+	 */
+	cmdImageSecurityImage: (cluster: string, namespaces: string[], image: string, digest: string, options?: InvokeOptions) => __TAURI_INVOKE<ImageDetail>("cmd_image_security_image", { cluster, namespaces, image, digest }, options),
+	/**
+	 *  The images running in `namespaces` (none: all namespaces) and the
+	 *  reports about them, unfiltered (the view applies the settings).
+	 *  `refresh` reads the reports again instead of using the cache.
+	 */
+	cmdImageSecuritySummary: (cluster: string, namespaces: string[], refresh: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ImageSecurityList>("cmd_image_security_summary", { cluster, namespaces, refresh }, options),
+	/**
 	 *  Download the kubectl of the cluster's version from dl.k8s.io, check its
 	 *  SHA-256 against the published one and save it in the app's data dir.
 	 *  Only from the user's click; refused with the setting off. Goes through
@@ -1348,6 +1360,11 @@ export type ContextSettings_Deserialize = {
 	 *  `nauvi mcp` matches the mode by (#338). Kept with the mode.
 	 */
 	mode_source?: ModeSource_Deserialize,
+	/**
+	 *  Image security for this cluster (#534): as the app's setting, on
+	 *  or off. Optional in TypeScript: the UI reads none as the default.
+	 */
+	image_security?: ImageSecurityMode,
 };
 
 /**
@@ -1396,6 +1413,11 @@ export type ContextSettings_Serialize = {
 	 *  `nauvi mcp` matches the mode by (#338). Kept with the mode.
 	 */
 	mode_source: ModeSource_Serialize,
+	/**
+	 *  Image security for this cluster (#534): as the app's setting, on
+	 *  or off. Optional in TypeScript: the UI reads none as the default.
+	 */
+	image_security?: ImageSecurityMode,
 };
 
 export type ContextState = "connected" | 
@@ -1623,6 +1645,25 @@ export type FieldTakeover = {
 	manager: string,
 	/**  Field paths, as the API server reports them (e.g. ".spec.replicas"). */
 	fields: string[],
+};
+
+/**
+ *  The vulnerabilities one package upgrade would fix (or that have no fix
+ *  yet): one package at one installed version.
+ */
+export type FixGroup = {
+	package: string,
+	installed_version: string,
+	/**
+	 *  The distinct fixed versions of its vulnerabilities, sorted; empty
+	 *  when none has a fix.
+	 */
+	fixed_in: string[],
+	counts: SeverityCounts,
+	/**  How many of `counts` have a fixed version. */
+	fixable: number,
+	/**  The vulnerability ids, worst first. */
+	ids: string[],
 };
 
 /**  One running forward, with its live status. */
@@ -1880,6 +1921,113 @@ export type HelpItem =
 "ai_assistants" | 
 /**  The docs' steps for opening a cluster, from the welcome screen (#485). */
 "get_started";
+
+/**  One image with its full (newest) report. */
+export type ImageDetail = {
+	image: ImageVulns,
+	/**  Worst first, after the filters. */
+	vulnerabilities: Vulnerability[],
+	/**  Worst first, after the filters. */
+	fix_groups: FixGroup[],
+};
+
+/**  What the view shows: the listing and when its reports were read. */
+export type ImageSecurityList = {
+	summary: VulnsSummary,
+	/**
+	 *  When nauvi read the reports (unix seconds): the listing may come
+	 *  from the cache.
+	 */
+	read_at: number,
+};
+
+/**  A cluster's own choice (its cluster settings), over the app's. */
+export type ImageSecurityMode = 
+/**  As Settings → Image security says. */
+"default" | "on" | "off";
+
+/**  Settings → Image security. */
+export type ImageSecuritySettings = ImageSecuritySettings_Serialize | ImageSecuritySettings_Deserialize;
+
+/**  Settings → Image security. */
+export type ImageSecuritySettings_Deserialize = {
+	/**
+	 *  Read the Trivy Operator's reports for clusters left on "default".
+	 *  Off: nothing is read anywhere unless a cluster turns it on.
+	 */
+	enabled?: boolean,
+	/**  Count (and show) only vulnerabilities this bad or worse. */
+	min_severity?: Severity,
+	/**  Count only what has a fixed version. */
+	only_fixable?: boolean,
+	/**  Namespaces whose images are never shown (`kube-system`...). */
+	excluded_namespaces?: string[],
+	/**
+	 *  How long a listing is reused before the reports are read again
+	 *  (Refresh always reads them), within `CACHE_TTL_RANGE`.
+	 */
+	cache_ttl_hours?: number,
+};
+
+/**  Settings → Image security. */
+export type ImageSecuritySettings_Serialize = {
+	/**
+	 *  Read the Trivy Operator's reports for clusters left on "default".
+	 *  Off: nothing is read anywhere unless a cluster turns it on.
+	 */
+	enabled: boolean,
+	/**  Count (and show) only vulnerabilities this bad or worse. */
+	min_severity: Severity,
+	/**  Count only what has a fixed version. */
+	only_fixable: boolean,
+	/**  Namespaces whose images are never shown (`kube-system`...). */
+	excluded_namespaces: string[],
+	/**
+	 *  How long a listing is reused before the reports are read again
+	 *  (Refresh always reads them), within `CACHE_TTL_RANGE`.
+	 */
+	cache_ttl_hours: number,
+};
+
+/**
+ *  One distinct image (by digest, else by reference) and what is known
+ *  about its vulnerabilities.
+ */
+export type ImageVulns = {
+	source: ScanSource,
+	/**
+	 *  The reference as a pod names it (`nginx:1.27`), or as the report
+	 *  does when no running pod matched (`repo@sha256:...` without a tag).
+	 */
+	image: string,
+	/**  `sha256:...`, empty when neither the pods nor the report know it. */
+	digest: string,
+	/**
+	 *  A pod in the scope runs it. False for a report of an image no pod
+	 *  runs (a deleted workload, or an older build of a mutable tag).
+	 */
+	running: boolean,
+	/**  A report covers this image. */
+	scanned: boolean,
+	/**  From the newest report's summary (all zero when not scanned). */
+	counts: SeverityCounts,
+	/**  How many of `counts` have a fixed version. */
+	fixable: SeverityCounts,
+	/**
+	 *  The workload containers that use it (running pods and reports),
+	 *  sorted, each once.
+	 */
+	workloads: Workload[],
+	/**  The newest report: namespace and name, empty when not scanned. */
+	report_namespace: string,
+	report_name: string,
+	/**  How many reports cover this image. */
+	reports: number,
+	/**  `Trivy 0.58.1`; empty when not scanned. */
+	scanner: string,
+	/**  When the newest report was made (unix seconds), 0 when not scanned. */
+	scanned_at: number,
+};
 
 /**  The counts of one workload kind. */
 export type KindCounts = {
@@ -2681,6 +2829,11 @@ export type SavedSearch_Serialize = {
 	match_case: boolean,
 };
 
+/**  Where vulnerability data comes from (ADR 0011). */
+export type ScanSource = 
+/**  The Trivy Operator's VulnerabilityReports in the cluster. */
+"trivy_operator";
+
 /**
  *  The table filter's search history (#219): the last `MAX_RECENT`
  *  searches, newest first, and the starred ones, in the order starred.
@@ -2773,6 +2926,8 @@ export type SettingsPatch_Deserialize = {
 	ask_ai_command?: string | null,
 	welcomed?: boolean | null,
 	tips_left?: number | null,
+	/**  The whole image security section (#534). */
+	image_security?: ImageSecuritySettings_Deserialize | null,
 };
 
 /**
@@ -2811,6 +2966,8 @@ export type SettingsPatch_Serialize = {
 	ask_ai_command?: string | null,
 	welcomed?: boolean | null,
 	tips_left?: number | null,
+	/**  The whole image security section (#534). */
+	image_security?: ImageSecuritySettings_Serialize | null,
 };
 
 export type Settings_Deserialize = {
@@ -2928,6 +3085,8 @@ export type Settings_Deserialize = {
 	 *  from before it).
 	 */
 	tips_left?: number,
+	/**  Image security (#534): off by default. */
+	image_security?: ImageSecuritySettings_Deserialize,
 };
 
 export type Settings_Serialize = {
@@ -3045,6 +3204,23 @@ export type Settings_Serialize = {
 	 *  from before it).
 	 */
 	tips_left: number,
+	/**  Image security (#534): off by default. */
+	image_security: ImageSecuritySettings_Serialize,
+};
+
+/**
+ *  How bad a vulnerability is, as the scanner rates it. Ordered from
+ *  `Unknown` (lowest) to `Critical`.
+ */
+export type Severity = "unknown" | "low" | "medium" | "high" | "critical";
+
+/**  Vulnerabilities by severity. */
+export type SeverityCounts = {
+	critical: number,
+	high: number,
+	medium: number,
+	low: number,
+	unknown: number,
 };
 
 /**  One source of contexts, for the catalog's list of sources. */
@@ -3284,6 +3460,69 @@ export type UsageSource =
 /**  The history the app collects from metrics-server. */
 "metrics_server" | "prometheus";
 
+/**  One vulnerability of a full report. */
+export type Vulnerability = {
+	/**  `CVE-2024-1234`, `GHSA-...`. */
+	id: string,
+	/**  The package or library (`openssl`, `golang.org/x/net`). */
+	package: string,
+	installed_version: string,
+	/**  Empty when no fix is known. */
+	fixed_version: string,
+	severity: Severity,
+	/**  The CVSS score the scanner reports, 0 when none. */
+	score: number | null,
+	title: string,
+	/**  The advisory's page, empty when none. */
+	link: string,
+};
+
+/**  What a listing could show. */
+export type VulnsState = 
+/**  Reports were read (`images` may still be empty after filters). */
+"ok" | 
+/**  The cluster does not serve VulnerabilityReports: no Trivy Operator. */
+"no_operator" | 
+/**  The CRD is there but no report exists in the scope yet. */
+"no_reports" | 
+/**  The user may not list the reports in the scope. */
+"forbidden";
+
+/**  The result of [`report::image_vulns`]. */
+export type VulnsSummary = {
+	source: ScanSource,
+	state: VulnsState,
+	/**  The namespace asked for, empty for all namespaces. */
+	namespace: string,
+	/**
+	 *  The namespaces that were read when the cluster-wide list is not
+	 *  allowed (empty when it is, or when one namespace was asked for).
+	 */
+	namespaces_read: string[],
+	/**  One row per image, worst first, after the filters. */
+	images: ImageVulns[],
+	/**
+	 *  Namespaces where listing the reports was not allowed, while other
+	 *  namespaces were read (or, with the [`VulnsState::Forbidden`] state,
+	 *  the namespaces asked for).
+	 */
+	forbidden_namespaces: string[],
+	/**
+	 *  With [`VulnsState::Forbidden`] for chosen namespaces: the reports
+	 *  may be listed across all namespaces (so offering that helps).
+	 *  False otherwise.
+	 */
+	all_namespaces_allowed: boolean,
+	/**
+	 *  Running images no report covers (before the filters). Images in
+	 *  namespaces whose reports were not read (the read budget ran out)
+	 *  are neither counted here nor listed: a note says so.
+	 */
+	unscanned: number,
+	/**  Plain notes: what could not be read, what was cut. */
+	notes: string[],
+};
+
 /**  A message on a table watch's channel. */
 export type WatchMessage = 
 /**
@@ -3320,6 +3559,18 @@ export type WatchState =
  *  up late: the table is not live.
  */
 { state: "polling"; interval_secs: number };
+
+/**
+ *  A workload container that runs an image: the Deployment (not its
+ *  ReplicaSet), StatefulSet, DaemonSet, Job, CronJob or bare Pod.
+ */
+export type Workload = {
+	/**  `Deployment`, `ReplicaSet`, `Pod`, ... */
+	kind: string,
+	namespace: string,
+	name: string,
+	container: string,
+};
 
 /**  Options of a workload log stream. */
 export type WorkloadLogOptions = WorkloadLogOptions_Serialize | WorkloadLogOptions_Deserialize;

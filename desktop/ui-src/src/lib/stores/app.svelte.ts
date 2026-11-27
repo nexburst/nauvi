@@ -6,6 +6,7 @@ import { clampHeight } from "../dock";
 import { isWatchless } from "../health";
 import { WORKLOADS_VIEW } from "../workloads";
 import { APPLICATIONS_VIEW } from "../applications";
+import { IMAGE_SECURITY_VIEW } from "../imageSecurity";
 import { contextToRestore, namespacesToRestore } from "../settings";
 import { isMainWindow } from "../window";
 import { closeDetail, detail, openDetail } from "./detail.svelte";
@@ -153,7 +154,7 @@ function restorePendingView() {
     showError("");
     return;
   }
-  if (view === WORKLOADS_VIEW || view === APPLICATIONS_VIEW) {
+  if (view === WORKLOADS_VIEW || view === APPLICATIONS_VIEW || view === IMAGE_SECURITY_VIEW) {
     app.view = view;
     return;
   }

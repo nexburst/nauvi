@@ -10,6 +10,7 @@
   import { PROBLEMS_STATUS, WORKLOADS_VIEW } from "../workloads";
   import { problems } from "../stores/problems.svelte";
   import { APPLICATIONS_VIEW } from "../applications";
+  import { IMAGE_SECURITY_VIEW } from "../imageSecurity";
   import { chart } from "../stores/chart.svelte";
   import { kinds } from "../stores/app.svelte";
   import { viewLabel } from "../berths";
@@ -20,6 +21,7 @@
     app.view === HELM_VIEW ||
       app.view === WORKLOADS_VIEW ||
       app.view === APPLICATIONS_VIEW ||
+      app.view === IMAGE_SECURITY_VIEW ||
       (kind?.resource.namespaced ?? false),
   );
   /** The Workloads overview has nothing to filter or create. */
@@ -72,7 +74,7 @@
     <ColumnChooser {kind} />
     <ExportCsv {kind} />
   {/if}
-  {#if !overview && app.view !== HELM_CHARTS_VIEW}
+  {#if !overview && app.view !== HELM_CHARTS_VIEW && app.view !== IMAGE_SECURITY_VIEW}
     <button type="button" class="btn primary create" title="Create resources from YAML" onclick={openCreate}
       >+ Create</button
     >

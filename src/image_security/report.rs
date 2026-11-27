@@ -8,7 +8,7 @@ use super::{
     VulnsArgs, VulnsState, VulnsSummary, Workload,
 };
 use crate::bounded_list::list_bounded;
-use crate::resources::ResourceKind;
+use crate::resources::{can_list, ResourceKind};
 use anyhow::{bail, Result};
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
@@ -272,6 +272,22 @@ fn check_namespace(ns: &str) -> Result<()> {
     Ok(())
 }
 
+/// An object name as the API accepts it (a DNS subdomain), so it can go
+/// into a request path.
+fn check_object_name(name: &str) -> Result<()> {
+    let ok = !name.is_empty()
+        && name.len() <= 253
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'.')
+        && !name.starts_with(['-', '.'])
+        && !name.ends_with(['-', '.']);
+    if !ok {
+        bail!("{name:?} is not a valid object name");
+    }
+    Ok(())
+}
+
 fn api_error(what: &str, e: kube::Error) -> anyhow::Error {
     anyhow::Error::from(e).context(format!("cannot read {what}"))
 }
@@ -288,6 +304,44 @@ struct Read {
     forbidden: bool,
 }
 
+/// Where reports were left unread because the budget ran out: whether an
+/// image there was scanned is not known.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Unread {
+    /// Namespaces read one by one whose reports were not all read.
+    namespaces: BTreeSet<String>,
+    /// A cluster-wide list that stopped in this namespace: the API lists
+    /// in namespace order, so it and the namespaces after it were not all
+    /// read (`""`: none was read).
+    from: Option<String>,
+}
+
+impl Unread {
+    fn covers(&self, namespace: &str) -> bool {
+        self.namespaces.contains(namespace) || self.from.as_deref().is_some_and(|f| namespace >= f)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.namespaces.is_empty() && self.from.is_none()
+    }
+
+    fn place(&self) -> String {
+        match &self.from {
+            Some(f) if f.is_empty() => "all namespaces".to_string(),
+            Some(f) => format!("namespace {f} and the ones after it (by name)"),
+            None => {
+                let list: Vec<&str> = self.namespaces.iter().map(String::as_str).collect();
+                let word = if list.len() == 1 {
+                    "namespace"
+                } else {
+                    "namespaces"
+                };
+                format!("{word} {}", list.join(", "))
+            }
+        }
+    }
+}
+
 /// What one call may still read, shared by every namespace it reads (the
 /// per-namespace fallback reads many).
 struct Budget {
@@ -296,6 +350,7 @@ struct Budget {
     /// Reports or pods were left unread.
     cut_reports: bool,
     cut_pods: bool,
+    unread: Unread,
 }
 
 impl Budget {
@@ -305,20 +360,43 @@ impl Budget {
             pods: MAX_PODS,
             cut_reports: false,
             cut_pods: false,
+            unread: Unread::default(),
         }
     }
 
-    fn notes(&self, notes: &mut Vec<String>) {
+    /// `left_out`: the running images not listed because their reports
+    /// were not read.
+    fn notes(&self, left_out: u32, notes: &mut Vec<String>) {
         if self.cut_reports {
             notes.push(format!(
                 "Only the first {} VulnerabilityReports were read; narrow with -n.",
                 trivy::MAX_REPORTS
             ));
         }
+        if left_out > 0 {
+            notes.push(format!(
+                "{left_out} running image{} in {} {} not listed: their reports were not read, \
+                 so whether they were scanned is not known.",
+                if left_out == 1 { "" } else { "s" },
+                self.unread.place(),
+                if left_out == 1 { "is" } else { "are" },
+            ));
+        }
         if self.cut_pods {
             notes.push(format!(
                 "Only the first {MAX_PODS} pods were read; narrow with -n."
             ));
+        }
+    }
+
+    /// The reports of `namespace` (`None`: all) were not all read.
+    fn mark_unread(&mut self, namespace: Option<&str>, last_read: Option<String>) {
+        self.cut_reports = true;
+        match namespace {
+            Some(ns) => {
+                self.unread.namespaces.insert(ns.to_string());
+            }
+            None => self.unread.from = Some(last_read.unwrap_or_default()),
         }
     }
 }
@@ -332,20 +410,25 @@ async fn read_scope(
     let mut out = Read::default();
     let place = namespace.map_or("all namespaces".to_string(), |n| n.to_string());
     if budget.reports == 0 {
-        budget.cut_reports = true;
-    } else {
-        match trivy::list_summaries(client, namespace, budget.reports).await {
-            Ok(listed) => {
-                budget.cut_reports |= listed.more;
-                budget.reports -= listed.reports.len().min(budget.reports);
-                out.reports = listed.reports;
+        // Nothing of this scope is read: its pods would only be images
+        // whose scans are not known.
+        budget.mark_unread(namespace, None);
+        return Ok(out);
+    }
+    match trivy::list_summaries(client, namespace, budget.reports).await {
+        Ok(listed) => {
+            if listed.more {
+                let last = listed.reports.iter().map(|r| r.namespace.clone()).max();
+                budget.mark_unread(namespace, last);
             }
-            Err(e) if is_forbidden(&e) => {
-                out.forbidden = true;
-                return Ok(out);
-            }
-            Err(e) => return Err(api_error("VulnerabilityReports", e)),
+            budget.reports -= listed.reports.len().min(budget.reports);
+            out.reports = listed.reports;
         }
+        Err(e) if is_forbidden(&e) => {
+            out.forbidden = true;
+            return Ok(out);
+        }
+        Err(e) => return Err(api_error("VulnerabilityReports", e)),
     }
     if budget.pods == 0 {
         budget.cut_pods = true;
@@ -376,6 +459,8 @@ fn summary(state: VulnsState, args: &VulnsArgs) -> VulnsSummary {
         namespace: args.namespace.clone().unwrap_or_default(),
         namespaces_read: Vec::new(),
         images: Vec::new(),
+        forbidden_namespaces: Vec::new(),
+        all_namespaces_allowed: false,
         unscanned: 0,
         notes: Vec::new(),
     }
@@ -390,7 +475,7 @@ pub async fn image_vulns(client: &Client, args: &VulnsArgs) -> Result<VulnsSumma
     let served = trivy::served(client)
         .await
         .map_err(|e| api_error("the API groups", e))?;
-    read_vulns(client, args, served).await
+    read_vulns(client, args, served, None).await
 }
 
 /// [`image_vulns`] for a caller that has the discovered kinds (the app):
@@ -401,7 +486,42 @@ pub async fn image_vulns_in(
     args: &VulnsArgs,
 ) -> Result<VulnsSummary> {
     check_args(args)?;
-    read_vulns(client, args, trivy::served_in(kinds)).await
+    read_vulns(client, args, trivy::served_in(kinds), None).await
+}
+
+/// [`image_vulns_in`] for the namespaces the app's picker selected (none:
+/// all namespaces): one budget, one row per image across them. With more
+/// than one, the namespaces where the reports may not be listed are
+/// skipped and named in `forbidden_namespaces`; when that is all of them,
+/// the state is [`VulnsState::Forbidden`]. `args.namespace` is ignored.
+pub async fn image_vulns_in_namespaces(
+    client: &Client,
+    kinds: &[ResourceKind],
+    namespaces: &[String],
+    args: &VulnsArgs,
+) -> Result<VulnsSummary> {
+    let mut list: Vec<String> = Vec::new();
+    for ns in namespaces.iter().filter(|n| !n.is_empty()) {
+        check_namespace(ns)?;
+        if !list.contains(ns) {
+            list.push(ns.clone());
+        }
+    }
+    let args = VulnsArgs {
+        namespace: match list.as_slice() {
+            [one] => Some(one.clone()),
+            _ => None,
+        },
+        ..args.clone()
+    };
+    let several = (list.len() > 1).then_some(list.as_slice());
+    let mut out = read_vulns(client, &args, trivy::served_in(kinds), several).await?;
+    // Not allowed here: say whether all namespaces would be (one review,
+    // only in this case), so the app offers that only when it helps.
+    if out.state == VulnsState::Forbidden && !list.is_empty() {
+        out.all_namespaces_allowed = can_list(client, trivy::GROUP, trivy::PLURAL, None).await;
+    }
+    Ok(out)
 }
 
 fn check_args(args: &VulnsArgs) -> Result<()> {
@@ -411,52 +531,107 @@ fn check_args(args: &VulnsArgs) -> Result<()> {
     }
 }
 
-async fn read_vulns(client: &Client, args: &VulnsArgs, served: bool) -> Result<VulnsSummary> {
-    let namespace = args.namespace.as_deref().filter(|n| !n.is_empty());
-    if !served {
-        return Ok(summary(VulnsState::NoOperator, args));
+/// Which scopes to read: `several` namespaces, else `namespace` (or all),
+/// namespace by namespace when the cluster-wide list is not allowed.
+/// `None` when nothing may be read (the state is set).
+async fn scopes_of(
+    client: &Client,
+    namespace: Option<&str>,
+    several: Option<&[String]>,
+    out: &mut VulnsSummary,
+) -> Option<Vec<Option<String>>> {
+    if let Some(list) = several {
+        let mut allowed = Vec::new();
+        for ns in list {
+            if can_list(client, trivy::GROUP, trivy::PLURAL, Some(ns)).await {
+                allowed.push(ns.clone());
+            } else {
+                out.forbidden_namespaces.push(ns.clone());
+            }
+        }
+        if allowed.is_empty() {
+            out.state = VulnsState::Forbidden;
+            return None;
+        }
+        out.namespaces_read = allowed.clone();
+        return Some(allowed.into_iter().map(Some).collect());
     }
-    let mut out = summary(VulnsState::Ok, args);
-    let scopes: Vec<Option<String>> = match trivy::access(client, namespace).await {
-        Access::Scope => vec![namespace.map(str::to_string)],
+    match trivy::access(client, namespace).await {
+        Access::Scope => Some(vec![namespace.map(str::to_string)]),
         Access::Namespaces(list) => {
             out.namespaces_read = list.clone();
             out.notes.push(format!(
                 "Not allowed to list VulnerabilityReports in all namespaces; read {}.",
                 list.join(", ")
             ));
-            list.into_iter().map(Some).collect()
+            Some(list.into_iter().map(Some).collect())
         }
         Access::Denied => {
             out.state = VulnsState::Forbidden;
-            return Ok(out);
+            out.forbidden_namespaces = namespace.map(str::to_string).into_iter().collect();
+            None
         }
+    }
+}
+
+/// `several`: read these namespaces (more than one) instead of
+/// `args.namespace`.
+async fn read_vulns(
+    client: &Client,
+    args: &VulnsArgs,
+    served: bool,
+    several: Option<&[String]>,
+) -> Result<VulnsSummary> {
+    let namespace = args.namespace.as_deref().filter(|n| !n.is_empty());
+    if !served {
+        return Ok(summary(VulnsState::NoOperator, args));
+    }
+    let mut out = summary(VulnsState::Ok, args);
+    let Some(scopes) = scopes_of(client, namespace, several, &mut out).await else {
+        return Ok(out);
     };
     let (mut pods, mut reports) = (Vec::new(), Vec::new());
-    let mut forbidden = 0;
+    let mut forbidden = Vec::new();
     let mut budget = Budget::new();
     for scope in &scopes {
         let read = read_scope(client, scope.as_deref(), &mut budget, &mut out.notes).await?;
         if read.forbidden {
-            forbidden += 1;
+            forbidden.push(scope.clone().unwrap_or_default());
         }
         pods.extend(read.pods);
         reports.extend(read.reports);
     }
-    if forbidden == scopes.len() {
+    out.forbidden_namespaces
+        .extend(forbidden.iter().filter(|n| !n.is_empty()).cloned());
+    if forbidden.len() == scopes.len() {
         out.state = VulnsState::Forbidden;
         out.notes.clear();
         return Ok(out);
     }
-    budget.notes(&mut out.notes);
     let running = pod_images(&pods);
-    let rows = aggregate(&running, &reports);
+    let mut rows = aggregate(&running, &reports);
+    let left_out = drop_unread(&mut rows, &budget.unread);
+    budget.notes(left_out, &mut out.notes);
     out.unscanned = rows.iter().filter(|r| !r.scanned).count() as u32;
     if reports.is_empty() {
         out.state = VulnsState::NoReports;
     }
     out.images = filter(rows, args);
     Ok(out)
+}
+
+/// Drop the running images without a report that run in a namespace whose
+/// reports were not all read: their report may be among the unread ones.
+/// Returns how many were dropped.
+fn drop_unread(rows: &mut Vec<ImageVulns>, unread: &Unread) -> u32 {
+    if unread.is_empty() {
+        return 0;
+    }
+    let before = rows.len();
+    rows.retain(|r| {
+        r.scanned || !r.running || !r.workloads.iter().any(|w| unread.covers(&w.namespace))
+    });
+    (before - rows.len()) as u32
 }
 
 /// Whether `query` names `row`: its reference (as listed, or the same
@@ -507,6 +682,17 @@ pub async fn image_detail(client: &Client, args: &VulnsArgs, image: &str) -> Res
                 .join(", ")
         ),
     };
+    image_detail_of(client, row, args).await
+}
+
+/// The newest full report of `row` (a row of a listing, e.g. one the app
+/// keeps), with its vulnerabilities and fixes after `args`' filters: one
+/// request, none for an image that was not scanned.
+pub async fn image_detail_of(
+    client: &Client,
+    row: ImageVulns,
+    args: &VulnsArgs,
+) -> Result<ImageDetail> {
     if !row.scanned {
         return Ok(ImageDetail {
             image: row,
@@ -514,6 +700,8 @@ pub async fn image_detail(client: &Client, args: &VulnsArgs, image: &str) -> Res
             fix_groups: Vec::new(),
         });
     }
+    check_namespace(&row.report_namespace)?;
+    check_object_name(&row.report_name)?;
     let full = trivy::get_report(client, &row.report_namespace, &row.report_name)
         .await
         .map_err(|e| api_error(&format!("VulnerabilityReport {}", row.report_name), e))?;
@@ -802,10 +990,12 @@ pub(crate) mod tests {
         }
     }
 
-    /// A cluster where only namespaced lists are allowed: `default` and
-    /// `ns-0`..`ns-2`, each with 900 reports and no pods. Records the path
-    /// of each request.
-    fn fallback_server() -> (Client, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+    /// A cluster where only namespaced lists are allowed (not in `deny`):
+    /// `default` and `ns-0`..`ns-2`, each with 900 reports and one pod of
+    /// an image no report covers. Records the path of each request.
+    fn fallback_server(
+        deny: &'static str,
+    ) -> (Client, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
         use http_body_util::BodyExt;
         use kube::client::Body;
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -833,7 +1023,8 @@ pub(crate) mod tests {
                     let review: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
                     let namespaced = review
                         .pointer("/spec/resourceAttributes/namespace")
-                        .is_some_and(|n| n.is_string());
+                        .and_then(|n| n.as_str())
+                        .is_some_and(|n| n != deny);
                     let mut review = review;
                     review["status"] = serde_json::json!({ "allowed": namespaced });
                     review
@@ -859,6 +1050,13 @@ pub(crate) mod tests {
                         String::new()
                     };
                     serde_json::json!({ "metadata": { "continue": token }, "items": items })
+                } else if path.ends_with("/pods") {
+                    let ns = path.split('/').nth(4).unwrap_or("");
+                    serde_json::json!({ "kind": "PodList", "metadata": {}, "items": [{
+                        "metadata": { "name": "p", "namespace": ns },
+                        "spec": { "containers": [{ "name": "c", "image": format!("{ns}-other:1") }] },
+                        "status": { "phase": "Running" }
+                    }] })
                 } else {
                     serde_json::json!({ "kind": "PodList", "metadata": {}, "items": [] })
                 };
@@ -871,17 +1069,27 @@ pub(crate) mod tests {
     }
 
     /// The per-namespace fallback shares one budget: 4 namespaces of 900
-    /// reports give 2000 in all, and the last namespace is not read.
+    /// reports give 2000 in all, and the last namespace is not read. The
+    /// images of the namespaces whose reports were not all read are not
+    /// "running, not scanned": a note says they were not read.
     #[tokio::test]
     async fn the_namespace_fallback_shares_one_budget() {
-        let (client, seen) = fallback_server();
+        let (client, seen) = fallback_server("");
         let s = image_vulns(&client, &VulnsArgs::default()).await.unwrap();
         assert_eq!(s.state, VulnsState::Ok);
         assert_eq!(s.namespaces_read, ["default", "ns-0", "ns-1", "ns-2"]);
-        assert_eq!(
-            s.images.len(),
-            crate::image_security::trivy_operator::MAX_REPORTS
-        );
+        let max = crate::image_security::trivy_operator::MAX_REPORTS;
+        // The reports, and the unscanned images of default and ns-0 (read
+        // in full); not ns-1's (cut) or ns-2's (not read).
+        assert_eq!(s.images.len(), max + 2);
+        assert_eq!(s.unscanned, 2);
+        let unscanned: Vec<_> = s
+            .images
+            .iter()
+            .filter(|r| !r.scanned)
+            .map(|r| r.image.as_str())
+            .collect();
+        assert_eq!(unscanned, ["default-other:1", "ns-0-other:1"]);
         assert!(
             s.notes
                 .iter()
@@ -889,19 +1097,119 @@ pub(crate) mod tests {
             "{:?}",
             s.notes
         );
+        assert!(
+            s.notes.iter().any(|n| n.starts_with(
+                "1 running image in namespaces ns-1, ns-2 is not listed: their reports were not read"
+            )),
+            "{:?}",
+            s.notes
+        );
         let seen = seen.lock().unwrap();
         assert!(
-            !seen
-                .iter()
-                .any(|p| p.contains("/namespaces/ns-2/vulnerabilityreports")),
+            !seen.iter().any(|p| p.contains("/namespaces/ns-2/")),
             "{seen:?}"
         );
+    }
+
+    /// A cluster-wide list cut in a namespace: that namespace and the ones
+    /// after it (the API lists in namespace order) are not known.
+    #[test]
+    fn a_cut_cluster_wide_list_leaves_out_the_namespaces_from_the_cut() {
+        let unread = Unread {
+            from: Some("m".into()),
+            ..Default::default()
+        };
+        let row = |image: &str, ns: &str, scanned: bool| {
+            let mut r = empty_row(image.into(), String::new());
+            r.running = true;
+            r.scanned = scanned;
+            r.workloads.push(Workload {
+                kind: "Pod".into(),
+                namespace: ns.into(),
+                name: "p".into(),
+                container: "c".into(),
+            });
+            r
+        };
+        let mut rows = vec![
+            row("a", "a", false),
+            row("m", "m", false),
+            row("z", "z", false),
+            row("scanned", "z", true),
+        ];
+        assert_eq!(drop_unread(&mut rows, &unread), 2);
+        let kept: Vec<_> = rows.iter().map(|r| r.image.as_str()).collect();
+        assert_eq!(kept, ["a", "scanned"]);
+        assert_eq!(
+            unread.place(),
+            "namespace m and the ones after it (by name)"
+        );
+        assert_eq!(drop_unread(&mut rows, &Unread::default()), 0);
+    }
+
+    fn served_kinds() -> Vec<ResourceKind> {
+        let resource = crate::resources::ResourceRef {
+            group: trivy::GROUP.into(),
+            version: trivy::VERSION.into(),
+            kind: "VulnerabilityReport".into(),
+            plural: trivy::PLURAL.into(),
+            namespaced: true,
+        };
+        vec![ResourceKind {
+            id: resource.id(),
+            label: String::new(),
+            category: crate::resources::Category::Custom,
+            crd: true,
+            verbs: vec![],
+            short_names: vec![],
+            columns: vec![],
+            actions: vec![],
+            resource,
+        }]
+    }
+
+    /// The app's namespace picker: several namespaces in one listing, the
+    /// forbidden one named, without a discovery request.
+    #[tokio::test]
+    async fn several_namespaces_skip_the_forbidden_ones() {
+        let (client, seen) = fallback_server("ns-1");
+        let kinds = served_kinds();
+        let all = VulnsArgs::default();
+        let picked = ["ns-0".to_string(), "ns-1".to_string()];
+        let s = image_vulns_in_namespaces(&client, &kinds, &picked, &all)
+            .await
+            .unwrap();
+        assert_eq!(s.state, VulnsState::Ok);
+        assert_eq!(s.namespaces_read, ["ns-0"]);
+        assert_eq!(s.forbidden_namespaces, ["ns-1"]);
+        assert_eq!(s.images.len(), 901);
+        assert!(
+            !seen
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|p| p == "/apis/aquasecurity.github.io/v1alpha1"),
+            "no discovery"
+        );
+
+        let only = ["ns-1".to_string()];
+        let s = image_vulns_in_namespaces(&client, &kinds, &only, &all)
+            .await
+            .unwrap();
+        assert_eq!(s.state, VulnsState::Forbidden);
+        assert_eq!(s.forbidden_namespaces, ["ns-1"]);
+        // The fake cluster allows only namespaced lists.
+        assert!(!s.all_namespaces_allowed);
+        let bad = ["a/b".to_string()];
+        assert!(image_vulns_in_namespaces(&client, &kinds, &bad, &all)
+            .await
+            .is_err());
     }
 
     /// The app passes the kinds it discovered: no discovery request.
     #[tokio::test]
     async fn the_discovered_kinds_say_whether_the_crd_exists() {
-        let (client, seen) = fallback_server();
+        let (client, seen) = fallback_server("");
         let s = image_vulns_in(&client, &[], &VulnsArgs::default())
             .await
             .unwrap();

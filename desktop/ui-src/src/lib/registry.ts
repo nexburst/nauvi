@@ -16,6 +16,10 @@ import { HELM_VIEW } from "./helm";
 import { HELM_CHARTS_VIEW } from "./helmCharts";
 import { isWatchless } from "./health";
 import { WORKLOADS_VIEW } from "./workloads";
+import { IMAGE_SECURITY_VIEW } from "./imageSecurity";
+import ImageFindings from "./components/ImageFindings.svelte";
+import ImageSecurityView from "./components/ImageSecurityView.svelte";
+import { imageSecurity, selectedImage } from "./stores/imageSecurity.svelte";
 import { isNoKubeconfig, WELCOME_VIEW } from "./welcome";
 import { startTips, tips } from "./stores/welcome.svelte";
 import TipsStrip from "./components/TipsStrip.svelte";
@@ -112,6 +116,8 @@ export const VIEWS: View[] = [
   { id: APPLICATIONS_VIEW, component: Applications, toolbar: true },
   // The first run, and no kubeconfig at all (#485).
   { id: WELCOME_VIEW, component: Welcome, toolbar: false },
+  // Image vulnerabilities from the Trivy Operator (#534).
+  { id: IMAGE_SECURITY_VIEW, component: ImageSecurityView, toolbar: true },
 ];
 
 /** Above the view. */
@@ -146,6 +152,12 @@ export const SIDE_PANELS: Slot[] = [
   }),
   // The notification history (#326), opened from the bell.
   slot(NotificationsPanel, { when: () => notifications.open }),
+  // One image's findings (#534).
+  slot(ImageFindings, {
+    when: () => app.view === IMAGE_SECURITY_VIEW && !!selectedImage(),
+    key: () => imageSecurity.selected,
+    props: () => ({ target: selectedImage()! }),
+  }),
 ];
 
 /** Dialogs and overlays, after the dock and the footer. */
