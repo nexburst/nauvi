@@ -1,6 +1,6 @@
 [package]
 name = "nauvi-desktop"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 rust-version.workspace = true
 description = "nauvi desktop app — a Lens alternative in Rust, built with Tauri"
