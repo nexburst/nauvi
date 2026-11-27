@@ -176,6 +176,11 @@ export function isWorkloadResource(r: ResourceRef): boolean {
   return (r.group === "apps" || r.group === "batch") && WORKLOAD_KINDS.includes(r.kind);
 }
 
+/** A CronJob: a pod template (in its Job template) but no logs of its own. */
+export function isCronJob(r: ResourceRef): boolean {
+  return r.group === "batch" && r.kind === "CronJob";
+}
+
 /** The dock entries of a row's context menu: Logs and Shell for a pod, Logs for a workload. */
 export function dockMenuFor(resource: ResourceRef, namespace: string, name: string): { label: string; spec: DockTabSpec }[] {
   if (resource.group === "" && resource.kind === "Pod") {

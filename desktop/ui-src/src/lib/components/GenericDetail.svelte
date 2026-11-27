@@ -19,7 +19,7 @@
   import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
   import { FINDING_KINDS, workloadImages } from "../imageFindings";
   import { settings } from "../stores/settings.svelte";
-  import { isWorkloadResource } from "../dock";
+  import { isCronJob, isWorkloadResource } from "../dock";
   import { crdInstancesKind, isCrdDefinitions } from "../crd";
   import { kinds, setView } from "../stores/app.svelte";
   import { closeDetail, detail } from "../stores/detail.svelte";
@@ -55,10 +55,13 @@
   );
   /** A CRD gets a button to the table of its instances. */
   const instances = $derived(isCrdDefinitions(target.resource) ? crdInstancesKind(kinds.all, target.name) : undefined);
+  /** Workloads and CronJobs have a pod template: its images (#539, #557). */
+  const hasTemplate = $derived(isWorkload || isCronJob(target.resource));
   /** The images of a workload in the image security listing (#535): a
    *  Security tab while there are any (never while the feature is off). */
   // svelte-ignore state_referenced_locally
-  const findsImages = isWorkloadResource(target.resource) && FINDING_KINDS.includes(target.resource.kind);
+  const findsImages =
+    (isWorkloadResource(target.resource) || isCronJob(target.resource)) && FINDING_KINDS.includes(target.resource.kind);
   if (findsImages) useFindings();
   const securityImages = $derived.by(() => {
     const index = findsImages ? findingsIndex() : null;
@@ -145,7 +148,7 @@
           <!-- All its pods, summed (#79). -->
           <UsageCharts workload={target.resource.kind} namespace={target.namespace} name={target.name} />
         {/if}
-        {#if isWorkload && settings.current.registry_tags}
+        {#if hasTemplate && settings.current.registry_tags}
           <!-- Available tags of the template's images (#539). -->
           <WorkloadImages {target} {info} />
         {/if}
