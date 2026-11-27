@@ -16,6 +16,9 @@
 //   prompt showed it is not approved; a malicious Trivy version is
 //   refused, and a file whose Go build info names one is refused without
 //   running it at all, and so is one whose file names no version (#561)
+// - as Grype: a Trivy installed as `grype` is refused from its file (the
+//   module is not Grype's), a malicious one as such; a Grype build is
+//   offered for approval (#573)
 // Light and dark theme at 1280x800.
 
 import assert from "node:assert/strict";
@@ -88,9 +91,10 @@ cat "$d/report.json"
  *  src/image_security/go_buildinfo.rs); `(devel)` as Go writes it for a
  *  build from source. nauvi runs a Trivy only when its file names a
  *  version (#561), so every fake trivy carries one. */
-function goBuildInfo(version) {
+function goBuildInfo(version, module = "github.com/aquasecurity/trivy") {
   const v = version.startsWith("(") ? version : `v${version}`;
-  const mod = `path\tgithub.com/aquasecurity/trivy/cmd/trivy\nmod\tgithub.com/aquasecurity/trivy\t${v}\th1:x=\n`;
+  const cmd = module.slice(module.lastIndexOf("/") + 1);
+  const mod = `path\t${module}/cmd/${cmd}\nmod\t${module}\t${v}\th1:x=\n`;
   const go = Buffer.from("go1.24.1");
   const m = Buffer.concat([Buffer.alloc(16), Buffer.from(mod), Buffer.alloc(16)]);
   const head = Buffer.alloc(32);
@@ -101,10 +105,10 @@ function goBuildInfo(version) {
 }
 
 /** The fake trivy with a build info block after it (at a 16-byte boundary). */
-function fakeTrivyBuild(dir, printed, built) {
+function fakeTrivyBuild(dir, printed, built, module) {
   const script = Buffer.from(fakeTrivy(dir, printed) + "exit 0\n");
   const pad = Buffer.alloc(Math.ceil(script.length / 16) * 16 + 64 - script.length, 0x23);
-  return Buffer.concat([script, pad, goBuildInfo(built)]);
+  return Buffer.concat([script, pad, goBuildInfo(built, module)]);
 }
 
 const viewText = (app) => app.js(`return document.querySelector('[data-testid="image-security"]')?.innerText ?? ""`);
@@ -451,5 +455,57 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     assert.equal(await scannerState(app), "refused");
     assert.equal((await app.driver.findElements(byTestId("image-scanner-approve"))).length, 0);
     assert.deepEqual(calls(), [], "nauvi ran a Trivy of unknown version");
+  });
+
+  // #573: Grype is checked by its file too. A Trivy installed as `grype`
+  // would run as soon as nauvi asked `grype version`.
+  const grypePath = () => join(profile.bin, "grype");
+  const checkAgain = async (app) =>
+    (await app.find(By.xpath("//*[@data-testid='image-scanner-status']//button[normalize-space()='Check again']"))).click();
+
+  it("a Trivy installed as grype is refused without running it (dark)", T, async () => {
+    const { app } = s;
+    await setTheme(app, "dark");
+    writeFileSync(grypePath(), fakeTrivyBuild(dir, "0.84.0", "0.58.1"));
+    chmodSync(grypePath(), 0o755);
+    rmSync(join(dir, "calls"), { force: true });
+    await app.js(
+      `const el = document.querySelector('select[aria-label="Scanner on this computer"]');
+       el.value = "grype";
+       el.dispatchEvent(new Event("change", { bubbles: true }));`,
+    );
+    await app.waitFor(async () => /This file is not Grype/.test(await scannerText(app)), {
+      timeout: 30_000,
+      message: "refused: not Grype",
+    });
+    assert.equal(await scannerState(app), "refused");
+    assert.match(await scannerText(app), /names the module github\.com\/aquasecurity\/trivy \(Grype's is github\.com\/anchore\/grype\)/);
+    assert.match(await scannerText(app), /Set NAUVI_GRYPE to the Grype you installed\./);
+    assert.equal((await app.driver.findElements(byTestId("image-scanner-approve"))).length, 0);
+    await app.shot("trivy as grype refused");
+
+    // A malicious Trivy as grype says so, for the credentials to rotate.
+    writeFileSync(grypePath(), fakeTrivyBuild(dir, "0.84.0", "0.69.5"));
+    chmodSync(grypePath(), 0o755);
+    await checkAgain(app);
+    await app.waitFor(async () => /Trivy 0\.69\.5 is one of the malicious releases/.test(await scannerText(app)), {
+      timeout: 30_000,
+      message: "refused: a malicious Trivy as grype",
+    });
+    assert.equal(await scannerState(app), "refused");
+    assert.deepEqual(calls(), [], "nauvi ran a Trivy found as grype");
+  });
+
+  it("a Grype build is offered for approval, and has not run (light)", T, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    writeFileSync(grypePath(), fakeTrivyBuild(dir, "0.84.0", "0.84.0", "github.com/anchore/grype"));
+    chmodSync(grypePath(), 0o755);
+    await checkAgain(app);
+    await app.waitFor(async () => (await scannerState(app)) === "unapproved", { timeout: 30_000, message: "unapproved" });
+    assert.match(await scannerText(app), /Grype found at .*grype \(on PATH\)\. nauvi runs it only once you approve it\./);
+    await app.find(byTestId("image-scanner-approve"));
+    await app.shot("grype unapproved");
+    assert.deepEqual(calls(), [], "the scanner ran before it was approved");
   });
 });

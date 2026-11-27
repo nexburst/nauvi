@@ -21,6 +21,7 @@ use nauvi::image_security::triage::Triage;
 use nauvi::kubectl_download::DownloadBase;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 
 pub(crate) const URL_ENV: &str = "NAUVI_KEV_URL";
@@ -279,15 +280,56 @@ pub(crate) async fn cmd_image_kev_update(
     }
     let dir = kev_dir(&app)?;
     let mut failed = DOWNLOAD.lock().await;
+    // A catalogue downloaded this way a moment ago is not downloaded again.
+    {
+        let mut last = LAST_MANUAL.lock().unwrap();
+        if let Some(wait) = cooldown_left(*last, kev::load(&dir).is_some(), Instant::now()) {
+            return Err(format!(
+                "The list was downloaded less than a minute ago. Try again in {} s.",
+                wait.as_secs().max(1)
+            ));
+        }
+        *last = Some(Instant::now());
+    }
     let result = download_kev(&dir).await;
-    *failed = result.is_err().then(std::time::Instant::now);
+    *failed = result.is_err().then(Instant::now);
     result?;
     Ok(status_of(&s, Some(&dir)))
+}
+
+/// When the last download of [`cmd_image_kev_update`] started.
+static LAST_MANUAL: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+/// The least time between two of them, while a catalogue is kept.
+const MANUAL_COOLDOWN: Duration = Duration::from_secs(60);
+
+/// How long until another manual download, when one started less than
+/// [`MANUAL_COOLDOWN`] ago and its catalogue is still kept (`kept`; turned
+/// off and on again, there is none, and it downloads).
+fn cooldown_left(last: Option<Instant>, kept: bool, now: Instant) -> Option<Duration> {
+    let since = now.saturating_duration_since(last?);
+    (kept && since < MANUAL_COOLDOWN).then(|| MANUAL_COOLDOWN - since)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn manual_downloads_wait_a_minute_while_one_is_kept() {
+        let t0 = Instant::now();
+        assert_eq!(cooldown_left(None, true, t0), None);
+        let left = cooldown_left(Some(t0), true, t0 + Duration::from_secs(20)).unwrap();
+        assert_eq!(left, Duration::from_secs(40));
+        assert_eq!(
+            cooldown_left(Some(t0), true, t0 + Duration::from_secs(60)),
+            None
+        );
+        // Turned off and on again: nothing kept, so it downloads.
+        assert_eq!(
+            cooldown_left(Some(t0), false, t0 + Duration::from_secs(5)),
+            None
+        );
+    }
 
     #[test]
     fn release_builds_only_use_cisa() {

@@ -229,7 +229,7 @@ fn malicious_trivy_releases_are_refused() {
 /// to the version the binary prints.
 #[test]
 fn malicious_trivy_builds_are_refused_from_the_file() {
-    use crate::image_security::go_buildinfo::{fixture, BuildInfo};
+    use crate::image_security::go_buildinfo::{find, fixture, BuildInfo};
     let info = |module: &str, version: &str, x: &[(&str, &str)]| BuildInfo {
         main_module: module.into(),
         main_version: version.into(),
@@ -266,15 +266,52 @@ fn malicious_trivy_builds_are_refused_from_the_file() {
     // Trivy 0.26 and before: `-X main.version=`, no module.
     let old = [("main.version", "0.26.0")];
     assert!(refused_plain(t, Some(&info("", "", &old))).is_none());
-    // Another module's version is not Trivy's.
+    // Another program is not Trivy, whatever its version.
     let why = refused_plain(t, Some(&info("example.com/other", "v0.69.5", &[]))).unwrap();
-    assert!(why.contains("names no version"), "{why}");
-    // Grype has no malicious release to look for.
-    assert!(refused_plain(
-        ScannerKind::Grype,
-        Some(&info(TRIVY_MODULE, "v0.69.5", &[]))
-    )
-    .is_none());
+    assert!(
+        why.starts_with(
+            "This file is not Trivy: its Go build info names the module example.com/other"
+        ),
+        "{why}"
+    );
+    assert!(refused_plain(t, Some(&info(GRYPE_MODULE, "v0.84.0", &[]))).is_some());
+
+    // Found as Grype (#573): a malicious Trivy is refused as one, before
+    // `grype version` would run it.
+    let g = ScannerKind::Grype;
+    for bad in [
+        info(TRIVY_MODULE, "v0.69.5", &[]),
+        info(TRIVY_MODULE, "(devel)", &[(TRIVY_VERSION_VAR, "0.69.4")]),
+        info("", "", &[(TRIVY_VERSION_VAR, "0.69.6")]),
+    ] {
+        let why = refused_plain(g, Some(&bad)).unwrap();
+        assert!(why.contains("is one of the malicious releases"), "{why}");
+    }
+    // Any other program, a fine Trivy too, is not Grype.
+    for other in [
+        info(TRIVY_MODULE, "v0.58.1", &[]),
+        info("example.com/evil", "v1.0.0", &[("main.version", "0.69.5")]),
+    ] {
+        let why = refused_plain(g, Some(&other)).unwrap();
+        assert!(why.starts_with("This file is not Grype"), "{why}");
+        assert!(why.contains("Grype's is github.com/anchore/grype"), "{why}");
+        assert!(
+            why.ends_with("Set NAUVI_GRYPE to the Grype you installed."),
+            "{why}"
+        );
+    }
+    // Grype: its release builds, a `(devel)` one, and one without a module
+    // or build info are left to the version it prints.
+    assert!(refused_plain(g, Some(&info(GRYPE_MODULE, "v0.84.0", &[]))).is_none());
+    assert!(refused_plain(g, Some(&info(GRYPE_MODULE, "(devel)", &[]))).is_none());
+    assert!(refused_plain(g, Some(&info("", "", &[("main.version", "0.69.5")]))).is_none());
+    assert!(refused_plain(g, None).is_none());
+    let found = find(&fixture::block(
+        "go1.24.1",
+        "path\tgithub.com/anchore/grype/cmd/grype\n\
+         mod\tgithub.com/anchore/grype\tv0.84.0\th1:x=\n",
+    ));
+    assert!(refused_plain(g, found.as_ref()).is_none());
 
     // From a file, in the same read as its hash.
     let dir = temp("buildinfo");
@@ -346,9 +383,12 @@ fn a_trivy_whose_file_names_no_version_is_refused() {
         ),
     ));
     assert!(refused_plain(t, release.as_ref()).is_none());
-    // Grype: the version it prints is what is checked.
+    // Grype: the version it prints is what is checked; but a Trivy found
+    // as Grype is not Grype (#573).
     assert!(refused_plain(ScannerKind::Grype, None).is_none());
-    assert!(refused_plain(ScannerKind::Grype, devel.as_ref()).is_none());
+    assert!(refused_plain(ScannerKind::Grype, devel.as_ref())
+        .unwrap()
+        .starts_with("This file is not Grype"));
 }
 
 /// [`refused_build`] of a file outside any package manager's folder.
@@ -424,6 +464,68 @@ fn a_versionless_trivy_in_a_package_folder_takes_the_folder_s_version() {
         file_version_note(ScannerKind::Grype, brew.as_ref(), cellar),
         None
     );
+    // Another program in a Trivy folder is refused by its module, whatever
+    // the folder says; so is a Go binary that names no module (#573).
+    let grype = find(&fixture::block(
+        "go1.25.3",
+        "path\tgithub.com/anchore/grype/cmd/grype\n\
+         mod\tgithub.com/anchore/grype\t(devel)\t\n\
+         build\t-trimpath=true\n",
+    ));
+    let why = refused_build(t, grype.as_ref(), cellar).unwrap();
+    assert!(why.starts_with("This file is not Trivy"), "{why}");
+    let nomod = crate::image_security::go_buildinfo::BuildInfo {
+        go_version: "go1.25.3".into(),
+        ..Default::default()
+    };
+    let why = refused_build(t, Some(&nomod), cellar).unwrap();
+    assert!(why.contains("names no version"), "{why}");
+    // Grype from its own Homebrew folder (also built with -trimpath) or
+    // Nix store path runs; a Trivy there does not, as Grype.
+    for p in [
+        "/opt/homebrew/Cellar/grype/0.84.0/bin/grype",
+        "/nix/store/0c3dk1fz9jq2gv8a6yx5zqr7mfbwl4hn-grype-0.84.0/bin/grype",
+    ] {
+        let g = ScannerKind::Grype;
+        assert_eq!(refused_build(g, grype.as_ref(), Path::new(p)), None, "{p}");
+        assert!(refused_build(g, brew.as_ref(), Path::new(p))
+            .unwrap()
+            .starts_with("This file is not Grype"));
+    }
+}
+
+/// The registry's name is resolved before the scanner starts, and refused
+/// when an address is this machine or a metadata endpoint (#572). The
+/// resolver is a fake: no network here.
+#[tokio::test]
+async fn a_registry_that_resolves_to_this_machine_is_not_scanned() {
+    let t = scan_target("127.0.0.1.nip.io:8080/x", &d('a'), "").unwrap();
+    let to = |a: &'static str| move |_: String| std::future::ready(Ok(vec![a.parse().unwrap()]));
+    let e = check_target_resolves_with(&t, to("127.0.0.1"))
+        .await
+        .unwrap_err();
+    assert!(e.contains("resolves to this machine"), "{e}");
+    let e = check_target_resolves_with(&t, to("fd00:ec2::254"))
+        .await
+        .unwrap_err();
+    assert!(e.contains("a cloud metadata endpoint"), "{e}");
+    check_target_resolves_with(&t, to("140.82.112.3"))
+        .await
+        .unwrap();
+    // `127.1` is refused already by scan_target.
+    let e = scan_target("127.1:2375/x", &d('a'), "").unwrap_err();
+    assert!(e.contains("loopback"), "{e}");
+    assert!(scan_target("[fd00:ec2::254]:80/x", &d('a'), "").is_err());
+    // Docker Hub is not looked up.
+    let hub = scan_target("nginx", &d('a'), "").unwrap();
+    check_target_resolves_with(
+        &hub,
+        |_: String| -> std::future::Ready<std::io::Result<Vec<std::net::IpAddr>>> {
+            panic!("resolved Docker Hub")
+        },
+    )
+    .await
+    .unwrap();
 }
 
 #[cfg(unix)]

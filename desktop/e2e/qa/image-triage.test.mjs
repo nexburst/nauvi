@@ -9,7 +9,8 @@
 //   listed in the panel and in Settings
 // - the KEV download is off by default and makes no request; turned on, one
 //   request, the finding is marked "known to be exploited in the wild" and
-//   the row is red
+//   the row is red; Download now right after does not download again
+//   (#573)
 // - an ignore file that cannot be read says so
 // Light and dark theme at 1280x800. Needs openssl for the test
 // certificates; the KEV part is skipped without it.
@@ -313,6 +314,16 @@ describe("image security: ignores and known exploited (#537)", { timeout: 15 * 6
     assert.equal(served.requests[0].headers.cookie, undefined);
     assert.equal(served.requests[0].headers.authorization, undefined);
     await app.shot("kev settings");
+    // Download now, right after: not downloaded again within a minute (#573).
+    await app.js(
+      `[...document.querySelectorAll('[data-testid="image-triage-settings"] button')].find((b) => b.textContent.trim() === "Download now").click()`,
+    );
+    await app.waitFor(async () => /downloaded less than a minute ago\. Try again in \d+ s\./.test(await textOf(app, "kev-error")), {
+      message: "the cooldown of Download now",
+    });
+    assert.equal(served.requests.length, 1, "Download now downloaded again at once");
+    assert.match(await textOf(app, "kev-status"), /Catalogue 2026\.11\.25, 3 vulnerabilities/);
+    await app.shot("kev download now cooldown");
     await closeSettings(app);
     await setTheme(app, "dark");
     const row = await nginxRow(app, (r) => /known to be exploited/.test(r.verdict), "the KEV mark on the row");

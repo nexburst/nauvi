@@ -2,7 +2,10 @@
 //! for a Trivy whose Go build info names none. Homebrew builds Trivy from
 //! its source tarball with `-trimpath` (so the build info has neither a
 //! module version nor its `-ldflags`), but installs it in a folder named
-//! by its version; so does Nix.
+//! by its version; so does Nix. Only for a file whose build info names
+//! Trivy's module (#573): Grype needs no version before it runs, and a
+//! Grype, or any other program, in a `Cellar/trivy` folder is refused by
+//! its module, whatever the folder says.
 //!
 //! Only the path nauvi already resolved (links followed) is read, and only
 //! these exact shapes:

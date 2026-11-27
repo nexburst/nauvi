@@ -7,16 +7,20 @@
 //!   runs it only on a path the user approved, by its [`Fingerprint`]: a
 //!   changed binary is a new question. Known malicious releases are
 //!   refused before anything of the binary runs, from the Go build info
-//!   in the file ([`refused_build`]; a Trivy whose file names no version is
-//!   refused too), and again by the version it prints
-//!   ([`refused_version`]).
+//!   in the file ([`refused_build`]: for Trivy and Grype alike, a file
+//!   whose build info names a malicious Trivy or another program's module;
+//!   a Trivy whose file names no version is refused too), and again by
+//!   the version it prints ([`refused_version`]).
 //! - **The image reference comes from the cluster and is untrusted.**
 //!   [`scan_target`] parses it with [`ImageRef`] (only the characters the
 //!   distribution spec allows), refuses registries on this machine,
 //!   link-local addresses and metadata endpoints ([`check_host`]), and
 //!   rebuilds it as `registry/repository@sha256:…` from the parsed parts:
 //!   the scan is by the digest the pod runs. It is one argv item after
-//!   `--`, never through a shell.
+//!   `--`, never through a shell. Before the scanner starts, the
+//!   registry's name is resolved and refused when any address it has is
+//!   one of those ([`check_target_resolves`]); best effort, as the scanner
+//!   resolves it again itself.
 //! - **One scan is one child process** with a timeout, killed when the
 //!   future is dropped (cancel), its stdout capped at [`MAX_OUTPUT`] and
 //!   its stderr at [`MAX_STDERR`] (the tail is kept). It runs in a folder
@@ -138,25 +142,23 @@ pub fn find_in(
             .canonicalize()
             .map_err(|e| format!("Cannot read {}: {e}", p.display()));
     }
-    let names: Vec<String> = if cfg!(windows) {
-        vec![format!("{}.exe", kind.binary())]
+    find_on_path(kind.binary(), path).ok_or_else(|| not_installed(kind))
+}
+
+/// The first executable `program` (`program.exe` on Windows) in an
+/// absolute entry of `path`, its links resolved. Relative entries (and
+/// `.`) are skipped: they would run whatever the current folder holds.
+pub fn find_on_path(program: &str, path: Option<OsString>) -> Option<PathBuf> {
+    let name = if cfg!(windows) {
+        format!("{program}.exe")
     } else {
-        vec![kind.binary().to_string()]
+        program.to_string()
     };
-    for dir in std::env::split_paths(&path.unwrap_or_default()) {
-        if !dir.is_absolute() {
-            continue;
-        }
-        for name in &names {
-            let candidate = dir.join(name);
-            if is_executable_file(&candidate) {
-                if let Ok(real) = candidate.canonicalize() {
-                    return Ok(real);
-                }
-            }
-        }
-    }
-    Err(not_installed(kind))
+    std::env::split_paths(&path.unwrap_or_default())
+        .filter(|dir| dir.is_absolute())
+        .map(|dir| dir.join(&name))
+        .filter(|candidate| is_executable_file(candidate))
+        .find_map(|candidate| candidate.canonicalize().ok())
 }
 
 fn is_executable_file(p: &Path) -> bool {
@@ -297,10 +299,36 @@ const OLD_TRIVY_VERSION_VAR: &str = "main.version";
 ///   elsewhere, a packed binary, a script around it) is refused: nauvi
 ///   cannot tell it from a malicious one without running it (#561).
 ///
+/// For any scanner, first (#573): a file whose build info names a
+/// malicious Trivy is refused, and so is one whose main module is not the
+/// scanner's ([`module_of`]): a malicious Trivy installed as `grype` (or
+/// named by `NAUVI_GRYPE`) never runs, not even for `grype version`.
+/// Grype has no known malicious release, so a Grype with no build info
+/// nauvi can read, or none naming a module, is left to what it prints.
+///
 /// `None`: it may run, and the version it prints is checked too, by
-/// [`refused_version`]. Grype has no known malicious release to look for
-/// before it runs, so a Grype is never refused here.
+/// [`refused_version`].
 pub fn refused_build(kind: ScannerKind, info: Option<&BuildInfo>, path: &Path) -> Option<String> {
+    if let Some(info) = info {
+        if let Some(why) = trivy_build_versions(info)
+            .into_iter()
+            .find_map(malicious_trivy)
+        {
+            return Some(why);
+        }
+        if !info.main_module.is_empty() && info.main_module != module_of(kind) {
+            return Some(format!(
+                "This file is not {}: its Go build info names the module {} ({}'s is {}), so \
+                 nauvi does not run it. Set {} to the {} you installed.",
+                kind.label(),
+                crate::text::single_line(&info.main_module),
+                kind.label(),
+                module_of(kind),
+                kind.env_var(),
+                kind.label(),
+            ));
+        }
+    }
     if kind != ScannerKind::Trivy {
         return None;
     }
@@ -355,24 +383,52 @@ enum FileVersion {
     NoVersion,
 }
 
+/// The module of Grype's releases (`github.com/anchore/grype/cmd/grype`).
+pub const GRYPE_MODULE: &str = "github.com/anchore/grype";
+
+/// The main module a scanner's Go build info names.
+pub fn module_of(kind: ScannerKind) -> &'static str {
+    match kind {
+        ScannerKind::Trivy => TRIVY_MODULE,
+        ScannerKind::Grype => GRYPE_MODULE,
+    }
+}
+
+/// The Trivy versions a file's build info names, whatever it was found
+/// as: its module's version when that is Trivy's, and the version a
+/// Trivy build sets (`-X …/app.ver`; `-X main.version` only in Trivy's
+/// own module, as any program may set that one).
+fn trivy_build_versions(info: &BuildInfo) -> Vec<(u64, u64, u64)> {
+    let trivy = info.main_module == TRIVY_MODULE;
+    trivy
+        .then_some(info.main_version.as_str())
+        .into_iter()
+        .chain(info.x(TRIVY_VERSION_VAR))
+        .chain(info.x(OLD_TRIVY_VERSION_VAR).filter(|_| trivy))
+        .filter_map(parse_version)
+        .collect()
+}
+
 fn trivy_file_version(info: Option<&BuildInfo>, path: &Path) -> FileVersion {
     let versions: Vec<_> = info
         .map(|info| {
-            let module = (info.main_module == TRIVY_MODULE).then_some(info.main_version.as_str());
-            module
-                .into_iter()
-                .chain(info.x(TRIVY_VERSION_VAR))
-                .chain(info.x(OLD_TRIVY_VERSION_VAR))
-                .filter_map(parse_version)
-                .collect()
+            let mut v = trivy_build_versions(info);
+            // Trivy 0.26 and before: `-X main.version`, no module.
+            if info.main_module.is_empty() {
+                v.extend(info.x(OLD_TRIVY_VERSION_VAR).and_then(parse_version));
+            }
+            v
         })
         .unwrap_or_default();
     if !versions.is_empty() {
         return FileVersion::Built(versions);
     }
-    // Only a Go binary: a script or a packed file in a Cellar is not
-    // what Homebrew built.
-    if info.is_some() {
+    // Only a Go binary of Trivy's module: a script, a packed file or
+    // another program in a Cellar is not what Homebrew built.
+    if let Some(info) = info {
+        if info.main_module != TRIVY_MODULE {
+            return FileVersion::NoVersion;
+        }
         if let Some((v, store)) =
             super::store_path::version_from_path(path, ScannerKind::Trivy.binary())
         {
@@ -510,6 +566,26 @@ pub fn scan_target(image: &str, digest: &str, platform: &str) -> Result<ScanTarg
         digest: digest.to_string(),
         platform: platform.to_string(),
     })
+}
+
+/// Resolve `target`'s registry and refuse it when any of its addresses is
+/// on this machine, link-local or a metadata endpoint (#572): the scanner
+/// connects to it with the user's credentials. Call it right before the
+/// scanner starts. Best effort: the scanner resolves the name again.
+pub async fn check_target_resolves(target: &ScanTarget) -> Result<(), String> {
+    check_target_resolves_with(target, crate::registry_tags::system_resolve).await
+}
+
+/// [`check_target_resolves`] with the resolver given (tests).
+pub async fn check_target_resolves_with<R, F>(target: &ScanTarget, resolve: R) -> Result<(), String>
+where
+    R: FnOnce(String) -> F,
+    F: std::future::Future<Output = std::io::Result<Vec<std::net::IpAddr>>>,
+{
+    if target.registry == DOCKER_HUB {
+        return Ok(());
+    }
+    crate::registry_tags::check_resolved(&target.registry, false, resolve).await
 }
 
 /// `os/arch` or `os/arch/variant` (each `[a-z0-9_]`, at most 32), or empty.
