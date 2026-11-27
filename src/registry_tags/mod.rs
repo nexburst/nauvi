@@ -256,16 +256,9 @@ pub fn report(image: &str, r: &ImageRef, image_id: &str, data: &RegistryData) ->
     }
 }
 
-/// `e` as a sentence: a capital first letter and a full stop.
+/// `e` ending with a full stop.
 fn sentence(e: &str) -> String {
-    let mut out: String = e.trim().to_string();
-    let first = out
-        .chars()
-        .next()
-        .filter(|c| c.is_lowercase() && !out.starts_with("nauvi"));
-    if let Some(first) = first {
-        out = first.to_uppercase().chain(out.chars().skip(1)).collect();
-    }
+    let mut out = e.trim().to_string();
     if !out.ends_with(['.', '!', '?']) {
         out.push('.');
     }
@@ -683,10 +676,7 @@ mod tests {
 
     #[test]
     fn errors_are_sentences() {
-        assert_eq!(
-            sentence("cannot reach x: refused"),
-            "Cannot reach x: refused."
-        );
+        assert_eq!(sentence("ghcr.io answered 500"), "ghcr.io answered 500.");
         assert_eq!(
             sentence("nauvi does not contact x."),
             "nauvi does not contact x."

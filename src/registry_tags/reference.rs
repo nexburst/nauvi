@@ -227,7 +227,8 @@ const METADATA_HOSTS: &[&str] = &["metadata", "metadata.google.internal", "metad
 /// came from the cluster: refuse a loopback, link-local, multicast,
 /// broadcast or unspecified address, `localhost`, and cloud metadata
 /// names. `allow_loopback` lets the QA scenario's local registry through
-/// (debug builds only, see `super::test_hooks`).
+/// (debug builds only, see `super::Hooks`). The addresses a name resolves
+/// to are checked again with [`ip_refused`] before the connection.
 pub fn check_host(authority: &str, allow_loopback: bool) -> Result<(), String> {
     let (host, _) = split_host(authority)?;
     let refused = |why: &str| {
@@ -237,25 +238,10 @@ pub fn check_host(authority: &str, allow_loopback: bool) -> Result<(), String> {
         ))
     };
     if let Ok(ip) = host.parse::<IpAddr>() {
-        let ip = match ip {
-            IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
-            v4 => v4,
+        return match ip_refused(ip, allow_loopback) {
+            Some(why) => refused(why),
+            None => Ok(()),
         };
-        if ip.is_loopback() {
-            return if allow_loopback {
-                Ok(())
-            } else {
-                refused("this machine (a loopback address)")
-            };
-        }
-        if ip.is_unspecified()
-            || ip.is_multicast()
-            || is_link_local(ip)
-            || ip == IpAddr::V4(Ipv4Addr::BROADCAST)
-        {
-            return refused("a link-local, multicast or unspecified address");
-        }
-        return Ok(());
     }
     if host == "localhost" || host.ends_with(".localhost") {
         return if allow_loopback {
@@ -268,6 +254,25 @@ pub fn check_host(authority: &str, allow_loopback: bool) -> Result<(), String> {
         return refused("a cloud metadata endpoint");
     }
     Ok(())
+}
+
+/// Why nauvi does not connect to `ip` as a registry (`None`: it may).
+pub(crate) fn ip_refused(ip: IpAddr, allow_loopback: bool) -> Option<&'static str> {
+    let ip = match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(ip, IpAddr::V4),
+        v4 => v4,
+    };
+    if ip.is_loopback() {
+        return (!allow_loopback).then_some("this machine (a loopback address)");
+    }
+    if ip.is_unspecified()
+        || ip.is_multicast()
+        || is_link_local(ip)
+        || ip == IpAddr::V4(Ipv4Addr::BROADCAST)
+    {
+        return Some("a link-local, multicast or unspecified address");
+    }
+    None
 }
 
 fn is_link_local(ip: IpAddr) -> bool {

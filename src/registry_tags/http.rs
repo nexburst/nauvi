@@ -3,7 +3,10 @@
 //! - HTTPS only (the connector refuses `http://`), the certificate checked
 //!   against the system's trust store (the platform verifier, as for a
 //!   cluster without a CA of its own); no client certificate.
-//! - Every host is checked with [`check_host`] before the connection.
+//! - Every host is checked with [`check_host`] before the connection, and
+//!   every address its name resolves to with [`ip_refused`] ([`Guarded`]):
+//!   a name that resolves to this machine or a link-local address (DNS
+//!   rebinding) is not connected to.
 //! - Redirects are followed only to the same host and port, at most
 //!   [`MAX_REDIRECTS`] times; any other is refused.
 //! - Each request, its body included, has [`REQUEST_TIMEOUT`]; bodies are
@@ -11,17 +14,22 @@
 //! - No proxy: proxy environment variables are not read (the cluster's
 //!   proxy setting is for the cluster, not the registries).
 
-use super::reference::check_host;
+use super::reference::{check_host, ip_refused};
 use bytes::Bytes;
 use http::header::{HeaderMap, HeaderName, HeaderValue, LOCATION, USER_AGENT};
 use http::{Method, Request, StatusCode, Uri};
 use http_body_util::{BodyExt as _, Empty, Limited};
 use hyper_rustls::HttpsConnector;
+use hyper_util::client::legacy::connect::dns::Name;
 use hyper_util::client::legacy::connect::HttpConnector;
 use hyper_util::client::legacy::Client;
 use hyper_util::rt::TokioExecutor;
 use rustls::pki_types::CertificateDer;
+use std::future::Future;
+use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 /// How long one request (connection, answer and body) may take.
@@ -50,7 +58,7 @@ impl Reply {
 /// The client: one connection pool for the requests of one look-up.
 #[derive(Clone)]
 pub(crate) struct Https {
-    client: Client<HttpsConnector<HttpConnector>, Empty<Bytes>>,
+    client: Client<HttpsConnector<HttpConnector<Guarded>>, Empty<Bytes>>,
     allow_loopback: bool,
 }
 
@@ -65,12 +73,12 @@ impl Https {
         let provider = builder.crypto_provider().clone();
         let verifier =
             rustls_platform_verifier::Verifier::new_with_extra_roots(extra_roots, provider)
-                .map_err(|e| format!("cannot set up TLS: {e}"))?;
+                .map_err(|e| format!("Cannot set up TLS: {e}"))?;
         let tls = builder
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(verifier))
             .with_no_client_auth();
-        let mut tcp = HttpConnector::new();
+        let mut tcp = HttpConnector::new_with_resolver(Guarded { allow_loopback });
         tcp.enforce_http(false);
         tcp.set_connect_timeout(Some(CONNECT_TIMEOUT));
         tcp.set_nodelay(true);
@@ -170,13 +178,13 @@ impl Https {
         }
         let req = req
             .body(Empty::<Bytes>::new())
-            .map_err(|e| format!("cannot build the request: {e}"))?;
+            .map_err(|e| format!("Cannot build the request: {e}"))?;
         let host = host_of(&uri);
         let res = self
             .client
             .request(req)
             .await
-            .map_err(|e| format!("cannot reach {host}: {}", error_chain(&e)))?;
+            .map_err(|e| format!("Cannot reach {host}: {}", error_chain(&e)))?;
         let (parts, body) = res.into_parts();
         let body = Limited::new(body, cap)
             .collect()
@@ -201,6 +209,60 @@ impl Https {
             uri,
         })
     }
+}
+
+/// The system resolver, keeping only the addresses [`ip_refused`] allows;
+/// none left is an error that says why.
+#[derive(Clone, Copy)]
+pub(crate) struct Guarded {
+    allow_loopback: bool,
+}
+
+type Addrs = std::vec::IntoIter<SocketAddr>;
+
+impl tower::Service<Name> for Guarded {
+    type Response = Addrs;
+    type Error = std::io::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Addrs, std::io::Error>> + Send>>;
+
+    fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, name: Name) -> Self::Future {
+        let allow = self.allow_loopback;
+        Box::pin(async move {
+            let host = name.as_str().to_string();
+            let all: Vec<SocketAddr> = tokio::net::lookup_host((host.as_str(), 0)).await?.collect();
+            let (ok, refused) = keep_allowed(all, allow);
+            match (ok.is_empty(), refused) {
+                (false, _) => Ok(ok.into_iter()),
+                (true, Some(why)) => Err(std::io::Error::other(format!(
+                    "nauvi does not connect to {host}: it resolves to {why}"
+                ))),
+                (true, None) => Err(std::io::Error::other(format!("{host} has no address"))),
+            }
+        })
+    }
+}
+
+/// The addresses nauvi may connect to, and why one was refused.
+fn keep_allowed(
+    all: Vec<SocketAddr>,
+    allow_loopback: bool,
+) -> (Vec<SocketAddr>, Option<&'static str>) {
+    let mut why = None;
+    let ok = all
+        .into_iter()
+        .filter(|a| match ip_refused(a.ip(), allow_loopback) {
+            Some(w) => {
+                why = Some(w);
+                false
+            }
+            None => true,
+        })
+        .collect();
+    (ok, why)
 }
 
 /// `location` (absolute, or a path on `base`'s host) as a URI.
@@ -284,6 +346,30 @@ mod tests {
         );
         assert!(resolve(&base, "//evil.com/x").is_none());
         assert!(resolve(&base, "x/y").is_none());
+    }
+
+    #[test]
+    fn resolved_addresses_are_checked_too() {
+        let a = |s: &str| s.parse::<SocketAddr>().unwrap();
+        let (ok, why) = keep_allowed(vec![a("127.0.0.1:0"), a("140.82.112.3:0")], false);
+        assert_eq!(ok, vec![a("140.82.112.3:0")]);
+        assert!(why.unwrap().contains("loopback"));
+        let (ok, why) = keep_allowed(vec![a("169.254.169.254:0"), a("[fe80::1]:0")], true);
+        assert!(ok.is_empty());
+        assert!(why.unwrap().contains("link-local"));
+    }
+
+    #[tokio::test]
+    async fn a_name_that_resolves_to_this_machine_is_not_connected_to() {
+        use tower::ServiceExt as _;
+        let name: Name = "localhost".parse().unwrap();
+        let e = Guarded {
+            allow_loopback: false,
+        }
+        .oneshot(name)
+        .await
+        .unwrap_err();
+        assert!(e.to_string().contains("resolves to this machine"), "{e}");
     }
 
     #[test]
