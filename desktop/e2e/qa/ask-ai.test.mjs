@@ -12,6 +12,13 @@
 // It runs in its own folder in the app's data folder, never HOME (#532: on
 // macOS a CLI scanning HOME makes macOS ask for nauvi to access Photos),
 // unless the cluster's settings set a working directory.
+// #548: the fake CLI also prints the `nauvi link` of a pod (plain and as an
+// OSC 8 link) and runs `nauvi show` (at start, and for "show <target>"
+// typed in its terminal). A click on the link opens the pod in the same
+// window; the same link in a pod shell does nothing. With "Let Ask AI open
+// views" off `nauvi show` prints the link; on, it opens the view with
+// "Opened by Ask AI", Back returns, a second view within 3 s is dropped,
+// and a wrong, missing or closed session's token opens nothing.
 //
 // Helpers: `terminal`, `closeTab`, `setTheme`.
 
@@ -23,7 +30,7 @@ import { after, before, describe, it } from "node:test";
 import { By, Key } from "selenium-webdriver";
 import { byTestId, CONTEXT, REPO, xq } from "../lib/app.mjs";
 import { deleteNamespace, httpPodYaml, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { closeTab, dockTabs } from "../lib/dock.mjs";
+import { closeTab, dockTabs, panelButton } from "../lib/dock.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { createProfile } from "../lib/profile.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
@@ -79,16 +86,40 @@ try:
     rec["problems_code"] = p.returncode
 except Exception as e:
     rec["problems_error"] = repr(e)
+# #548: what nauvi show needs, and the link the skill says to print.
+rec["show_token"] = os.environ.get("NAUVI_ASK_AI_SESSION", "")
+rec["show_app"] = os.environ.get("NAUVI_APP", "")
+rec["link_context"] = os.environ.get("NAUVI_LINK_CONTEXT", "")
+def nauvi(*a):
+    p = subprocess.run(["nauvi", *a], capture_output=True, text=True, timeout=60)
+    return p.stdout, p.stderr[-400:], p.returncode
+try:
+    rec["link"], rec["link_err"], rec["link_code"] = nauvi("link", "pod/broken", "-n", ns)
+    rec["link"] = rec["link"].strip()
+    rec["show_first"], _, _ = nauvi("show", "pod/broken", "-n", ns)
+except Exception as e:
+    rec["link_error"] = repr(e)
 with open(os.environ["ASK_AI_RECORD"], "a") as f:
     f.write(json.dumps(rec) + "\n")
 print("FAKE-AI started with %d arguments" % len(args))
 print("skill: " + ("found" if rec["skill_exists"] else "missing"))
 for line in rec.get("problems", "").splitlines()[:6]:
     print("| " + line[:110])
+if rec.get("link"):
+    print("Pod %s/broken keeps failing:" % ns)
+    print(rec["link"])
+    print("\x1b]8;;%s\x07OSC-BROKEN\x1b]8;;\x07" % rec["link"])
 print("Type done to exit")
 for line in sys.stdin:
-    if line.strip() == "done":
+    cmd = line.strip()
+    if cmd == "done":
         break
+    # "show pod/x": what the skill does when the user asks to see something.
+    if cmd.startswith("show "):
+        out, err, _ = nauvi("show", *cmd.split()[1:], "-n", ns)
+        for l in (out + err).splitlines():
+            print("SHOW| " + l[:150])
+        print("SHOW-DONE")
 print("FAKE-AI bye")
 `;
 
@@ -399,7 +430,105 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     const tab = (await dockTabs(app)).find((t) => t.title.startsWith("AI: "));
     if (tab) await closeTab(app, tab.title);
   });
+
+  // #548: links the AI prints, and `nauvi show`.
+  const brokenLink = () => `nauvi://${CONTEXT}/core/v1/Pod/${ns}/broken`;
+
+  it("the AI's nauvi:// links open the pod in this window (light and dark)", { ...T, skip: noCli || noPython }, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    await app.openDetail("Pods", ns, "asked");
+    const before = records(record).length;
+    await app.palette("ask ai", "Ask AI");
+    await waitDialog(app);
+    await (await app.find(byTestId("ask-ai-start"))).click();
+    const term = terminal(app);
+    await term.waitFor("Type done to exit", { timeout: 90_000 });
+    await app.waitFor(() => records(record).length > before, { message: "the fake CLI recorded its start" });
+    const rec = records(record).at(-1);
+    // `nauvi link` prints what Copy link copies, for this context's catalog id.
+    assert.equal(rec.link_code, 0, rec.link_err);
+    assert.equal(rec.link, brokenLink());
+    assert.equal(rec.link_context, CONTEXT);
+    await app.shot("links-printed");
+
+    await clickText(app, brokenLink());
+    assert.equal(await screenTitle(app), `Open Pod ${ns}/broken (${CONTEXT}) in nauvi`);
+    await app.waitFor(async () => /\bbroken\b/.test(await panelText(app)), { message: "the clicked link's pod in the panel" });
+    assert.equal((await app.driver.findElements(byTestId("opened-by-ai"))).length, 0, "a click is the user's, not Ask AI's");
+    await app.shot("link-opened-light");
+    await setTheme(app, "dark");
+    await app.shot("link-opened-dark");
+    await setTheme(app, "light");
+
+    // The OSC 8 link too.
+    await app.openDetail("Pods", ns, "asked");
+    await clickText(app, "OSC-BROKEN");
+    await app.waitFor(async () => /\bbroken\b/.test(await panelText(app)), { message: "the OSC 8 link's pod in the panel" });
+    await term.type("done");
+    await term.waitFor("This is your shell", { timeout: 30_000 });
+  });
+
+  it("the same links printed in a pod shell do nothing", { ...T, skip: noCli || noPython }, async () => {
+    const { app } = s;
+    for (const tab of await dockTabs(app)) if (tab.title.startsWith("AI: ")) await closeTab(app, tab.title);
+    await app.openDetail("Pods", ns, "asked");
+    await panelButton(app, "Shell");
+    const term = terminal(app);
+    await term.waitForPrompt();
+    await term.type("clear");
+    await term.type(`printf '%s\\n' '${brokenLink()}'`);
+    await term.type(`printf '\\033]8;;${brokenLink()}\\007OSC-SHELL\\033]8;;\\007\\n'`);
+    await term.waitFor(/^OSC-SHELL$/m);
+    await clickText(app, brokenLink());
+    await clickText(app, "OSC-SHELL");
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.doesNotMatch(await screenTitle(app), /in nauvi/);
+    assert.match(await panelText(app), /\basked\b/);
+    assert.doesNotMatch(await panelText(app), /\bbroken\b/);
+    await app.shot("pod-shell-link-ignored");
+    for (const tab of await dockTabs(app)) await closeTab(app, tab.title);
+  });
 });
+
+const panelText = (app) => app.js(`return document.querySelector('[data-testid="detail-panel"]')?.innerText ?? ""`);
+
+/** The tooltip of the visible terminal: where the hovered link goes. */
+const screenTitle = (app) =>
+  app.js(
+    `const term = Array.from(document.querySelectorAll('[data-testid="terminal"]')).find((el) => el.offsetParent !== null);
+     return term?.querySelector('.screen')?.title ?? "";`,
+  );
+
+/** Hover, then click `text` on the row that reads just `text` (as terminal-links.test.mjs). */
+async function clickText(app, text) {
+  const rect = await app.waitFor(
+    () =>
+      app.js(
+        `const text = arguments[0];
+         const term = Array.from(document.querySelectorAll('[data-testid="terminal"]')).find((el) => el.offsetParent !== null);
+         const rows = Array.from(term?.querySelector('.xterm-rows')?.children ?? []);
+         const row = rows.find((r) => r.textContent.replace(/\\u00a0/g, ' ').trim() === text);
+         if (!row) return null;
+         const r = row.getBoundingClientRect();
+         const ch = r.width / Math.max(1, row.textContent.length);
+         return [r.x, r.y, Math.min(r.width, ch * text.length), r.height];`,
+        text,
+      ),
+    { message: `${text} on the terminal's screen` },
+  );
+  const [x, y, w, h] = rect;
+  const cx = Math.round(x + Math.min(w / 2, 60));
+  const cy = Math.round(y + h / 2);
+  await app.driver
+    .actions()
+    .move({ origin: "viewport", x: cx - 3, y: cy })
+    .pause(100)
+    .move({ origin: "viewport", x: cx, y: cy })
+    .pause(400)
+    .click()
+    .perform();
+}
 
 /** Pick a mode on this cluster's settings page (as context-mode.test.mjs). */
 async function setMode(app, label) {

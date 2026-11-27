@@ -325,6 +325,13 @@ export const commands = {
 	 */
 	cmdKubectlMatch: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<KubectlMatch>("cmd_kubectl_match", { cluster }, options),
 	/**
+	 *  A `nauvi://` link clicked in this window's Ask AI terminal (#548),
+	 *  checked as an opened link is: the object to open in this window, or a
+	 *  notice saying why not. Only Ask AI terminals pass their links here;
+	 *  other terminals ignore `nauvi://` links.
+	 */
+	cmdCheckLink: (link: string, options?: InvokeOptions) => __TAURI_INVOKE<LinkRequest>("cmd_check_link", { link }, options),
+	/**
 	 *  The link to an object of this window's context. Reads the kubeconfig
 	 *  files; no login.
 	 */

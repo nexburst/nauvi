@@ -68,6 +68,17 @@ pub enum Commands {
         #[arg(short, long)]
         namespace: Option<String>,
     },
+    /// Print an object's nauvi:// link, the same as the app's Copy link.
+    /// In the app's Ask AI terminal, clicking it opens the object
+    Link {
+        /// `<kind>/<name>`, or the kind followed by the name
+        target: String,
+        /// The object's name, when the kind is given on its own
+        name: Option<String>,
+        /// Namespace (default: the context's namespace)
+        #[arg(short, long)]
+        namespace: Option<String>,
+    },
     /// Only what is wrong, and why: crash-looping, failed, not ready or
     /// pending pods, recent restarts, workloads short of replicas, failed
     /// Jobs, not-ready Nodes, lost PVCs (the same findings as the MCP

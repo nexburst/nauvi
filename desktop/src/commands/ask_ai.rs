@@ -29,10 +29,11 @@ use crate::state::mutation::Mutation;
 use crate::state::{next_session, LocalShellSession};
 use nauvi::ask_ai::{self, Cli, KNOWN_CLIS};
 use nauvi::ask_ai_skill::{self as skill, Installed, SkillHome, SkillState, SKILL_HOMES};
+use nauvi::links;
 use nauvi::{TempExt, TempKubeconfig};
 use serde::Serialize;
 use specta::Type;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{Manager, State};
@@ -396,17 +397,23 @@ pub(crate) async fn cmd_ask_ai_start(
         );
         ask_ai::then_shell(launch, &shell.program, &note)
     };
+    let context_id = cluster.target()?.target.id;
+    let on_output = TermOut::new(on_output);
     // The CLI where the shell would run: its working directory and
     // environment, plus what the CLI needs for this session.
     let spec = ShellSpec {
         program: launch.program.into_os_string(),
         args: launch.args,
         cwd: Some(cwd.clone()),
-        env: shell.env.into_iter().chain(launch.env).collect(),
+        env: shell
+            .env
+            .into_iter()
+            .chain(launch.env)
+            .chain(link_env(&context_id, &generated.context))
+            .collect(),
     };
     tracing::info!("Ask AI: starting {label} at {id} (skill: {skill})");
     let session = next_session("local");
-    let on_output = TermOut::new(on_output);
     let (out, exit_out) = (on_output.clone(), on_output.clone());
     let terminal = LocalShell::spawn(
         &spec,
@@ -441,6 +448,15 @@ pub(crate) async fn cmd_ask_ai_start(
         cwd: cwd.display().to_string(),
         cwd_set,
     })
+}
+
+/// What `nauvi link` reads in the session (#548): the context's catalog id
+/// and its name in the terminal's kubeconfig.
+fn link_env(context_id: &str, kube_context: &str) -> Vec<(OsString, OsString)> {
+    vec![
+        (links::LINK_CONTEXT_ENV.into(), context_id.into()),
+        (links::LINK_KUBE_CONTEXT_ENV.into(), kube_context.into()),
+    ]
 }
 
 /// Ask AI's own folder in the app's data folder `data`, created (only the

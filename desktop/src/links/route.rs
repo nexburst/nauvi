@@ -95,27 +95,49 @@ async fn one_at_a_time<T>(f: impl FnOnce() -> T) -> T {
     f()
 }
 
+/// The link `raw`, checked, for a context in the catalog; else the notice
+/// to show.
+fn checked(app: &AppHandle, raw: &str) -> Result<ObjectLink, String> {
+    let link = parse(raw).map_err(|e| {
+        tracing::warn!("refused a link: {e}");
+        format!("This nauvi link can't be opened: {e}. Nothing was opened.")
+    })?;
+    if app
+        .state::<AppState>()
+        .sources
+        .catalog()
+        .find(&link.context)
+        .is_none()
+    {
+        tracing::warn!("a link names a context that is not in the kubeconfigs");
+        return Err(format!(
+            "This link is for the context {}, which is not in your kubeconfigs. Nothing was opened.",
+            link.context
+        ));
+    }
+    Ok(link)
+}
+
+/// A link clicked in an Ask AI terminal (#548): what the window that shows
+/// it does with it, there and then. The window itself checks that the
+/// link is for its context; a link never opens another window from there.
+pub(crate) fn check(app: &AppHandle, raw: &str) -> LinkRequest {
+    match checked(app, raw) {
+        Ok(link) => LinkRequest::Open { link },
+        Err(message) => LinkRequest::Notice { message },
+    }
+}
+
 fn open(app: &AppHandle, raw: &str) {
-    let link = match parse(raw) {
+    let link = match checked(app, raw) {
         Ok(link) => link,
-        Err(e) => {
-            tracing::warn!("refused a link: {e}");
-            let message = format!("This nauvi link can't be opened: {e}. Nothing was opened.");
+        Err(message) => {
             deliver(app, None, LinkRequest::Notice { message });
             return;
         }
     };
     let state = app.state::<AppState>();
     let catalog = state.sources.catalog();
-    if catalog.find(&link.context).is_none() {
-        tracing::warn!("a link names a context that is not in the kubeconfigs");
-        let message = format!(
-            "This link is for the context {}, which is not in your kubeconfigs. Nothing was opened.",
-            link.context
-        );
-        deliver(app, None, LinkRequest::Notice { message });
-        return;
-    }
     let request = LinkRequest::Open { link: link.clone() };
     if deliver_to_starting_main(app, &request) {
         return;

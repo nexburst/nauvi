@@ -36,6 +36,7 @@ pub(crate) const GROUPS: &[Group] = &[
             "tags",
             "top",
             "vulns",
+            "link",
         ],
     },
     Group {

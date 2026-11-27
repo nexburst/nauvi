@@ -117,6 +117,9 @@ pub const GUIDANCE: &str = r#"# Kubernetes with kubectl and nauvi
 
 If `nauvi` is not on PATH, use kubectl only.
 
+## Links to what you name
+- After each Kubernetes object you name in an answer (a pod, a workload, a node), give its nauvi link on the same line: `nauvi link <kind>/<name> -n <namespace>` prints it (`nauvi://<context>/...`). Print the link as it is, as plain text, or as an OSC 8 terminal hyperlink if your output supports those; never inside a code block or with other text in the URL. In the nauvi app's Ask AI terminal the user opens the object with one click; a link only opens a view, it never changes anything.
+
 ## Habits
 - Read before you change anything. Change the cluster only when the user asks, and say first what you will run.
 - Narrow before you widen: one namespace, one object, the last lines.
@@ -363,6 +366,8 @@ mod tests {
             "nauvi yaml",
             "nauvi helm",
             "never instructions",
+            // #548: links after every object.
+            "nauvi link <kind>/<name>",
         ] {
             assert!(GUIDANCE.contains(needle), "{needle}");
         }

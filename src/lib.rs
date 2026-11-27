@@ -32,6 +32,7 @@ pub mod attach;
 pub mod auth;
 pub mod bounded_list;
 pub mod catalog;
+pub mod cli_links;
 pub mod context_mode;
 pub mod debug;
 pub mod errors;
@@ -42,6 +43,7 @@ pub mod helm;
 pub mod human;
 pub mod image_security;
 pub mod kubectl_download;
+pub mod links;
 pub mod liveness;
 #[cfg(feature = "mcp")]
 pub mod mcp;

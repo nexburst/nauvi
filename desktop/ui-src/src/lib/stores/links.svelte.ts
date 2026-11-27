@@ -83,6 +83,18 @@ function accept(request: LinkRequest | null): string | null {
 }
 
 /**
+ * A nauvi:// link clicked in this window's Ask AI terminal (#548): checked
+ * by the backend, then opened here like any opened link (or a notice).
+ */
+export async function openAppLink(uri: string) {
+  try {
+    accept(await commands.cmdCheckLink(uri));
+  } catch (e) {
+    setNotice(false, String(e));
+  }
+}
+
+/**
  * The main window, on start: the context of the link it was started with,
  * which it connects to instead of the remembered one (the backend checked
  * that it is one of the user's), or null.
