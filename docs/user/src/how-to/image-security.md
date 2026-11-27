@@ -15,9 +15,12 @@ nauvi gets the scans from one of these places:
   ([Scan with your own Trivy or Grype](#scan-with-your-own-trivy-or-grype)).
 
 nauvi never downloads a scanner or a vulnerability database. The only thing
-it can download for image security is CISA's list of known exploited
+nauvi itself downloads for image security is CISA's list of known exploited
 vulnerabilities, and only if you turn that on
-([Known exploited vulnerabilities](#known-exploited-vulnerabilities)).
+([Known exploited vulnerabilities](#known-exploited-vulnerabilities)). A
+scanner you installed pulls the image, and downloads and updates its own
+database unless you turn on **Do not let the scanner update its database**
+([Scan with your own Trivy or Grype](#scan-with-your-own-trivy-or-grype)).
 
 ## In the app
 
@@ -167,8 +170,9 @@ You need `list` on `vulnerabilitymanifestsummaries` and `get` on
 
 If your cluster has no Trivy Operator, nauvi can use a
 [Trivy](https://trivy.dev/) or [Grype](https://github.com/anchore/grype)
-you installed on this computer. nauvi never downloads the scanner or its
-database.
+you installed on this computer. nauvi never downloads the scanner. The
+scanner downloads and updates its own vulnerability database when it scans,
+unless you turn on **Do not let the scanner update its database**.
 
 1. Install Trivy or Grype yourself. nauvi looks for `trivy` or `grype` on
    your `PATH`. Set `NAUVI_TRIVY` or `NAUVI_GRYPE` to the full path of a
@@ -176,18 +180,19 @@ database.
 2. In **Settings → Image security**, set **Source** to **A scanner on this
    computer**, or to **Cluster reports, then this computer for the rest**.
    Then pick the **Scanner**.
-3. nauvi shows the file it found, its size and its SHA-256. Hover the path
-   for the full SHA-256, or click **Copy SHA-256** to compare it with the
+3. nauvi shows the file it found, its size and its SHA-256. Hover the size
+   and SHA-256 for the full SHA-256, or click **Copy SHA-256** to compare it with the
    one your package manager or the release page lists.
-4. Click **Approve** to let nauvi run that file. nauvi runs nothing of it
+4. Click **Approve** (followed by the file's path) to let nauvi run that file. nauvi runs nothing of it
    before you approve it, not even to read its version. If the file changes
    (an update, or another file first on your `PATH`), nauvi asks again.
 5. In the **Image security** view, click **Scan N images with Trivy** (or
    Grype) above the list, or open an image and click **Scan with Trivy**.
    One image is scanned at a time; **Cancel** stops it.
 
-Trivy 0.69.4 to 0.69.6 are refused without being run: they were malicious
-releases (CVE-2026-33634).
+Trivy 0.69.4 to 0.69.6 are refused: they were malicious releases
+(CVE-2026-33634). nauvi refuses them before they run, from the version
+recorded in the file.
 
 The three **Source** choices:
 

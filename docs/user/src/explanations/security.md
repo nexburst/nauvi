@@ -76,8 +76,11 @@ A `nauvi://` link only opens a view. It never changes the cluster.
 - **A scanner on this computer** (off by default) is a Trivy or Grype you
   installed. nauvi never downloads one, and runs the file only after you
   approve it, by its size and SHA-256; a changed file is asked about again.
-  Trivy 0.69.4 to 0.69.6, malicious releases, are refused without being
-  run. nauvi turns off Trivy's telemetry and the scanners' update checks.
+  Trivy 0.69.4 to 0.69.6, malicious releases, are refused before they run,
+  from the version recorded in the file. nauvi turns off Trivy's telemetry
+  and the scanners' own update checks. The scanner still downloads and
+  updates its vulnerability database unless you turn on **Do not let the
+  scanner update its database**.
   The scanner pulls images by digest with your own `docker login`, never
   the cluster's pull secrets, and scans only when you click
   ([Scan with your own Trivy or Grype](../how-to/image-security.md#scan-with-your-own-trivy-or-grype)).
