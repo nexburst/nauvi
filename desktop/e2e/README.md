@@ -95,6 +95,7 @@ changed, and no browser opens. The login shell environment import is off
 | command palette | `app.palette(query, option)` | `local-shell` |
 | the table's rows by column, the error banner, the namespace picker | `tableData`, `bannerText`, `pickNamespaces`, `openNamespacePicker`, `namespaceOptions`, `namespaceChips`, `namespaceLabel` (`lib/table.mjs`) | `area-1-tables`, `area-1-namespaces` |
 | the light or dark theme before a screenshot (sets `data-theme`, then waits for the attribute, the body's background colour and two painted frames; after clicking Settings > Theme yourself, call `waitTheme`) | `setTheme(app, "dark" \| "light" \| null)`, `waitTheme(app, theme)`, `backgroundLuminance(app)` (`lib/theme.mjs`; `setTheme` is also exported by `lib/panels.mjs`) | `history`, `detail-actions`, `errors`, most |
+| after the webview has drawn what a change renders (and the scroll events it causes) | `app.frames(n = 2)` (`lib/app.mjs`) | `log-search` |
 | memory of the app's processes (RSS and PSS by kind, the biggest mappings) | `measure(pid)`, `topMappings(pid, n)` (`lib/memory.mjs`) | `idle-memory` |
 | temp objects | `tempNamespace(prefix, yaml)`, `deleteNamespace`, `httpPodYaml`, `loggerPodYaml`, `waitPodReady`, `contexts()` (`lib/cluster.mjs`) | most |
 
@@ -116,6 +117,12 @@ you change in a temporary namespace (`tempNamespace`) and delete it in
 the cluster may not have (the limited user, helm, Prometheus, a second
 cluster, docker access), skip it with the reason instead of failing. Use
 `data-testid`s where they exist; adding one to a component is fine.
+
+Wait on state, never on time: poll with `app.waitFor(fn, { timeout })`
+until what you check is there, and check the state you mean, not the first
+sign of it. A status that says "Retrying…" is still pending; a count can
+change a frame before the lines it counts are drawn (`app.frames(n)`
+resolves after `n` drawn frames). Both made full runs flaky (#574).
 
 A check that fails because of a filed bug becomes its own test with
 `{ todo: "#<bug>: <what>" }`: it still runs, the report lists it as a known

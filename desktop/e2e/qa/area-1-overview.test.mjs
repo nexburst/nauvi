@@ -314,6 +314,15 @@ describe("area 1: an unreachable cluster", { timeout: 5 * 60_000 }, () => {
       // The waits between attempts grow (lib/retry.ts): two of them take up to 100 s.
       { timeout: 150_000, message: "two more attempts (Retrying… twice)" },
     );
+    // The second attempt is still running when it says "Retrying…" (the
+    // header is "pending" then): wait until it has failed too (#574).
+    await app.waitFor(
+      async () => {
+        const seen = await app.js("return window.__qaStatus");
+        return !["Connecting…", "Retrying…"].includes(seen.at(-1)) && (await app.statusState()) !== "pending";
+      },
+      { timeout: 60_000, message: "the second retry to finish" },
+    );
     console.log(`status: ${(await app.js("return window.__qaStatus")).join(" -> ")}`);
     // Still red, still the banner.
     assert.equal(await app.statusState(), "error");
