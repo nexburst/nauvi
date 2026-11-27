@@ -33,7 +33,7 @@ test("the Image column is off by default, shows the first image and lists them a
   await expect(header(page, "Image")).toBeVisible();
   expect(await column(page, "Image")).toContain("mongo:7.0.1");
   const cell = row(page, "web-1").getByRole("gridcell", { name: "web:1.4.2 +1", exact: true });
-  await expect(cell).toHaveAttribute("title", /ghcr\.io\/shop\/web:1\.4\.2@sha256:3f3f.*\ndocker\.io\/envoyproxy\/envoy:v1\.31\.0/s);
+  await expect(cell).toHaveAttribute("title", /^web:1\.4\.2 \+1\nghcr\.io\/shop\/web:1\.4\.2@sha256:3f3f.*\ndocker\.io\/envoyproxy\/envoy:v1\.31\.0/s);
 
   // It sorts, and the filter finds what it shows.
   await header(page, "Image").click();

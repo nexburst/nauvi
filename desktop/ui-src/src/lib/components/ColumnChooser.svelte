@@ -556,13 +556,17 @@
     font-size: 12px;
     color: var(--text-muted);
   }
+  /* Always in view while the list scrolls. */
   .footer {
+    position: sticky;
+    bottom: -8px;
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
-    margin-top: 6px;
-    padding-top: 8px;
+    margin: 6px 0 -8px;
+    padding: 8px 0;
     border-top: 1px solid var(--border);
+    background: var(--bg-raised);
   }
   .draft {
     display: flex;

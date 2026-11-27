@@ -323,6 +323,6 @@ describe("the Image column (#547)", () => {
     const ctx: Ctx = { metrics: EMPTY_METRICS, now: 0 };
     expect(image.text(r, ctx)).toBe("web:1.4.2 +1");
     expect(image.sort(r, ctx)).toBe("web:1.4.2 +1");
-    expect(image.title?.(r, "local", ctx)).toBe("ghcr.io/shop/web:1.4.2@sha256:3f\ndocker.io/envoyproxy/envoy:v1.31.0");
+    expect(image.title?.(r, "local", ctx)).toBe(cell);
   });
 });

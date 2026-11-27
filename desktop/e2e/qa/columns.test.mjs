@@ -64,11 +64,17 @@ const inDialog = (xpath) => By.xpath(`${DIALOG}${xpath}`);
 const button = (label) => inDialog(`//button[normalize-space()=${xq(label)}]`);
 const field = (label) => inDialog(`//label[starts-with(normalize-space(), ${xq(label)})]//*[self::input or self::select]`);
 
+/** Find `locator`, scroll it into view (the chooser and the table scroll), click it. */
+async function click(app, locator) {
+  const el = await app.waitFor(async () => (await app.driver.findElements(locator))[0], { message: String(locator) });
+  await app.js("arguments[0].scrollIntoView({ block: 'center', inline: 'center' })", el);
+  await el.click();
+}
 const headers = async (app) => (await tableData(app)).headers.filter(Boolean);
 const rowsByName = async (app) => Object.fromEntries((await tableData(app)).rows.map((r) => [r.Name, r]));
 
 async function openChooser(app) {
-  if ((await app.driver.findElements(By.xpath(DIALOG))).length === 0) await (await app.find(chooserButton)).click();
+  if ((await app.driver.findElements(By.xpath(DIALOG))).length === 0) await click(app, chooserButton);
   await app.find(By.xpath(DIALOG));
 }
 async function closeChooser(app) {
@@ -81,12 +87,12 @@ async function closeChooser(app) {
 /** Add a custom column through the chooser's form; returns the error shown, if any. */
 async function addColumn(app, { name, from, value }) {
   await openChooser(app);
-  await (await app.find(button("+ Add column…"))).click();
+  await click(app, button("+ Add column…"));
   await app.setValue(await app.find(field("Name")), name);
   const select = await app.find(field("From"));
   await (await select.findElement(By.xpath(`./option[normalize-space()=${xq(from)}]`))).click();
   await app.setValue(await app.find(field(from === "Field path" ? "Path" : "Key")), value);
-  await (await app.find(button("Add"))).click();
+  await click(app, button("Add"));
   return app.js(`return document.getElementById("column-draft-error")?.textContent.trim() ?? ""`);
 }
 
@@ -139,7 +145,7 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     await openChooser(app);
     assert.equal(await (await app.find(choice("Image"))).isSelected(), false);
     await app.shot("chooser-fresh-dark");
-    await (await app.find(choice("Image"))).click();
+    await click(app, choice("Image"));
     await closeChooser(app);
     await app.waitFor(async () => (await headers(app)).includes("Image"), { message: "the Image column" });
     const rows = await rowsByName(app);
@@ -154,9 +160,10 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
       duo.name,
     );
     const lines = title.split("\n");
-    assert.equal(lines.length, 2, title);
-    assert.ok(lines[0].startsWith("docker.io/library/busybox:1.36"), title);
-    assert.ok(lines[1].startsWith("docker.io/library/nginx:1.27"), title);
+    assert.equal(lines.length, 3, title);
+    assert.equal(lines[0], "busybox:1.36 +1", title);
+    assert.ok(lines[1].startsWith("docker.io/library/busybox:1.36"), title);
+    assert.ok(lines[2].startsWith("docker.io/library/nginx:1.27"), title);
     if (duo.digests[0]) assert.ok(title.includes(duo.digests[0]) || title.includes(duo.digests[1]), `digest in ${title}`);
     await app.shot("image-column-dark");
 
@@ -166,7 +173,7 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     await app.waitFor(async () => (await tableData(app)).rows.length === 2, { message: "the two deployments" });
     assert.ok(!(await headers(app)).includes("Image"));
     await openChooser(app);
-    await (await app.find(choice("Image"))).click();
+    await click(app, choice("Image"));
     await closeChooser(app);
     await app.waitFor(async () => (await rowsByName(app))["qa-col-duo"]?.Image === "busybox:1.36 +1", {
       message: "the deployment's images",
@@ -186,7 +193,7 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     await app.shot("bad-path-light");
     await setTheme(app, "dark");
     await app.setValue(await app.find(field("Path")), ".status.podIP");
-    await (await app.find(button("Add"))).click();
+    await click(app, button("Add"));
     assert.equal(await addColumn(app, { name: "Version", from: "Label", value: "app.kubernetes.io/version" }), "");
     assert.equal(await addColumn(app, { name: "Team", from: "Annotation", value: "qa.nauvi.dev/team" }), "");
     await app.shot("chooser-with-custom-dark");
@@ -203,6 +210,8 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
       assert.equal(rows[p.name].Version, p.app === "qa-col-duo" ? "2.5.0" : "1.0.0");
       assert.equal(rows[p.name].Team, p.app === "qa-col-duo" ? "blue" : "green");
     }
+    // They are past the right edge at 1280 px: the table scrolls to them.
+    await app.js(`document.querySelector('[data-testid="resource-table"] .scroller').scrollLeft = 1e6`);
     await app.shot("custom-columns-dark");
     await setTheme(app, "light");
     await app.shot("custom-columns-light");
@@ -212,9 +221,9 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
   it("they sort and filter; with them on, the page asks the backend for nothing more", T, async () => {
     const { app } = s;
     const versionHeader = By.xpath("//*[@role='columnheader'][starts-with(normalize-space(), 'Version')]");
-    await (await app.find(versionHeader)).click();
+    await click(app, versionHeader);
     await app.waitFor(async () => (await tableData(app)).rows[0]?.Version === "1.0.0", { message: "sorted by Version" });
-    await (await app.find(versionHeader)).click();
+    await click(app, versionHeader);
     await app.waitFor(async () => (await tableData(app)).rows[0]?.Version === "2.5.0", { message: "sorted descending" });
     await app.filter("2.5.0");
     await app.waitFor(async () => (await tableData(app)).rows.length === 1, { message: "the filter on Version" });
@@ -242,6 +251,7 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     const item = (label) => inDialog(`//li[.//label[normalize-space()=${xq(label)}]]`);
     const handle = await (await app.find(item("Node"))).findElement(By.css('[data-testid="column-handle"]'));
     const target = await app.find(item("Ready"));
+    await app.js("arguments[0].scrollIntoView({ block: 'center' })", target);
     const rect = await target.getRect();
     await app.driver
       .actions()
@@ -260,11 +270,11 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     await app.shot("reordered-dark");
 
     // Rename Version.
-    await (await app.find(inDialog("//button[@aria-label='Edit column Version']"))).click();
+    await click(app, inDialog("//button[@aria-label='Edit column Version']"));
     await app.setValue(await app.find(field("Name")), "App version");
-    await (await app.find(button("Save"))).click();
+    await click(app, button("Save"));
     // Remove Team.
-    await (await app.find(inDialog("//button[@aria-label='Remove column Team']"))).click();
+    await click(app, inDialog("//button[@aria-label='Remove column Team']"));
     await closeChooser(app);
     await app.waitFor(async () => (await headers(app)).includes("App version"), { message: "the renamed column" });
     assert.ok(!(await headers(app)).includes("Team"));
@@ -285,12 +295,12 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     await app.driver.actions().contextClick(node).perform();
     await app.find(By.xpath("//*[@role='menu']"));
     await app.shot("header-menu-dark");
-    await (await app.find(By.xpath("//*[@role='menuitem'][normalize-space()='Hide this column']"))).click();
+    await click(app, By.xpath("//*[@role='menuitem'][normalize-space()='Hide this column']"));
     await app.waitFor(async () => !(await headers(app)).includes("Node"), { message: "Node hidden" });
 
     const name = await app.find(By.xpath("//*[@role='columnheader'][normalize-space()='Name']"));
     await app.driver.actions().contextClick(name).perform();
-    await (await app.find(By.xpath("//*[@role='menuitem'][starts-with(normalize-space(), 'Columns')]"))).click();
+    await click(app, By.xpath("//*[@role='menuitem'][starts-with(normalize-space(), 'Columns')]"));
     const search = await app.find(inDialog("//input[@aria-label='Find a column']"));
     await app.setValue(search, "ip");
     await app.waitFor(
@@ -305,7 +315,7 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
     await setTheme(app, "dark");
     await app.setValue(search, "");
 
-    await (await app.find(button("Reset to default"))).click();
+    await click(app, button("Reset to default"));
     await app.waitFor(async () => (await headers(app)).slice(0, 4).join() === "Name,Namespace,Ready,Status", {
       message: "the kind's own order back",
     });

@@ -301,8 +301,10 @@ function column(def: ColumnDef, index: number): Column {
         draw: "rollout",
       };
     case "image": {
+      // The tooltip: what the cell shows, then each full reference (whole
+      // even when the cell is cut).
       const shown = (r: Row) => imageCell(cell(r)).shown;
-      return { ...base, text: shown, sort: shown, title: (r) => imageCell(cell(r)).refs.join("\n") };
+      return { ...base, text: shown, sort: shown, title: (r) => cell(r) };
     }
     default:
       return { ...base, text: cell, sort: cell };

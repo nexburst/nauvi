@@ -180,7 +180,9 @@ describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
     await app.nav("Pods");
     await app.filter(ns);
     await (await app.find(chooserButton)).click();
-    await (await app.find(defaultColumns)).click();
+    const reset = await app.find(defaultColumns);
+    await app.js("arguments[0].scrollIntoView({ block: 'center' })", reset);
+    await reset.click();
     await app.waitFor(async () => !(await headers(app)).includes("QoS"), { message: "the extra columns gone" });
     assert.deepEqual(await headers(app), DEFAULT);
     await app.shot("default-columns");

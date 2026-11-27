@@ -875,7 +875,9 @@
                 title={shown.cut
                   ? hit
                     ? `${text} (matches the filter)`
-                    : text
+                    : own?.startsWith(`${text}\n`)
+                      ? own
+                      : text
                   : spark && spark.length > 1
                     ? `${own || text}, trend since ${clockTime(metrics.since)}`
                     : own || undefined}
