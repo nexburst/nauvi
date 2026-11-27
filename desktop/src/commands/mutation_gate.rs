@@ -61,6 +61,11 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdHelmCharts", "reads"),
     ("cmdHelmGet", "reads"),
     ("cmdHelmList", "reads"),
+    ("cmdImageSecurityImage", "reads one VulnerabilityReport"),
+    (
+        "cmdImageSecuritySummary",
+        "reads VulnerabilityReports and pods",
+    ),
     (
         "cmdKubectlDownload",
         "downloads kubectl to the app's data dir; nothing in the cluster",
