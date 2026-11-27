@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { ImageVulns } from "../bindings";
-  import { imagesText, progressText, scannerLabel, toScan } from "../imageScan";
+  import { imagesText, progressText, scannerLabel, toScan, unscannable, unscannableText } from "../imageScan";
   import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
   import { cancelScan, imageScan, scanAll } from "../stores/imageScan.svelte";
 
@@ -11,6 +11,7 @@
 
   const s = $derived(imageSecuritySettings());
   const pending = $derived(toScan(images));
+  const blocked = $derived(unscannable(images).length);
   const errors = $derived([...imageScan.errors.values()]);
 </script>
 
@@ -27,8 +28,11 @@
     <button type="button" class="btn primary" data-testid="image-scan-all" onclick={() => scanAll(pending)}
       >Scan {imagesText(pending.length)} with {scannerLabel(s.scanner)}</button
     >
-  {:else}
+  {:else if blocked === 0}
     <span class="muted">Every running image here was scanned.</span>
+  {/if}
+  {#if blocked > 0 && !imageScan.running}
+    <span class="muted" data-testid="image-scan-blocked">{unscannableText(blocked)}</span>
   {/if}
 </div>
 {#if errors.length > 0 && !imageScan.running}

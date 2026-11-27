@@ -54,6 +54,18 @@ export function toScan(rows: readonly ImageVulns[]): ImageVulns[] {
   return rows.filter((r) => scannable(r) && !r.scanned);
 }
 
+/** The running rows without a scan that cannot be scanned (no digest yet). */
+export function unscannable(rows: readonly ImageVulns[]): ImageVulns[] {
+  return rows.filter((r) => r.running && !r.scanned && !scannable(r));
+}
+
+/** "1 image cannot be scanned: no pod reports which digest it runs." */
+export function unscannableText(n: number): string {
+  return n === 1
+    ? "1 image cannot be scanned: no pod reports which digest it runs."
+    : `${n} images cannot be scanned: no pod reports which digest they run.`;
+}
+
 /** Why a row cannot be scanned (empty when it can). */
 export function notScannableText(r: ImageVulns): string {
   if (!r.running) return "No pod runs this image any more.";

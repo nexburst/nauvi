@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImageVulns, ScannerStatus } from "./bindings";
-import { dbDate, notScannableText, progressText, scannable, scannerStateText, toScan, usesLocal } from "./imageScan";
+import { dbDate, notScannableText, progressText, scannable, scannerStateText, toScan, unscannable, unscannableText, usesLocal } from "./imageScan";
 
 const D = `sha256:${"a".repeat(64)}`;
 
@@ -56,6 +56,8 @@ describe("image scan words", () => {
     expect(toScan([row(), row({ scanned: true }), row({ digest: "" })])).toHaveLength(1);
     expect(notScannableText(row({ digest: "" }))).toMatch(/by digest/);
     expect(notScannableText(row())).toBe("");
+    expect(unscannable([row(), row({ digest: "" }), row({ digest: "", scanned: true })])).toHaveLength(1);
+    expect(unscannableText(1)).toBe("1 image cannot be scanned: no pod reports which digest it runs.");
   });
 
   it("progress and dates", () => {

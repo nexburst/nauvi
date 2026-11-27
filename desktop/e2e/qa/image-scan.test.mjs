@@ -218,6 +218,10 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     assert.equal(argv[argv.length - 2], "--");
     assert.match(argv[argv.length - 1], /^docker\.io\/library\/(nginx|busybox)@sha256:[0-9a-f]{64}$/);
     if (unscannable.length === 0) assert.match(await viewText(app), /Every running image here was scanned\./);
+    else {
+      assert.doesNotMatch(await viewText(app), /Every running image here was scanned/);
+      assert.match(await viewText(app), /cannot be scanned: no pod reports which digest/);
+    }
   });
 
   it("a row whose pods report no digest says why it is not scanned (dark)", T, async (t) => {
@@ -286,8 +290,8 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     // An "update": another file at the same path.
     writeFileSync(trivyPath(), fakeTrivy(dir, "0.58.2") + "# updated\n");
     chmodSync(trivyPath(), 0o755);
+    // Opening Settings checks the file again.
     await openSettings(app);
-    await (await app.find(By.xpath("//*[@data-testid='image-scanner-settings']//button[normalize-space()='Check again']"))).click();
     await app.waitFor(async () => (await scannerState(app)) === "changed", { timeout: 30_000, message: "changed" });
     assert.match(await scannerText(app), /changed since you approved it/);
   });
