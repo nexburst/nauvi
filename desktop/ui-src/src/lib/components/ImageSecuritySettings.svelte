@@ -34,7 +34,9 @@
   </label>
   <p class="muted hint">
     Off unless you turn it on. nauvi then reads the VulnerabilityReports the Trivy Operator keeps in the cluster, with
-    your own access, only while the Image security view is open. It scans nothing and downloads nothing itself.
+    your own access, when something shows them: the Image security view, the Overview, a pod or workload panel or the
+    Vulns column. They share one read, kept until "Read the reports again after" below, with no watch. While it is off,
+    nothing is read. It scans nothing and downloads nothing itself.
   </p>
   {#if context}
     <div class="row">
