@@ -11,7 +11,7 @@ whether the tag you run was pushed again since your pod pulled it.
    available tags**.
 2. Open a pod's detail panel. Each container card now has an **Available
    tags** button under its image. The panel of a Deployment, StatefulSet,
-   DaemonSet, ReplicaSet or Job has the same button in its **Images**
+   DaemonSet, ReplicaSet, Job or CronJob has the same button in its **Images**
    section, one per container of the pod template.
 3. Click it. nauvi asks the image's registry for its tags and lists the
    newer ones, newest first:

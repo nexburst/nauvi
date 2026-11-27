@@ -94,12 +94,12 @@ tab shows it as stored.
 
 - Deployments, StatefulSets, DaemonSets, ReplicaSets and Jobs chart the summed
   CPU and memory of their pods.
-- With **Show available tags** on, their panels have an
+- With **Show available tags** on, their panels, and a CronJob's, have an
   **Images** section: the pod template's containers and images, each with an
   **Available tags** button
   ([Find a newer tag](../../how-to/image-tags.md)).
 - With [image security](../../how-to/image-security.md) on, a **Security**
-  tab shows the verdict for each image the workload runs, with **Show
+  tab shows the verdict for each image the workload (or CronJob) runs, with **Show
   fixes**. It is there only while the reports know the workload's images.
 - Nodes chart their usage against allocatable, and have Cordon, Drain and
   Shell in the header.
