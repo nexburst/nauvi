@@ -1,5 +1,6 @@
 //! The column registry ([`KINDS`]) and how a row's cells are filled.
 
+use super::image_column::{cronjob_images, pod_images, template_images};
 use super::jsonpath::{
     array_at, cell_text, count_at, count_keys, eval_str, first_of, parse_path, path_i64, path_str,
     ratio, Seg,
@@ -25,6 +26,8 @@ pub(super) enum Source {
     Path(Vec<Seg>),
     /// Computed from the whole object.
     Func(fn(&Value) -> String),
+    /// A column the user added (#547).
+    Custom(super::custom_columns::Pick),
 }
 
 #[derive(Clone, Copy)]
@@ -105,6 +108,16 @@ const fn containers(key: &'static str, label: &'static str) -> Col {
         default_hidden: false,
     }
 }
+/// The Image column (#547), off by default: `f` reads the kind's images.
+const fn image(f: fn(&Value) -> String) -> Col {
+    Col {
+        key: "image",
+        label: "Image",
+        kind: ColumnKind::Image,
+        src: StaticSrc::Func(f),
+        default_hidden: true,
+    }
+}
 const fn rollout(f: fn(&Value) -> String) -> Col {
     Col {
         key: "status",
@@ -168,6 +181,7 @@ pub(super) const KINDS: &[KindSpec] = &[
                 ".status.nominatedNodeName",
             )),
             off(containers("containers", "Containers")),
+            image(pod_images),
         ],
     },
     KindSpec {
@@ -185,6 +199,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             number("uptodate", "Up-to-date", ".status.updatedReplicas"),
             number("available", "Available", ".status.availableReplicas"),
             AGE,
+            image(template_images),
         ],
     },
     KindSpec {
@@ -200,6 +215,7 @@ pub(super) const KINDS: &[KindSpec] = &[
                 ratio(v, ".status.readyReplicas", ".spec.replicas")
             }),
             AGE,
+            image(template_images),
         ],
     },
     KindSpec {
@@ -217,6 +233,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             number("uptodate", "Up-to-date", ".status.updatedNumberScheduled"),
             number("available", "Available", ".status.numberAvailable"),
             AGE,
+            image(template_images),
         ],
     },
     KindSpec {
@@ -231,6 +248,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             number("current", "Current", ".status.replicas"),
             number("ready", "Ready", ".status.readyReplicas"),
             AGE,
+            image(template_images),
         ],
     },
     KindSpec {
@@ -246,6 +264,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             }),
             number("active", "Active", ".status.active"),
             AGE,
+            image(template_images),
         ],
     },
     KindSpec {
@@ -261,6 +280,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             func("active", "Active", |v| count_at(v, ".status.active")),
             text("last", "Last schedule", ".status.lastScheduleTime"),
             AGE,
+            image(cronjob_images),
         ],
     },
     KindSpec {
@@ -1065,6 +1085,7 @@ pub fn make_row(r: &ResourceRef, columns: &[ColumnDef], obj: &DynamicObject) -> 
         .map(|c| match &c.source {
             Source::Ui => String::new(),
             Source::Func(f) => f(&value),
+            Source::Custom(pick) => pick.text(&value),
             Source::Path(p) => {
                 let text = eval_str(&value, p);
                 if c.kind == ColumnKind::Text && looks_like_timestamp(&text) {
@@ -1141,7 +1162,8 @@ mod tests {
                 "qos",
                 "ip",
                 "nominated",
-                "containers"
+                "containers",
+                "image"
             ]
         );
         let pods = columns_for(&rref("", "Pod", "pods", true), &[]);
@@ -1150,10 +1172,29 @@ mod tests {
             .filter(|c| c.default_hidden)
             .map(|c| c.key.as_str())
             .collect();
-        assert_eq!(off, ["owner", "qos", "ip", "nominated", "containers"]);
-        // Every other kind's columns are on by default.
+        assert_eq!(
+            off,
+            ["owner", "qos", "ip", "nominated", "containers", "image"]
+        );
+        // Every other kind's columns are on by default, but the Image column.
         for k in KINDS.iter().filter(|k| k.kind != "Pod") {
-            assert!(k.columns.iter().all(|c| !c.default_hidden), "{}", k.kind);
+            let on = k
+                .columns
+                .iter()
+                .all(|c| !c.default_hidden || c.key == "image");
+            assert!(on, "{}", k.kind);
+            if [
+                "Deployment",
+                "StatefulSet",
+                "DaemonSet",
+                "ReplicaSet",
+                "Job",
+                "CronJob",
+            ]
+            .contains(&k.kind)
+            {
+                assert!(k.columns.iter().any(|c| c.key == "image"), "{}", k.kind);
+            }
         }
         let nodes = columns_for(&rref("", "Node", "nodes", false), &[]);
         assert!(!nodes.iter().any(|c| c.key == "namespace"));

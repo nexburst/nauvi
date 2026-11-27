@@ -6,6 +6,7 @@ import { containersSummary, parseContainers, worstRank } from "./containerStates
 import { rolloutRank, rolloutTitle } from "./rolloutStatus";
 import { CELL_PAD, type Fit, type Measure } from "./columnFit";
 import type { IconName } from "./icons/icons";
+import { isCustomKey } from "./customColumns";
 
 export type Row = ResourceRow;
 
@@ -115,6 +116,8 @@ function fitFor(def: ColumnDef): Fit {
   if (def.kind === "owner") return { min: 180, max: 360, grow: 0, give: 1, middle: true };
   if (def.kind === "containers") return { min: 72, max: 260, grow: 0, give: 1 };
   if (def.kind === "rollout") return { min: 96, max: 220, grow: 0, give: 0 };
+  // `mongo:7.0.1 +2`: a long tag is cut, the whole list is in the tooltip.
+  if (def.kind === "image") return { min: 120, max: 280, grow: 0, give: 1 };
   // "CrashLoopBackOff" behind its icon; a longer reason is cut, with the
   // whole text in the cell's title.
   if (def.kind === "status") return { min: 80, max: 240, grow: 0, give: 0 };
@@ -175,8 +178,20 @@ function numeric(text: string): number {
   return Number.isNaN(n) ? -1 : n;
 }
 
+/**
+ * An Image cell (#547, `src/resources/image_column.rs`): its first line is
+ * what the cell shows (`mongo:7.0.1 +1`), each line after it one
+ * container's full reference.
+ */
+export function imageCell(cell: string): { shown: string; refs: string[] } {
+  const [shown = "", ...refs] = cell.split("\n");
+  return { shown, refs };
+}
+
 function column(def: ColumnDef, index: number): Column {
-  const base = { key: def.key, label: headerLabel(def.label), fit: fitFor(def), defaultHidden: def.default_hidden };
+  // A custom column's name is the user's, as typed (#547).
+  const label = isCustomKey(def.key) ? def.label : headerLabel(def.label);
+  const base = { key: def.key, label, fit: fitFor(def), defaultHidden: def.default_hidden };
   const cell = (r: Row) => r.cells[index] ?? "";
   switch (def.kind) {
     case "age":
@@ -285,6 +300,10 @@ function column(def: ColumnDef, index: number): Column {
         title: (r) => rolloutTitle(cell(r), r.problem),
         draw: "rollout",
       };
+    case "image": {
+      const shown = (r: Row) => imageCell(cell(r)).shown;
+      return { ...base, text: shown, sort: shown, title: (r) => imageCell(cell(r)).refs.join("\n") };
+    }
     default:
       return { ...base, text: cell, sort: cell };
   }
