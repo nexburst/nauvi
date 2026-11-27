@@ -17,7 +17,9 @@ YAML** first, and shows each action's key.
 | Delete | Anything | Delete; **Force delete** on pods uses grace period 0 |
 
 - **Destructive actions ask** for confirmation and list the exact objects.
-  The confirm dialog shows the cluster's colour.
+  The confirm dialog shows the cluster's colour. Its confirm button has
+  the focus, so `Enter` confirms and `Escape` cancels
+  ([Confirm dialogs](keyboard.md#confirm-dialogs)).
 - **Evict**: if a PodDisruptionBudget would be violated, the eviction is
   refused and the dialog says why. It needs `create pods/eviction`.
 - **Not allowed?** Actions you aren't allowed to run (per RBAC) are greyed
