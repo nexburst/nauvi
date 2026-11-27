@@ -51,6 +51,8 @@ const vuln = (id, pkg, severity, fixed, installed = "1.0") => ({
   score: 7.5,
   title: `${pkg}: ${id}`,
   primaryLink: `https://avd.aquasec.com/nvd/${id.toLowerCase()}`,
+  lastModifiedDate: "2026-01-01T00:00:00Z",
+  publishedDate: "2026-01-01T00:00:00Z",
 });
 
 /** A report as the operator writes it for the pod `name` (container `app`). */
