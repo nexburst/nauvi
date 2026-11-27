@@ -3,6 +3,8 @@
   import type { ImageVulns } from "../bindings";
   import { fixSentence, sourceText, splitGroups, verdict, workloadsText } from "../imageSecurity";
   import { imageSecurity, imageSecuritySettings, selectImage } from "../stores/imageSecurity.svelte";
+  import { usesLocal } from "../imageScan";
+  import ImageScanAction from "./ImageScanAction.svelte";
 
   /** The findings of one image (#534), in order: the verdict, what to do
    *  (the fixes by package), what has no fix yet (collapsed: nothing to do
@@ -72,7 +74,10 @@
           </details>
         {/if}
       {/if}
-    {:else}
+    {/if}
+    {#if usesLocal(s.source) && (!target.scanned || target.source === "local_scanner")}
+      <ImageScanAction {target} />
+    {:else if !target.scanned}
       <p class="muted">
         No VulnerabilityReport covers this image yet. The Trivy Operator scans new workloads within minutes; if it
         stays like this, check that the operator watches this namespace.

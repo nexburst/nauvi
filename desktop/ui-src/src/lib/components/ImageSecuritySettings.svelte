@@ -7,6 +7,7 @@
   import { contextLabel, openClusterSettings } from "../stores/catalog.svelte";
   import { closeSettings } from "../stores/keyboard.svelte";
   import { parseNamespaceList } from "../catalog";
+  import ImageScannerSettings from "./ImageScannerSettings.svelte";
 
   /** Settings → Image security (#534, ADR 0011). Off by default; each
    *  cluster can turn it on or off for itself in its cluster settings. */
@@ -101,6 +102,7 @@
     Until then the view shows what it read last; Refresh reads the reports again. Images whose reports are more than 7
     days old are marked as old scans.
   </p>
+  <ImageScannerSettings />
 </fieldset>
 
 <style>

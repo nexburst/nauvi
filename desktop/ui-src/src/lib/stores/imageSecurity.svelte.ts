@@ -67,6 +67,27 @@ export async function loadImageSecurity(namespaces: string[], refresh = false) {
   }
 }
 
+/** The namespaces of the shown listing (a scan names its image in it). */
+export function listedNamespaces(): string[] {
+  return listedFor;
+}
+
+/** Put a scan's row (#536) in the listing, and its findings in the panel
+ *  when it is the one shown. */
+export function patchImage(detail: ImageDetail) {
+  const list = imageSecurity.list;
+  if (!list) return;
+  const key = rowKey(detail.image);
+  const images = list.summary.images.map((r) => (rowKey(r) === key ? detail.image : r));
+  imageSecurity.list = { ...list, summary: { ...list.summary, images, unscanned: images.filter((r) => !r.scanned).length } };
+  if (imageSecurity.selected === key) {
+    detailSeq++;
+    imageSecurity.detail = detail;
+    imageSecurity.detailError = "";
+    imageSecurity.detailLoading = false;
+  }
+}
+
 /** The selected image's row in the listing. */
 export function selectedImage(): ImageVulns | null {
   const key = imageSecurity.selected;

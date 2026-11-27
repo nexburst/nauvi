@@ -15,6 +15,8 @@
   import { rowHeightPx } from "../preferences";
   import { settings } from "../stores/settings.svelte";
   import EmptyState from "./EmptyState.svelte";
+  import ImageScanBar from "./ImageScanBar.svelte";
+  import { usesLocal } from "../imageScan";
   import VirtualList from "./VirtualList.svelte";
 
   /** Image security (#534, ADR 0011): one row per running image of the
@@ -89,7 +91,7 @@
       </EmptyState>
     </div>
   {:else if !summary}
-    <p class="muted loading">Reading the Trivy Operator's reports…</p>
+    <p class="muted loading">{s.source === "local" ? "Reading the pods' images…" : "Reading the Trivy Operator's reports…"}</p>
   {:else if empty}
     <div class="center" data-testid="image-security-state" data-state={summary.state}>
       <EmptyState title={empty.title} detail={empty.detail} reason={empty.reason}>
@@ -114,6 +116,9 @@
         >
       </div>
     </div>
+    {#if usesLocal(s.source)}
+      <ImageScanBar images={allRows.map((r) => r.row)} />
+    {/if}
     {#if notes.length > 0}
       <ul class="notes muted" data-testid="image-security-notes">
         {#each notes as note (note)}

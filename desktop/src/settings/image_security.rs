@@ -1,6 +1,7 @@
 //! The settings of image security (#534, ADR 0011): off by default, for
 //! the app and per context.
 
+use nauvi::image_security::local::ScannerKind;
 use nauvi::image_security::Severity;
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -24,6 +25,40 @@ pub(crate) struct ImageSecuritySettings {
     /// How long a listing is reused before the reports are read again
     /// (Refresh always reads them), within `CACHE_TTL_RANGE`.
     pub(crate) cache_ttl_hours: u32,
+    /// Where vulnerabilities come from (#536): the cluster's reports, a
+    /// scanner on this computer, or both.
+    pub(crate) source: VulnSource,
+    /// The local scanner.
+    pub(crate) scanner: ScannerKind,
+    /// Trivy's `--db-repository`, empty for its default.
+    pub(crate) db_repository: String,
+    /// Do not let the scanner update its database.
+    pub(crate) skip_db_update: bool,
+    /// A Trivy server (`--server`), empty to scan on this computer.
+    pub(crate) server_url: String,
+}
+
+/// Where vulnerabilities come from (#536).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum VulnSource {
+    /// The Trivy Operator's reports only.
+    #[default]
+    Cluster,
+    /// A Trivy or Grype on this computer only.
+    Local,
+    /// The reports, and the local scanner for images they do not cover.
+    ClusterThenLocal,
+}
+
+impl VulnSource {
+    pub(crate) fn uses_cluster(self) -> bool {
+        self != VulnSource::Local
+    }
+
+    pub(crate) fn uses_local(self) -> bool {
+        self != VulnSource::Cluster
+    }
 }
 
 impl Default for ImageSecuritySettings {
@@ -34,6 +69,11 @@ impl Default for ImageSecuritySettings {
             only_fixable: false,
             excluded_namespaces: Vec::new(),
             cache_ttl_hours: 24,
+            source: VulnSource::Cluster,
+            scanner: ScannerKind::Trivy,
+            db_repository: String::new(),
+            skip_db_update: false,
+            server_url: String::new(),
         }
     }
 }
@@ -53,6 +93,8 @@ impl ImageSecuritySettings {
             }
         }
         self.excluded_namespaces = seen;
+        self.db_repository = self.db_repository.trim().to_string();
+        self.server_url = self.server_url.trim().to_string();
         self
     }
 }
@@ -91,6 +133,8 @@ mod tests {
         assert_eq!(s.image_security.min_severity, Severity::High);
         assert!(!s.image_security.only_fixable);
         assert_eq!(s.image_security.cache_ttl_hours, 24);
+        assert_eq!(s.image_security.source, VulnSource::Cluster);
+        assert!(!s.image_security.source.uses_local());
         assert!(!s.image_security_enabled("any"));
         // A file from before it has none: off.
         let old = parse(r#"{"version":1,"contexts":{"dev":{"view":"overview"}}}"#).unwrap();

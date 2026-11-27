@@ -19,6 +19,7 @@ pub(crate) mod files;
 pub(crate) mod helm;
 pub(crate) mod helm_charts;
 pub(crate) mod help;
+pub(crate) mod image_scan;
 pub(crate) mod image_security;
 pub(crate) mod kubectl;
 pub(crate) mod links;
@@ -115,6 +116,11 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             help::cmd_diagnostics,
             help::cmd_help_open,
             help::cmd_log_ui_error,
+            image_scan::cmd_image_scan,
+            image_scan::cmd_image_scan_cancel,
+            image_scan::cmd_image_scanner_approve,
+            image_scan::cmd_image_scanner_forget,
+            image_scan::cmd_image_scanner_status,
             image_security::cmd_image_security_image,
             image_security::cmd_image_security_summary,
             kubectl::cmd_kubectl_download,

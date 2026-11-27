@@ -33,6 +33,11 @@ export const DEFAULT_IMAGE_SECURITY: ImageSecuritySettings = {
   only_fixable: false,
   excluded_namespaces: [],
   cache_ttl_hours: 24,
+  source: "cluster",
+  scanner: "trivy",
+  db_repository: "",
+  skip_db_update: false,
+  server_url: "",
 };
 
 /** The cache hours offered in Settings. */
@@ -270,11 +275,13 @@ export function agoText(secs: number): string {
 
 /** Where the data comes from and how old it is: "Trivy 0.69.3 through Trivy Operator, 2 days ago". */
 export function sourceText(row: ImageVulns, nowSecs: number): { text: string; stale: boolean } {
-  if (!row.scanned) return { text: "No VulnerabilityReport for it yet", stale: false };
+  const local = row.source === "local_scanner";
+  if (!row.scanned) return { text: local ? "Not scanned on this computer yet" : "No VulnerabilityReport for it yet", stale: false };
   const scanner = row.scanner || "Trivy";
   const age = row.scanned_at > 0 ? nowSecs - row.scanned_at : 0;
   const when = row.scanned_at > 0 ? `, ${agoText(age)}` : "";
-  return { text: `${scanner} through Trivy Operator${when}`, stale: row.scanned_at > 0 && age > STALE_SECS };
+  const how = local ? "on this computer" : "through Trivy Operator";
+  return { text: `${scanner} ${how}${when}`, stale: row.scanned_at > 0 && age > STALE_SECS };
 }
 
 const SHORT_KIND: Record<string, string> = {
@@ -340,7 +347,8 @@ export function stateMessage(summary: VulnsSummary): { title: string; detail: st
 /** The backend's notes, in the app's words, and the namespaces that could not be read. */
 export function viewNotes(summary: VulnsSummary): string[] {
   const notes = summary.notes.map((n) => n.replace(/; narrow with -n\.$/, "; pick fewer namespaces to see the rest."));
-  if (summary.state === "ok" || summary.state === "no_reports") {
+  // A local listing's notes already say where the pods could not be read.
+  if (summary.source !== "local_scanner" && (summary.state === "ok" || summary.state === "no_reports")) {
     if (summary.forbidden_namespaces.length > 0)
       notes.unshift(`You are not allowed to list vulnerabilityreports in ${namespacesText(summary.forbidden_namespaces)}.`);
   }
