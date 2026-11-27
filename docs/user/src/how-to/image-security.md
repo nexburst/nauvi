@@ -51,7 +51,7 @@ While image security is on, the same findings show where you already look:
   `2C 5H` means 2 critical and 5 high, at the severity you chose. Hover it
   for each image;
 - a **Security** tab in the detail panel of a Deployment, StatefulSet,
-  DaemonSet, ReplicaSet or Job, with each image's verdict
+  DaemonSet, ReplicaSet, Job or CronJob, with each image's verdict
   and **Show fixes**;
 - a **Vulns** line on each container card in the pod panel, with
   **Details**;
