@@ -15,7 +15,7 @@
 // - a changed binary is asked about again; a file swapped after the
 //   prompt showed it is not approved; a malicious Trivy version is
 //   refused, and a file whose Go build info names one is refused without
-//   running it at all
+//   running it at all, and so is one whose file names no version (#561)
 // Light and dark theme at 1280x800.
 
 import assert from "node:assert/strict";
@@ -85,9 +85,12 @@ cat "$d/report.json"
 }
 
 /** A Go 1.18+ build info block naming Trivy `version` (see
- *  src/image_security/go_buildinfo.rs). */
+ *  src/image_security/go_buildinfo.rs); `(devel)` as Go writes it for a
+ *  build from source. nauvi runs a Trivy only when its file names a
+ *  version (#561), so every fake trivy carries one. */
 function goBuildInfo(version) {
-  const mod = `path\tgithub.com/aquasecurity/trivy/cmd/trivy\nmod\tgithub.com/aquasecurity/trivy\tv${version}\th1:x=\n`;
+  const v = version.startsWith("(") ? version : `v${version}`;
+  const mod = `path\tgithub.com/aquasecurity/trivy/cmd/trivy\nmod\tgithub.com/aquasecurity/trivy\t${v}\th1:x=\n`;
   const go = Buffer.from("go1.24.1");
   const m = Buffer.concat([Buffer.alloc(16), Buffer.from(mod), Buffer.alloc(16)]);
   const head = Buffer.alloc(32);
@@ -160,7 +163,7 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
       },
     });
     const trivy = join(profile.bin, "trivy");
-    writeFileSync(trivy, fakeTrivy(dir, "0.58.1"));
+    writeFileSync(trivy, fakeTrivyBuild(dir, "0.58.1", "0.58.1"));
     chmodSync(trivy, 0o755);
   });
   after(() => {
@@ -364,7 +367,7 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     const { app } = s;
     await setTheme(app, "light");
     // An "update": another file at the same path.
-    writeFileSync(trivyPath(), fakeTrivy(dir, "0.58.2") + "# updated\n");
+    writeFileSync(trivyPath(), fakeTrivyBuild(dir, "0.58.2", "0.58.2"));
     chmodSync(trivyPath(), 0o755);
     // Opening Settings checks the file again.
     await openSettings(app);
@@ -376,7 +379,8 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     const { app } = s;
     await setTheme(app, "dark");
     // The prompt still shows the "update"; the file is another one now.
-    writeFileSync(trivyPath(), fakeTrivy(dir, "0.69.4"));
+    // Its build info names a fine version; the version it prints does not.
+    writeFileSync(trivyPath(), fakeTrivyBuild(dir, "0.69.4", "0.58.1"));
     chmodSync(trivyPath(), 0o755);
     const before = calls().length;
     await (await app.find(byTestId("image-scanner-approve"))).click();
@@ -418,5 +422,34 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     assert.equal(await scannerState(app), "refused");
     assert.equal((await app.driver.findElements(byTestId("image-scanner-approve"))).length, 0);
     assert.deepEqual(calls(), [], "nauvi ran a malicious build");
+  });
+
+  it("a Trivy whose file names no version is refused without running it (light)", T, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    // A `(devel)` build without `-X …app.ver` (as -trimpath leaves it).
+    writeFileSync(trivyPath(), fakeTrivyBuild(dir, "0.58.1", "(devel)"));
+    chmodSync(trivyPath(), 0o755);
+    rmSync(join(dir, "calls"), { force: true });
+    await (await app.find(By.xpath("//*[@data-testid='image-scanner-status']//button[normalize-space()='Check again']"))).click();
+    await app.waitFor(async () => /This Trivy's Go build info names no version/.test(await scannerText(app)), {
+      timeout: 30_000,
+      message: "refused: no version in the build info",
+    });
+    assert.equal(await scannerState(app), "refused");
+    assert.match(await scannerText(app), /Install a release build of Trivy .*or set NAUVI_TRIVY to one\./);
+    assert.equal((await app.driver.findElements(byTestId("image-scanner-approve"))).length, 0);
+
+    // A script with no build info at all (or a packed binary).
+    writeFileSync(trivyPath(), fakeTrivy(dir, "0.58.1"));
+    chmodSync(trivyPath(), 0o755);
+    await (await app.find(By.xpath("//*[@data-testid='image-scanner-status']//button[normalize-space()='Check again']"))).click();
+    await app.waitFor(async () => /nauvi finds no Go build info in this file/.test(await scannerText(app)), {
+      timeout: 30_000,
+      message: "refused: no build info",
+    });
+    assert.equal(await scannerState(app), "refused");
+    assert.equal((await app.driver.findElements(byTestId("image-scanner-approve"))).length, 0);
+    assert.deepEqual(calls(), [], "nauvi ran a Trivy of unknown version");
   });
 });

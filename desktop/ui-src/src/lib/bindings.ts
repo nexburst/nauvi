@@ -3207,7 +3207,11 @@ export type ScannerStatus = {
 	version: string,
 	/**  When its database was built, empty when it has none. */
 	db: string,
-	/**  What to do, or what is wrong (empty when ready). */
+	/**
+	 *  What to do, or what is wrong; when ready, where nauvi read its
+	 *  version if not from its build info (`Version 0.58.1 from its
+	 *  Homebrew folder.`), else empty.
+	 */
 	message: string,
 	/**
 	 *  The file found, so the user sees what they approve:

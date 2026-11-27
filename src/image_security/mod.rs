@@ -41,6 +41,7 @@ mod paged;
 pub mod render;
 pub mod report;
 pub mod running;
+pub mod store_path;
 pub mod triage;
 pub mod trivy_json;
 pub mod trivy_operator;

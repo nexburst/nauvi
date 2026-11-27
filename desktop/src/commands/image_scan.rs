@@ -7,7 +7,8 @@
 //!   approved it ([`approval`]); a changed binary is asked about again,
 //!   and known malicious releases are refused, also after an approval:
 //!   first from the Go build info in the file, before anything of it runs
-//!   (Trivy 0.69.4 to 0.69.6 ran their payload even for `version`), then
+//!   (Trivy 0.69.4 to 0.69.6 ran their payload even for `version`; a
+//!   Trivy whose file names no version is refused too), then
 //!   by the version it prints. Nothing of the binary runs before the
 //!   approval (not even `version`), and an approval is of the SHA-256 the
 //!   user was shown.
@@ -29,8 +30,8 @@ use crate::state::Cluster;
 use nauvi::image_security::cache::{create_private_dir, CachedScan, ScanCache};
 use nauvi::image_security::go_buildinfo::BuildInfo;
 use nauvi::image_security::local::{
-    self, find_binary, inspect, refused_build, refused_version, scan_target, Fingerprint,
-    ScanOptions, ScannerKind, ScannerVersion,
+    self, file_version_note, find_binary, inspect, refused_build, refused_version, scan_target,
+    Fingerprint, ScanOptions, ScannerKind, ScannerVersion,
 };
 use nauvi::image_security::running::{platform_of, triaged_detail_of_scan};
 use nauvi::image_security::triage::Triage;
@@ -113,7 +114,9 @@ pub(crate) struct ScannerStatus {
     pub(crate) version: String,
     /// When its database was built, empty when it has none.
     pub(crate) db: String,
-    /// What to do, or what is wrong (empty when ready).
+    /// What to do, or what is wrong; when ready, where nauvi read its
+    /// version if not from its build info (`Version 0.58.1 from its
+    /// Homebrew folder.`), else empty.
     pub(crate) message: String,
     /// The file found, so the user sees what they approve:
     /// `48.2 MB, SHA-256 1a2b3c4d5e6f…` (empty when none was read).
@@ -210,9 +213,10 @@ async fn fingerprint_of(path: &Path) -> Result<Fingerprint, String> {
     inspect_of(path).await.map(|i| i.fp)
 }
 
-/// Why `found` must not run, from its file alone.
+/// Why `found` must not run, from its file alone (a Trivy whose file names
+/// no version is refused too).
 fn refused_file(scanner: ScannerKind, found: &Inspected) -> Option<String> {
-    found.build.as_ref().and_then(|b| refused_build(scanner, b))
+    refused_build(scanner, found.build.as_ref(), Path::new(&found.fp.path))
 }
 
 /// What the approval says when the file is not the one shown.
@@ -287,6 +291,8 @@ pub(crate) async fn scanner_status(
         s.message = why;
         return (s, None);
     }
+    // Where its version was read, when not from its build info (#561).
+    let note = file_version_note(scanner, found.build.as_ref(), Path::new(&found.fp.path));
     let fp = found.fp;
     let Some(ok) = approval::approved(&dirs.approvals(), scanner) else {
         s.message = format!(
@@ -344,6 +350,7 @@ pub(crate) async fn scanner_status(
         return (s, None);
     }
     s.state = ScannerState::Ready;
+    s.message = note.unwrap_or_default();
     (s, Some(path))
 }
 

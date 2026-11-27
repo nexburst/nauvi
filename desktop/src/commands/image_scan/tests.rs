@@ -10,10 +10,23 @@ fn dirs(name: &str) -> ScanDirs {
     }
 }
 
+/// A fake trivy: a script, then (after its `exit`) the Go build info of a
+/// Trivy 0.58.1 release, so nauvi can tell its version from the file.
 #[cfg(unix)]
 fn script(path: &Path, body: &str) {
+    script_with(path, body, Some(&trivy_block("v0.58.1")));
+}
+
+/// A fake trivy with this build info after it (`None`: a plain script).
+#[cfg(unix)]
+fn script_with(path: &Path, body: &str, block: Option<&[u8]>) {
     use std::os::unix::fs::PermissionsExt;
-    std::fs::write(path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    let mut data = format!("#!/bin/sh\n{body}\nexit 0\n").into_bytes();
+    if let Some(block) = block {
+        data.resize(data.len().div_ceil(16) * 16 + 64, b'#');
+        data.extend_from_slice(block);
+    }
+    std::fs::write(path, &data).unwrap();
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
@@ -124,12 +137,14 @@ async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
     let _ = std::fs::remove_dir_all(d.config.parent().unwrap());
 }
 
-/// The Go build info block of a Trivy 0.69.5 release build, as Go 1.18+
-/// writes it (`nauvi::image_security::go_buildinfo` has the format).
-fn malicious_block() -> Vec<u8> {
+/// The Go build info block of a Trivy release build of `version`, as Go
+/// 1.18+ writes it (`nauvi::image_security::go_buildinfo` has the format).
+fn trivy_block(version: &str) -> Vec<u8> {
     let go = b"go1.24.1";
-    let modinfo = "path\tgithub.com/aquasecurity/trivy/cmd/trivy\n\
-        mod\tgithub.com/aquasecurity/trivy\tv0.69.5\th1:x=\n";
+    let modinfo = format!(
+        "path\tgithub.com/aquasecurity/trivy/cmd/trivy\n\
+         mod\tgithub.com/aquasecurity/trivy\t{version}\th1:x=\n"
+    );
     let mut b = b"\xff Go buildinf:".to_vec();
     b.extend_from_slice(&[8, 2]);
     b.resize(32, 0);
@@ -149,21 +164,19 @@ fn malicious_block() -> Vec<u8> {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_malicious_build_is_refused_without_running_it() {
-    use std::os::unix::fs::PermissionsExt;
     let d = dirs("buildinfo");
     let bin = d.config.parent().unwrap().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     let trivy = bin.join("trivy");
     let ran = bin.join("ran");
-    let mut data = format!(
-        "#!/bin/sh\necho run >> {}\necho '{{\"Version\":\"0.58.1\"}}'\nexit 0\n",
-        ran.display()
-    )
-    .into_bytes();
-    data.resize(data.len().div_ceil(16) * 16 + 64, b'#');
-    data.extend_from_slice(&malicious_block());
-    std::fs::write(&trivy, &data).unwrap();
-    std::fs::set_permissions(&trivy, std::fs::Permissions::from_mode(0o755)).unwrap();
+    script_with(
+        &trivy,
+        &format!(
+            "echo run >> {}\necho '{{\"Version\":\"0.58.1\"}}'",
+            ran.display()
+        ),
+        Some(&trivy_block("v0.69.5")),
+    );
     let real = trivy.canonicalize().unwrap();
     let fp = fingerprint_of(&real).await.unwrap();
     // As if it had been approved before nauvi knew.
@@ -185,6 +198,98 @@ async fn a_malicious_build_is_refused_without_running_it() {
     assert_eq!(approval::approved(&d.approvals(), ScannerKind::Trivy), None);
     assert!(!ran.exists(), "nauvi ran a malicious build");
     let _ = std::fs::remove_dir_all(d.config.parent().unwrap());
+}
+
+/// A Trivy whose file names no version (no build info, as a packed binary
+/// or a script; or a `(devel)` build without `-X …app.ver`) is refused
+/// before anything of it runs, approved before or not (#561).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_trivy_of_unknown_version_is_refused_without_running_it() {
+    let d = dirs("unversioned");
+    let bin = d.config.parent().unwrap().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let trivy = bin.join("trivy");
+    let ran = bin.join("ran");
+    let body = format!(
+        "echo run >> {}\necho '{{\"Version\":\"0.58.1\"}}'",
+        ran.display()
+    );
+    let devel = trivy_block("(devel)");
+    for (block, says) in [
+        (None, "nauvi finds no Go build info in this file"),
+        (
+            Some(devel.as_slice()),
+            "This Trivy's Go build info names no version",
+        ),
+    ] {
+        script_with(&trivy, &body, block);
+        let real = trivy.canonicalize().unwrap();
+        let fp = fingerprint_of(&real).await.unwrap();
+        approval::approve(&d.approvals(), ScannerKind::Trivy, fp.clone()).unwrap();
+        let s = with_trivy(&real, || scanner_status(&d, ScannerKind::Trivy, true)).await;
+        assert_eq!(s.0.state, ScannerState::Refused, "{:?}", s.0);
+        assert!(s.0.message.starts_with(says), "{}", s.0.message);
+        assert!(s.0.message.contains("CVE-2026-33634"), "{}", s.0.message);
+        assert_eq!(s.0.sha256, fp.sha256);
+        assert!(s.1.is_none());
+        assert_eq!(approval::approved(&d.approvals(), ScannerKind::Trivy), None);
+        let real_s = real.display().to_string();
+        let s = with_trivy(&real, || {
+            approve(&d, ScannerKind::Trivy, &real_s, &fp.sha256)
+        })
+        .await
+        .unwrap();
+        assert_eq!(s.state, ScannerState::Refused, "{s:?}");
+        assert_eq!(approval::approved(&d.approvals(), ScannerKind::Trivy), None);
+        assert!(!ran.exists(), "nauvi ran a Trivy of unknown version");
+    }
+    let _ = std::fs::remove_dir_all(d.config.parent().unwrap());
+}
+
+/// A Homebrew Trivy (built with -trimpath: `(devel)`, no -ldflags in its
+/// build info) runs with its Cellar folder's version, shown in Settings; a
+/// malicious one from its folder is refused without running (#561).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_homebrew_trivy_takes_its_folder_s_version() {
+    let d = dirs("cellar");
+    let root = d.config.parent().unwrap().to_path_buf();
+    let ran = root.join("ran");
+    let body = format!(
+        "echo run >> {}\necho '{{\"Version\":\"0.58.1\"}}'",
+        ran.display()
+    );
+    for (version, ok) in [("0.58.1", true), ("0.69.5_1", false)] {
+        let bin = root.join("Cellar/trivy").join(version).join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let trivy = bin.join("trivy");
+        script_with(&trivy, &body, Some(&trivy_block("(devel)")));
+        let real = trivy.canonicalize().unwrap();
+        let shown = with_trivy(&real, || scanner_status(&d, ScannerKind::Trivy, false)).await;
+        let real_s = real.display().to_string();
+        let s = with_trivy(&real, || {
+            approve(&d, ScannerKind::Trivy, &real_s, &shown.0.sha256)
+        })
+        .await
+        .unwrap();
+        if ok {
+            assert_eq!(s.state, ScannerState::Ready, "{s:?}");
+            assert_eq!(s.message, "Version 0.58.1 from its Homebrew folder.");
+            assert!(ran.exists());
+            std::fs::remove_file(&ran).unwrap();
+        } else {
+            assert_eq!(s.state, ScannerState::Refused, "{s:?}");
+            assert!(s.message.contains("Trivy 0.69.5 is one"), "{}", s.message);
+            assert!(
+                s.message.contains("from its Homebrew folder"),
+                "{}",
+                s.message
+            );
+            assert!(!ran.exists(), "nauvi ran a malicious Homebrew build");
+        }
+    }
+    let _ = std::fs::remove_dir_all(root);
 }
 
 /// Run `f` with `NAUVI_TRIVY` set to `path` (one test at a time sets it).

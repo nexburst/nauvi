@@ -5,7 +5,22 @@ import type { ScannerKind, ScannerStatus, Vulnerability } from "../../lib/bindin
 
 export interface FakeImageScan {
   /** The scanner the fake finds, per kind (absent: not installed). */
-  found: Partial<Record<ScannerKind, { path: string; version: string; db: string; from?: string; sha256?: string }>>;
+  found: Partial<
+    Record<
+      ScannerKind,
+      {
+        path: string;
+        version: string;
+        db: string;
+        from?: string;
+        sha256?: string;
+        /** A Trivy whose file names no version (#561): refused before it runs. */
+        unversioned?: boolean;
+        /** Where the backend read its version when its build info names none. */
+        note?: string;
+      }
+    >
+  >;
   /** Approved paths by kind. */
   approved: Partial<Record<ScannerKind, string>>;
   /** Paths that changed since they were approved. */
@@ -53,6 +68,10 @@ export function imageScanFixture(): FakeImageScan {
   };
 }
 
+/** The end of the backend's refusal of a Trivy of unknown version. */
+export const UNVERSIONED_TRIVY =
+  "nauvi does not run it: Trivy 0.69.4 to 0.69.6 ran malicious code as soon as they started (CVE-2026-33634). Install a release build of Trivy (from its GitHub releases, its apt or yum repository, Homebrew or Nix), or set NAUVI_TRIVY to one.";
+
 /** The SHA-256 of a scanner file the fake finds, unless it names one. */
 export const FAKE_SHA256 = "3f1a9c0b7d2e" + "4a5b6c7d8e9f".repeat(4) + "0123";
 
@@ -78,6 +97,13 @@ export const scannerStatusOf = (kind: ScannerKind, f: FakeImageScan): ScannerSta
   }
   const sha256 = found.sha256 ?? FAKE_SHA256;
   const withPath = { ...base, path: found.path, from: found.from ?? "PATH", file: `48.2 MB, SHA-256 ${sha256.slice(0, 12)}…`, sha256 };
+  // Like the backend: refused from the file, before the approval counts.
+  if (kind === "trivy" && found.unversioned)
+    return {
+      ...withPath,
+      state: "refused",
+      message: `This Trivy's Go build info names no version (built from source?), so nauvi cannot tell which version it is without running it. ${UNVERSIONED_TRIVY}`,
+    };
   const approved = f.approved[kind];
   if (!approved) return { ...withPath, state: "unapproved", message: `nauvi runs ${kind} only once you approve this file.` };
   if (approved !== found.path || f.changed.includes(found.path))
@@ -94,5 +120,5 @@ export const scannerStatusOf = (kind: ScannerKind, f: FakeImageScan): ScannerSta
       version: found.version,
       message: `Trivy ${found.version} is one of the malicious releases (0.69.4 to 0.69.6, CVE-2026-33634): nauvi does not run it.`,
     };
-  return { ...withPath, state: "ready", version: found.version, db: found.db };
+  return { ...withPath, state: "ready", version: found.version, db: found.db, message: found.note ?? "" };
 };
