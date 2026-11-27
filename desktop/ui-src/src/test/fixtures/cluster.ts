@@ -21,6 +21,7 @@ import type {
   ResourceRow,
   ServicePortInfo,
   StateInfo,
+  TagReport,
 } from "../../lib/bindings";
 import { defaultSettings } from "../../lib/settings";
 import type { Settings } from "../../lib/settings";
@@ -153,6 +154,9 @@ export interface FakeCluster {
   /** The kubectl versions `cmd_kubectl_match` reports (#331); by default the
    *  user's v1.28.0 against a v1.31.2 server, nothing downloaded. */
   kubectl?: FakeKubectl;
+  /** Available tags (#539) by image: a report, or the error the command
+   *  fails with; others get `fake/registry-tags.ts`'s default. */
+  registryTags?: Record<string, TagReport | string>;
   /** Ask AI (#376): the CLIs on PATH (by id), whether the nauvi CLI is
    *  there too, and why the custom command cannot run. By default no CLI
    *  (so no Ask AI anywhere), and nauvi. */

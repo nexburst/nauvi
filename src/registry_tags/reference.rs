@@ -45,7 +45,9 @@ impl ImageRef {
         let (rest, digest) = match text.split_once('@') {
             Some((r, d)) => {
                 if !is_digest(d) {
-                    return Err(format!("{shown} has a digest that is not sha256:<64 hex digits>."));
+                    return Err(format!(
+                        "{shown} has a digest that is not sha256:<64 hex digits>."
+                    ));
                 }
                 (r, d.to_string())
             }
@@ -132,8 +134,7 @@ pub fn running_digest(image: &ImageRef, image_id: &str) -> Option<String> {
         return None;
     }
     let of = ImageRef::parse(&format!("{name}@{digest}")).ok()?;
-    (of.registry == image.registry && of.repository == image.repository)
-        .then(|| digest.to_string())
+    (of.registry == image.registry && of.repository == image.repository).then(|| digest.to_string())
 }
 
 /// `sha256:` and 64 lower-case hex digits.
@@ -148,8 +149,7 @@ pub(crate) fn is_tag(s: &str) -> bool {
     !b.is_empty()
         && b.len() <= 128
         && (b[0].is_ascii_alphanumeric() || b[0] == b'_')
-        && b
-            .iter()
+        && b.iter()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'-'))
 }
 
@@ -164,8 +164,9 @@ fn is_repository(s: &str) -> bool {
                 && b[0].is_ascii_alphanumeric()
                 && b[b.len() - 1].is_ascii_alphanumeric()
                 && !c.contains("..")
-                && b.iter()
-                    .all(|x| x.is_ascii_lowercase() || x.is_ascii_digit() || matches!(x, b'.' | b'_' | b'-'))
+                && b.iter().all(|x| {
+                    x.is_ascii_lowercase() || x.is_ascii_digit() || matches!(x, b'.' | b'_' | b'-')
+                })
         })
 }
 
@@ -247,7 +248,11 @@ pub fn check_host(authority: &str, allow_loopback: bool) -> Result<(), String> {
                 refused("this machine (a loopback address)")
             };
         }
-        if ip.is_unspecified() || ip.is_multicast() || is_link_local(ip) || ip == IpAddr::V4(Ipv4Addr::BROADCAST) {
+        if ip.is_unspecified()
+            || ip.is_multicast()
+            || is_link_local(ip)
+            || ip == IpAddr::V4(Ipv4Addr::BROADCAST)
+        {
             return refused("a link-local, multicast or unspecified address");
         }
         return Ok(());
@@ -283,20 +288,29 @@ mod tests {
     #[test]
     fn parses_references_like_docker() {
         let m = p("mongo:7.0.1");
-        assert_eq!((m.registry.as_str(), m.repository.as_str(), m.tag.as_str()), ("docker.io", "library/mongo", "7.0.1"));
+        assert_eq!(
+            (m.registry.as_str(), m.repository.as_str(), m.tag.as_str()),
+            ("docker.io", "library/mongo", "7.0.1")
+        );
         assert_eq!(m.name(), "mongo");
         assert_eq!(p("mongo").tag, "latest");
         assert_eq!(p("bitnami/redis:7").repository, "bitnami/redis");
         assert_eq!(p("docker.io/library/nginx:1.27").shown(), "nginx:1.27");
         assert_eq!(p("index.docker.io/library/nginx").registry, "docker.io");
         let g = p("ghcr.io/org/team/app:v1.2.3-alpine");
-        assert_eq!((g.registry.as_str(), g.repository.as_str(), g.tag.as_str()), ("ghcr.io", "org/team/app", "v1.2.3-alpine"));
+        assert_eq!(
+            (g.registry.as_str(), g.repository.as_str(), g.tag.as_str()),
+            ("ghcr.io", "org/team/app", "v1.2.3-alpine")
+        );
         let local = p("registry.example.com:5000/app:1.0");
         assert_eq!(local.registry, "registry.example.com:5000");
         assert_eq!(local.repository, "app");
         let d = format!("sha256:{}", "a".repeat(64));
         let pinned = p(&format!("quay.io/org/app:1.0@{d}"));
-        assert_eq!((pinned.tag.as_str(), pinned.digest.as_str()), ("1.0", d.as_str()));
+        assert_eq!(
+            (pinned.tag.as_str(), pinned.digest.as_str()),
+            ("1.0", d.as_str())
+        );
         let only = p(&format!("quay.io/org/app@{d}"));
         assert_eq!(only.tag, "");
         assert_eq!(only.shown(), format!("quay.io/org/app@{d}"));
@@ -327,7 +341,13 @@ mod tests {
 
     #[test]
     fn host_checks_refuse_this_machine_and_link_local() {
-        for ok in ["ghcr.io", "registry.example.com:5000", "10.0.0.5:5000", "192.168.1.2", "[2001:db8::1]:443"] {
+        for ok in [
+            "ghcr.io",
+            "registry.example.com:5000",
+            "10.0.0.5:5000",
+            "192.168.1.2",
+            "[2001:db8::1]:443",
+        ] {
             assert_eq!(check_host(ok, false), Ok(()), "{ok}");
         }
         for bad in [
@@ -359,11 +379,30 @@ mod tests {
     fn running_digest_only_from_the_same_repository() {
         let d = format!("sha256:{}", "b".repeat(64));
         let busybox = p("busybox:1.36");
-        assert_eq!(running_digest(&busybox, &format!("docker.io/library/busybox@{d}")), Some(d.clone()));
-        assert_eq!(running_digest(&busybox, &format!("docker-pullable://busybox@{d}")), Some(d.clone()));
-        assert_eq!(running_digest(&busybox, &d), None, "a bare image id is the config digest");
-        assert_eq!(running_digest(&busybox, &format!("docker.io/library/import-2026-08-26@{d}")), None);
+        assert_eq!(
+            running_digest(&busybox, &format!("docker.io/library/busybox@{d}")),
+            Some(d.clone())
+        );
+        assert_eq!(
+            running_digest(&busybox, &format!("docker-pullable://busybox@{d}")),
+            Some(d.clone())
+        );
+        assert_eq!(
+            running_digest(&busybox, &d),
+            None,
+            "a bare image id is the config digest"
+        );
+        assert_eq!(
+            running_digest(
+                &busybox,
+                &format!("docker.io/library/import-2026-08-26@{d}")
+            ),
+            None
+        );
         assert_eq!(running_digest(&busybox, ""), None);
-        assert_eq!(running_digest(&busybox, "docker.io/library/busybox@sha256:short"), None);
+        assert_eq!(
+            running_digest(&busybox, "docker.io/library/busybox@sha256:short"),
+            None
+        );
     }
 }

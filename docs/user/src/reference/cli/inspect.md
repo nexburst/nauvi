@@ -110,6 +110,20 @@ nauvi watch [OPTIONS] [<RESOURCE>]
 | `<RESOURCE>` | What to watch: pods, nodes, deployments, a CRD, .... Default: `pods` |
 | `-n, --namespace <NAMESPACE>` | Only watch this namespace |
 
+## `nauvi tags`
+
+Show the newer tags of an image in its registry: newer patch, minor and major versions with the same variant (`7.0.1-jammy` -> `7.0.2-jammy`). Reads the registry over HTTPS, anonymously or with your docker credentials (`docker login`); it does not use the cluster.
+
+```text
+nauvi tags [OPTIONS] <IMAGE>
+```
+
+| Argument | What it does |
+| --- | --- |
+| `<IMAGE>` | The image, e.g. `mongo:7.0.1` or `ghcr.io/org/app:v1.2.3` |
+| `--image-id <ID>` | The `imageID` a pod reports for it (`docker.io/library/mongo@sha256:…`): says whether the tag was pushed again since |
+| `--json` | Print JSON instead of text |
+
 ## `nauvi top`
 
 Show CPU/memory usage (like kubectl top)

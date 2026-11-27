@@ -117,7 +117,10 @@ impl Challenge {
 /// Whether credentials for `registry` (the API host, `host[:port]`) may go
 /// to the token service at `realm_host`.
 pub(crate) fn may_send_credentials(registry_host: &str, realm_host: &str) -> bool {
-    let (r, t) = (registry_host.to_ascii_lowercase(), realm_host.to_ascii_lowercase());
+    let (r, t) = (
+        registry_host.to_ascii_lowercase(),
+        realm_host.to_ascii_lowercase(),
+    );
     if r == t {
         return true;
     }
@@ -179,7 +182,11 @@ pub(crate) fn source_for(config: &serde_json::Value, registry: &str) -> Source {
         config
             .get(field)
             .and_then(|v| v.as_object())
-            .map(|m| m.iter().map(|(k, v)| (key_registry(k), v.clone())).collect())
+            .map(|m| {
+                m.iter()
+                    .map(|(k, v)| (key_registry(k), v.clone()))
+                    .collect()
+            })
             .unwrap_or_default()
     };
     if let Some((_, helper)) = entries("credHelpers")
@@ -193,7 +200,11 @@ pub(crate) fn source_for(config: &serde_json::Value, registry: &str) -> Source {
     let Some((_, entry)) = entries("auths").into_iter().find(|(k, _)| k == registry) else {
         return Source::None;
     };
-    if let Some(auth) = entry.get("auth").and_then(|a| a.as_str()).filter(|a| !a.is_empty()) {
+    if let Some(auth) = entry
+        .get("auth")
+        .and_then(|a| a.as_str())
+        .filter(|a| !a.is_empty())
+    {
         if let Some(c) = decode_auth(auth) {
             return Source::Inline(c);
         }
@@ -288,10 +299,7 @@ fn parse_helper_output(out: &[u8]) -> Option<Credentials> {
 /// The token in a token service's JSON answer (`token` or `access_token`).
 pub(crate) fn token_of(body: &[u8]) -> Option<String> {
     let v: serde_json::Value = serde_json::from_slice(body).ok()?;
-    let t = v
-        .get("token")
-        .or_else(|| v.get("access_token"))?
-        .as_str()?;
+    let t = v.get("token").or_else(|| v.get("access_token"))?.as_str()?;
     (!t.is_empty() && t.len() <= 16 * 1024 && t.bytes().all(|b| b.is_ascii_graphic()))
         .then(|| t.to_string())
 }
@@ -324,7 +332,10 @@ mod tests {
     #[test]
     fn credentials_go_only_to_the_registry_or_its_own_token_service() {
         assert!(may_send_credentials("ghcr.io", "ghcr.io"));
-        assert!(may_send_credentials("registry-1.docker.io", "auth.docker.io"));
+        assert!(may_send_credentials(
+            "registry-1.docker.io",
+            "auth.docker.io"
+        ));
         assert!(may_send_credentials("registry.gitlab.com", "gitlab.com"));
         assert!(may_send_credentials("Quay.io", "quay.io"));
         assert!(!may_send_credentials("ghcr.io", "evil.com"));
@@ -346,13 +357,22 @@ mod tests {
             "credHelpers": {"ghcr.io": "gh", "bad.example.com": "../evil"},
             "credsStore": "desktop",
         });
-        let me = Credentials { username: "me".into(), secret: "s3cret".into() };
+        let me = Credentials {
+            username: "me".into(),
+            secret: "s3cret".into(),
+        };
         assert_eq!(source_for(&config, "docker.io"), Source::Inline(me));
         assert_eq!(source_for(&config, "ghcr.io"), Source::Helper("gh".into()));
-        assert_eq!(source_for(&config, "registry.example.com:5000"), Source::Helper("desktop".into()));
+        assert_eq!(
+            source_for(&config, "registry.example.com:5000"),
+            Source::Helper("desktop".into())
+        );
         assert_eq!(
             source_for(&config, "plain.example.com"),
-            Source::Inline(Credentials { username: "u".into(), secret: "p".into() })
+            Source::Inline(Credentials {
+                username: "u".into(),
+                secret: "p".into()
+            })
         );
         // Not listed in auths: the store is not asked about a host the
         // cluster named.
@@ -365,22 +385,40 @@ mod tests {
     fn helper_output_and_tokens() {
         assert_eq!(
             parse_helper_output(br#"{"ServerURL":"ghcr.io","Username":"me","Secret":"t"}"#),
-            Some(Credentials { username: "me".into(), secret: "t".into() })
+            Some(Credentials {
+                username: "me".into(),
+                secret: "t".into()
+            })
         );
-        assert_eq!(parse_helper_output(br#"{"Username":"<token>","Secret":"refresh"}"#), None);
+        assert_eq!(
+            parse_helper_output(br#"{"Username":"<token>","Secret":"refresh"}"#),
+            None
+        );
         assert_eq!(parse_helper_output(b"credentials not found"), None);
-        assert_eq!(token_of(br#"{"token":"abc.def"}"#).as_deref(), Some("abc.def"));
-        assert_eq!(token_of(br#"{"access_token":"xyz"}"#).as_deref(), Some("xyz"));
+        assert_eq!(
+            token_of(br#"{"token":"abc.def"}"#).as_deref(),
+            Some("abc.def")
+        );
+        assert_eq!(
+            token_of(br#"{"access_token":"xyz"}"#).as_deref(),
+            Some("xyz")
+        );
         assert_eq!(token_of(br#"{"token":"a\nb"}"#), None);
         assert_eq!(token_of(b"{}"), None);
-        let c = Credentials { username: "me".into(), secret: "pw".into() };
+        let c = Credentials {
+            username: "me".into(),
+            secret: "pw".into(),
+        };
         assert_eq!(format!("{c:?}"), "Credentials(me, ••••)");
         assert_eq!(c.basic(), "Basic bWU6cHc=");
     }
 
     #[tokio::test]
     async fn an_unknown_helper_gives_nothing() {
-        assert_eq!(from_helper("nauvi-test-missing-helper", "ghcr.io").await, None);
+        assert_eq!(
+            from_helper("nauvi-test-missing-helper", "ghcr.io").await,
+            None
+        );
         assert_eq!(from_helper("../x", "ghcr.io").await, None);
     }
 }

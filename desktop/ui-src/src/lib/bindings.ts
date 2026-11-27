@@ -504,6 +504,17 @@ export const commands = {
 	 */
 	cmdSetClusterProxy: (id: string, url: string | null, local: boolean, caFile: string | null, options?: InvokeOptions) => __TAURI_INVOKE<ClusterProxyInfo>("cmd_set_cluster_proxy", { id, url, local, caFile }, options),
 	/**
+	 *  The newer tags of `image` and whether its tag was pushed again since
+	 *  `image_id` (a container's `imageID`, `""` if unknown). `refresh` skips
+	 *  the cache. Refused with the setting off.
+	 */
+	cmdRegistryTags: (image: string, imageId: string, refresh: boolean, options?: InvokeOptions) => __TAURI_INVOKE<TagReport>("cmd_registry_tags", { image, imageId, refresh }, options),
+	/**
+	 *  The containers and images of a workload's pod template, for its panel.
+	 *  Empty with the setting off (no request to the cluster).
+	 */
+	cmdWorkloadImages: (cluster: string, resource: ResourceRef, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ContainerImage[]>("cmd_workload_images", { cluster, resource, namespace, name }, options),
+	/**
 	 *  Create or update the objects of a (multi-document) YAML manifest. The
 	 *  batch is validated with a dry run first; unless `dry_run`, it is applied
 	 *  if every document passed, or with `skip_invalid` the ones that did.
@@ -1139,6 +1150,14 @@ export type ContainerEnv = {
 	container: string,
 	from: EnvFromGroup[],
 	env: EnvValue[],
+};
+
+/**  One container of a pod template and its image. */
+export type ContainerImage = {
+	container: string,
+	image: string,
+	/**  `regular`, `init` or `ephemeral`, as in the pod panel. */
+	kind: string,
 };
 
 export type ContainerKind = "init" | "regular" | "ephemeral";
@@ -2738,6 +2757,7 @@ export type SettingsPatch_Deserialize = {
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Deserialize | null,
 	kubectl_match?: boolean | null,
+	registry_tags?: boolean | null,
 	/**  The whole list of collapsed sidebar sections (#383). */
 	collapsed_sections?: string[] | null,
 	/**  The whole list of sidebar sections with "More" open (#481). */
@@ -2775,6 +2795,7 @@ export type SettingsPatch_Serialize = {
 	/**  The whole search history (#219). */
 	searches?: SearchHistory_Serialize | null,
 	kubectl_match?: boolean | null,
+	registry_tags?: boolean | null,
 	/**  The whole list of collapsed sidebar sections (#383). */
 	collapsed_sections?: string[] | null,
 	/**  The whole list of sidebar sections with "More" open (#481). */
@@ -2861,6 +2882,13 @@ export type Settings_Deserialize = {
 	 *  default; nothing is downloaded without a click.
 	 */
 	kubectl_match?: boolean,
+	/**
+	 *  Available tags (#539): a button by each image in the pod and
+	 *  workload panels that lists the newer tags in its registry. Off by
+	 *  default: it contacts registries from this machine, and only on a
+	 *  click.
+	 */
+	registry_tags?: boolean,
 	/**
 	 *  The sidebar sections the user collapsed (#383), by id (`workloads`,
 	 *  `network`, `helm`, `custom`...). Empty: every section open.
@@ -2972,6 +3000,13 @@ export type Settings_Serialize = {
 	 */
 	kubectl_match: boolean,
 	/**
+	 *  Available tags (#539): a button by each image in the pod and
+	 *  workload panels that lists the newer tags in its registry. Off by
+	 *  default: it contacts registries from this machine, and only on a
+	 *  click.
+	 */
+	registry_tags: boolean,
+	/**
 	 *  The sidebar sections the user collapsed (#383), by id (`workloads`,
 	 *  `network`, `helm`, `custom`...). Empty: every section open.
 	 */
@@ -3051,6 +3086,69 @@ export type StatusCount = {
 	status: WorkloadStatus,
 	count: number,
 };
+
+/**  Tags of one group, newest first, at most [`GROUP_MAX`]. */
+export type TagGroup = {
+	tags: TagInfo[],
+	/**  How many more there are. */
+	more: number,
+};
+
+/**  One tag in a group. */
+export type TagInfo = {
+	tag: string,
+	/**
+	 *  When it was pushed (RFC 3339), from Docker Hub; `""` elsewhere or
+	 *  unknown.
+	 */
+	updated: string,
+};
+
+/**  What the registry has for an image. */
+export type TagReport = {
+	/**  The image as the pod names it. */
+	image: string,
+	/**  `docker.io`, `ghcr.io`, `registry.example.com:5000`. */
+	registry: string,
+	/**  `library/mongo`. */
+	repository: string,
+	/**  The running tag (`""` for an image pinned by digest only). */
+	tag: string,
+	/**  The tag's numbers (`7.0.1`), `""` when it is not a version. */
+	version: string,
+	/**  What follows them (`-jammy`), kept in every suggestion. */
+	variant: string,
+	patch: TagGroup,
+	minor: TagGroup,
+	major: TagGroup,
+	/**  Tags that are not versions (`latest`, `stable`). */
+	other: TagGroup,
+	/**  Tags read from the registry. */
+	tag_count: number,
+	/**  The list was longer than nauvi reads ([`MAX_TAGS`] or [`MAX_PAGES`]). */
+	truncated: boolean,
+	state: TagState,
+	/**  The tag's digest in the registry (`""`: unknown). */
+	registry_digest: string,
+	/**  What the pod runs, from its `imageID` (`""`: unknown). */
+	running_digest: string,
+	/**  When the report was read from the registry (epoch seconds). */
+	fetched_at: number,
+};
+
+/**  The running tag compared with the registry. */
+export type TagState = 
+/**  The tag still points at what the pod runs. */
+"unchanged" | 
+/**  The tag was pushed again: it points at another digest now. */
+"updated" | 
+/**  The registry no longer has the tag. */
+"gone" | 
+/**
+ *  Not known: no digest from the registry, or the pod's `imageID` says
+ *  none (not pulled yet, loaded by hand).
+ */
+"unknown";
 
 /**  A log line and where it came from. */
 export type TaggedLine = {

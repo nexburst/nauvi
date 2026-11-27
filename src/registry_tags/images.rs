@@ -26,7 +26,12 @@ pub fn workload_images(obj: &Value) -> Vec<ContainerImage> {
     };
     let mut out = Vec::new();
     for (field, kind) in [("initContainers", "init"), ("containers", "regular")] {
-        for c in pod.get(field).and_then(Value::as_array).into_iter().flatten() {
+        for c in pod
+            .get(field)
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             let (Some(name), Some(image)) = (
                 c.get("name").and_then(Value::as_str),
                 c.get("image").and_then(Value::as_str),
@@ -56,7 +61,10 @@ mod tests {
         }}}});
         let imgs = workload_images(&deploy);
         assert_eq!(imgs.len(), 2);
-        assert_eq!((imgs[0].container.as_str(), imgs[0].kind.as_str()), ("migrate", "init"));
+        assert_eq!(
+            (imgs[0].container.as_str(), imgs[0].kind.as_str()),
+            ("migrate", "init")
+        );
         assert_eq!(imgs[1].image, "nginx:1.27");
         let cron = json!({"spec": {"jobTemplate": {"spec": {"template": {"spec": {
             "containers": [{"name": "job", "image": "busybox:1.36"}],

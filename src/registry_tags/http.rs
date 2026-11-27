@@ -11,7 +11,7 @@
 //! - No proxy: proxy environment variables are not read (the cluster's
 //!   proxy setting is for the cluster, not the registries).
 
-use super::reference::{check_host, split_host};
+use super::reference::check_host;
 use bytes::Bytes;
 use http::header::{HeaderMap, HeaderName, HeaderValue, LOCATION, USER_AGENT};
 use http::{Method, Request, StatusCode, Uri};
@@ -135,7 +135,10 @@ impl Https {
             if !reply.status.is_redirection() {
                 return Ok(reply);
             }
-            let Some(next) = reply.header(LOCATION.as_str()).and_then(|l| resolve(&uri, l)) else {
+            let Some(next) = reply
+                .header(LOCATION.as_str())
+                .and_then(|l| resolve(&uri, l))
+            else {
                 return Err(format!(
                     "{} answered with a redirect nauvi cannot follow",
                     host_of(&uri)
@@ -161,10 +164,7 @@ impl Https {
         cap: usize,
     ) -> Result<Reply, String> {
         let mut req = Request::builder().method(method).uri(uri.clone());
-        req = req.header(
-            USER_AGENT,
-            concat!("nauvi/", env!("CARGO_PKG_VERSION")),
-        );
+        req = req.header(USER_AGENT, concat!("nauvi/", env!("CARGO_PKG_VERSION")));
         for (k, v) in headers {
             req = req.header(k, v);
         }
@@ -182,8 +182,13 @@ impl Https {
             .collect()
             .await
             .map_err(|e| {
-                if e.downcast_ref::<http_body_util::LengthLimitError>().is_some() {
-                    format!("{host} sent more than {} KB, more than nauvi reads", cap / 1024)
+                if e.downcast_ref::<http_body_util::LengthLimitError>()
+                    .is_some()
+                {
+                    format!(
+                        "{host} sent more than {} KB, more than nauvi reads",
+                        cap / 1024
+                    )
                 } else {
                     format!("{host} broke off its answer: {e}")
                 }
@@ -227,13 +232,6 @@ fn shown_uri(uri: &Uri) -> String {
     }
 }
 
-/// The host part of an authority, lower-case (`[::1]:5000` -> `::1`).
-pub(crate) fn host_name(authority: &str) -> String {
-    split_host(authority)
-        .map(|(h, _)| h)
-        .unwrap_or_else(|_| authority.to_ascii_lowercase())
-}
-
 /// The error and its sources, `: `-joined (hyper's own says only "client
 /// error (Connect)").
 fn error_chain(e: &dyn std::error::Error) -> String {
@@ -271,11 +269,17 @@ mod tests {
     fn resolves_relative_and_absolute_locations() {
         let base: Uri = "https://ghcr.io/v2/a/tags/list".parse().unwrap();
         assert_eq!(
-            resolve(&base, "/v2/a/tags/list?last=x").unwrap().to_string(),
+            resolve(&base, "/v2/a/tags/list?last=x")
+                .unwrap()
+                .to_string(),
             "https://ghcr.io/v2/a/tags/list?last=x"
         );
         assert_eq!(
-            resolve(&base, "https://evil.com/x").unwrap().authority().unwrap().as_str(),
+            resolve(&base, "https://evil.com/x")
+                .unwrap()
+                .authority()
+                .unwrap()
+                .as_str(),
             "evil.com"
         );
         assert!(resolve(&base, "//evil.com/x").is_none());
@@ -284,7 +288,10 @@ mod tests {
 
     #[test]
     fn escapes_query_values() {
-        assert_eq!(query_escape("repository:library/mongo:pull"), "repository%3Alibrary%2Fmongo%3Apull");
+        assert_eq!(
+            query_escape("repository:library/mongo:pull"),
+            "repository%3Alibrary%2Fmongo%3Apull"
+        );
         assert_eq!(query_escape("a b&c=d"), "a%20b%26c%3Dd");
     }
 
@@ -294,8 +301,12 @@ mod tests {
         let h = Https::new(Vec::new(), false).unwrap();
         let e = h.check(&"http://ghcr.io/v2/".parse().unwrap()).unwrap_err();
         assert!(e.contains("only contacts registries over HTTPS"), "{e}");
-        assert!(h.check(&"https://169.254.169.254/".parse().unwrap()).is_err());
-        assert!(h.check(&"https://localhost:5000/".parse().unwrap()).is_err());
+        assert!(h
+            .check(&"https://169.254.169.254/".parse().unwrap())
+            .is_err());
+        assert!(h
+            .check(&"https://localhost:5000/".parse().unwrap())
+            .is_err());
         assert!(h.check(&"https://ghcr.io/v2/".parse().unwrap()).is_ok());
     }
 }

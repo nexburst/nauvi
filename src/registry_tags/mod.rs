@@ -20,10 +20,12 @@ mod http;
 mod hub;
 mod images;
 mod reference;
+mod text;
 mod versions;
 
 pub use images::{workload_images, ContainerImage};
 pub use reference::{check_host, running_digest, ImageRef, DOCKER_HUB};
+pub use text::{report_text, short_digest, state_text};
 pub use versions::{group, Grouped, Version};
 
 use ::http::header::{HeaderName, HeaderValue, ACCEPT, AUTHORIZATION};
@@ -157,7 +159,7 @@ pub async fn available_tags(image: &str, image_id: &str) -> Result<TagReport, St
 /// Read `image`'s tags, digest and (Docker Hub) dates from its registry.
 pub async fn fetch(image: &ImageRef) -> Result<RegistryData, String> {
     match tokio::time::timeout(LOOKUP_TIMEOUT, fetch_inner(image)).await {
-        Ok(r) => r,
+        Ok(r) => r.map_err(|e| sentence(&e)),
         Err(_) => Err(format!(
             "{} did not answer within {} s.",
             shown_registry(&image.registry),
@@ -222,7 +224,7 @@ pub fn report(image: &str, r: &ImageRef, image_id: &str, data: &RegistryData) ->
     } else {
         r.digest.clone()
     };
-    let state = if !r.tag.is_empty() && !data.truncated && !data.tags.iter().any(|t| *t == r.tag) {
+    let state = if !r.tag.is_empty() && !data.truncated && !data.tags.contains(&r.tag) {
         TagState::Gone
     } else if data.digest.is_empty() || running.is_empty() {
         TagState::Unknown
@@ -236,7 +238,10 @@ pub fn report(image: &str, r: &ImageRef, image_id: &str, data: &RegistryData) ->
         registry: r.registry.clone(),
         repository: r.repository.clone(),
         tag: r.tag.clone(),
-        version: version.as_ref().map(Version::number_text).unwrap_or_default(),
+        version: version
+            .as_ref()
+            .map(Version::number_text)
+            .unwrap_or_default(),
         variant: version.map(|v| v.variant).unwrap_or_default(),
         patch: to_group(grouped.patch),
         minor: to_group(grouped.minor),
@@ -249,6 +254,22 @@ pub fn report(image: &str, r: &ImageRef, image_id: &str, data: &RegistryData) ->
         running_digest: running,
         fetched_at: data.fetched_at,
     }
+}
+
+/// `e` as a sentence: a capital first letter and a full stop.
+fn sentence(e: &str) -> String {
+    let mut out: String = e.trim().to_string();
+    let first = out
+        .chars()
+        .next()
+        .filter(|c| c.is_lowercase() && !out.starts_with("nauvi"));
+    if let Some(first) = first {
+        out = first.to_uppercase().chain(out.chars().skip(1)).collect();
+    }
+    if !out.ends_with(['.', '!', '?']) {
+        out.push('.');
+    }
+    out
 }
 
 /// `Docker Hub` or the host, for messages.
@@ -274,11 +295,21 @@ impl TagCache {
 
     /// [`available_tags`], from the cache when it is fresh and `refresh`
     /// is not set.
-    pub async fn report(&self, image: &str, image_id: &str, refresh: bool) -> Result<TagReport, String> {
+    pub async fn report(
+        &self,
+        image: &str,
+        image_id: &str,
+        refresh: bool,
+    ) -> Result<TagReport, String> {
         let r = ImageRef::parse(image)?;
         let key = format!("{}/{}:{}@{}", r.registry, r.repository, r.tag, r.digest);
         let cached = (!refresh)
-            .then(|| self.lock().get(&key).filter(|(at, _)| at.elapsed() < Self::TTL).map(|(_, d)| d.clone()))
+            .then(|| {
+                self.lock()
+                    .get(&key)
+                    .filter(|(at, _)| at.elapsed() < Self::TTL)
+                    .map(|(_, d)| d.clone())
+            })
             .flatten();
         let data = match cached {
             Some(d) => d,
@@ -287,7 +318,11 @@ impl TagCache {
                 let mut map = self.lock();
                 map.retain(|_, (at, _)| at.elapsed() < Self::TTL);
                 if map.len() >= Self::MAX_ENTRIES {
-                    if let Some(oldest) = map.iter().min_by_key(|(_, (at, _))| *at).map(|(k, _)| k.clone()) {
+                    if let Some(oldest) = map
+                        .iter()
+                        .min_by_key(|(_, (at, _))| *at)
+                        .map(|(k, _)| k.clone())
+                    {
                         map.remove(&oldest);
                     }
                 }
@@ -336,7 +371,8 @@ impl Hooks {
             use rustls::pki_types::pem::PemObject as _;
             let pem = std::fs::read(&path).map_err(|e| format!("{TEST_CA_ENV}: {e}"))?;
             for cert in rustls::pki_types::CertificateDer::pem_slice_iter(&pem) {
-                h.extra_roots.push(cert.map_err(|e| format!("{TEST_CA_ENV}: {e}"))?);
+                h.extra_roots
+                    .push(cert.map_err(|e| format!("{TEST_CA_ENV}: {e}"))?);
             }
             h.allow_loopback = true;
         }
@@ -379,7 +415,11 @@ impl Session<'_> {
         if let Some(a) = accept {
             h.push((ACCEPT, HeaderValue::from_static(a)));
         }
-        if let Some(v) = self.auth.as_deref().and_then(|a| HeaderValue::from_str(a).ok()) {
+        if let Some(v) = self
+            .auth
+            .as_deref()
+            .and_then(|a| HeaderValue::from_str(a).ok())
+        {
             let mut v = v;
             v.set_sensitive(true);
             h.push((AUTHORIZATION, v));
@@ -388,14 +428,25 @@ impl Session<'_> {
     }
 
     /// `method uri`, logging in once on a 401.
-    async fn send(&mut self, method: Method, uri: Uri, accept: Option<&'static str>, cap: usize) -> Result<Reply, String> {
-        let reply = self.http.send(method.clone(), uri.clone(), &self.headers(accept), cap).await?;
+    async fn send(
+        &mut self,
+        method: Method,
+        uri: Uri,
+        accept: Option<&'static str>,
+        cap: usize,
+    ) -> Result<Reply, String> {
+        let reply = self
+            .http
+            .send(method.clone(), uri.clone(), &self.headers(accept), cap)
+            .await?;
         if reply.status != StatusCode::UNAUTHORIZED || self.tried_login {
             return Ok(reply);
         }
         self.tried_login = true;
         self.login(&reply).await?;
-        self.http.send(method, uri, &self.headers(accept), cap).await
+        self.http
+            .send(method, uri, &self.headers(accept), cap)
+            .await
     }
 
     /// The user's credentials for this registry, from the docker config.
@@ -454,7 +505,12 @@ impl Session<'_> {
                     .get("realm")
                     .and_then(|r| r.parse::<Uri>().ok())
                     .filter(|u| u.authority().is_some())
-                    .ok_or_else(|| format!("{} asked for a login without a token service.", self.registry()))?;
+                    .ok_or_else(|| {
+                        format!(
+                            "{} asked for a login without a token service.",
+                            self.registry()
+                        )
+                    })?;
                 self.http.check(&realm)?;
                 let realm_host = host_of(&realm);
                 let creds = creds.filter(|_| auth::may_send_credentials(&self.api, &realm_host));
@@ -467,9 +523,12 @@ impl Session<'_> {
                     "scope={}",
                     query_escape(&format!("repository:{}:pull", self.image.repository))
                 ));
-                let token_uri: Uri = url
-                    .parse()
-                    .map_err(|_| format!("{} named a token service nauvi cannot use.", self.registry()))?;
+                let token_uri: Uri = url.parse().map_err(|_| {
+                    format!(
+                        "{} named a token service nauvi cannot use.",
+                        self.registry()
+                    )
+                })?;
                 let mut headers = Vec::new();
                 if let Some(c) = &creds {
                     if let Ok(mut v) = HeaderValue::from_str(&c.basic()) {
@@ -477,16 +536,22 @@ impl Session<'_> {
                         headers.push((AUTHORIZATION, v));
                     }
                 }
-                let answer = self.http.send(Method::GET, token_uri, &headers, MAX_TOKEN_BYTES).await?;
+                let answer = self
+                    .http
+                    .send(Method::GET, token_uri, &headers, MAX_TOKEN_BYTES)
+                    .await?;
                 if answer.status.is_success() {
-                    let token = auth::token_of(&answer.body)
-                        .ok_or_else(|| format!("{} sent a login token nauvi cannot read.", self.registry()))?;
+                    let token = auth::token_of(&answer.body).ok_or_else(|| {
+                        format!("{} sent a login token nauvi cannot read.", self.registry())
+                    })?;
                     self.had_credentials = creds.is_some();
                     self.auth = Some(format!("Bearer {token}"));
                     return Ok(());
                 }
                 match (answer.status, creds.is_some()) {
-                    (StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN, true) => Err(self.refused_credentials()),
+                    (StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN, true) => {
+                        Err(self.refused_credentials())
+                    }
                     (StatusCode::TOO_MANY_REQUESTS, _) => Err(self.rate_limited()),
                     _ => Err(self.needs_login()),
                 }
@@ -519,7 +584,12 @@ impl Session<'_> {
             self.list_status(reply.status)?;
             let page: serde_json::Value = serde_json::from_slice(&reply.body)
                 .map_err(|_| format!("{} sent a tag list nauvi cannot read.", self.registry()))?;
-            for t in page.get("tags").and_then(|t| t.as_array()).into_iter().flatten() {
+            for t in page
+                .get("tags")
+                .and_then(|t| t.as_array())
+                .into_iter()
+                .flatten()
+            {
                 if let Some(t) = t.as_str().filter(|t| reference::is_tag(t)) {
                     tags.push(t.to_string());
                 }
@@ -530,7 +600,9 @@ impl Session<'_> {
             }
             next = match reply.header("link").and_then(next_link) {
                 Some(link) => match resolve(&reply.uri, &link) {
-                    Some(u) if u.authority().map(|a| a.as_str()) == Some(self.api.as_str()) => Some(u),
+                    Some(u) if u.authority().map(|a| a.as_str()) == Some(self.api.as_str()) => {
+                        Some(u)
+                    }
                     // A next page on another host is not read.
                     _ => return Ok((tags, true)),
                 },
@@ -552,19 +624,33 @@ impl Session<'_> {
                 self.registry(),
                 self.image.name()
             ),
-            StatusCode::NOT_FOUND => format!("{} has no repository {}.", self.registry(), self.image.repository),
+            StatusCode::NOT_FOUND => format!(
+                "{} has no repository {}.",
+                self.registry(),
+                self.image.repository
+            ),
             StatusCode::TOO_MANY_REQUESTS => self.rate_limited(),
-            s => format!("{} answered {s} to the tag list of {}.", self.registry(), self.image.name()),
+            s => format!(
+                "{} answered {s} to the tag list of {}.",
+                self.registry(),
+                self.image.name()
+            ),
         })
     }
 
     /// The tag's digest (`HEAD` of its manifest), `""` if the registry does
     /// not say.
     async fn digest(&mut self) -> String {
-        let Ok(uri) = self.uri(&format!("/v2/{}/manifests/{}", self.image.repository, self.image.tag)) else {
+        let Ok(uri) = self.uri(&format!(
+            "/v2/{}/manifests/{}",
+            self.image.repository, self.image.tag
+        )) else {
             return String::new();
         };
-        match self.send(Method::HEAD, uri, Some(MANIFEST_TYPES), 1024).await {
+        match self
+            .send(Method::HEAD, uri, Some(MANIFEST_TYPES), 1024)
+            .await
+        {
             Ok(r) if r.status.is_success() => r
                 .header("docker-content-digest")
                 .filter(|d| reference::is_digest(d))
@@ -596,6 +682,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn errors_are_sentences() {
+        assert_eq!(
+            sentence("cannot reach x: refused"),
+            "Cannot reach x: refused."
+        );
+        assert_eq!(
+            sentence("nauvi does not contact x."),
+            "nauvi does not contact x."
+        );
+    }
+
+    #[test]
     fn reads_the_next_link() {
         assert_eq!(
             next_link(r#"</v2/a/tags/list?last=x&n=100>; rel="next""#).as_deref(),
@@ -623,7 +721,17 @@ mod tests {
         let b = format!("sha256:{}", "b".repeat(64));
         let image = "mongo:7.0.1-jammy";
         let r = ImageRef::parse(image).unwrap();
-        let d = data(&["7.0.1-jammy", "7.0.2-jammy", "7.0.2", "7.1.0-jammy", "8.0.0-jammy", "latest"], &a);
+        let d = data(
+            &[
+                "7.0.1-jammy",
+                "7.0.2-jammy",
+                "7.0.2",
+                "7.1.0-jammy",
+                "8.0.0-jammy",
+                "latest",
+            ],
+            &a,
+        );
         let rep = report(image, &r, &format!("docker.io/library/mongo@{b}"), &d);
         assert_eq!(rep.version, "7.0.1");
         assert_eq!(rep.variant, "-jammy");

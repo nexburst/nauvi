@@ -13,6 +13,8 @@
   import YamlEditor from "./YamlEditor.svelte";
   import ServicePorts from "./ServicePorts.svelte";
   import UsageCharts from "./UsageCharts.svelte";
+  import WorkloadImages from "./WorkloadImages.svelte";
+  import { settings } from "../stores/settings.svelte";
   import { isWorkloadResource } from "../dock";
   import { crdInstancesKind, isCrdDefinitions } from "../crd";
   import { kinds, setView } from "../stores/app.svelte";
@@ -124,6 +126,10 @@
         {:else if isWorkload}
           <!-- All its pods, summed (#79). -->
           <UsageCharts workload={target.resource.kind} namespace={target.namespace} name={target.name} />
+        {/if}
+        {#if isWorkload && settings.current.registry_tags}
+          <!-- Available tags of the template's images (#539). -->
+          <WorkloadImages {target} />
         {/if}
         {#if target.resource.group === "" && target.resource.kind === "Service"}
           <ServicePorts namespace={target.namespace} name={target.name} disabled={live.deleted} />

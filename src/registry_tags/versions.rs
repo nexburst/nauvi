@@ -150,12 +150,31 @@ mod tests {
     fn reads_versions_with_prefixes_and_variants() {
         assert_eq!(v("7.0.1"), Some(("".into(), vec![7, 0, 1], "".into())));
         assert_eq!(v("v1.25.3"), Some(("v".into(), vec![1, 25, 3], "".into())));
-        assert_eq!(v("7.0.1-jammy"), Some(("".into(), vec![7, 0, 1], "-jammy".into())));
-        assert_eq!(v("1.25-alpine3.20"), Some(("".into(), vec![1, 25], "-alpine3.20".into())));
-        assert_eq!(v("3.13.0rc1"), Some(("".into(), vec![3, 13, 0], "rc1".into())));
+        assert_eq!(
+            v("7.0.1-jammy"),
+            Some(("".into(), vec![7, 0, 1], "-jammy".into()))
+        );
+        assert_eq!(
+            v("1.25-alpine3.20"),
+            Some(("".into(), vec![1, 25], "-alpine3.20".into()))
+        );
+        assert_eq!(
+            v("3.13.0rc1"),
+            Some(("".into(), vec![3, 13, 0], "rc1".into()))
+        );
         assert_eq!(v("8"), Some(("".into(), vec![8], "".into())));
         assert_eq!(v("1.2.3.4"), Some(("".into(), vec![1, 2, 3, 4], "".into())));
-        for not in ["latest", "jammy", "sha-1a2b3c", "v", "vx1", "1.2.3.4.5", "1.", "", "1234567890123456789"] {
+        for not in [
+            "latest",
+            "jammy",
+            "sha-1a2b3c",
+            "v",
+            "vx1",
+            "1.2.3.4.5",
+            "1.",
+            "",
+            "1234567890123456789",
+        ] {
             assert_eq!(v(not), None, "{not}");
         }
     }
@@ -166,7 +185,10 @@ mod tests {
 
     #[test]
     fn groups_newer_patch_minor_and_major() {
-        let tags = ["7.0.0", "7.0.1", "7.0.2", "7.0.10", "7.1.0", "7.2.3", "8.0.0", "6.9.9", "latest", "7.0", "7"];
+        let tags = [
+            "7.0.0", "7.0.1", "7.0.2", "7.0.10", "7.1.0", "7.2.3", "8.0.0", "6.9.9", "latest",
+            "7.0", "7",
+        ];
         let r = g("7.0.1", &tags);
         assert_eq!(r.patch, ["7.0.10", "7.0.2"]);
         assert_eq!(r.minor, ["7.2.3", "7.1.0"]);
@@ -177,7 +199,13 @@ mod tests {
     #[test]
     fn keeps_the_variant_and_the_prefix() {
         let tags = [
-            "7.0.2-jammy", "7.0.2-alpine", "7.0.2", "7.0.3-rc0-jammy", "8.0.0-jammy", "v7.0.5-jammy", "7.0.2-Jammy",
+            "7.0.2-jammy",
+            "7.0.2-alpine",
+            "7.0.2",
+            "7.0.3-rc0-jammy",
+            "8.0.0-jammy",
+            "v7.0.5-jammy",
+            "7.0.2-Jammy",
         ];
         let r = g("7.0.1-jammy", &tags);
         assert_eq!(r.patch, ["7.0.2-jammy"]);
@@ -191,7 +219,10 @@ mod tests {
 
     #[test]
     fn floating_tags_compare_at_their_own_precision() {
-        let r = g("1.36", &["1.36", "1.36.1", "1.37", "1.38", "2.0", "1.37-musl", "musl"]);
+        let r = g(
+            "1.36",
+            &["1.36", "1.36.1", "1.37", "1.38", "2.0", "1.37-musl", "musl"],
+        );
         assert!(r.patch.is_empty());
         assert_eq!(r.minor, ["1.38", "1.37"]);
         assert_eq!(r.major, ["2.0"]);

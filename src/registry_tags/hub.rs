@@ -15,7 +15,11 @@ const MAX_PAGE_BYTES: usize = 2 * 1024 * 1024;
 
 /// Tag -> when it was last pushed (RFC 3339), for the newest tags of
 /// `repository` (`library/mongo`). `hub` is Docker Hub's API authority.
-pub(crate) async fn tag_dates(http: &Https, hub: &str, repository: &str) -> HashMap<String, String> {
+pub(crate) async fn tag_dates(
+    http: &Https,
+    hub: &str,
+    repository: &str,
+) -> HashMap<String, String> {
     let mut dates = HashMap::new();
     let Some((ns, name)) = repository.split_once('/') else {
         return dates;
@@ -51,9 +55,8 @@ fn read_page(reply: &Reply, hub: &str, dates: &mut HashMap<String, String>) -> O
         }
     }
     let next: Uri = v.get("next")?.as_str()?.parse().ok()?;
-    (next.scheme_str() == Some("https")
-        && next.authority().map(|a| a.as_str()) == Some(hub))
-    .then_some(next)
+    (next.scheme_str() == Some("https") && next.authority().map(|a| a.as_str()) == Some(hub))
+        .then_some(next)
 }
 
 #[cfg(test)]
@@ -83,8 +86,17 @@ mod tests {
         assert!(next.is_some());
         assert_eq!(d.len(), 1);
         assert_eq!(d["7.0.2"], "2026-10-01T10:00:00.000Z");
-        let elsewhere = read_page(&reply(r#"{"next":"https://evil.com/p2","results":[]}"#), "hub.docker.com", &mut d);
+        let elsewhere = read_page(
+            &reply(r#"{"next":"https://evil.com/p2","results":[]}"#),
+            "hub.docker.com",
+            &mut d,
+        );
         assert!(elsewhere.is_none());
-        assert!(read_page(&reply(r#"{"next":null,"results":[]}"#), "hub.docker.com", &mut d).is_none());
+        assert!(read_page(
+            &reply(r#"{"next":null,"results":[]}"#),
+            "hub.docker.com",
+            &mut d
+        )
+        .is_none());
     }
 }

@@ -105,6 +105,23 @@ async fn run(cli: Cli) -> Result<()> {
         };
         return nauvi::mcp::serve_stdio(opts).await;
     }
+    if let Commands::Tags {
+        image,
+        image_id,
+        json,
+    } = &cli.command
+    {
+        // The registry only: no cluster connection.
+        let report =
+            nauvi::registry_tags::available_tags(image, image_id.as_deref().unwrap_or("")).await;
+        let report = report.map_err(anyhow::Error::msg)?;
+        if *json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            print!("{}", nauvi::registry_tags::report_text(&report));
+        }
+        return Ok(());
+    }
     // Exec credential plugins may prompt only when we have a terminal.
     let build = client_with(
         cli.kubeconfig.as_deref(),
@@ -118,7 +135,9 @@ async fn run(cli: Cli) -> Result<()> {
         build.await?
     };
     match cli.command {
-        Commands::Completions { .. } | Commands::Mcp { .. } => unreachable!("handled above"),
+        Commands::Completions { .. } | Commands::Mcp { .. } | Commands::Tags { .. } => {
+            unreachable!("handled above")
+        }
         Commands::Pods { namespace } => list_pods(&client, namespace.as_deref()).await?,
         Commands::Get {
             kind,

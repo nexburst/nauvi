@@ -202,6 +202,11 @@ pub(crate) struct Settings {
     /// terminal when the installed one is too far from it (#331). Off by
     /// default; nothing is downloaded without a click.
     pub(crate) kubectl_match: bool,
+    /// Available tags (#539): a button by each image in the pod and
+    /// workload panels that lists the newer tags in its registry. Off by
+    /// default: it contacts registries from this machine, and only on a
+    /// click.
+    pub(crate) registry_tags: bool,
     /// The sidebar sections the user collapsed (#383), by id (`workloads`,
     /// `network`, `helm`, `custom`...). Empty: every section open.
     pub(crate) collapsed_sections: Vec<String>,
@@ -359,6 +364,7 @@ impl Default for Settings {
             forwards: BTreeMap::new(),
             searches: SearchHistory::default(),
             kubectl_match: false,
+            registry_tags: false,
             collapsed_sections: Vec::new(),
             open_more_sections: Vec::new(),
             ask_ai_cli: String::new(),
@@ -455,6 +461,8 @@ pub(crate) struct SettingsPatch {
     pub(crate) searches: Option<SearchHistory>,
     #[specta(optional)]
     pub(crate) kubectl_match: Option<bool>,
+    #[specta(optional)]
+    pub(crate) registry_tags: Option<bool>,
     /// The whole list of collapsed sidebar sections (#383).
     #[specta(optional)]
     pub(crate) collapsed_sections: Option<Vec<String>>,
@@ -527,6 +535,9 @@ impl Settings {
         }
         if let Some(v) = patch.kubectl_match {
             self.kubectl_match = v;
+        }
+        if let Some(v) = patch.registry_tags {
+            self.registry_tags = v;
         }
         if let Some(v) = patch.collapsed_sections {
             self.collapsed_sections = unique_ids(v);
