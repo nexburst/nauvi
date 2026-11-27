@@ -49,28 +49,28 @@ const nginx = img({
   counts: c({ critical: 2, high: 5, medium: 3 }),
   fixable: c({ critical: 2, high: 4 }),
   workloads: [
-    { kind: "Deployment", namespace: "demo", name: "web", container: "nginx" },
-    { kind: "Deployment", namespace: "demo", name: "web", container: "proxy" },
+    { kind: "Deployment", namespace: "demo", name: "web", container: "nginx", cron_job: "" },
+    { kind: "Deployment", namespace: "demo", name: "web", container: "proxy", cron_job: "" },
   ],
 });
 const envoy = img({
   image: "envoy:1.31",
   digest: "sha256:2222",
   counts: c({ medium: 1 }),
-  workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "sidecar" }],
+  workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "sidecar", cron_job: "" }],
 });
 const worker = img({
   image: "worker:3",
   scanned: false,
   scanned_at: 0,
-  workloads: [{ kind: "Deployment", namespace: "team-a", name: "worker", container: "main" }],
+  workloads: [{ kind: "Deployment", namespace: "team-a", name: "worker", container: "main", cron_job: "" }],
 });
 const hidden = img({
   image: "secret:1",
   digest: "sha256:3333",
   counts: c({ critical: 9 }),
   fixable: c({ critical: 9 }),
-  workloads: [{ kind: "Deployment", namespace: "kube-system", name: "dns", container: "main" }],
+  workloads: [{ kind: "Deployment", namespace: "kube-system", name: "dns", container: "main", cron_job: "" }],
 });
 const S = { ...DEFAULT_IMAGE_SECURITY, excluded_namespaces: ["kube-system"] };
 const images = [nginx, envoy, worker, hidden];
@@ -101,8 +101,8 @@ describe("the findings index", () => {
       digest: "sha256:4444",
       counts: c({ high: 1 }),
       workloads: [
-        { kind: "Deployment", namespace: "demo", name: "tools", container: "main" },
-        { kind: "Deployment", namespace: "kube-system", name: "tools", container: "main" },
+        { kind: "Deployment", namespace: "demo", name: "tools", container: "main", cron_job: "" },
+        { kind: "Deployment", namespace: "kube-system", name: "tools", container: "main", cron_job: "" },
       ],
     });
     const idx = buildIndex([...images, shared], S);
@@ -167,7 +167,7 @@ describe("the findings index", () => {
       image: "redis:7",
       digest: "sha256:5555",
       counts: c({ low: 1 }),
-      workloads: [{ kind: "ReplicaSet", namespace: "demo", name: "web-5d8f", container: "redis" }],
+      workloads: [{ kind: "ReplicaSet", namespace: "demo", name: "web-5d8f", container: "redis", cron_job: "" }],
     });
     const idx = buildIndex([...images, bare], S);
     const known = (k: string, n: string) => idx.byWorkload.has(`demo/${k}/${n}`);

@@ -240,7 +240,7 @@ test("a Kubescape row takes its ignores once opened, and the listing says so", a
       fixes_known: false,
       ignored: zero,
       kev: 0,
-      workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "nginx" }],
+      workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "nginx", cron_job: "" }],
       report_namespace: "kubescape",
       report_name: "docker.io-library-nginx-1.27-abcdef",
       reports: 1,

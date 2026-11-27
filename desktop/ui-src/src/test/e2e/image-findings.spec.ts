@@ -146,7 +146,7 @@ test("a container card says what image security knows about its image", async ({
           ignored: zero,
           kev: 0,
           fixes_known: true,
-          workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "app" }],
+          workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "app", cron_job: "" }],
           report_namespace: "demo",
           report_name: "replicaset-web-5d8f-app",
           reports: 1,

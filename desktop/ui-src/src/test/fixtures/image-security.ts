@@ -43,6 +43,7 @@ const w = (kind: string, namespace: string, name: string, container = "main"): W
   namespace,
   name,
   container,
+  cron_job: "",
 });
 
 function image(p: Partial<ImageVulns> & Pick<ImageVulns, "image">): ImageVulns {
