@@ -216,8 +216,12 @@ How a scan works:
   the registry cannot be reached from this computer, the scan says so.
 - An image whose pods do not report a digest yet cannot be scanned.
 - nauvi refuses registries written as this computer (`localhost`,
-  `127.0.0.1`), link-local addresses and cloud metadata names. The scanner
-  looks up names itself, so this does not block every local address.
+  `127.0.0.1`, `127.1`), link-local addresses and cloud metadata addresses.
+  Before a scan it also looks up the registry's name, and does not scan when
+  the name points to one of them. This is best effort: the scanner looks the
+  name up again itself, and follows the registry's own redirects, so a
+  hostile registry can still send it to another address. It never sends
+  your login for one registry to another host.
 - nauvi turns off Trivy's telemetry and version check, and Grype's update
   check.
 - Results are kept on this computer and reused until the scanner's version,
@@ -258,7 +262,12 @@ from. A refused Trivy shows the reason in red in Settings, with no
 **Approve** button. To use Trivy, install a release build (from its GitHub
 releases, its apt or yum repository or the `aquasecurity/trivy` tap),
 install it with Homebrew or Nix, or set `NAUVI_TRIVY` to the full path of
-a release build. Then click **Check again**. Grype is not affected.
+a release build. Then click **Check again**.
+
+nauvi also reads which program a scanner's file is before running it. A
+file found as Grype that is really Trivy, or any other program, is refused
+("This file is not Grype"), and so is a malicious Trivy whatever its name.
+Set `NAUVI_GRYPE` or `NAUVI_TRIVY` to the scanner you installed.
 
 ## Ignore a vulnerability
 
@@ -296,7 +305,7 @@ security**.
 
 - nauvi then downloads one file from `www.cisa.gov` over https, and again
   once a day while image security is shown. **Download now** downloads it at
-  once.
+  once; it waits a minute between two downloads.
 - Nothing about your clusters or images is sent: it is a plain download of
   one public file.
 - Settings shows the catalogue's version, how many vulnerabilities it lists
