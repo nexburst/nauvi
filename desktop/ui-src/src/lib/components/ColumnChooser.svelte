@@ -34,7 +34,8 @@
 
   const shownKind = $derived(tableKind(kind));
   const settings = $derived(kindSettings(kind.id));
-  const columns = $derived(columnsFor(shownKind));
+  // Not the ones that do not exist right now (Vulns while image security is off, #535).
+  const columns = $derived(columnsFor(shownKind).filter((c) => c.available?.() ?? true));
   const ordered = $derived(orderColumns(columns, settings.order ?? []));
   /** The table's columns, in order: all but the extra ones that are off. */
   const listed = $derived(ordered.filter((c) => !c.defaultHidden || columnOn(settings, c)));

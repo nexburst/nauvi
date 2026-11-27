@@ -7,6 +7,7 @@ import type { ImageDetail, ImageSecurityList, ImageSecuritySettings_Serialize as
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import { DEFAULT_IMAGE_SECURITY, imageSecurityOn, rowKey } from "../imageSecurity";
 import { contextSettings, settings, updateContext } from "./settings.svelte";
+import { shareFindings } from "./imageFindings.svelte";
 
 class ImageSecurityStore {
   list = $state.raw<ImageSecurityList | null>(null);
@@ -25,6 +26,13 @@ let loadSeq = 0;
 let detailSeq = 0;
 /** The namespaces of the shown listing, for the panel's request. */
 let listedFor: string[] = [];
+/** `rowKey` of an image to show once the view has its listing (#535). */
+let showOnLoad: string | null = null;
+
+/** Open `key`'s findings in the view's panel once the view lists it. */
+export function selectOnLoad(key: string) {
+  showOnLoad = key;
+}
 
 onClusterSwitch(() => resetImageSecurity());
 
@@ -52,11 +60,15 @@ export async function loadImageSecurity(namespaces: string[], refresh = false) {
     if (seq !== loadSeq) return;
     imageSecurity.list = list;
     imageSecurity.error = "";
+    shareFindings(list, namespaces);
     // Other namespaces: the panel was about another list.
     const same = listedFor.length === namespaces.length && listedFor.every((n, i) => n === namespaces[i]);
     listedFor = namespaces;
     const still = same && imageSecurity.selected && list.summary.images.some((r) => rowKey(r) === imageSecurity.selected);
-    if (!still) selectImage(null);
+    const asked = showOnLoad ? list.summary.images.find((r) => rowKey(r) === showOnLoad) : undefined;
+    showOnLoad = null;
+    if (asked) selectImage(asked);
+    else if (!still) selectImage(null);
     else if (refresh) void loadDetail();
   } catch (e) {
     if (seq !== loadSeq) return;

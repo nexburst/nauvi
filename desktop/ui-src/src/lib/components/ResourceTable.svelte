@@ -47,6 +47,9 @@
   import { kindSettings, settings, updateKind, updateSettings } from "../stores/settings.svelte";
   import { registerTableExport } from "../stores/tableExport.svelte";
   import { tableCsv } from "../csv";
+  import { ensureFindings, findings, findingsIndex, findingsOn } from "../stores/imageFindings.svelte";
+  import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
+  import { FINDING_KINDS, promptLines, rowImages } from "../imageFindings";
 
   interface Props {
     kind: ResourceKind;
@@ -123,7 +126,16 @@
     void columns;
     void visible;
     void metrics;
+    void findings.list;
     untrack(() => fit.changed());
+  });
+  // The Vulns column (#535) is filled from the image security listing:
+  // read (or taken from the cache) while the column is shown.
+  const wantsVulns = $derived(columns.some((c) => c.key === "vulns"));
+  $effect(() => {
+    if (!wantsVulns) return;
+    const namespaces = [...app.selectedNamespaces];
+    untrack(() => void ensureFindings(namespaces));
   });
   onDestroy(() => fit.stop());
   onMount(() => {
@@ -560,6 +572,7 @@
       namespace: row.namespace,
       name: row.name,
       problem: row.problem ? `${row.problem}${restarts > 0 ? `, ${restarts} restarts` : ""}` : "",
+      findings: await promptFindings(row),
     });
     try {
       await navigator.clipboard.writeText(text);
@@ -567,6 +580,22 @@
     } catch {
       setNotice(false, "Could not copy to the clipboard.");
     }
+  }
+
+  /** The worst image findings of the row's workload (#535), from the
+   *  listing the app holds; none while image security is off. */
+  async function promptFindings(row: Row): Promise<string[]> {
+    if (!findingsOn()) return [];
+    const r = kind.resource;
+    const isPod = r.group === "" && r.kind === "Pod";
+    if (!isPod && !FINDING_KINDS.includes(r.kind)) return [];
+    await ensureFindings();
+    const index = findingsIndex();
+    if (!index) return [];
+    const ownerAt = kind.columns.findIndex((c) => c.kind === "owner");
+    const owner = isPod && ownerAt >= 0 ? (row.cells[ownerAt] ?? "") : "";
+    const images = rowImages(index, isPod, r.kind, row.namespace, row.name, owner) ?? [];
+    return promptLines(images, imageSecuritySettings(), Math.floor(Date.now() / 1000));
   }
 
   type Verb = "logs" | "shell" | "edit" | "restart" | "prompt";

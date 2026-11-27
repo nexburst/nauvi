@@ -6,6 +6,8 @@
 //! - `read_tools`: list, get, describe, logs, events, top
 //! - `problems` (in `crate::problems`, shared with `nauvi problems`): what
 //!   is unhealthy, and why, in one call
+//! - `vulns_tool`: image_vulnerabilities, from the Trivy Operator's
+//!   reports only (#535)
 //! - `write_tools`: scale, restart, delete, apply (only with `--allow-writes`)
 //! - `redact`: Secret values and last-applied, never returned
 //! - `limits`: caps on lines and bytes per call
@@ -22,6 +24,7 @@ mod read_tools;
 mod redact;
 mod server;
 mod tools;
+mod vulns_tool;
 mod write_tools;
 
 pub use server::NauviMcp;

@@ -201,6 +201,10 @@ pub enum ColumnKind {
     /// line is what the cell shows (`mongo:7.0.1 +1`), each line after it a
     /// full reference, for the tooltip (see `image_column`).
     Image,
+    /// Image vulnerabilities (#535): filled by the UI from the image
+    /// security listing it already holds, keyed by workload. Off by
+    /// default, and not offered while image security is off.
+    Vulns,
 }
 
 /// A table column as the UI sees it.
