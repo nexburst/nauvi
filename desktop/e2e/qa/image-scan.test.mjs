@@ -5,7 +5,10 @@
 //   approved, its version and database shown
 // - local only: the pods' images, not scanned until "Scan N images"; then
 //   verdicts, and the reference passed after `--` by digest with
-//   --platform from the nodes
+//   --platform from the nodes. Only rows whose pods report a registry
+//   digest can be scanned (a `kind load`ed image may have none in CI): the
+//   scenario finds them by their key (`image@digest`), and a row without
+//   one says why
 // - the panel: what to update; Cancel kills a slow scan; an unreachable
 //   registry says so plainly
 // - a changed binary is asked about again; a malicious Trivy version is
@@ -73,17 +76,15 @@ if [ -f "$d/unreachable" ]; then
   printf '%s\\tFATAL\\tFatal error\\timage scan error: unable to find the specified image: Get "https://index.docker.io/v2/": dial tcp: lookup index.docker.io: no such host\\n' "2026-11-26T10:00:00Z" >&2
   exit 1
 fi
-for a in "$@"; do last="$a"; done
-case "$last" in
-  *nginx*) cat "$d/nginx.json" ;;
-  *) cat "$d/busybox.json" ;;
-esac
+cat "$d/report.json"
 `;
 }
 
 const viewText = (app) => app.js(`return document.querySelector('[data-testid="image-security"]')?.innerText ?? ""`);
 const rows = (app) =>
   app.js(`return Array.from(document.querySelectorAll('[data-testid="image-row"]'), (r) => ({
+    key: r.dataset.key,
+    digest: r.dataset.key.slice(r.dataset.key.lastIndexOf("@") + 1),
     image: r.querySelector('.image')?.textContent.trim() ?? "",
     verdict: r.querySelector('[data-testid="image-verdict"]')?.textContent.trim() ?? "",
     text: r.innerText,
@@ -114,14 +115,13 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     kubectl(["-n", ns, "wait", "--for=condition=Ready", "pod", "--all", "--timeout=120s"]);
     dir = mkdtempSync(join(tmpdir(), "nauvi-qa-trivy-"));
     writeFileSync(
-      join(dir, "nginx.json"),
+      join(dir, "report.json"),
       report([
         vuln("CVE-2026-1001", "openssl", "3.0.11-1", "3.0.15-1", "CRITICAL"),
         vuln("CVE-2026-1002", "curl", "7.88.1-10", "7.88.1-10+deb12u8", "HIGH"),
         vuln("CVE-2026-1003", "libc6", "2.36-9", "", "HIGH"),
       ]),
     );
-    writeFileSync(join(dir, "busybox.json"), report([]));
     profile = createProfile();
     profile.writeSettings({
       version: 1,
@@ -145,6 +145,10 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
   });
 
   const s = appSession("image-scan", () => ({ profile }));
+  /** The keys of the rows that can be scanned (their pods report a digest). */
+  let scannable = [];
+  let unscannable = [];
+  const plural = (n) => `${n} ${n === 1 ? "image" : "images"}`;
   const trivyPath = () => join(profile.bin, "trivy");
   const calls = () => (existsSync(join(dir, "calls")) ? readFileSync(join(dir, "calls"), "utf8").split("\n").filter(Boolean) : []);
 
@@ -184,35 +188,49 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
       { timeout: 60_000, message: "two image rows" },
     );
     assert.ok(r.every((x) => x.verdict === "Not scanned yet."), JSON.stringify(r));
-    assert.match(await viewText(app), /2 images not scanned yet\./);
+    scannable = r.filter((x) => x.digest.startsWith("sha256:")).map((x) => x.key);
+    unscannable = r.filter((x) => !x.digest.startsWith("sha256:")).map((x) => x.key);
+    assert.ok(scannable.length > 0, `no pod reports a digest: ${JSON.stringify(r)}`);
+    assert.match(await viewText(app), new RegExp(`${plural(scannable.length)} not scanned yet\\.`));
+    assert.match(await viewText(app), new RegExp(`Scan ${plural(scannable.length)} with Trivy`));
     assert.deepEqual(calls(), ["version"], "opening the view scanned something");
   });
 
-  it("Scan 2 images: verdicts, by digest after -- with the nodes' platform (dark)", T, async () => {
+  it("Scan all: verdicts, by digest after -- with the nodes' platform (dark)", T, async () => {
     const { app } = s;
     await setTheme(app, "dark");
     await (await app.find(byTestId("image-scan-all"))).click();
-    await app.waitFor(async () => (await rows(app)).every((x) => x.verdict !== "Not scanned yet."), {
-      timeout: 60_000,
-      message: "both scanned",
-    });
+    await app.waitFor(
+      async () => (await rows(app)).filter((x) => scannable.includes(x.key)).every((x) => x.verdict !== "Not scanned yet."),
+      { timeout: 60_000, message: "the scannable rows scanned" },
+    );
     const r = await rows(app);
-    const nginx = r.find((x) => x.image === "nginx:1.27");
-    assert.equal(nginx.verdict, "1 critical and 2 high. 2 of 3 have a fix.");
-    assert.match(nginx.text, /Trivy 0\.58\.1 on this computer/);
-    assert.equal(r.find((x) => x.image === "busybox:1.36").verdict, "No known vulnerabilities.");
+    for (const x of r.filter((x) => scannable.includes(x.key))) {
+      assert.equal(x.verdict, "1 critical and 2 high. 2 of 3 have a fix.", x.image);
+      assert.match(x.text, /Trivy 0\.58\.1 on this computer/);
+    }
+    for (const x of r.filter((x) => unscannable.includes(x.key))) assert.equal(x.verdict, "Not scanned yet.");
+    assert.equal(calls().filter((c) => c === "scan").length, scannable.length);
     const argv = readFileSync(join(dir, "argv"), "utf8").split("\n").filter(Boolean);
     assert.equal(argv[0], "image");
     assert.ok(argv.includes("--format=json"), argv.join(" "));
     assert.ok(argv.includes("--platform=linux/amd64"), argv.join(" "));
     assert.equal(argv[argv.length - 2], "--");
     assert.match(argv[argv.length - 1], /^docker\.io\/library\/(nginx|busybox)@sha256:[0-9a-f]{64}$/);
-    assert.match(await viewText(app), /Every running image here was scanned\./);
+    if (unscannable.length === 0) assert.match(await viewText(app), /Every running image here was scanned\./);
+  });
+
+  it("a row whose pods report no digest says why it is not scanned (dark)", T, async (t) => {
+    const { app } = s;
+    if (unscannable.length === 0) return t.skip("every pod reports a registry digest here");
+    await (await app.find(By.css(`[data-testid="image-row"][data-key="${unscannable[0]}"]`))).click();
+    const action = await app.find(byTestId("image-scan-action"));
+    assert.match(await action.getText(), /No pod reports which digest it runs yet/);
   });
 
   it("the panel says what to update (dark)", T, async () => {
     const { app } = s;
-    await (await app.find(By.css('[data-testid="image-row"][data-key^="nginx:1.27@"]'))).click();
+    await (await app.find(By.css(`[data-testid="image-row"][data-key="${scannable[0]}"]`))).click();
     const panel = await app.find(byTestId("image-findings"));
     await app.waitFor(async () => (await panel.getText()).includes("Updating openssl"), { message: "fixes" });
     const text = await panel.getText();
@@ -284,7 +302,8 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     assert.match(await scannerText(app), /Trivy 0\.69\.4 is one of the malicious releases .*CVE-2026-33634/);
     const approval = JSON.parse(readFileSync(join(profile.configDir, "image-scanner.json"), "utf8"));
     assert.deepEqual(approval.approved, []);
-    // Nothing was scanned with it.
-    assert.equal(calls().filter((c) => c === "scan").length, 4);
+    // Nothing was scanned with it: the scans of Scan all, the cancelled one
+    // and the unreachable one.
+    assert.equal(calls().filter((c) => c === "scan").length, scannable.length + 2);
   });
 });
