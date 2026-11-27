@@ -5,11 +5,13 @@
 // anonymous token flow and `Link` pages, and stands in for Docker Hub
 // (NAUVI_REGISTRY_TEST_DOCKER_HUB) and its tag-date API: nothing reaches the
 // real Docker Hub. The pods run busybox:1.36 and 1.37 (loaded in the kind
-// nodes, so they really run and have an imageID); the registry says 1.36 was
-// pushed again (another digest) and 1.37 was not. A second pod names a
-// private repository on the same registry, which needs the login in a docker
-// config of the profile's own (DOCKER_CONFIG), and an image on a port where
-// nothing listens.
+// nodes). A second pod names a private repository on the same registry,
+// which needs the login in a docker config of the profile's own
+// (DOCKER_CONFIG): two of its containers pin a digest, one that the
+// registry's tag no longer points to (pushed again) and one that it still
+// does, and one names a port where nothing listens. (Pinned digests, not
+// imageIDs: images loaded with `kind load` have no registry digest in their
+// imageID, and then nauvi rightly says nothing about the tag.)
 // Checks: off by default (no button, no request); the setting in Settings;
 // nothing asked before the click; grouping newer minor / major with the
 // variant kept; the repushed tag; the cache; the private registry's token
@@ -37,12 +39,14 @@ const SKIP = spawnSync("openssl", ["version"]).status === 0 ? false : "needs ope
 const dir = mkdtempSync(join(tmpdir(), "nauvi-qa-539-"));
 const dockerDir = join(dir, "docker");
 const REPUSHED = `sha256:${"f".repeat(64)}`;
+const PINNED_OLD = `sha256:${"a".repeat(64)}`;
+const SAME = `sha256:${"c".repeat(64)}`;
 const USER = "qa-user";
 const PASSWORD = "qa-539-secret";
 const BASIC = `Basic ${Buffer.from(`${USER}:${PASSWORD}`).toString("base64")}`;
 
 /** What the registry was asked: path, and whether it carried credentials. */
-const served = { requests: [], running137: "" };
+const served = { requests: [] };
 let server;
 let authority;
 
@@ -99,7 +103,8 @@ function handle(req, res) {
     return json(200, { name: repo, tags: HUB_PAGES[page] }, link);
   }
   const tag = m[3];
-  const digest = repo === "library/busybox" && tag === "1.36" ? REPUSHED : tag === "1.37" ? served.running137 : "";
+  const digests = { "library/busybox": { "1.36": REPUSHED }, "qa/private": { "7.0.1-jammy": REPUSHED, "7.0.2-jammy": SAME } };
+  const digest = digests[repo][tag] ?? "";
   if (!digest) return res.writeHead(404).end();
   res.writeHead(200, { "docker-content-digest": digest, "content-type": "application/vnd.oci.image.index.v1+json" }).end();
 }
@@ -142,6 +147,10 @@ spec:
   containers:
     - name: app
       image: ${registry}/qa/private:7.0.1-jammy
+    - name: pinned
+      image: ${registry}/qa/private:7.0.1-jammy@${PINNED_OLD}
+    - name: same
+      image: ${registry}/qa/private:7.0.2-jammy@${SAME}
     - name: nowhere
       image: 127.0.0.1:1/qa/gone:1.0
 ---
@@ -205,8 +214,6 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
     ns = tempNamespace("qa-tags", fixtures(authority));
     waitPodReady(ns, "qa-tags");
     const ids = JSON.parse(kubectl(["-n", ns, "get", "pod", "qa-tags", "-o", "jsonpath={.status.containerStatuses}"]));
-    const id137 = ids.find((c) => c.name === "current")?.imageID ?? "";
-    served.running137 = id137.split("@")[1] ?? "";
     console.log(`imageIDs: ${ids.map((c) => `${c.name}=${c.imageID}`).join(" ")}`);
   });
   const s = appSession("registry-tags", async () => ({
@@ -248,7 +255,7 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
     await app.waitFor(async () => profile.settings()?.registry_tags === true, { message: "registry_tags saved" });
   });
 
-  it("asks nothing before the click, then groups the newer tags and says the tag was pushed again", T, async () => {
+  it("asks nothing before the click, then groups the newer tags", T, async () => {
     const { app } = s;
     await (await app.find(By.xpath("//*[@data-testid='settings']//button[normalize-space()='Close']"))).click();
     await setTheme(app, "light");
@@ -257,7 +264,11 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
     await clickTags(app, "old");
     const text = await answer(app, "old");
     console.log(`old: ${JSON.stringify(text)}`);
-    assert.match(text, /This tag was updated in the registry: 1\.36 now points to sha256:ffffffffffff/);
+    // Pulled images say whether 1.36 was pushed again; kind-loaded ones
+    // (CI) have no registry digest, and nothing is said.
+    if (text.includes("updated in the registry")) {
+      assert.match(text, /This tag was updated in the registry: 1\.36 now points to sha256:ffffffffffff/);
+    }
     assert.match(text, /Newer minor · new features\n?1\.38\s*2026-10-12\s*1\.37\s*2026-06-01/);
     assert.match(text, /Newer major · may break things\n?2\.0\s*2026-11-02/);
     assert.match(text, /Not versions\n?latest\s+musl/);
@@ -272,13 +283,11 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
     await showBox(app, "old");
   });
 
-  it("says a tag that was not pushed again still points to what runs, and caches the list", T, async () => {
+  it("caches the list of an image", T, async () => {
     const { app } = s;
-    assert.ok(served.running137, "the pod reports an imageID for busybox:1.37");
     const before = registryRequests().filter((r) => r.path.endsWith("/tags/list")).length;
     await clickTags(app, "current");
     const text = await answer(app, "current");
-    assert.match(text, /1\.37 still points to what the container runs/);
     assert.match(text, /Newer minor · new features\n?1\.38/);
     // Another tag of the same repository is a new look-up; the same image
     // again comes from the cache.
@@ -303,6 +312,21 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
     assert.ok(!text.includes("7.0.2-alpine"));
     const token = served.requests.find((r) => r.path === "/token" && r.query.includes("qa%2Fprivate"));
     assert.equal(token?.auth, BASIC, "the token was asked with the docker credentials");
+  });
+
+  it("says when a tag was pushed again, and when it still points to what runs", T, async () => {
+    const { app } = s;
+    await clickTags(app, "pinned");
+    const pinned = await answer(app, "pinned");
+    assert.match(
+      pinned,
+      /This tag was updated in the registry: 7\.0\.1-jammy now points to sha256:ffffffffffff, the container runs sha256:aaaaaaaaaaaa\./,
+    );
+    await clickTags(app, "same");
+    const same = await answer(app, "same");
+    assert.match(same, /7\.0\.2-jammy still points to what the container runs/);
+    assert.match(same, /Newer patch · safe to update\n?7\.0\.3-jammy/);
+    await showBox(app, "pinned");
   });
 
   it("says plainly when a registry cannot be reached", T, async () => {
