@@ -87,7 +87,7 @@ async function closeColumns(app) {
 
 const count = (app, testId) => app.js(`return document.querySelectorAll('[data-testid="${testId}"]').length`);
 const textOf = (app, testId) =>
-  app.js(`return [...document.querySelectorAll('[data-testid="${testId}"]')].map((e) => e.innerText).join("\n")`);
+  app.js(`return [...document.querySelectorAll('[data-testid="${testId}"]')].map((e) => e.innerText).join(" | ")`);
 
 const vuln = (id, pkg, severity, fixed, installed = "1.0") => ({
   vulnerabilityID: id,
@@ -348,6 +348,8 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
 
   it("the Overview card in light", T, async () => {
     await setTheme(s.app, "light");
+    // openDetail filtered the tables to one name: the view shares the filter.
+    await s.app.filter("");
     await openView(s.app);
   });
 
