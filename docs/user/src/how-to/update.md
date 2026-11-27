@@ -11,7 +11,7 @@ click it. The update is verified against the signing key built into the app.
 - Turn **Check for updates automatically** off in Settings, or check by hand
   from Settings or the command palette.
 - A failed automatic check shows nothing. A banner you close stays closed
-  until a newer version comes out.
+  until nauvi restarts, a newer version comes out, or you check by hand.
 - The AppImage, the macOS app and the Windows installers update in place.
 - A `.deb` installed by hand updates in place only when the release has a
   signed `.deb` update; otherwise the banner links to the release page.

@@ -64,7 +64,8 @@ A `nauvi://` link only opens a view. It never changes the cluster.
   metadata addresses, also when a registry's name resolves to one, and
   follows redirects only on the same host. It signs in with your own
   `docker login`, never with the cluster's image pull secrets, and sends
-  those credentials only to the registry's own host or its parent domain
+  those credentials only to the registry's own host or its parent domain (and auth.docker.io
+  for Docker Hub)
   ([Find a newer tag](../how-to/image-tags.md)).
 - **Image security** (off by default) reads the Trivy Operator's reports with
   your own access. nauvi scans nothing and downloads nothing for it

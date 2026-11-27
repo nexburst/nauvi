@@ -30,7 +30,8 @@ The view has one row per image, the same image in many pods counted once:
   scan**: the operator may have stopped scanning that image.
 
 The headline counts the images that have a fix waiting ("2 images have fixes
-waiting"). Red means a critical vulnerability with a fix, amber a high one.
+waiting"). Red means a critical vulnerability with a fix; amber means a critical or
+high one is counted, with or without a fix.
 The view follows the namespace picker and the filter.
 
 Click a row for its panel:
@@ -49,7 +50,8 @@ While image security is on, the same findings show where you already look:
   and CronJobs, off by default: turn it on in **Columns**.
   `2C 5H` means 2 critical and 5 high, at the severity you chose. Hover it
   for each image;
-- a **Security** tab in a workload's detail panel, with each image's verdict
+- a **Security** tab in the detail panel of a Deployment, StatefulSet,
+  DaemonSet, ReplicaSet or Job, with each image's verdict
   and **Show fixes**;
 - a **Vulns** line on each container card in the pod panel, with
   **Details**;
