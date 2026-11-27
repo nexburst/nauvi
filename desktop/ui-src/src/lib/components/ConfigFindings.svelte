@@ -38,8 +38,8 @@
           {#each split.counted as c (c.id + c.container)}
             <li>
               <span class="check-title"
-                ><span class="sev {c.severity}">{c.severity}</span> {c.title || c.id}{#if c.container}<span class="muted">
-                    · container {c.container}</span
+                ><span class="sev {c.severity}">{c.severity}</span> {c.title || c.id}{#if c.container}<span class="muted"
+                    >{` · container ${c.container}`}</span
                   >{/if}</span
               >
               {#if c.remediation}<span class="remediation">{c.remediation}</span>{/if}

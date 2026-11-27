@@ -94,7 +94,7 @@ test("the Configuration tab lists workloads with what they fail; the panel says 
     /Trivy 0\.69\.3 through Trivy Operator, 1 day ago/,
   );
   const detail = await fake.calls("cmdImageConfigDetail");
-  expect(detail.at(-1)).toEqual([[], "Deployment", "demo", "web"]);
+  expect(detail.at(-1)).toEqual({ namespaces: [], kind: "Deployment", namespace: "demo", name: "web" });
 
   // The search filters the rows; the images tab comes back without the panel.
   await page.getByLabel("Filter").fill("cache");
@@ -138,17 +138,17 @@ test("a namespace where the reports may not be listed says so", async ({
       state: "ok",
       workloads: [],
       details: {},
-      forbidden: ["team-a"],
+      forbidden: ["demo"],
       notes: [],
     };
   });
   await goToImageSecurity(page);
   await tab(page, "config").click();
-  await toggleNamespaces(page, "team-a");
+  await toggleNamespaces(page, "demo");
   const state = view(page).getByTestId("image-config-state");
   await expect(state).toHaveAttribute("data-state", "forbidden");
   await expect(state).toContainText(
-    "You are not allowed to list configauditreports in namespace team-a",
+    "You are not allowed to list configauditreports in namespace demo",
   );
 });
 
