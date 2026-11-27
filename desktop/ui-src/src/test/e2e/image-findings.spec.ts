@@ -186,7 +186,7 @@ test("the Overview card counts images with a fix waiting and opens Image securit
   await palette.getByRole("option", { name: /Go to Overview/ }).click();
 
   // nginx (demo) and postgres (team-a) have a critical with a fix.
-  await expect(overviewCard(page)).toContainText("Image fixes waiting");
+  await expect(overviewCard(page)).toContainText("Image fixes");
   await expect(overviewCard(page).locator(".num")).toHaveText("2");
   await expect(overviewCard(page)).toHaveAttribute("title", /^2 images have fixes waiting\./);
   // Not a problem card: the headline and the alert cards stay as they were.

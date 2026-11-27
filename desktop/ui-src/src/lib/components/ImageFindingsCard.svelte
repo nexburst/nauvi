@@ -31,7 +31,7 @@
     {title}
     onclick={() => setView(IMAGE_SECURITY_VIEW)}
   >
-    <span class="label">Image fixes waiting</span>
+    <span class="label">Image fixes</span>
     <span class="card-foot"><span class="num">{f.waiting}</span><Icon name="shield" size={18} /></span>
   </button>
 {/if}

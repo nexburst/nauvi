@@ -340,7 +340,7 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
     await app.nav("Overview");
     await app.waitFor(async () => (await count(app, "overview-image-findings")) === 1, { message: "the Overview card" });
     const text = await textOf(app, "overview-image-findings");
-    assert.match(text, /Image fixes waiting/);
+    assert.match(text, /Image fixes/);
     // nginx (web and shop) and postgres have a critical with a fix.
     assert.match(text, /\b2\b/);
     assert.equal(await app.js(`return document.querySelector('[data-testid="overview-image-findings"]').classList.contains("alert")`), false);
