@@ -70,6 +70,8 @@ test("j Space j Space Ctrl+D Enter deletes both pods; the confirm button has the
   await page.keyboard.press("Control+d");
   await expect(dialog(page)).toHaveAccessibleName("Delete 2 Pods");
   await expect(confirmButton(page)).toBeFocused();
+  // It shows the focus ring, though the dialog (not a Tab) focused it.
+  await expect(confirmButton(page)).not.toHaveCSS("outline-style", "none");
 
   // Tab and the arrows stay between Cancel and Delete.
   await page.keyboard.press("Tab");

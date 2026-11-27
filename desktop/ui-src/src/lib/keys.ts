@@ -211,6 +211,7 @@ export const KEYMAP: Binding[] = [
       { key: "A", shift: true },
       { key: "S", shift: true },
     ],
+    display: ["Shift+C M N A S"],
     label: "Sort by CPU, memory, name, age or status (again: the other way)",
     group: "Table",
   },
@@ -417,7 +418,9 @@ export function formatKey(k: Key, mac: boolean): string {
 
 /** Every way to press `b`, for the help overlay (none: off with this setting). */
 export function formatBinding(b: Binding, mac: boolean, k9s = false): string[] {
-  if (b.display) return b.display.map((d) => d.replace("Mod+", mac ? "⌘" : "Ctrl+"));
+  if (b.display) {
+    return b.display.map((d) => d.replace("Mod+", mac ? "⌘" : "Ctrl+").replace("Shift+", mac ? "⇧" : "Shift+"));
+  }
   // `?` is typed with Shift anyway; lower-case letters read better as typed.
   // On macOS ⌘J comes first: which key ⌃` names depends on the keyboard
   // (left of 1, or next to the left Shift on ISO keyboards).

@@ -175,7 +175,10 @@ body {
 }
 
 /* Keyboard focus: one teal ring everywhere, never on mouse clicks. */
-:focus-visible {
+:focus-visible,
+/* A confirm dialog's buttons (#575): the one Enter presses shows the ring
+   also when the dialog focused it (WebKitGTK's :focus-visible skips that). */
+[role="alertdialog"] .buttons button:focus {
   outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
   outline-offset: 1px;
 }

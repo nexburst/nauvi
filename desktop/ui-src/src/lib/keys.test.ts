@@ -241,7 +241,8 @@ describe("k9s keys (#575)", () => {
     expect(formatBinding(of("rowKill"), false)).toEqual([]);
     expect(formatBinding(of("rowKill"), false, true)).toEqual(["Ctrl+K"]);
     expect(formatBinding(of("rowPreviousLogs"), true, true)).toEqual(["⇧L"]);
-    expect(formatBinding(of("sortBy"), false)).toEqual(["Shift+C", "Shift+M", "Shift+N", "Shift+A", "Shift+S"]);
+    expect(formatBinding(of("sortBy"), false)).toEqual(["Shift+C M N A S"]);
+    expect(formatBinding(of("sortBy"), true)).toEqual(["⇧C M N A S"]);
     expect(shortcutHint("palette", false, true)).toBe("Ctrl+P");
   });
 });
