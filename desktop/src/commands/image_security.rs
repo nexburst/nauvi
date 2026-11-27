@@ -19,11 +19,11 @@ use crate::settings::SettingsStore;
 use crate::state::{Cluster, ClusterSession};
 use nauvi::image_security::cache::CachedScan;
 use nauvi::image_security::local::ScannerKind;
+use nauvi::image_security::report::image_vulns_triaged;
 use nauvi::image_security::running::{apply_scan_triaged, running_images};
 use nauvi::image_security::triage::Triage;
 use nauvi::image_security::{
-    image_detail_of, image_vulns_triaged, ImageDetail, ScanSource, VulnsArgs, VulnsState,
-    VulnsSummary,
+    image_detail_of, ImageDetail, ScanSource, VulnsArgs, VulnsState, VulnsSummary,
 };
 use nauvi::resources;
 use std::sync::Arc;
@@ -133,15 +133,9 @@ pub(crate) async fn listing(
         *cluster.kinds.lock().unwrap() = kinds.clone();
     }
     let mut summary = if s.source.uses_cluster() {
-        image_vulns_triaged(
-            &client,
-            &kinds,
-            &namespaces,
-            &VulnsArgs::default(),
-            &triage,
-        )
-        .await
-        .map_err(|e| nauvi::error_text(&e))?
+        image_vulns_triaged(&client, &kinds, &namespaces, &VulnsArgs::default(), &triage)
+            .await
+            .map_err(|e| nauvi::error_text(&e))?
     } else {
         empty_local()
     };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { IgnoreRule, ImageVulns, SeverityCounts, Vulnerability } from "./bindings";
+import type { IgnoreRule_Serialize as IgnoreRule, ImageVulns, SeverityCounts, Vulnerability } from "./bindings";
 import { DEFAULT_IMAGE_SECURITY, verdict } from "./imageSecurity";
 import {
   epssText,
@@ -38,7 +38,7 @@ function row(p: Partial<ImageVulns> = {}): ImageVulns {
   };
 }
 
-function vuln(id: string, epss: number | null, percentile: number | null = null): Vulnerability {
+function vuln(id: string, epss: number, percentile = 0): Vulnerability {
   return {
     id,
     package: "openssl",
@@ -48,7 +48,7 @@ function vuln(id: string, epss: number | null, percentile: number | null = null)
     score: 0,
     title: "",
     link: "",
-    exploit: { kev: false, epss, epss_percentile: percentile, risk: null },
+    exploit: { kev: false, epss, epss_percentile: percentile, risk: 0 },
   };
 }
 
@@ -115,8 +115,8 @@ describe("EPSS where the scanner gives it", () => {
   it("is worded as a percentage with its rank", () => {
     expect(epssText(vuln("a", 0.5, 0.9))).toBe("EPSS 50% (top 10%)");
     expect(epssText(vuln("b", 0.0123, 0.999))).toBe("EPSS 1.2% (top 1%)");
-    expect(epssText(vuln("c", null))).toBe("");
-    expect(likeliest([vuln("a", 0.1), vuln("b", null), vuln("c", 0.7), vuln("d", 0)]).map((v) => v.id)).toEqual([
+    expect(epssText(vuln("c", 0))).toBe("");
+    expect(likeliest([vuln("a", 0.1), vuln("b", 0), vuln("c", 0.7), vuln("d", 0)]).map((v) => v.id)).toEqual([
       "c",
       "a",
     ]);

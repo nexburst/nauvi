@@ -8,7 +8,7 @@
 
 use super::ignore::IgnoreRule;
 use super::report::fix_groups;
-use super::{ImageDetail, ImageVulns, IgnoredVuln, Severity, SeverityCounts, Vulnerability};
+use super::{IgnoredVuln, ImageDetail, ImageVulns, Severity, SeverityCounts, Vulnerability};
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 

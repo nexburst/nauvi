@@ -347,6 +347,13 @@ export const commands = {
 	 */
 	cmdImageSecuritySummary: (cluster: string, namespaces: string[], refresh: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ImageSecurityList>("cmd_image_security_summary", { cluster, namespaces, refresh }, options),
 	/**
+	 *  Download the catalogue now (Settings → Image security). Refused while
+	 *  its setting is off.
+	 */
+	cmdImageKevUpdate: (options?: InvokeOptions) => __TAURI_INVOKE<TriageStatus>("cmd_image_kev_update", undefined, options),
+	/**  The ignore file's state and the kept catalogue. Reads only local files. */
+	cmdImageTriageStatus: (options?: InvokeOptions) => __TAURI_INVOKE<TriageStatus>("cmd_image_triage_status", undefined, options),
+	/**
 	 *  Download the kubectl of the cluster's version from dl.k8s.io, check its
 	 *  SHA-256 against the published one and save it in the app's data dir.
 	 *  Only from the user's click; refused with the setting off. Goes through
@@ -1703,6 +1710,27 @@ export type ExecCommand = {
 	answer: ExecAnswer,
 };
 
+/**  What is known about a vulnerability being exploited (#537). */
+export type Exploit = {
+	/**
+	 *  Known to be exploited in the wild: in CISA's KEV catalogue, as the
+	 *  scanner (Grype) says or as the catalogue nauvi downloaded (opt-in).
+	 */
+	kev: boolean,
+	/**
+	 *  EPSS: the probability of exploitation in the next 30 days (0 to 1),
+	 *  only where the scanner gives it (Grype); 0 when it gives none.
+	 */
+	epss: number | null,
+	/**
+	 *  Its percentile among all scored vulnerabilities (0 to 1), 0 when
+	 *  not given.
+	 */
+	epss_percentile: number | null,
+	/**  Grype's risk score, 0 when it gives none. */
+	risk: number | null,
+};
+
 export type Fact = {
 	label: string,
 	value: string,
@@ -1991,6 +2019,84 @@ export type HelpItem =
 /**  The docs' steps for opening a cluster, from the welcome screen (#485). */
 "get_started";
 
+/**  One ignore. */
+export type IgnoreRule = IgnoreRule_Serialize | IgnoreRule_Deserialize;
+
+/**  One ignore. */
+export type IgnoreRule_Deserialize = {
+	/**  `CVE-2024-1234`, `GHSA-xxxx-xxxx-xxxx`. */
+	id?: string,
+	scope?: IgnoreScope,
+	/**  The cluster (its context id) of a workload or namespace ignore. */
+	context?: string,
+	/**
+	 *  The image of an image ignore, as listed (`nginx:1.27`): every tag
+	 *  of its repository is covered.
+	 */
+	image?: string,
+	/**  The namespace of a workload or namespace ignore. */
+	namespace?: string,
+	/**  The workload of a workload ignore: `Deployment`, `web`. */
+	kind?: string,
+	name?: string,
+	/**  Why it is ignored. Required. */
+	reason?: string,
+	/**  When it stops applying (unix seconds), 0 for never. */
+	expires?: number,
+	/**  When it was added (unix seconds), 0 when not known. */
+	added?: number,
+	/**  Read from the ignore file (not one of nauvi's own). */
+	from_file?: boolean,
+};
+
+/**  One ignore. */
+export type IgnoreRule_Serialize = {
+	/**  `CVE-2024-1234`, `GHSA-xxxx-xxxx-xxxx`. */
+	id: string,
+	scope: IgnoreScope,
+	/**  The cluster (its context id) of a workload or namespace ignore. */
+	context: string,
+	/**
+	 *  The image of an image ignore, as listed (`nginx:1.27`): every tag
+	 *  of its repository is covered.
+	 */
+	image: string,
+	/**  The namespace of a workload or namespace ignore. */
+	namespace: string,
+	/**  The workload of a workload ignore: `Deployment`, `web`. */
+	kind: string,
+	name: string,
+	/**  Why it is ignored. Required. */
+	reason: string,
+	/**  When it stops applying (unix seconds), 0 for never. */
+	expires: number,
+	/**  When it was added (unix seconds), 0 when not known. */
+	added: number,
+	/**  Read from the ignore file (not one of nauvi's own). */
+	from_file: boolean,
+};
+
+/**  What an ignore covers. */
+export type IgnoreScope = 
+/**  Every image of one repository (`nginx`, any tag or digest). */
+"image" | 
+/**  One workload (its kind, namespace and name) of one cluster. */
+"workload" | 
+/**  Every image in one namespace of one cluster. */
+"namespace" | 
+/**  Everywhere: the lines of a `.trivyignore`. */
+"everywhere";
+
+/**  A finding an ignore covers (#537): shown apart, with its reason. */
+export type IgnoredVuln = {
+	vulnerability: Vulnerability,
+	reason: string,
+	/**  From the ignore file, not one of nauvi's own ignores. */
+	from_file: boolean,
+	/**  When the ignore ends (unix seconds), 0 for never. */
+	expires: number,
+};
+
 /**  One image with its full (newest) report. */
 export type ImageDetail = {
 	image: ImageVulns,
@@ -1998,6 +2104,8 @@ export type ImageDetail = {
 	vulnerabilities: Vulnerability[],
 	/**  Worst first, after the filters. */
 	fix_groups: FixGroup[],
+	/**  What an ignore covers (#537), not in `vulnerabilities`. */
+	ignored: IgnoredVuln[],
 };
 
 /**  What the view shows: the listing and when its reports were read. */
@@ -2049,6 +2157,18 @@ export type ImageSecuritySettings_Deserialize = {
 	skip_db_update?: boolean,
 	/**  A Trivy server (`--server`), empty to scan on this computer. */
 	server_url?: string,
+	/**
+	 *  A `.trivyignore` whose ids are ignored everywhere (#537), empty for
+	 *  none.
+	 */
+	ignore_file?: string,
+	/**  nauvi's own ignores (#537): each with a scope and a reason. */
+	ignores?: IgnoreRule_Deserialize[],
+	/**
+	 *  Download CISA's catalogue of known exploited vulnerabilities
+	 *  (#537). Off: nothing is downloaded.
+	 */
+	kev_download?: boolean,
 };
 
 /**  Settings → Image security. */
@@ -2082,6 +2202,18 @@ export type ImageSecuritySettings_Serialize = {
 	skip_db_update: boolean,
 	/**  A Trivy server (`--server`), empty to scan on this computer. */
 	server_url: string,
+	/**
+	 *  A `.trivyignore` whose ids are ignored everywhere (#537), empty for
+	 *  none.
+	 */
+	ignore_file: string,
+	/**  nauvi's own ignores (#537): each with a scope and a reason. */
+	ignores: IgnoreRule_Serialize[],
+	/**
+	 *  Download CISA's catalogue of known exploited vulnerabilities
+	 *  (#537). Off: nothing is downloaded.
+	 */
+	kev_download: boolean,
 };
 
 /**
@@ -2108,6 +2240,10 @@ export type ImageVulns = {
 	counts: SeverityCounts,
 	/**  How many of `counts` have a fixed version. */
 	fixable: SeverityCounts,
+	/**  Vulnerabilities an ignore covers (#537), not in `counts`. */
+	ignored: SeverityCounts,
+	/**  How many of `counts` are known to be exploited in the wild (#537). */
+	kev: number,
 	/**
 	 *  The workload containers that use it (running pods and reports),
 	 *  sorted, each once.
@@ -3552,6 +3688,32 @@ export type Theme =
 export type TimeZone = "local" | "utc";
 
 /**
+ *  What Settings → Image security shows about the ignores and the
+ *  catalogue.
+ */
+export type TriageStatus = {
+	/**  The ignore file's ignores (0 without a file). */
+	file_rules: number,
+	/**
+	 *  Why the ignore file cannot be read, empty when it can (or none is
+	 *  set).
+	 */
+	file_error: string,
+	/**  Its lines that were not understood (at most 20). */
+	file_skipped: string[],
+	/**  A catalogue is kept (and used while the setting is on). */
+	kev_kept: boolean,
+	/**  `2026.11.25`. */
+	kev_version: string,
+	/**  How many vulnerabilities it lists. */
+	kev_count: number,
+	/**  When it was downloaded (unix seconds), 0 when none is kept. */
+	kev_fetched_at: number,
+	/**  The address it comes from. */
+	kev_url: string,
+};
+
+/**
  *  Closing this window (`quit`: quitting the app) was stopped because it has
  *  unsaved edits: ask the user, and call `cmd_discard_and_close` if they
  *  discard them.
@@ -3668,6 +3830,8 @@ export type Vulnerability = {
 	title: string,
 	/**  The advisory's page, empty when none. */
 	link: string,
+	/**  Whether it is known to be exploited, and how likely (#537). */
+	exploit: Exploit,
 };
 
 /**  What a listing could show. */

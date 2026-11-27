@@ -97,7 +97,9 @@ pub fn parse_catalog(json: &[u8], fetched_at: i64) -> Result<KevCatalog, String>
         .map(|e| KevEntry {
             cve: e.cve_id.trim().to_string(),
             date_added: single_line(&e.date_added).chars().take(32).collect(),
-            ransomware: e.known_ransomware_campaign_use.eq_ignore_ascii_case("known"),
+            ransomware: e
+                .known_ransomware_campaign_use
+                .eq_ignore_ascii_case("known"),
         })
         .collect();
     if entries.is_empty() {
@@ -226,7 +228,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(path_in(&dir)).unwrap().permissions().mode();
+            let mode = std::fs::metadata(path_in(&dir))
+                .unwrap()
+                .permissions()
+                .mode();
             assert_eq!(mode & 0o077, 0, "only the user can read it");
         }
         // A failed download keeps the old copy.

@@ -48,7 +48,8 @@
       <p class="muted hint" data-testid="ignore-file-status">
         {status.file_rules}
         {status.file_rules === 1 ? "ignore" : "ignores"} read.{#if status.file_skipped.length > 0}
-          {" "}Not understood: {status.file_skipped.join("; ")}{/if}
+          {" "}Not understood: {status.file_skipped.length === 1 ? "line" : "lines"}
+          {status.file_skipped.join(", ")}.{/if}
       </p>
     {/if}
   {/if}

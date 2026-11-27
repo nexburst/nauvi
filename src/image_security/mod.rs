@@ -282,20 +282,20 @@ pub struct Vulnerability {
 }
 
 /// What is known about a vulnerability being exploited (#537).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
-#[serde(default)]
 pub struct Exploit {
     /// Known to be exploited in the wild: in CISA's KEV catalogue, as the
     /// scanner (Grype) says or as the catalogue nauvi downloaded (opt-in).
     pub kev: bool,
     /// EPSS: the probability of exploitation in the next 30 days (0 to 1),
-    /// only where the scanner gives it (Grype).
-    pub epss: Option<f64>,
-    /// Its percentile among all scored vulnerabilities (0 to 1).
-    pub epss_percentile: Option<f64>,
-    /// Grype's risk score, where it gives one.
-    pub risk: Option<f64>,
+    /// only where the scanner gives it (Grype); 0 when it gives none.
+    pub epss: f64,
+    /// Its percentile among all scored vulnerabilities (0 to 1), 0 when
+    /// not given.
+    pub epss_percentile: f64,
+    /// Grype's risk score, 0 when it gives none.
+    pub risk: f64,
 }
 
 /// A finding an ignore covers (#537): shown apart, with its reason.

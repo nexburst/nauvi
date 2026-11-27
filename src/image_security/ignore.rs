@@ -114,10 +114,10 @@ impl IgnoreRule {
         let missing = match self.scope {
             IgnoreScope::Image => self.image.is_empty().then_some("an image"),
             IgnoreScope::Namespace => self.namespace.is_empty().then_some("a namespace"),
-            IgnoreScope::Workload => (self.namespace.is_empty()
-                || self.kind.is_empty()
-                || self.name.is_empty())
-            .then_some("a workload"),
+            IgnoreScope::Workload => {
+                (self.namespace.is_empty() || self.kind.is_empty() || self.name.is_empty())
+                    .then_some("a workload")
+            }
             IgnoreScope::Everywhere => None,
         };
         if let Some(what) = missing {
@@ -195,7 +195,9 @@ fn day_start(date: &str) -> Option<i64> {
 #[derive(Debug, Default, PartialEq)]
 pub struct IgnoreFile {
     pub rules: Vec<IgnoreRule>,
-    pub skipped: Vec<String>,
+    /// The numbers of the lines not understood (at most 20): only their
+    /// numbers, so a file chosen by mistake is not shown.
+    pub skipped: Vec<u32>,
 }
 
 /// A `.trivyignore`: one id per line, optionally followed by
@@ -234,8 +236,7 @@ pub fn parse_trivyignore(text: &str, name: &str) -> IgnoreFile {
         }
         if !ok {
             if out.skipped.len() < 20 {
-                out.skipped
-                    .push(format!("line {}: {}", n + 1, single_line(line)));
+                out.skipped.push(n as u32 + 1);
             }
             continue;
         }
@@ -315,14 +316,19 @@ mod tests {
             ".trivyignore",
         );
         let ids: Vec<_> = f.rules.iter().map(|r| r.id.as_str()).collect();
-        assert_eq!(ids, ["CVE-2026-1001", "CVE-2026-1002", "GHSA-abcd-efgh-ijkl"]);
+        assert_eq!(
+            ids,
+            ["CVE-2026-1001", "CVE-2026-1002", "GHSA-abcd-efgh-ijkl"]
+        );
         assert_eq!(f.rules[0].reason, "Accept the risk for now");
         assert_eq!(f.rules[1].reason, "Listed in .trivyignore");
         assert_eq!(f.rules[1].expires, 1767225600);
         assert_eq!(f.rules[2].reason, "vendored, unused");
-        assert!(f.rules.iter().all(|r| r.from_file && r.scope == IgnoreScope::Everywhere));
-        assert_eq!(f.skipped.len(), 2, "{:?}", f.skipped);
-        assert!(f.skipped[0].starts_with("line 9:"));
+        assert!(f
+            .rules
+            .iter()
+            .all(|r| r.from_file && r.scope == IgnoreScope::Everywhere));
+        assert_eq!(f.skipped, [9, 10]);
     }
 
     #[test]
@@ -334,7 +340,11 @@ mod tests {
         assert!(r.clone().checked().unwrap_err().contains("needs a reason"));
         let mut w = rule(IgnoreScope::Workload);
         w.namespace = "shop".into();
-        assert!(w.clone().checked().unwrap_err().contains("needs a workload"));
+        assert!(w
+            .clone()
+            .checked()
+            .unwrap_err()
+            .contains("needs a workload"));
         let mut bad = rule(IgnoreScope::Everywhere);
         bad.id = "CVE 1; rm".into();
         assert!(bad.checked().is_err());
@@ -355,7 +365,10 @@ mod tests {
         let web = row("nginx:1.27", &[("shop", "Deployment", "web")]);
         let both = row(
             "docker.io/library/nginx:1.28",
-            &[("shop", "Deployment", "web"), ("blog", "Deployment", "site")],
+            &[
+                ("shop", "Deployment", "web"),
+                ("blog", "Deployment", "site"),
+            ],
         );
         let mut img = rule(IgnoreScope::Image);
         img.image = "nginx:1.26".into();
@@ -384,10 +397,7 @@ mod tests {
     #[test]
     fn repositories() {
         assert_eq!(repository_of("nginx:1.27"), "docker.io/library/nginx");
-        assert_eq!(
-            repository_of("ghcr.io/a/b@sha256:1111"),
-            "ghcr.io/a/b"
-        );
+        assert_eq!(repository_of("ghcr.io/a/b@sha256:1111"), "ghcr.io/a/b");
         assert_eq!(
             repository_of("registry.local:5000/app:v1"),
             "registry.local:5000/app"

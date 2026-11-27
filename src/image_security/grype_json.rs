@@ -94,11 +94,12 @@ fn exploit_of(v: &Vuln, related: &[Vuln]) -> Exploit {
         .max_by(|a, b| a.0.total_cmp(&b.0));
     Exploit {
         kev,
-        epss: epss.map(|e| e.0),
-        epss_percentile: epss.and_then(|e| e.1),
+        epss: epss.map_or(0.0, |e| e.0),
+        epss_percentile: epss.and_then(|e| e.1).unwrap_or(0.0),
         risk: all()
             .filter_map(|x| x.risk)
-            .find(|r| r.is_finite() && *r >= 0.0),
+            .find(|r| r.is_finite() && *r >= 0.0)
+            .unwrap_or(0.0),
     }
 }
 
@@ -231,12 +232,12 @@ mod tests {
         assert_eq!(low.severity, Severity::Low, "negligible");
         assert_eq!(low.link, "");
         // #537: EPSS and risk where Grype gives them; KEV from a related CVE.
-        assert_eq!(ssl.exploit.epss, Some(0.5));
-        assert_eq!(ssl.exploit.epss_percentile, Some(0.9));
-        assert_eq!(ssl.exploit.risk, Some(42.1));
+        assert_eq!(ssl.exploit.epss, 0.5);
+        assert_eq!(ssl.exploit.epss_percentile, 0.9);
+        assert_eq!(ssl.exploit.risk, 42.1);
         assert!(!ssl.exploit.kev);
         assert!(curl.exploit.kev);
-        assert_eq!(curl.exploit.epss, None);
+        assert_eq!(curl.exploit.epss, 0.0);
         assert_eq!(low.exploit, Exploit::default());
     }
 

@@ -3,7 +3,7 @@
 // ignore file's, `FakeImageSecurity.fileRules`) and, while the KEV
 // download is on and a catalogue is kept, its ids (`kevIds`).
 
-import type { IgnoreRule, ImageDetail, ImageVulns, TriageStatus, VulnsSummary } from "../../lib/bindings";
+import type { IgnoreRule_Serialize as IgnoreRule, ImageDetail, ImageVulns, TriageStatus, VulnsSummary } from "../../lib/bindings";
 import { DEFAULT_IMAGE_SECURITY } from "../../lib/imageSecurity";
 import { ignoreActive, repositoryOf } from "../../lib/imageTriage";
 import { imageSecurityFixture } from "../fixtures/image-security";

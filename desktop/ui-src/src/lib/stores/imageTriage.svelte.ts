@@ -2,7 +2,7 @@
 // and the catalogue, adding and removing ignores, and reading the listing
 // again once they change (the backend reads it again when they differ).
 
-import type { IgnoreRule, TriageStatus } from "../bindings";
+import type { IgnoreRule_Serialize as IgnoreRule, TriageStatus } from "../bindings";
 import { commands } from "../bindings";
 import { sameTarget } from "../imageTriage";
 import { imageSecurity, imageSecuritySettings, listedNamespaces, loadImageSecurity, reloadDetail } from "./imageSecurity.svelte";

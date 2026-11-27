@@ -184,3 +184,25 @@ test("a failed KEV download says why and keeps the rest working", async ({ page 
   await section.getByRole("button", { name: "Download now" }).click();
   await expect(section.getByTestId("kev-error")).toContainText("the server answered 503");
 });
+
+test("EPSS and risk show only where the scanner gives them", async ({ page }) => {
+  await openApp(page, (cluster) => {
+    cluster.settings.image_security = { ...cluster.settings.image_security, enabled: true };
+  });
+  await goToImageSecurity(page);
+  await imageRow(page, "nginx:1.27").click();
+  await expect(panel(page).getByTestId("findings-fixes")).toBeVisible();
+  // The Trivy Operator gives none: no EPSS section.
+  await expect(panel(page).getByTestId("findings-epss")).toHaveCount(0);
+  await page.evaluate(() => {
+    const d = window.__fake.cluster.imageSecurity;
+    const v = d?.details["nginx:1.27@sha256:1111111111111111"]?.vulnerabilities.find((x) => x.id === "CVE-2026-1005");
+    if (v) v.exploit = { kev: false, epss: 0.42, epss_percentile: 0.97, risk: 31.5 };
+  });
+  await imageRow(page, "redis:7.2").click();
+  await imageRow(page, "nginx:1.27").click();
+  const epss = panel(page).getByTestId("findings-epss");
+  await expect(epss).toContainText("Most likely to be exploited (EPSS, from the scanner)");
+  await expect(epss).toContainText("CVE-2026-1005");
+  await expect(epss).toContainText("curl: EPSS 42% (top 3%), risk 31.5");
+});

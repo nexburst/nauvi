@@ -31,6 +31,8 @@ function img(p: Partial<ImageVulns> & Pick<ImageVulns, "image">): ImageVulns {
     scanned: true,
     counts: zero,
     fixable: zero,
+    ignored: zero,
+    kev: 0,
     workloads: [],
     report_namespace: "demo",
     report_name: "r",

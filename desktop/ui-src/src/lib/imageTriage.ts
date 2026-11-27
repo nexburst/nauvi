@@ -4,7 +4,7 @@
 // The backend (`image_security::triage`) applies them; this only says it.
 
 import type {
-  IgnoreRule,
+  IgnoreRule_Serialize as IgnoreRule,
   IgnoreScope,
   ImageVulns,
   Severity,
@@ -148,18 +148,18 @@ export function triageParts(row: Pick<ImageVulns, "kev" | "ignored" | "scanned">
 
 /** "EPSS 12% (top 5%)": how likely it is to be exploited, as Grype says; "" without one. */
 export function epssText(v: Pick<Vulnerability, "exploit">): string {
-  const p = v.exploit.epss;
-  if (p == null) return "";
+  const p = v.exploit.epss ?? 0;
+  if (!(p > 0)) return "";
   const pct = p >= 0.1 ? Math.round(p * 100) : Math.round(p * 1000) / 10;
-  const q = v.exploit.epss_percentile;
-  const top = q == null ? "" : ` (top ${Math.max(1, Math.round((1 - q) * 100))}%)`;
+  const q = v.exploit.epss_percentile ?? 0;
+  const top = q > 0 ? ` (top ${Math.max(1, Math.round((1 - q) * 100))}%)` : "";
   return `EPSS ${pct}%${top}`;
 }
 
 /** The findings most likely to be exploited, as the scanner rates them (EPSS), at most `n`. */
 export function likeliest(vulns: readonly Vulnerability[], n = 5): Vulnerability[] {
   return vulns
-    .filter((v) => v.exploit.epss != null && v.exploit.epss > 0)
+    .filter((v) => (v.exploit.epss ?? 0) > 0)
     .sort((a, b) => (b.exploit.epss ?? 0) - (a.exploit.epss ?? 0))
     .slice(0, n);
 }

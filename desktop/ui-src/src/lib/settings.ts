@@ -129,6 +129,9 @@ export function defaultSettings(): Settings {
       db_repository: "",
       skip_db_update: false,
       server_url: "",
+      ignore_file: "",
+      ignores: [],
+      kev_download: false,
     },
   };
 }

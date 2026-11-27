@@ -3,7 +3,7 @@
 // one full report (nginx).
 
 import type {
-  IgnoreRule,
+  IgnoreRule_Serialize as IgnoreRule,
   ImageDetail,
   ImageVulns,
   SeverityCounts,
@@ -74,7 +74,7 @@ const v = (id: string, pkg: string, installed: string, severity: Vulnerability["
   score: 0,
   title: `${pkg} issue`,
   link: `https://avd.aquasec.com/nvd/${id.toLowerCase()}`,
-  exploit: { kev: false, epss: null, epss_percentile: null, risk: null },
+  exploit: { kev: false, epss: 0, epss_percentile: 0, risk: 0 },
 });
 
 export function imageSecurityFixture(): FakeImageSecurity {

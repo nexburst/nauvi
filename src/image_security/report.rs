@@ -495,7 +495,14 @@ pub async fn image_vulns_in(
     args: &VulnsArgs,
 ) -> Result<VulnsSummary> {
     check_args(args)?;
-    read_vulns(client, args, trivy::served_in(kinds), None, &Triage::default()).await
+    read_vulns(
+        client,
+        args,
+        trivy::served_in(kinds),
+        None,
+        &Triage::default(),
+    )
+    .await
 }
 
 /// [`image_vulns_in`] for the namespaces the app's picker selected (none:

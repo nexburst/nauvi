@@ -12,8 +12,8 @@ use super::report::{
     aggregate, api_error, check_namespace, filter_vulnerabilities, fix_groups, is_forbidden,
     sort_rows, MAX_PODS,
 };
-use super::{ImageDetail, ImageVulns, ScanSource, VulnsArgs, VulnsState, VulnsSummary};
 use super::triage::{Mark, Triage};
+use super::{ImageDetail, ImageVulns, ScanSource, VulnsArgs, VulnsState, VulnsSummary};
 use crate::bounded_list::list_bounded;
 use anyhow::{bail, Result};
 use k8s_openapi::api::core::v1::{Node, Pod};

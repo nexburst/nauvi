@@ -74,7 +74,8 @@ fn read_ignore_file(path: &str) -> Result<IgnoreFile, String> {
             "The ignore file {path} is larger than 1 MB; it was not read."
         ));
     }
-    let bytes = std::fs::read(p).map_err(|e| format!("Cannot read the ignore file {path}: {e}."))?;
+    let bytes =
+        std::fs::read(p).map_err(|e| format!("Cannot read the ignore file {path}: {e}."))?;
     let name = p
         .file_name()
         .map_or(".trivyignore".into(), |n| n.to_string_lossy().into_owned());
@@ -176,9 +177,7 @@ pub(crate) async fn refresh_kev(s: &ImageSecuritySettings, dir: Option<&Path>) -
                  one of {}.",
                 c.version
             ),
-            None => format!(
-                "Could not download the list of known exploited vulnerabilities: {e}"
-            ),
+            None => format!("Could not download the list of known exploited vulnerabilities: {e}"),
         }),
     }
 }
@@ -192,8 +191,8 @@ pub(crate) struct TriageStatus {
     /// Why the ignore file cannot be read, empty when it can (or none is
     /// set).
     pub(crate) file_error: String,
-    /// Its lines that were not understood (at most 20).
-    pub(crate) file_skipped: Vec<String>,
+    /// The numbers of its lines that were not understood (at most 20).
+    pub(crate) file_skipped: Vec<u32>,
     /// A catalogue is kept (and used while the setting is on).
     pub(crate) kev_kept: bool,
     /// `2026.11.25`.
@@ -313,7 +312,10 @@ mod tests {
 
         s.ignore_file = dir.join("missing").display().to_string();
         let (_, notes) = triage_for(&s, "kind", None);
-        assert!(notes[0].starts_with("Cannot read the ignore file"), "{notes:?}");
+        assert!(
+            notes[0].starts_with("Cannot read the ignore file"),
+            "{notes:?}"
+        );
         s.ignore_file = "relative/.trivyignore".into();
         assert!(status_of(&s, None).file_error.contains("not a full path"));
         let _ = std::fs::remove_dir_all(dir);
