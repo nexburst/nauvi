@@ -281,6 +281,7 @@ mod tests {
             fixable: SeverityCounts::default(),
             ignored: SeverityCounts::default(),
             kev: 0,
+            fixes_known: true,
             workloads: workloads
                 .iter()
                 .map(|(ns, kind, name)| Workload {

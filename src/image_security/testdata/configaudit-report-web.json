@@ -1,0 +1,58 @@
+{
+  "apiVersion": "aquasecurity.github.io/v1alpha1",
+  "kind": "ConfigAuditReport",
+  "metadata": {
+    "name": "replicaset-web-5f6b7c",
+    "namespace": "shop",
+    "creationTimestamp": "2026-11-20T09:00:00Z",
+    "labels": {
+      "trivy-operator.resource.kind": "ReplicaSet",
+      "trivy-operator.resource.name": "web-5f6b7c",
+      "trivy-operator.resource.namespace": "shop"
+    }
+  },
+  "report": {
+    "scanner": { "name": "Trivy", "vendor": "Aqua Security", "version": "0.69.3" },
+    "summary": { "criticalCount": 0, "highCount": 1, "mediumCount": 1, "lowCount": 1 },
+    "updateTimestamp": "2026-11-20T10:00:00Z",
+    "checks": [
+      {
+        "checkID": "KSV011",
+        "title": "CPU not limited",
+        "severity": "LOW",
+        "category": "Kubernetes Security Check",
+        "description": "Enforcing CPU limits prevents DoS via resource exhaustion.",
+        "remediation": "Set a limit value under 'containers[].resources.limits.cpu'.",
+        "messages": ["Container 'nginx' of ReplicaSet 'web-5f6b7c' should set 'resources.limits.cpu'"],
+        "success": false
+      },
+      {
+        "checkID": "KSV014",
+        "title": "Root file system is not read-only",
+        "severity": "HIGH",
+        "category": "Kubernetes Security Check",
+        "description": "An immutable root file system prevents applications from writing to their local disk.",
+        "remediation": "Change 'containers[].securityContext.readOnlyRootFilesystem' to 'true'.",
+        "messages": ["Container 'nginx' of ReplicaSet 'web-5f6b7c' should set 'securityContext.readOnlyRootFilesystem' to true", ""],
+        "scope": { "type": "Container", "value": "nginx" },
+        "success": false
+      },
+      {
+        "checkID": "KSV001",
+        "title": "Can elevate its own privileges",
+        "severity": "MEDIUM",
+        "category": "Kubernetes Security Check",
+        "description": "A program inside the container can elevate its own privileges.",
+        "remediation": "Set 'set containers[].securityContext.allowPrivilegeEscalation' to 'false'.",
+        "messages": ["Container 'nginx' of ReplicaSet 'web-5f6b7c' should set 'securityContext.allowPrivilegeEscalation' to false"],
+        "success": false
+      },
+      {
+        "checkID": "KSV012",
+        "title": "Runs as root user",
+        "severity": "MEDIUM",
+        "success": true
+      }
+    ]
+  }
+}

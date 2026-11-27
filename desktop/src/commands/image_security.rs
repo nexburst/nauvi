@@ -19,12 +19,10 @@ use crate::settings::SettingsStore;
 use crate::state::{Cluster, ClusterSession};
 use nauvi::image_security::cache::CachedScan;
 use nauvi::image_security::local::ScannerKind;
-use nauvi::image_security::report::image_vulns_triaged;
+use nauvi::image_security::report::{image_detail_triaged, image_vulns_triaged};
 use nauvi::image_security::running::{apply_scan_triaged, running_images};
 use nauvi::image_security::triage::Triage;
-use nauvi::image_security::{
-    image_detail_of, ImageDetail, ScanSource, VulnsArgs, VulnsState, VulnsSummary,
-};
+use nauvi::image_security::{ImageDetail, ScanSource, VulnsArgs, VulnsState, VulnsSummary};
 use nauvi::resources;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -76,17 +74,24 @@ pub(crate) struct ImageSecurityList {
     pub(crate) read_at: i64,
 }
 
-fn enabled(cluster: &ClusterSession, settings: &SettingsStore) -> bool {
+pub(crate) fn enabled(cluster: &ClusterSession, settings: &SettingsStore) -> bool {
     cluster
         .context_id()
         .is_ok_and(|id| settings.get().image_security_enabled(&id))
 }
 
-fn sorted(mut namespaces: Vec<String>) -> Vec<String> {
+pub(crate) fn sorted(mut namespaces: Vec<String>) -> Vec<String> {
     namespaces.retain(|n| !n.is_empty());
     namespaces.sort();
     namespaces.dedup();
     namespaces
+}
+
+/// Now, unix seconds.
+pub(crate) fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
 }
 
 /// The listing of `namespaces`, from the cache while it is younger than
@@ -149,11 +154,10 @@ pub(crate) async fn listing(
         {
             let mut notes = std::mem::take(&mut summary.notes);
             if summary.state == VulnsState::Forbidden {
-                notes.push(
-                    "Not allowed to read the Trivy Operator's reports here: only local scans \
-                     are shown."
-                        .into(),
-                );
+                notes.push(format!(
+                    "Not allowed to read {}'s reports here: only local scans are shown.",
+                    summary.source.maker()
+                ));
             }
             summary = running_images(&client, &namespaces)
                 .await
@@ -167,9 +171,7 @@ pub(crate) async fn listing(
         }
     }
     summary.notes.extend(triage_notes);
-    let read_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs() as i64);
+    let read_at = now_secs();
     // Not kept if the window left the cluster meanwhile.
     if !cluster.is_closed() {
         *cluster.image_security.lock().unwrap() = Some(VulnsCache {
@@ -263,11 +265,9 @@ pub(crate) async fn cmd_image_security_image(
         return image_scan::kept_detail(&dirs, s.scanner, row, &args, &triage);
     }
     let client = cluster.client().await?;
-    let mut detail = image_detail_of(&client, row, &args)
+    image_detail_triaged(&client, row, &args, &triage)
         .await
-        .map_err(|e| nauvi::error_text(&e))?;
-    triage.apply_detail(&mut detail);
-    Ok(detail)
+        .map_err(|e| nauvi::error_text(&e))
 }
 
 /// The ignores and KEV for a listing of `cluster` (#537), the catalogue
@@ -292,7 +292,7 @@ pub(crate) mod tests {
     use crate::settings::ImageSecurityMode;
 
     /// A session on context `id` of an added kubeconfig in a temp dir.
-    fn session(id: &str) -> (ClusterSession, std::path::PathBuf) {
+    pub(crate) fn session(id: &str) -> (ClusterSession, std::path::PathBuf) {
         let dir = std::env::temp_dir().join(format!("nauvi-534-{id}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let file = dir.join("kubeconfig.yaml");

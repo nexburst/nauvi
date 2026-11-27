@@ -31,17 +31,21 @@ pub fn state_message(s: &VulnsSummary) -> String {
     match s.state {
         VulnsState::Ok => String::new(),
         VulnsState::NoOperator => "No Trivy Operator in this cluster: it does not serve \
-             VulnerabilityReports (aquasecurity.github.io). nauvi shows the scans the \
-             operator makes; install it to see image vulnerabilities."
+             VulnerabilityReports (aquasecurity.github.io), nor Kubescape's \
+             VulnerabilityManifestSummaries. nauvi shows the scans the operator makes; \
+             install it to see image vulnerabilities."
             .to_string(),
         VulnsState::NoReports => format!(
-            "No VulnerabilityReports in {} yet: the Trivy Operator has not scanned these \
-             images. It scans new workloads within minutes; check that it watches this \
-             namespace.",
-            place(s)
+            "No {} in {} yet: {} has not scanned these images. It scans new workloads \
+             within minutes; check that it watches this namespace.",
+            s.source.reports(),
+            place(s),
+            s.source.maker()
         ),
         VulnsState::Forbidden => format!(
-            "Not allowed to list VulnerabilityReports (aquasecurity.github.io) in {}.",
+            "Not allowed to list {} ({}) in {}.",
+            s.source.reports(),
+            s.source.group(),
             place(s)
         ),
     }
@@ -208,7 +212,8 @@ pub fn render_list(s: &VulnsSummary, now: i64) -> String {
     scanners.dedup();
     if let Some(t) = oldest {
         line.push_str(&format!(
-            "; from the Trivy Operator's reports ({}), the oldest {}",
+            "; from {}'s reports ({}), the oldest {}",
+            s.source.maker(),
             scanners.join(", "),
             ago(t, now)
         ));

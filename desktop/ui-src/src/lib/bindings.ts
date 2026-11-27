@@ -311,6 +311,13 @@ export const commands = {
 	 *  caught (`boundary`, `error`, `rejection`).
 	 */
 	cmdLogUiError: (source: string, message: string, stack: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_log_ui_error", { source, message, stack }, options),
+	/**  One workload of the listing of `namespaces` with the checks it fails. */
+	cmdImageConfigDetail: (cluster: string, namespaces: string[], kind: string, namespace: string, name: string, options?: InvokeOptions) => __TAURI_INVOKE<ConfigDetail>("cmd_image_config_detail", { cluster, namespaces, kind, namespace, name }, options),
+	/**
+	 *  The workloads of `namespaces` (none: all namespaces) and how many
+	 *  checks each fails. `refresh` reads the reports again.
+	 */
+	cmdImageConfigSummary: (cluster: string, namespaces: string[], refresh: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ImageConfigList>("cmd_image_config_summary", { cluster, namespaces, refresh }, options),
 	/**
 	 *  Scan one image of the listing of `namespaces` (by its reference and
 	 *  digest as listed) with the approved local scanner, unless a scan of it
@@ -1179,6 +1186,60 @@ export type ConditionInfo = {
 	reason: string,
 	message: string,
 	age: string,
+};
+
+/**  One check a workload fails, in the operator's words. */
+export type ConfigCheck = {
+	/**  `KSV014`. */
+	id: string,
+	/**  `Root file system is not read-only`. */
+	title: string,
+	severity: Severity,
+	/**  `Kubernetes Security Check`. */
+	category: string,
+	/**  Why it matters. */
+	description: string,
+	/**  What to change. */
+	remediation: string,
+	/**
+	 *  Where, as the check found it (`Container 'nginx' of Deployment
+	 *  'web' should set 'securityContext.readOnlyRootFilesystem' to true`).
+	 */
+	messages: string[],
+	/**  The container it is about, empty when not one. */
+	container: string,
+};
+
+/**  One workload with the checks it fails. */
+export type ConfigDetail = {
+	workload: WorkloadConfig,
+	/**  Worst first. */
+	failed: ConfigCheck[],
+	/**  How many checks it passes. */
+	passed: number,
+};
+
+/**  The result of a listing. */
+export type ConfigSummary = {
+	/**  `no_operator`: the cluster does not serve ConfigAuditReports. */
+	state: VulnsState,
+	/**  The namespace asked for, empty for all. */
+	namespace: string,
+	/**  The namespaces read when the cluster-wide list is not allowed. */
+	namespaces_read: string[],
+	/**  Most failed checks first. */
+	workloads: WorkloadConfig[],
+	forbidden_namespaces: string[],
+	/**  With `forbidden` for chosen namespaces: all namespaces may be listed. */
+	all_namespaces_allowed: boolean,
+	notes: string[],
+};
+
+/**  What a report is about: a Deployment, a StatefulSet, a Service, ... */
+export type ConfigTarget = {
+	kind: string,
+	namespace: string,
+	name: string,
 };
 
 export type Confirmed = {
@@ -2097,6 +2158,13 @@ export type IgnoredVuln = {
 	expires: number,
 };
 
+/**  What the view shows: the listing and when its reports were read. */
+export type ImageConfigList = {
+	summary: ConfigSummary,
+	/**  When nauvi read the reports (unix seconds). */
+	read_at: number,
+};
+
 /**  One image with its full (newest) report. */
 export type ImageDetail = {
 	image: ImageVulns,
@@ -2245,11 +2313,19 @@ export type ImageVulns = {
 	/**  How many of `counts` are known to be exploited in the wild (#537). */
 	kev: number,
 	/**
+	 *  Whether `fixable` is known: false for Kubescape's summaries, which
+	 *  count by severity only (its full report has the fixes).
+	 */
+	fixes_known: boolean,
+	/**
 	 *  The workload containers that use it (running pods and reports),
 	 *  sorted, each once.
 	 */
 	workloads: Workload[],
-	/**  The newest report: namespace and name, empty when not scanned. */
+	/**
+	 *  The newest report: namespace and name, empty when not scanned. For
+	 *  Kubescape, the VulnerabilityManifest its summary points to.
+	 */
 	report_namespace: string,
 	report_name: string,
 	/**  How many reports cover this image. */
@@ -3092,6 +3168,11 @@ export type SavedSearch_Serialize = {
 export type ScanSource = 
 /**  The Trivy Operator's VulnerabilityReports in the cluster. */
 "trivy_operator" | 
+/**
+ *  Kubescape's VulnerabilityManifestSummaries (#538), read when the
+ *  cluster has no Trivy Operator reports.
+ */
+"kubescape" | 
 /**  A Trivy or Grype the user installed, run on this computer (#536). */
 "local_scanner";
 
@@ -3699,8 +3780,8 @@ export type TriageStatus = {
 	 *  set).
 	 */
 	file_error: string,
-	/**  Its lines that were not understood (at most 20). */
-	file_skipped: string[],
+	/**  The numbers of its lines that were not understood (at most 20). */
+	file_skipped: number[],
 	/**  A catalogue is kept (and used while the setting is on). */
 	kev_kept: boolean,
 	/**  `2026.11.25`. */
@@ -3838,7 +3919,10 @@ export type Vulnerability = {
 export type VulnsState = 
 /**  Reports were read (`images` may still be empty after filters). */
 "ok" | 
-/**  The cluster does not serve VulnerabilityReports: no Trivy Operator. */
+/**
+ *  The cluster does not serve the reports: no Trivy Operator (nor
+ *  Kubescape, for vulnerabilities).
+ */
 "no_operator" | 
 /**  The CRD is there but no report exists in the scope yet. */
 "no_reports" | 
@@ -3927,6 +4011,22 @@ export type Workload = {
 	namespace: string,
 	name: string,
 	container: string,
+};
+
+/**  One workload (or other object) and how many checks it fails. */
+export type WorkloadConfig = {
+	target: ConfigTarget,
+	/**  Failed checks by severity, from the newest report's summary. */
+	failed: SeverityCounts,
+	/**  The newest report. */
+	report_namespace: string,
+	report_name: string,
+	/**  How many reports name it (old ReplicaSets of a Deployment too). */
+	reports: number,
+	/**  `Trivy 0.69.3`. */
+	scanner: string,
+	/**  When the report was made (unix seconds), 0 when unknown. */
+	scanned_at: number,
 };
 
 /**  Options of a workload log stream. */

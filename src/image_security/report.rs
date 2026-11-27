@@ -45,6 +45,7 @@ fn empty_row(image: String, digest: String) -> ImageVulns {
         fixable: SeverityCounts::default(),
         ignored: SeverityCounts::default(),
         kev: 0,
+        fixes_known: true,
         workloads: Vec::new(),
         report_namespace: String::new(),
         report_name: String::new(),
@@ -77,6 +78,17 @@ pub fn aggregate(running: &[RunningImage], reports: &[ReportSummary]) -> Vec<Ima
         row.running = true;
         for u in &img.uses {
             add_workload(&mut row, u.workload.clone());
+            // Kubescape names the workload (the Deployment), the Trivy
+            // Operator its direct owner (the ReplicaSet).
+            by_owner.insert(
+                (
+                    u.workload.namespace.clone(),
+                    u.workload.kind.clone(),
+                    u.workload.name.clone(),
+                    u.workload.container.clone(),
+                ),
+                (i, u.workload.clone()),
+            );
             by_owner.insert(
                 (
                     u.workload.namespace.clone(),
@@ -281,7 +293,7 @@ pub(crate) fn check_namespace(ns: &str) -> Result<()> {
 
 /// An object name as the API accepts it (a DNS subdomain), so it can go
 /// into a request path.
-fn check_object_name(name: &str) -> Result<()> {
+pub(crate) fn check_object_name(name: &str) -> Result<()> {
     let ok = !name.is_empty()
         && name.len() <= 253
         && name
@@ -352,6 +364,7 @@ impl Unread {
 /// What one call may still read, shared by every namespace it reads (the
 /// per-namespace fallback reads many).
 struct Budget {
+    source: ScanSource,
     reports: usize,
     pods: usize,
     /// Reports or pods were left unread.
@@ -361,8 +374,9 @@ struct Budget {
 }
 
 impl Budget {
-    fn new() -> Self {
+    fn new(source: ScanSource) -> Self {
         Budget {
+            source,
             reports: trivy::MAX_REPORTS,
             pods: MAX_PODS,
             cut_reports: false,
@@ -376,8 +390,9 @@ impl Budget {
     fn notes(&self, left_out: u32, notes: &mut Vec<String>) {
         if self.cut_reports {
             notes.push(format!(
-                "Only the first {} VulnerabilityReports were read; narrow with -n.",
-                trivy::MAX_REPORTS
+                "Only the first {} {} were read; narrow with -n.",
+                trivy::MAX_REPORTS,
+                self.source.reports()
             ));
         }
         if left_out > 0 {
@@ -424,7 +439,19 @@ async fn read_scope(
         return Ok(out);
     }
     let wants = |id: &str| triage.wants(id);
-    match trivy::list_summaries_marking(client, namespace, budget.reports, &wants).await {
+    let listed = match budget.source {
+        ScanSource::TrivyOperator => {
+            trivy::list_summaries_marking(client, namespace, budget.reports, &wants).await
+        }
+        // Kubescape's summaries count by severity only: no ids to mark, so
+        // ignores and KEV apply once its full report is read (#537).
+        ScanSource::Kubescape => {
+            super::kubescape::list_summaries(client, namespace, budget.reports).await
+        }
+        // Its scans are on this computer: nothing to list in the cluster.
+        ScanSource::LocalScanner => return Ok(out),
+    };
+    match listed {
         Ok(listed) => {
             if listed.more {
                 let last = listed.reports.iter().map(|r| r.namespace.clone()).max();
@@ -437,7 +464,7 @@ async fn read_scope(
             out.forbidden = true;
             return Ok(out);
         }
-        Err(e) => return Err(api_error("VulnerabilityReports", e)),
+        Err(e) => return Err(api_error(budget.source.reports(), e)),
     }
     if budget.pods == 0 {
         budget.cut_pods = true;
@@ -461,9 +488,9 @@ async fn read_scope(
     Ok(out)
 }
 
-fn summary(state: VulnsState, args: &VulnsArgs) -> VulnsSummary {
+fn summary(source: ScanSource, state: VulnsState, args: &VulnsArgs) -> VulnsSummary {
     VulnsSummary {
-        source: ScanSource::TrivyOperator,
+        source,
         state,
         namespace: args.namespace.clone().unwrap_or_default(),
         namespaces_read: Vec::new(),
@@ -481,10 +508,33 @@ fn summary(state: VulnsState, args: &VulnsArgs) -> VulnsSummary {
 /// that already discovered the kinds uses [`image_vulns_in`].
 pub async fn image_vulns(client: &Client, args: &VulnsArgs) -> Result<VulnsSummary> {
     check_args(args)?;
-    let served = trivy::served(client)
+    let source = served_source(client)
         .await
         .map_err(|e| api_error("the API groups", e))?;
-    read_vulns(client, args, served, None, &Triage::default()).await
+    read_vulns(client, args, source, None, &Triage::default()).await
+}
+
+/// [`image_vulns`] from one `source`, served or not (a cluster with both
+/// sources, or a test).
+pub async fn image_vulns_from(
+    client: &Client,
+    source: ScanSource,
+    args: &VulnsArgs,
+) -> Result<VulnsSummary> {
+    check_args(args)?;
+    read_vulns(client, args, Some(source), None, &Triage::default()).await
+}
+
+/// The source a cluster serves, from discovery: the Trivy Operator's
+/// reports when it has them, else Kubescape's; `None` for neither.
+pub async fn served_source(client: &Client) -> kube::Result<Option<ScanSource>> {
+    if trivy::served(client).await? {
+        return Ok(Some(ScanSource::TrivyOperator));
+    }
+    if super::kubescape::served(client).await? {
+        return Ok(Some(ScanSource::Kubescape));
+    }
+    Ok(None)
 }
 
 /// [`image_vulns`] for a caller that has the discovered kinds (the app):
@@ -498,7 +548,7 @@ pub async fn image_vulns_in(
     read_vulns(
         client,
         args,
-        trivy::served_in(kinds),
+        ScanSource::of_kinds(kinds),
         None,
         &Triage::default(),
     )
@@ -544,11 +594,13 @@ pub async fn image_vulns_triaged(
         ..args.clone()
     };
     let several = (list.len() > 1).then_some(list.as_slice());
-    let mut out = read_vulns(client, &args, trivy::served_in(kinds), several, triage).await?;
+    let source = ScanSource::of_kinds(kinds);
+    let mut out = read_vulns(client, &args, source, several, triage).await?;
     // Not allowed here: say whether all namespaces would be (one review,
     // only in this case), so the app offers that only when it helps.
     if out.state == VulnsState::Forbidden && !list.is_empty() {
-        out.all_namespaces_allowed = can_list(client, trivy::GROUP, trivy::PLURAL, None).await;
+        out.all_namespaces_allowed =
+            can_list(client, out.source.group(), out.source.plural(), None).await;
     }
     Ok(out)
 }
@@ -565,6 +617,7 @@ fn check_args(args: &VulnsArgs) -> Result<()> {
 /// `None` when nothing may be read (the state is set).
 async fn scopes_of(
     client: &Client,
+    source: ScanSource,
     namespace: Option<&str>,
     several: Option<&[String]>,
     out: &mut VulnsSummary,
@@ -572,7 +625,7 @@ async fn scopes_of(
     if let Some(list) = several {
         let mut allowed = Vec::new();
         for ns in list {
-            if can_list(client, trivy::GROUP, trivy::PLURAL, Some(ns)).await {
+            if can_list(client, source.group(), source.plural(), Some(ns)).await {
                 allowed.push(ns.clone());
             } else {
                 out.forbidden_namespaces.push(ns.clone());
@@ -585,12 +638,13 @@ async fn scopes_of(
         out.namespaces_read = allowed.clone();
         return Some(allowed.into_iter().map(Some).collect());
     }
-    match trivy::access(client, namespace).await {
+    match trivy::access_to(client, source.group(), source.plural(), namespace).await {
         Access::Scope => Some(vec![namespace.map(str::to_string)]),
         Access::Namespaces(list) => {
             out.namespaces_read = list.clone();
             out.notes.push(format!(
-                "Not allowed to list VulnerabilityReports in all namespaces; read {}.",
+                "Not allowed to list {} in all namespaces; read {}.",
+                source.reports(),
                 list.join(", ")
             ));
             Some(list.into_iter().map(Some).collect())
@@ -608,21 +662,25 @@ async fn scopes_of(
 async fn read_vulns(
     client: &Client,
     args: &VulnsArgs,
-    served: bool,
+    source: Option<ScanSource>,
     several: Option<&[String]>,
     triage: &Triage,
 ) -> Result<VulnsSummary> {
     let namespace = args.namespace.as_deref().filter(|n| !n.is_empty());
-    if !served {
-        return Ok(summary(VulnsState::NoOperator, args));
-    }
-    let mut out = summary(VulnsState::Ok, args);
-    let Some(scopes) = scopes_of(client, namespace, several, &mut out).await else {
+    let Some(source) = source else {
+        return Ok(summary(
+            ScanSource::TrivyOperator,
+            VulnsState::NoOperator,
+            args,
+        ));
+    };
+    let mut out = summary(source, VulnsState::Ok, args);
+    let Some(scopes) = scopes_of(client, source, namespace, several, &mut out).await else {
         return Ok(out);
     };
     let (mut pods, mut reports) = (Vec::new(), Vec::new());
     let mut forbidden = Vec::new();
-    let mut budget = Budget::new();
+    let mut budget = Budget::new(source);
     for scope in &scopes {
         let read = read_scope(
             client,
@@ -647,6 +705,13 @@ async fn read_vulns(
     }
     let running = pod_images(&pods);
     let mut rows = aggregate(&running, &reports);
+    if source == ScanSource::Kubescape {
+        for row in &mut rows {
+            row.source = source;
+            // Its summaries count by severity only.
+            row.fixes_known = !row.scanned;
+        }
+    }
     apply_triage(&mut rows, &reports, triage);
     let left_out = drop_unread(&mut rows, &budget.unread);
     budget.notes(left_out, &mut out.notes);
@@ -750,6 +815,17 @@ pub async fn image_detail_of(
     row: ImageVulns,
     args: &VulnsArgs,
 ) -> Result<ImageDetail> {
+    image_detail_triaged(client, row, args, &Triage::default()).await
+}
+
+/// [`image_detail_of`] with ignores and KEV (#537) on the findings. A
+/// Kubescape row, whose listing had no ids, gets them on its counts here.
+pub async fn image_detail_triaged(
+    client: &Client,
+    row: ImageVulns,
+    args: &VulnsArgs,
+    triage: &Triage,
+) -> Result<ImageDetail> {
     if !row.scanned {
         return Ok(ImageDetail {
             image: row,
@@ -760,17 +836,46 @@ pub async fn image_detail_of(
     }
     check_namespace(&row.report_namespace)?;
     check_object_name(&row.report_name)?;
-    let full = trivy::get_report(client, &row.report_namespace, &row.report_name)
-        .await
-        .map_err(|e| api_error(&format!("VulnerabilityReport {}", row.report_name), e))?;
-    let vulnerabilities = filter_vulnerabilities(full.vulnerabilities, args);
+    let all = match row.source {
+        ScanSource::TrivyOperator => {
+            trivy::get_report(client, &row.report_namespace, &row.report_name)
+                .await
+                .map_err(|e| api_error(&format!("VulnerabilityReport {}", row.report_name), e))?
+                .vulnerabilities
+        }
+        ScanSource::Kubescape => {
+            super::kubescape::get_manifest(client, &row.report_namespace, &row.report_name)
+                .await
+                .map_err(|e| api_error(&format!("VulnerabilityManifest {}", row.report_name), e))?
+        }
+        ScanSource::LocalScanner => {
+            bail!("a local scan is kept on this computer, not in the cluster")
+        }
+    };
+    let mut row = row;
+    if !row.fixes_known {
+        // The full report says which have a fix.
+        let mut fixable = SeverityCounts::default();
+        for v in all.iter().filter(|v| !v.fixed_version.is_empty()) {
+            fixable.add(v.severity);
+        }
+        row.fixable = fixable;
+        row.fixes_known = true;
+    }
+    if row.source == ScanSource::Kubescape && !triage.is_empty() {
+        let marks: Vec<_> = all.iter().map(super::triage::Mark::of).collect();
+        triage.apply_row(&mut row, &marks);
+    }
+    let vulnerabilities = filter_vulnerabilities(all, args);
     let fix_groups = fix_groups(&vulnerabilities);
-    Ok(ImageDetail {
+    let mut detail = ImageDetail {
         image: row,
         vulnerabilities,
         fix_groups,
         ignored: Vec::new(),
-    })
+    };
+    triage.apply_detail(&mut detail);
+    Ok(detail)
 }
 
 /// `nauvi vulns`: the list, or one image with `image`, as text or JSON.

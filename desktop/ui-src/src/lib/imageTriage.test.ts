@@ -28,6 +28,7 @@ function row(p: Partial<ImageVulns> = {}): ImageVulns {
     fixable: { ...zero, high: 2 },
     ignored: zero,
     kev: 0,
+    fixes_known: true,
     workloads: [{ kind: "Deployment", namespace: "shop", name: "web", container: "nginx" }],
     report_namespace: "shop",
     report_name: "r",

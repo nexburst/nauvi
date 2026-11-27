@@ -18,6 +18,7 @@ import { filesHandlers } from "./files";
 import { helpHandlers } from "./help";
 import { helmHandlers } from "./helm";
 import { helmChartsHandlers } from "./helm-charts";
+import { imageConfigHandlers } from "./image-config";
 import { imageScanHandlers } from "./image-scan";
 import { imageSecurityHandlers } from "./image-security";
 import { imageTriageHandlers } from "./image-triage";
@@ -58,6 +59,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...helpHandlers(s),
     ...helmHandlers(s),
     ...helmChartsHandlers(s),
+    ...imageConfigHandlers(s),
     ...imageScanHandlers(s),
     ...imageSecurityHandlers(s),
     ...imageTriageHandlers(s),

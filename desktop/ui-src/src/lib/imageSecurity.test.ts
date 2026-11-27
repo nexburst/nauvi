@@ -169,4 +169,29 @@ describe("image security", () => {
       "Only the first 2000 VulnerabilityReports were read; pick fewer namespaces to see the rest.",
     ]);
   });
+
+  it("says Kubescape's counts without claiming a fix (#538)", () => {
+    const row: ImageVulns = {
+      ...byImage("nginx:1.27"),
+      source: "kubescape",
+      fixable: { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
+      fixes_known: false,
+      scanner: "Kubescape",
+    };
+    const v = verdict(row, s);
+    expect(v.kind).toBe("findings");
+    expect(v.text).toBe("2 critical and 5 high. Open it to see which have a fix.");
+    // Never red: whether there is a fix is not known.
+    expect(v.tone).toBe("high");
+    // "Only fixable" cannot hide what has no known fix state.
+    expect(verdict(row, { ...s, only_fixable: true }).counted).toBe(7);
+    expect(headline(imageRows([row], s))).toBe("1 image has known vulnerabilities");
+    expect(sourceText(row, row.scanned_at + 3600).text).toBe("Kubescape scan, 1 hour ago");
+    expect(sourceText({ ...row, scanned: false }, 0).text).toBe("No Kubescape scan for it yet");
+    const forbidden = stateMessage(summary({ source: "kubescape", state: "forbidden", forbidden_namespaces: ["a"] }))!;
+    expect(forbidden.title).toBe("You are not allowed to list vulnerabilitymanifestsummaries in namespace a");
+    expect(forbidden.detail).toContain("vulnerabilitymanifestsummaries.spdx.softwarecomposition.kubescape.io");
+    expect(stateMessage(summary({ source: "kubescape", state: "no_reports" }))!.detail).toContain("Kubescape");
+    expect(stateMessage(summary({ state: "no_operator" }))!.detail).toContain("Kubescape");
+  });
 });

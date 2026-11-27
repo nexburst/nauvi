@@ -55,6 +55,7 @@ function image(p: Partial<ImageVulns> & Pick<ImageVulns, "image">): ImageVulns {
     fixable: zero,
     ignored: zero,
     kev: 0,
+    fixes_known: true,
     workloads: [],
     report_namespace: "",
     report_name: "",

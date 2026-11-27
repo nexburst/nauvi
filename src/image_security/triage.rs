@@ -199,6 +199,7 @@ mod tests {
             },
             ignored: SeverityCounts::default(),
             kev: 0,
+            fixes_known: true,
             workloads: vec![Workload {
                 kind: "Deployment".into(),
                 namespace: "shop".into(),

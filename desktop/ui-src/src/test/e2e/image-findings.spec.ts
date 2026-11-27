@@ -145,6 +145,7 @@ test("a container card says what image security knows about its image", async ({
           fixable: { ...zero, critical: 1 },
           ignored: zero,
           kev: 0,
+          fixes_known: true,
           workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "app" }],
           report_namespace: "demo",
           report_name: "replicaset-web-5d8f-app",
@@ -229,6 +230,7 @@ test("a CronJob's panel has the Security tab and the Images section like any wor
     const zero = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
     const base = {
       source: "trivy_operator" as const,
+      fixes_known: true,
       running: true,
       reports: 1,
       scanner: "Trivy 0.69.3",
