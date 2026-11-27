@@ -72,8 +72,8 @@
   function showTab(tab: ImageSecurityTab) {
     if (tab === imageConfig.tab) return;
     selectImage(null);
-    // The listing is read again when the tab opens (from the cache).
-    resetImageSecurity();
+    // The listing stays (a "Scan all" goes on, #563) and is read again
+    // from the cache when the tab opens.
     lastNonce = -1;
     imageConfig.tab = tab;
   }

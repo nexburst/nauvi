@@ -252,3 +252,28 @@ test("Kubescape's counts never claim a fix; the panel's full report does", async
     "Updating openssl to 3.0.15-1",
   );
 });
+
+test("a scanner on this computer only: the Configuration tab reads nothing from the cluster", async ({
+  page,
+}) => {
+  const fake = await openApp(page, (cluster) => {
+    cluster.settings.image_security = {
+      ...cluster.settings.image_security,
+      enabled: true,
+      source: "local",
+    };
+  });
+  await goToImageSecurity(page);
+  await tab(page, "config").click();
+  const state = view(page).getByTestId("image-config-local");
+  await expect(state).toContainText("Configuration checks come from the cluster");
+  await expect(state).toContainText("a scanner on this computer only");
+  await expect(configRows(page)).toHaveCount(0);
+  // Refresh reads nothing either.
+  await page.getByRole("button", { name: "Refresh" }).first().click();
+  await page.waitForTimeout(300);
+  expect((await fake.calls("cmdImageConfigSummary")).length).toBe(0);
+  expect((await fake.calls("cmdImageConfigDetail")).length).toBe(0);
+  await state.getByRole("button", { name: "Settings…" }).click();
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+});

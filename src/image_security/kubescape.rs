@@ -332,27 +332,30 @@ fn vulnerability(m: Match) -> Vulnerability {
 /// Parse one `VulnerabilityManifest` into its vulnerabilities (at most
 /// [`MAX_MATCHES`]).
 pub fn parse_manifest(json: &[u8]) -> serde_json::Result<Vec<Vulnerability>> {
-    serde_json::from_slice(json).map(vulnerabilities)
+    serde_json::from_slice(json).map(|raw| vulnerabilities(raw).0)
 }
 
-/// The vulnerabilities of one manifest.
+/// The vulnerabilities of one manifest (at most [`MAX_MATCHES`]), and
+/// whether it had more (#563: its counts are then the summary's).
 pub async fn get_manifest(
     client: &Client,
     namespace: &str,
     name: &str,
-) -> kube::Result<Vec<Vulnerability>> {
+) -> kube::Result<(Vec<Vulnerability>, bool)> {
     let path = url_path(GROUP, VERSION, MANIFESTS, Some(namespace));
     paged::get(client, &path, name).await.map(vulnerabilities)
 }
 
-fn vulnerabilities(raw: RawManifest) -> Vec<Vulnerability> {
-    raw.spec
-        .payload
-        .matches
+/// The first [`MAX_MATCHES`] vulnerabilities, and whether there were more.
+fn vulnerabilities(raw: RawManifest) -> (Vec<Vulnerability>, bool) {
+    let matches = raw.spec.payload.matches;
+    let capped = matches.len() > MAX_MATCHES;
+    let all = matches
         .into_iter()
         .take(MAX_MATCHES)
         .map(vulnerability)
-        .collect()
+        .collect();
+    (all, capped)
 }
 
 #[cfg(test)]
@@ -561,6 +564,24 @@ mod tests {
         assert!(v[1].title.chars().count() <= MAX_TITLE);
         assert_eq!(v[1].link, "");
         assert_eq!(v[2].severity, Severity::Low);
+    }
+
+    /// #563: a manifest with more than MAX_MATCHES matches is cut, and
+    /// says so; one with exactly MAX_MATCHES is not.
+    #[test]
+    fn a_long_manifest_says_it_was_cut() {
+        let manifest = |n: usize| {
+            let m = serde_json::json!({ "vulnerability": { "id": "CVE-2026-0001", "severity": "High" },
+                "artifact": { "name": "openssl", "version": "1" } });
+            let json = serde_json::json!({ "spec": { "payload": { "matches": vec![m; n] } } });
+            serde_json::from_value::<RawManifest>(json).unwrap()
+        };
+        let (all, capped) = vulnerabilities(manifest(MAX_MATCHES + 1));
+        assert_eq!(all.len(), MAX_MATCHES);
+        assert!(capped);
+        let (all, capped) = vulnerabilities(manifest(MAX_MATCHES));
+        assert_eq!(all.len(), MAX_MATCHES);
+        assert!(!capped);
     }
 
     #[test]
