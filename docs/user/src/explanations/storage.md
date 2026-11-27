@@ -9,6 +9,7 @@ kubeconfig files.
 | --- | --- | --- | --- |
 | Config | `~/.config/com.nauvi.app/` | `~/Library/Application Support/com.nauvi.app/` | `%APPDATA%\com.nauvi.app\` |
 | Data | `~/.local/share/com.nauvi.app/` | `~/Library/Application Support/com.nauvi.app/` | `%LOCALAPPDATA%\com.nauvi.app\` |
+| Cache | `~/.cache/com.nauvi.app/` | `~/Library/Caches/com.nauvi.app/` | `%LOCALAPPDATA%\com.nauvi.app\` |
 | Logs | `~/.local/share/com.nauvi.app/logs/` | `~/Library/Logs/com.nauvi.app/` | `%LOCALAPPDATA%\com.nauvi.app\logs\` |
 
 ## In the config folder
@@ -19,6 +20,7 @@ kubeconfig files.
 | `kubeconfigs/<name>.yaml` | Kubeconfigs you pasted into the catalog (mode 0600) |
 | `exec-approvals.json` | Your answers about login commands of added kubeconfigs, per source and command |
 | `proxies.json` | Per-cluster proxies, with their passwords (readable only by you) |
+| `image-scanner.json` | The Trivy or Grype file you approved for image security: its path, size and SHA-256 ([Image security](../how-to/image-security.md#scan-with-your-own-trivy-or-grype)) |
 
 **The watch** (the calm streak in the title bar) is kept in the app's local
 storage, per context.
@@ -38,6 +40,23 @@ nauvi updates. **Settings → AI** lists and removes them
 - `ask-ai/`: the folder Ask AI runs your AI CLI in, readable only by you on
   Linux and macOS. What the CLI leaves there is its own
   ([Ask AI](../reference/app/ask-ai.md#where-it-runs)).
+
+## In the cache folder
+
+Only with [image security](../how-to/image-security.md) settings that you
+turn on:
+
+- `image-scans/`: the results of scans with a Trivy or Grype on this
+  computer, one file per scanner and image digest, at most 500. A result is
+  reused until the scanner, its database or the platform changes.
+  `image-scans/work/` is the empty folder the scanner runs in.
+- `known-exploited/known-exploited.json`: the IDs and dates of CISA's list
+  of known exploited vulnerabilities, if you turned on its download.
+  Turning the download off deletes it.
+
+On Linux and macOS only you can read them (folders 0700, files 0600). It is
+safe to delete the cache folder: nauvi scans or downloads again only when
+you ask, or when the download is on.
 
 ## Temporary files
 

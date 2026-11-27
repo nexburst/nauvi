@@ -40,7 +40,20 @@ on one page. They hold:
 - **Image security**: show image vulnerabilities from the Trivy Operator
   (off by default), the least severity to count, only those with a fix,
   namespaces to leave out, and how long a reading is reused
-  ([Image security](../../how-to/image-security.md)).
+  ([Image security](../../how-to/image-security.md)). Also:
+  - **Source**: Trivy Operator reports in the cluster (the default), a
+    scanner on this computer, or cluster reports, then this computer for
+    the rest. With a scanner on this computer: **Scanner** (Trivy or
+    Grype), its approval (**Approve**, **Forget approval**, **Check
+    again**), **Database repository** and **Trivy server** for Trivy, and
+    **Do not let the scanner update its database**
+    ([Scan with your own Trivy or Grype](../../how-to/image-security.md#scan-with-your-own-trivy-or-grype));
+  - **Ignore file**: a `.trivyignore` whose vulnerabilities are ignored in
+    every image, and the list of your own ignores, with **Remove**
+    ([Ignore a vulnerability](../../how-to/image-security.md#ignore-a-vulnerability));
+  - **Download CISA's list of known exploited vulnerabilities**, off by
+    default, with **Download now**
+    ([Known exploited vulnerabilities](../../how-to/image-security.md#known-exploited-vulnerabilities)).
 - **About**: the version and commit, and **Copy diagnostics**
   ([Diagnostics](diagnostics.md)).
 

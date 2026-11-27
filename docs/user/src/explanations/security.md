@@ -67,9 +67,23 @@ A `nauvi://` link only opens a view. It never changes the cluster.
   those credentials only to the registry's own host or its parent domain (and auth.docker.io
   for Docker Hub)
   ([Find a newer tag](../how-to/image-tags.md)).
-- **Image security** (off by default) reads the Trivy Operator's reports with
-  your own access. nauvi scans nothing and downloads nothing for it
-  ([Image security](../how-to/image-security.md)).
+- **Image security** (off by default) reads the Trivy Operator's (or
+  Kubescape's) reports with your own access
+  ([Image security](../how-to/image-security.md)). nauvi downloads nothing
+  for it, except CISA's list of known exploited vulnerabilities when you
+  turn that on: one public file from `www.cisa.gov` over https, once a day,
+  with nothing about your clusters or images sent.
+- **A scanner on this computer** (off by default) is a Trivy or Grype you
+  installed. nauvi never downloads one, and runs the file only after you
+  approve it, by its size and SHA-256; a changed file is asked about again.
+  Trivy 0.69.4 to 0.69.6, malicious releases, are refused before they run,
+  from the version recorded in the file. nauvi turns off Trivy's telemetry
+  and the scanners' own update checks. The scanner still downloads and
+  updates its vulnerability database unless you turn on **Do not let the
+  scanner update its database**.
+  The scanner pulls images by digest with your own `docker login`, never
+  the cluster's pull secrets, and scans only when you click
+  ([Scan with your own Trivy or Grype](../how-to/image-security.md#scan-with-your-own-trivy-or-grype)).
 
 ## Downloads and updates
 

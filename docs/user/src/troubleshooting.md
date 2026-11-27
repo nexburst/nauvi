@@ -121,8 +121,9 @@ macOS runs from a temporary location can't. See [Update](how-to/update.md).
 
 ## Image security shows nothing
 
-It needs the Trivy Operator in the cluster and permission to list its
-reports. Each case has its own message
+It needs the Trivy Operator or Kubescape in the cluster and permission to
+list its reports, or a scanner on this computer. Each case has its own
+message
 ([Image security](how-to/image-security.md#when-nothing-is-listed)).
 
 ## Available tags fails for a registry
