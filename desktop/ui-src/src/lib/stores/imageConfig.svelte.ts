@@ -10,6 +10,7 @@ import type {
 } from "../bindings";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import { configKey, type ImageSecurityTab } from "../imageConfig";
+import { settingsSaved } from "./settings.svelte";
 
 class ImageConfigStore {
   /** The tab the Image security view shows. */
@@ -36,6 +37,9 @@ export async function loadImageConfig(namespaces: string[], refresh = false) {
   const seq = ++loadSeq;
   imageConfig.loading = true;
   try {
+    // The listing depends on the Source: read it once a change is saved.
+    await settingsSaved();
+    if (seq !== loadSeq) return;
     const list = await api(visibleCluster()).cmdImageConfigSummary(
       namespaces,
       refresh,
