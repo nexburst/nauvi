@@ -278,6 +278,9 @@ export function handleKey(e: KeyboardEvent) {
     case "rowFirst":
     case "rowLast": {
       const to = ({ rowDown: "next", rowUp: "prev", rowFirst: "first", rowLast: "last" } as const)[command];
+      // Home/End in a (read-only) editor of the panel are its own: moving
+      // the row would give the table the keys typed next (`d` opens a row).
+      if ((to === "first" || to === "last") && pointerInPanel) return;
       if (table) done(e, () => table?.move(to));
       return;
     }
