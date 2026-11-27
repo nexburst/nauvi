@@ -1,11 +1,13 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
+import type { ObjectLink } from "../../lib/bindings";
 import type { FakeCluster } from "../fixtures/cluster";
 import { openApp, openKind, row } from "./helpers";
 
 // #548: nauvi:// links in the Ask AI terminal open the object in the same
 // window (plain text or OSC 8); the same link printed by a pod shell does
-// nothing.
+// nothing. `nauvi show` (the backend's `askAi` request) opens a view with
+// "Opened by Ask AI", and Back returns.
 
 const panel = (page: Page) => page.getByTestId("detail-panel");
 const sidebar = (page: Page, name: string) => page.getByRole("navigation").getByRole("button", { name, exact: true });
@@ -15,6 +17,16 @@ const osc8 = (uri: string, text: string) => `\x1b]8;;${uri}\x07${text}\x1b]8;;\x
 const withClis = (cluster: FakeCluster) => {
   cluster.askAi = { found: ["claude"], nauvi: true, customError: "" };
 };
+
+const link = (over: Partial<ObjectLink> = {}): ObjectLink => ({
+  context: "kind-dev",
+  group: "",
+  version: "v1",
+  kind: "Pod",
+  namespace: "demo",
+  name: "web-2",
+  ...over,
+});
 
 async function startAskAi(page: Page) {
   await page.keyboard.press("ControlOrMeta+k");
@@ -100,4 +112,50 @@ test("the same link in a pod shell does nothing", async ({ page }) => {
   expect(await fake.calls("cmdCheckLink")).toEqual([]);
   await expect(sidebar(page, "Pods")).toHaveClass(/active/);
   await expect(panel(page).getByText(/node-/)).toHaveCount(0);
+});
+
+test("nauvi show opens the view with a notice, and Back returns", async ({ page }) => {
+  const fake = await openApp(page);
+  await openKind(page, "Deployments");
+  await row(page, "api").click();
+  await expect(panel(page)).toContainText("api");
+
+  await fake.openLink({ type: "askAi", link: link() });
+  await expect(panel(page)).toContainText("web-2");
+  await expect(page.getByTestId("opened-by-ai")).toContainText("Opened by Ask AI");
+  await expect(sidebar(page, "Pods")).toHaveClass(/active/);
+
+  // Back (the notice's or the header's) returns to where the user was; the notice goes.
+  await page.getByTestId("opened-by-ai").getByRole("button", { name: "Back" }).click();
+  await expect(sidebar(page, "Deployments")).toHaveClass(/active/);
+  await expect(panel(page)).toContainText("api");
+  await expect(page.getByTestId("opened-by-ai")).toHaveCount(0);
+
+  // A link the user opens says nothing about Ask AI.
+  await fake.openLink({ type: "open", link: link() });
+  await expect(panel(page)).toContainText("web-2");
+  await expect(page.getByTestId("opened-by-ai")).toHaveCount(0);
+
+  // A kind's table.
+  await fake.openLink({ type: "askAi", link: link({ kind: "Node", namespace: "", name: "" }) });
+  await expect(sidebar(page, "Nodes")).toHaveClass(/active/);
+  await expect(page.getByRole("status")).toContainText("Opened by Ask AI: the Node table");
+
+  // Another context's: a notice, as for any link.
+  await fake.openLink({ type: "askAi", link: link({ context: "prod" }) });
+  await expect(page.getByRole("alert")).toContainText("This link is for the context prod");
+  expect(await fake.calls("cmdSetContext")).toEqual([]);
+  expect(await fake.calls("cmdRunAction")).toEqual([]);
+  expect(fake.errors).toEqual([]);
+});
+
+test("Settings, AI: Let Ask AI open views is off until turned on", async ({ page }) => {
+  const fake = await openApp(page, withClis);
+  await page.keyboard.press("ControlOrMeta+,");
+  const box = page.getByTestId("ask-ai-open-views");
+  await box.scrollIntoViewIfNeeded();
+  await expect(box).not.toBeChecked();
+  await expect(page.getByTestId("ask-ai-settings")).toContainText("nauvi show");
+  await box.check();
+  await expect.poll(async () => (await fake.lastCall("cmdUpdateSettings")).patch).toEqual({ ask_ai_open_views: true });
 });

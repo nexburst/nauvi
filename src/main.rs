@@ -168,18 +168,27 @@ async fn run(cli: Cli) -> Result<()> {
             (_, None) => anyhow::bail!("describe needs <kind>/<name> or <kind> <name>"),
         },
         Commands::Link {
-            target,
-            name,
-            namespace,
+            ref target,
+            ref name,
+            ref namespace,
+        }
+        | Commands::Show {
+            ref target,
+            ref name,
+            ref namespace,
         } => {
             let args = nauvi::cli_links::LinkArgs {
                 kubeconfig: cli.kubeconfig.as_deref(),
                 context: cli.context.as_deref(),
-                target: &target,
+                target,
                 name: name.as_deref(),
                 namespace: namespace.as_deref(),
             };
-            nauvi::cli_links::print_link(&client, &args).await?;
+            if matches!(cli.command, Commands::Link { .. }) {
+                nauvi::cli_links::print_link(&client, &args).await?;
+            } else {
+                nauvi::cli_links::show(&client, &args).await?;
+            }
         }
         Commands::Problems {
             namespace,

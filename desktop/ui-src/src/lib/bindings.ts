@@ -1982,7 +1982,13 @@ export type LinkRequest =
 /**  Show this object. */
 { type: "open"; link: ObjectLink } | 
 /**  The link could not be opened; say why. */
-{ type: "notice"; message: string };
+{ type: "notice"; message: string } | 
+/**
+ *  Show this object, or with an empty name its kind's table: asked by
+ *  the window's own Ask AI session with `nauvi show` (#548). The
+ *  window says "Opened by Ask AI".
+ */
+{ type: "askAi"; link: ObjectLink };
 
 /**
  *  A started local shell: its session id, and the context and namespace
@@ -2778,6 +2784,7 @@ export type SettingsPatch_Deserialize = {
 	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
+	ask_ai_open_views?: boolean | null,
 	welcomed?: boolean | null,
 	tips_left?: number | null,
 };
@@ -2816,6 +2823,7 @@ export type SettingsPatch_Serialize = {
 	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
+	ask_ai_open_views?: boolean | null,
 	welcomed?: boolean | null,
 	tips_left?: number | null,
 };
@@ -2923,6 +2931,12 @@ export type Settings_Deserialize = {
 	 *  into words, never run through a shell.
 	 */
 	ask_ai_command?: string,
+	/**
+	 *  "Let Ask AI open views" (#548): `nauvi show` in an Ask AI terminal
+	 *  opens a view in its window. Off by default; read when a session
+	 *  starts (it gets a token only then) and on every request.
+	 */
+	ask_ai_open_views?: boolean,
 	/**
 	 *  The welcome screen (#485) was left once. `false` only in the
 	 *  settings of a first run (no settings file yet): a file from before
@@ -3040,6 +3054,12 @@ export type Settings_Serialize = {
 	 *  into words, never run through a shell.
 	 */
 	ask_ai_command: string,
+	/**
+	 *  "Let Ask AI open views" (#548): `nauvi show` in an Ask AI terminal
+	 *  opens a view in its window. Off by default; read when a session
+	 *  starts (it gets a token only then) and on every request.
+	 */
+	ask_ai_open_views: boolean,
 	/**
 	 *  The welcome screen (#485) was left once. `false` only in the
 	 *  settings of a first run (no settings file yet): a file from before

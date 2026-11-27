@@ -8,14 +8,22 @@ import { untrack } from "svelte";
 import { commands, events } from "../bindings";
 import { api, visibleCluster } from "../cluster";
 import type { LinkRequest, ObjectLink, ResourceRef } from "../bindings";
-import { linkKind, linkProblem } from "../links";
+import { linkKind, linkProblem, linkTitle } from "../links";
 import { thisWindow } from "../window";
 import { setNotice } from "./actions.svelte";
-import { app, currentContextName, kinds, openObject, setNamespaces } from "./app.svelte";
+import { app, currentContextName, kinds, openObject, setNamespaces, setView } from "./app.svelte";
+import { detail, sameTarget } from "./detail.svelte";
+import type { Target } from "./detail.svelte";
+import { hasUnsaved } from "./unsaved.svelte";
 
 class Links {
   /** An opened link waiting for the window to have started and discovered its kinds. */
   pending = $state.raw<ObjectLink | null>(null);
+  /** `pending` was asked for by this window's Ask AI session (`nauvi show`, #548). */
+  pendingByAi = false;
+  /** The object `nauvi show` opened last, while the panel still shows it:
+   *  the panel says "Opened by Ask AI". */
+  aiShown = $state.raw<Target | null>(null);
 }
 export const links = new Links();
 
@@ -79,6 +87,7 @@ function accept(request: LinkRequest | null): string | null {
     return null;
   }
   links.pending = request.link;
+  links.pendingByAi = request.type === "askAi";
   return request.link.context;
 }
 
@@ -112,17 +121,37 @@ export async function takePendingLink() {
 function show() {
   const link = links.pending;
   if (!link) return;
+  const byAi = links.pendingByAi;
   links.pending = null;
+  links.pendingByAi = false;
   const kind = linkKind(kinds.all, link);
   const problem = linkProblem(link, currentContextName(), kind);
   if (problem || !kind) {
     setNotice(false, problem);
     return;
   }
-  // Show the object's namespace if the scope leaves it out.
+  // Ask AI never makes the user choose about their unsaved edits.
+  if (byAi && hasUnsaved()) {
+    setNotice(false, `Ask AI asked to show ${linkTitle(link)}, but there are unsaved changes. Nothing was opened.`);
+    return;
+  }
   const scope = app.selectedNamespaces;
+  if (link.name === "") {
+    // A kind's table (only `nauvi show` asks for one): its namespace, if it names one.
+    if (link.namespace && !(scope.length === 1 && scope[0] === link.namespace)) setNamespaces([link.namespace]);
+    setView(kind.id);
+    setNotice(true, `Opened by Ask AI: ${linkTitle(link)}`);
+    return;
+  }
+  // Show the object's namespace if the scope leaves it out.
   if (link.namespace && scope.length > 0 && !scope.includes(link.namespace)) setNamespaces([link.namespace]);
   openObject(kind, link.namespace, link.name);
+  links.aiShown = byAi ? { resource: kind.resource, namespace: link.namespace, name: link.name } : null;
+}
+
+/** Whether the detail panel shows what `nauvi show` opened (#548). */
+export function openedByAi(target: Target | null): boolean {
+  return target !== null && links.aiShown !== null && sameTarget(target, links.aiShown);
 }
 
 /**
@@ -135,6 +164,13 @@ export async function listenLinks(): Promise<() => void> {
   const stop = $effect.root(() => {
     $effect(() => {
       if (app.ready && kinds.loaded && links.pending) untrack(show);
+    });
+    // "Opened by Ask AI" lasts while the panel shows that object.
+    $effect(() => {
+      const shown = detail.target;
+      untrack(() => {
+        if (links.aiShown && !openedByAi(shown)) links.aiShown = null;
+      });
     });
   });
   return () => {

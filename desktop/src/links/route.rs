@@ -35,6 +35,10 @@ pub(crate) enum LinkRequest {
     Open { link: ObjectLink },
     /// The link could not be opened; say why.
     Notice { message: String },
+    /// Show this object, or with an empty name its kind's table: asked by
+    /// the window's own Ask AI session with `nauvi show` (#548). The
+    /// window says "Opened by Ask AI".
+    AskAi { link: ObjectLink },
 }
 
 /// A window has a [`LinkRequest`] waiting: take it with `cmd_take_link`.
@@ -203,6 +207,14 @@ fn deliver(app: &AppHandle, label: Option<String>, request: LinkRequest) {
     };
     PENDING.lock().unwrap().insert(label.clone(), request);
     notify(app, &label);
+}
+
+/// Queue `request` for window `label` and tell it, without bringing it to
+/// the front: `nauvi show` (#548) never takes the focus from what the user
+/// is doing in another app.
+pub(crate) fn deliver_quiet(app: &AppHandle, label: &str, request: LinkRequest) {
+    PENDING.lock().unwrap().insert(label.to_string(), request);
+    WindowEmitter::new(app.clone(), label.to_string()).emit(LinkPending {});
 }
 
 /// The window a notice goes to: the main window, else the first one; on

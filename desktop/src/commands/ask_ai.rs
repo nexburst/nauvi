@@ -20,6 +20,7 @@
 //! reading `~/Pictures` or `~/Documents` from a process nauvi started
 //! makes macOS ask for nauvi to access Photos or Documents.
 
+use crate::ask_ai_show::ShowGrant;
 use crate::commands::local_shell::{shell_setup, ShellSetup};
 use crate::commands::term_frame::TermChannel;
 use crate::commands::term_out::{send_closed, send_data, TermOut};
@@ -399,6 +400,16 @@ pub(crate) async fn cmd_ask_ai_start(
     };
     let context_id = cluster.target()?.target.id;
     let on_output = TermOut::new(on_output);
+    // `nauvi show` (#548), only with the setting on when it starts: a
+    // token for this session, gone when its terminal's process ends.
+    let grant = match current.ask_ai_open_views {
+        true => Some(ShowGrant::new(
+            cluster.label(),
+            &context_id,
+            on_output.clone(),
+        )?),
+        false => None,
+    };
     // The CLI where the shell would run: its working directory and
     // environment, plus what the CLI needs for this session.
     let spec = ShellSpec {
@@ -409,7 +420,7 @@ pub(crate) async fn cmd_ask_ai_start(
             .env
             .into_iter()
             .chain(launch.env)
-            .chain(link_env(&context_id, &generated.context))
+            .chain(link_env(&context_id, &generated.context, grant.as_ref()))
             .collect(),
     };
     tracing::info!("Ask AI: starting {label} at {id} (skill: {skill})");
@@ -425,6 +436,7 @@ pub(crate) async fn cmd_ask_ai_start(
         },
         move || {
             send_closed(&exit_out);
+            drop(grant);
         },
     )
     .map_err(|e| e.replace("the shell", &label))?;
@@ -450,13 +462,23 @@ pub(crate) async fn cmd_ask_ai_start(
     })
 }
 
-/// What `nauvi link` reads in the session (#548): the context's catalog id
-/// and its name in the terminal's kubeconfig.
-fn link_env(context_id: &str, kube_context: &str) -> Vec<(OsString, OsString)> {
-    vec![
+/// What `nauvi link` and `nauvi show` read in the session (#548): the
+/// context's catalog id and its name in the terminal's kubeconfig, and with
+/// a grant its token and this app's program.
+fn link_env(
+    context_id: &str,
+    kube_context: &str,
+    grant: Option<&ShowGrant>,
+) -> Vec<(OsString, OsString)> {
+    let mut env: Vec<(OsString, OsString)> = vec![
         (links::LINK_CONTEXT_ENV.into(), context_id.into()),
         (links::LINK_KUBE_CONTEXT_ENV.into(), kube_context.into()),
-    ]
+    ];
+    if let (Some(grant), Ok(app)) = (grant, std::env::current_exe()) {
+        env.push((links::SHOW_SESSION_ENV.into(), grant.token().into()));
+        env.push((links::SHOW_APP_ENV.into(), app.into_os_string()));
+    }
+    env
 }
 
 /// Ask AI's own folder in the app's data folder `data`, created (only the

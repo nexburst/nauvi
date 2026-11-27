@@ -10,4 +10,6 @@ mod route;
 pub(crate) use nauvi::links::{is_link, parse, ObjectLink};
 #[cfg(target_os = "macos")]
 pub(crate) use route::opened;
-pub(crate) use route::{check, open_from_args, open_launch_link, take, LinkPending, LinkRequest};
+pub(crate) use route::{
+    check, deliver_quiet, open_from_args, open_launch_link, take, LinkPending, LinkRequest,
+};

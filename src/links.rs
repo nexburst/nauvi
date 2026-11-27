@@ -38,6 +38,14 @@ const TABLE: &str = "_";
 pub const LINK_CONTEXT_ENV: &str = "NAUVI_LINK_CONTEXT";
 pub const LINK_KUBE_CONTEXT_ENV: &str = "NAUVI_LINK_KUBE_CONTEXT";
 
+/// `nauvi show` (#548): the Ask AI session's token in its terminal's
+/// environment (set only while "Let Ask AI open views" was on when the
+/// session started), the app's own program, and the argument that starts
+/// that program as a hand-over: `<program> --ask-ai-show <token> <request>`.
+pub const SHOW_SESSION_ENV: &str = "NAUVI_ASK_AI_SESSION";
+pub const SHOW_APP_ENV: &str = "NAUVI_APP";
+pub const SHOW_FLAG: &str = "--ask-ai-show";
+
 /// What a link points at.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]

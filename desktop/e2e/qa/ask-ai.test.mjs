@@ -450,6 +450,11 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     assert.equal(rec.link_code, 0, rec.link_err);
     assert.equal(rec.link, brokenLink());
     assert.equal(rec.link_context, CONTEXT);
+    // The setting is off: no token, and `nauvi show` gives the link instead.
+    assert.equal(rec.show_token, "");
+    assert.match(rec.show_first, /Let Ask AI open views/);
+    assert.ok(rec.show_first.includes(brokenLink()), rec.show_first);
+    assert.match(await panelText(app), /\basked\b/, "nauvi show opened nothing");
     await app.shot("links-printed");
 
     await clickText(app, brokenLink());
@@ -487,6 +492,88 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     assert.match(await panelText(app), /\basked\b/);
     assert.doesNotMatch(await panelText(app), /\bbroken\b/);
     await app.shot("pod-shell-link-ignored");
+    for (const tab of await dockTabs(app)) await closeTab(app, tab.title);
+  });
+
+  it("with Let Ask AI open views on, nauvi show opens the pod; Back returns; one per 3 s (light and dark)", { ...T, skip: noCli || noPython }, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    await openAiSettings(app);
+    const box = await app.find(byTestId("ask-ai-open-views"));
+    await app.js("arguments[0].scrollIntoView({ block: 'center' })", box);
+    assert.equal(await box.isSelected(), false, "off by default");
+    await app.shot("settings-open-views-off");
+    await box.click();
+    await app.waitFor(() => app.profile.settings()?.ask_ai_open_views === true, { message: "the setting saved" });
+    await closeSettings(app);
+
+    await app.nav("Deployments");
+    const before = records(record).length;
+    await app.palette("ask ai", "Ask AI");
+    await waitDialog(app);
+    await (await app.find(byTestId("ask-ai-start"))).click();
+    const term = terminal(app);
+    await term.waitFor("Type done to exit", { timeout: 90_000 });
+    await app.waitFor(() => records(record).length > before, { message: "the fake CLI recorded its start" });
+    const rec = records(record).at(-1);
+    assert.match(rec.show_token, /^[0-9a-f]{64}$/, "a token for this session");
+    assert.ok(existsSync(rec.show_app), rec.show_app);
+    // Its first `nauvi show` (at start) opened the broken pod.
+    await app.waitFor(async () => /\bbroken\b/.test(await panelText(app)), { timeout: 30_000, message: "nauvi show's pod" });
+    await app.find(byTestId("opened-by-ai"));
+    assert.match(rec.show_first, /Asked the nauvi app to show Pod .*\/broken/);
+    await app.shot("show-opened-light");
+    await setTheme(app, "dark");
+    await app.shot("show-opened-dark");
+    await setTheme(app, "light");
+
+    // Again within 3 s: dropped, with a line in the terminal.
+    await new Promise((r) => setTimeout(r, 3200));
+    await term.type("show pod/asked");
+    await term.waitFor("SHOW| Asked the nauvi app to show Pod", { timeout: 30_000 });
+    await term.type("show pod/broken");
+    await term.waitFor("asked again within 3 seconds", { timeout: 30_000 });
+    await app.waitFor(async () => /\basked\b/.test(await panelText(app)), { message: "the second request's pod" });
+    await app.shot("show-rate-limited");
+
+    // Back returns to where the user was before Ask AI opened it.
+    const back = await app.find(By.xpath("//*[@data-testid='opened-by-ai']//button[normalize-space()='Back']"));
+    await back.click();
+    await app.waitFor(async () => /\bbroken\b/.test(await panelText(app)), { message: "Back to the previous view" });
+
+    // A kind's table.
+    await new Promise((r) => setTimeout(r, 3200));
+    await term.type("show pods");
+    await app.waitFor(
+      async () => (await app.js("return document.body.innerText")).includes(`Opened by Ask AI: the Pod table in ${ns}`),
+      { timeout: 30_000, message: "the table notice" },
+    );
+    await app.shot("show-table");
+
+    // From the user's shell after the CLI: a wrong token never opens anything.
+    await term.type("done");
+    await term.waitFor("This is your shell", { timeout: 30_000 });
+    await term.waitForPrompt();
+    await app.openDetail("Pods", ns, "asked");
+    await new Promise((r) => setTimeout(r, 3200));
+    const wrong = await term.run(`NAUVI_ASK_AI_SESSION=${"0".repeat(64)} nauvi show pod/broken -n ${ns}`, { timeout: 60_000 });
+    assert.match(wrong, /Asked the nauvi app/);
+    const none = await term.run(`env -u NAUVI_ASK_AI_SESSION nauvi show pod/broken -n ${ns}`, { timeout: 60_000 });
+    assert.match(none, /opens views only from the Ask AI terminal/);
+    await new Promise((r) => setTimeout(r, 2000));
+    assert.doesNotMatch(await panelText(app), /\bbroken\b/, "no view from a wrong or missing token");
+
+    // The session's token goes with its terminal.
+    for (const tab of await dockTabs(app)) await closeTab(app, tab.title);
+    await app.palette("local term", "New local terminal");
+    const local = terminal(app);
+    await local.waitForPrompt();
+    await local.run(
+      `NAUVI_ASK_AI_SESSION=${rec.show_token} NAUVI_APP='${rec.show_app}' nauvi show pod/broken -n ${ns}`,
+      { timeout: 60_000 },
+    );
+    await new Promise((r) => setTimeout(r, 2000));
+    assert.doesNotMatch(await panelText(app), /\bbroken\b/, "a closed session's token opens nothing");
     for (const tab of await dockTabs(app)) await closeTab(app, tab.title);
   });
 });
