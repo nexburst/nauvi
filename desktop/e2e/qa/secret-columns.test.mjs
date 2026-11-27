@@ -67,7 +67,9 @@ async function closeChooser(app) {
 }
 /** Fill the form of a new column (the chooser open) and press Add; the error shown, if any. */
 async function tryColumn(app, { name, from, value }) {
-  if ((await app.driver.findElements(field("Name"))).length === 0) await click(app, button("+ Add column…"));
+  // The column list has a "Name" checkbox too: look for the form itself.
+  if ((await app.driver.findElements(inDialog("//form[contains(@class, 'draft')]"))).length === 0)
+    await click(app, button("+ Add column…"));
   await app.setValue(await app.find(field("Name")), name);
   const select = await app.find(field("From"));
   await (await select.findElement(By.xpath(`./option[normalize-space()=${xq(from)}]`))).click();
