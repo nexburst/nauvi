@@ -2,6 +2,7 @@
 //! `status.containerStatuses[].imageID`), by reference when there is none.
 
 use super::Workload;
+use crate::text::single_line;
 use k8s_openapi::api::core::v1::Pod;
 use std::collections::BTreeMap;
 
@@ -125,6 +126,8 @@ pub fn pod_images(pods: &[Pod]) -> Vec<RunningImage> {
     for pod in pods {
         let namespace = pod.metadata.namespace.clone().unwrap_or_default();
         let (owner_kind, owner_name, kind, name) = owner_of(pod);
+        let [owner_kind, owner_name, kind, name] =
+            [owner_kind, owner_name, kind, name].map(|s| single_line(&s));
         let Some(spec) = &pod.spec else { continue };
         let status = pod.status.as_ref();
         let statuses = status
@@ -146,21 +149,23 @@ pub fn pod_images(pods: &[Pod]) -> Vec<RunningImage> {
             .flatten()
             .chain(spec.containers.iter());
         for c in containers {
-            let Some(reference) = c.image.as_deref().filter(|i| !i.is_empty()) else {
+            // Cluster text: clean before it is stored, shown or compared.
+            let reference = single_line(c.image.as_deref().unwrap_or(""));
+            if reference.is_empty() {
                 continue;
-            };
+            }
             let digest = ids
                 .get(c.name.as_str())
-                .map_or(String::new(), |id| image_digest(id));
+                .map_or(String::new(), |id| single_line(&image_digest(id)));
             let key = if digest.is_empty() {
-                normalize(reference)
+                normalize(&reference)
             } else {
                 digest.clone()
             };
             let i = *index.entry(key.clone()).or_insert_with(|| {
                 out.push(RunningImage {
                     key,
-                    reference: reference.to_string(),
+                    reference: reference.clone(),
                     digest: digest.clone(),
                     uses: Vec::new(),
                 });
@@ -173,7 +178,7 @@ pub fn pod_images(pods: &[Pod]) -> Vec<RunningImage> {
                     kind: kind.clone(),
                     namespace: namespace.clone(),
                     name: name.clone(),
-                    container: c.name.clone(),
+                    container: single_line(&c.name),
                 },
             };
             if !out[i].uses.contains(&usage) {

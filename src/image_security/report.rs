@@ -4,10 +4,11 @@
 use super::images::{normalize, pod_images, short_reference, RunningImage};
 use super::trivy_operator::{self as trivy, Access, ReportSummary};
 use super::{
-    FixGroup, ImageDetail, ImageVulns, Severity, SeverityCounts, Vulnerability, VulnsArgs,
-    VulnsState, VulnsSummary, Workload,
+    FixGroup, ImageDetail, ImageVulns, ScanSource, Severity, SeverityCounts, Vulnerability,
+    VulnsArgs, VulnsState, VulnsSummary, Workload,
 };
 use crate::bounded_list::list_bounded;
+use crate::resources::ResourceKind;
 use anyhow::{bail, Result};
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
@@ -17,10 +18,27 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 /// Most pods one listing reads.
 pub const MAX_PODS: usize = 5000;
 
+/// How a row of a report no running pod matched names its image:
+/// `nginx:1.27`, or `nginx@sha256:...` without a tag.
+fn report_image(r: &ReportSummary) -> String {
+    let repo = short_reference(&r.reference);
+    if r.tagged {
+        return repo;
+    }
+    let repo = repo.strip_suffix(":latest").unwrap_or(&repo);
+    if r.digest.is_empty() {
+        repo.to_string()
+    } else {
+        format!("{repo}@{}", r.digest)
+    }
+}
+
 fn empty_row(image: String, digest: String) -> ImageVulns {
     ImageVulns {
+        source: ScanSource::TrivyOperator,
         image,
         digest,
+        running: false,
         scanned: false,
         counts: SeverityCounts::default(),
         fixable: SeverityCounts::default(),
@@ -53,6 +71,7 @@ pub fn aggregate(running: &[RunningImage], reports: &[ReportSummary]) -> Vec<Ima
     for img in running {
         let i = rows.len();
         let mut row = empty_row(img.reference.clone(), img.digest.clone());
+        row.running = true;
         for u in &img.uses {
             add_workload(&mut row, u.workload.clone());
             by_owner.insert(
@@ -81,30 +100,45 @@ pub fn aggregate(running: &[RunningImage], reports: &[ReportSummary]) -> Vec<Ima
         );
         let owner = by_owner.get(&owner_key).cloned();
         let normalized = normalize(&r.reference);
-        let found = (!r.digest.is_empty())
-            .then(|| by_digest.get(&r.digest).copied())
-            .flatten()
-            .or_else(|| owner.as_ref().map(|(i, _)| *i))
-            .or_else(|| match by_ref.get(&normalized).map(Vec::as_slice) {
-                Some(&[i]) => Some(i),
-                _ => None,
-            });
+        // A report with a digest joins only that digest: one whose digest
+        // no pod runs is of another build (an older push of a mutable
+        // tag), even when its workload still runs. Without a digest it
+        // joins its workload, else a unique reference, and only a tagged
+        // one (no tag is not `:latest`).
+        let by_owner_row = owner.as_ref().map(|(i, _)| *i);
+        let found = if !r.digest.is_empty() {
+            by_digest.get(&r.digest).copied()
+        } else {
+            by_owner_row.or_else(
+                || match (r.tagged, by_ref.get(&normalized).map(Vec::as_slice)) {
+                    (true, Some(&[i])) => Some(i),
+                    _ => None,
+                },
+            )
+        };
+        let joined_owner = found.is_some() && found == by_owner_row;
         let i = match found {
             Some(i) => i,
             None => {
                 let i = rows.len();
-                rows.push(empty_row(short_reference(&r.reference), r.digest.clone()));
+                rows.push(empty_row(report_image(r), r.digest.clone()));
                 if !r.digest.is_empty() {
                     by_digest.insert(r.digest.clone(), i);
                 }
-                by_ref.entry(normalized).or_default().push(i);
+                if r.tagged {
+                    by_ref.entry(normalized).or_default().push(i);
+                }
                 i
             }
         };
         let row = &mut rows[i];
-        // A report's own workload, as the pods show it when one matched
-        // (the Deployment, not its ReplicaSet).
-        let workload = owner.map_or_else(|| r.owner.clone(), |(_, w)| w);
+        // A report's own workload, as the pods show it when it joined them
+        // (the Deployment, not its ReplicaSet); as the report names it
+        // otherwise.
+        let workload = match owner {
+            Some((_, w)) if joined_owner => w,
+            _ => r.owner.clone(),
+        };
         if i >= running_rows && !workload.name.is_empty() {
             add_workload(row, workload);
         }
@@ -254,40 +288,77 @@ struct Read {
     forbidden: bool,
 }
 
+/// What one call may still read, shared by every namespace it reads (the
+/// per-namespace fallback reads many).
+struct Budget {
+    reports: usize,
+    pods: usize,
+    /// Reports or pods were left unread.
+    cut_reports: bool,
+    cut_pods: bool,
+}
+
+impl Budget {
+    fn new() -> Self {
+        Budget {
+            reports: trivy::MAX_REPORTS,
+            pods: MAX_PODS,
+            cut_reports: false,
+            cut_pods: false,
+        }
+    }
+
+    fn notes(&self, notes: &mut Vec<String>) {
+        if self.cut_reports {
+            notes.push(format!(
+                "Only the first {} VulnerabilityReports were read; narrow with -n.",
+                trivy::MAX_REPORTS
+            ));
+        }
+        if self.cut_pods {
+            notes.push(format!(
+                "Only the first {MAX_PODS} pods were read; narrow with -n."
+            ));
+        }
+    }
+}
+
 async fn read_scope(
     client: &Client,
     namespace: Option<&str>,
+    budget: &mut Budget,
     notes: &mut Vec<String>,
 ) -> Result<Read> {
     let mut out = Read::default();
     let place = namespace.map_or("all namespaces".to_string(), |n| n.to_string());
-    match trivy::list_summaries(client, namespace).await {
-        Ok(listed) => {
-            if listed.more {
-                notes.push(format!(
-                    "Only the first {} VulnerabilityReports in {place} were read; narrow with -n.",
-                    trivy::MAX_REPORTS
-                ));
+    if budget.reports == 0 {
+        budget.cut_reports = true;
+    } else {
+        match trivy::list_summaries(client, namespace, budget.reports).await {
+            Ok(listed) => {
+                budget.cut_reports |= listed.more;
+                budget.reports -= listed.reports.len().min(budget.reports);
+                out.reports = listed.reports;
             }
-            out.reports = listed.reports;
+            Err(e) if is_forbidden(&e) => {
+                out.forbidden = true;
+                return Ok(out);
+            }
+            Err(e) => return Err(api_error("VulnerabilityReports", e)),
         }
-        Err(e) if is_forbidden(&e) => {
-            out.forbidden = true;
-            return Ok(out);
-        }
-        Err(e) => return Err(api_error("VulnerabilityReports", e)),
+    }
+    if budget.pods == 0 {
+        budget.cut_pods = true;
+        return Ok(out);
     }
     let api: Api<Pod> = match namespace {
         Some(ns) => Api::namespaced(client.clone(), ns),
         None => Api::all(client.clone()),
     };
-    match list_bounded(&api, &ListParams::default(), MAX_PODS).await {
+    match list_bounded(&api, &ListParams::default(), budget.pods).await {
         Ok(list) => {
-            if list.more {
-                notes.push(format!(
-                    "Only the first {MAX_PODS} pods in {place} were read; narrow with -n."
-                ));
-            }
+            budget.cut_pods |= list.more;
+            budget.pods -= list.items.len().min(budget.pods);
             out.pods = list.items;
         }
         Err(e) => notes.push(format!(
@@ -300,6 +371,7 @@ async fn read_scope(
 
 fn summary(state: VulnsState, args: &VulnsArgs) -> VulnsSummary {
     VulnsSummary {
+        source: ScanSource::TrivyOperator,
         state,
         namespace: args.namespace.clone().unwrap_or_default(),
         namespaces_read: Vec::new(),
@@ -311,16 +383,37 @@ fn summary(state: VulnsState, args: &VulnsArgs) -> VulnsSummary {
 
 /// The images of a namespace (or of every namespace the user may read)
 /// with their vulnerability counts. Reads the reports only when asked: no
-/// watch, nothing cached.
+/// watch, nothing cached. Asks discovery whether the CRD exists; a caller
+/// that already discovered the kinds uses [`image_vulns_in`].
 pub async fn image_vulns(client: &Client, args: &VulnsArgs) -> Result<VulnsSummary> {
-    let namespace = args.namespace.as_deref().filter(|n| !n.is_empty());
-    if let Some(ns) = namespace {
-        check_namespace(ns)?;
-    }
-    if !trivy::served(client)
+    check_args(args)?;
+    let served = trivy::served(client)
         .await
-        .map_err(|e| api_error("the API groups", e))?
-    {
+        .map_err(|e| api_error("the API groups", e))?;
+    read_vulns(client, args, served).await
+}
+
+/// [`image_vulns`] for a caller that has the discovered kinds (the app):
+/// whether the CRD exists comes from them, without another request.
+pub async fn image_vulns_in(
+    client: &Client,
+    kinds: &[ResourceKind],
+    args: &VulnsArgs,
+) -> Result<VulnsSummary> {
+    check_args(args)?;
+    read_vulns(client, args, trivy::served_in(kinds)).await
+}
+
+fn check_args(args: &VulnsArgs) -> Result<()> {
+    match args.namespace.as_deref().filter(|n| !n.is_empty()) {
+        Some(ns) => check_namespace(ns),
+        None => Ok(()),
+    }
+}
+
+async fn read_vulns(client: &Client, args: &VulnsArgs, served: bool) -> Result<VulnsSummary> {
+    let namespace = args.namespace.as_deref().filter(|n| !n.is_empty());
+    if !served {
         return Ok(summary(VulnsState::NoOperator, args));
     }
     let mut out = summary(VulnsState::Ok, args);
@@ -341,8 +434,9 @@ pub async fn image_vulns(client: &Client, args: &VulnsArgs) -> Result<VulnsSumma
     };
     let (mut pods, mut reports) = (Vec::new(), Vec::new());
     let mut forbidden = 0;
+    let mut budget = Budget::new();
     for scope in &scopes {
-        let read = read_scope(client, scope.as_deref(), &mut out.notes).await?;
+        let read = read_scope(client, scope.as_deref(), &mut budget, &mut out.notes).await?;
         if read.forbidden {
             forbidden += 1;
         }
@@ -354,6 +448,7 @@ pub async fn image_vulns(client: &Client, args: &VulnsArgs) -> Result<VulnsSumma
         out.notes.clear();
         return Ok(out);
     }
+    budget.notes(&mut out.notes);
     let running = pod_images(&pods);
     let rows = aggregate(&running, &reports);
     out.unscanned = rows.iter().filter(|r| !r.scanned).count() as u32;
@@ -518,6 +613,85 @@ pub(crate) mod tests {
         assert_eq!(rows[2].workloads, [w("Pod", "static", "init")]);
     }
 
+    fn summary_of(owner: Workload, reference: &str, tagged: bool, digest: &str) -> ReportSummary {
+        ReportSummary {
+            namespace: "shop".into(),
+            name: "r".into(),
+            owner,
+            reference: reference.into(),
+            tagged,
+            digest: digest.into(),
+            scanner: "Trivy 0.58.1".into(),
+            scanned_at: 1,
+            counts: SeverityCounts {
+                high: 4,
+                ..Default::default()
+            },
+            fixable: SeverityCounts::default(),
+        }
+    }
+
+    fn running() -> Vec<RunningImage> {
+        let v: serde_json::Value =
+            serde_json::from_str(include_str!("testdata/pods.json")).unwrap();
+        let pods: Vec<Pod> = serde_json::from_value(v["items"].clone()).unwrap();
+        pod_images(&pods)
+    }
+
+    /// A report of an older build of a mutable tag: its workload still
+    /// runs, but with another digest. It is its own row, not running, and
+    /// the running image stays unscanned.
+    #[test]
+    fn a_stale_digest_does_not_join_by_workload() {
+        let stale = summary_of(
+            w("ReplicaSet", "web-5f6b7c", "nginx"),
+            "index.docker.io/library/nginx:1.27",
+            true,
+            "sha256:0ld",
+        );
+        let rows = aggregate(&running(), &[stale]);
+        let nginx: Vec<_> = rows.iter().filter(|r| r.image == "nginx:1.27").collect();
+        assert_eq!(nginx.len(), 2, "{rows:?}");
+        let (scanned, live): (Vec<&ImageVulns>, Vec<&ImageVulns>) =
+            nginx.iter().copied().partition(|r| r.scanned);
+        assert_eq!(scanned[0].digest, "sha256:0ld");
+        assert!(!scanned[0].running);
+        // Named as the report names it, not as the Deployment.
+        assert_eq!(
+            scanned[0].workloads,
+            [w("ReplicaSet", "web-5f6b7c", "nginx")]
+        );
+        assert!(live[0].running && live[0].digest == "sha256:1111");
+    }
+
+    /// A report with a digest but no tag is not `:latest`: it never joins
+    /// by reference, and its row is named by digest.
+    #[test]
+    fn an_untagged_report_does_not_join_latest() {
+        let pod: Pod = serde_json::from_value(serde_json::json!({
+            "metadata": { "name": "p", "namespace": "shop" },
+            "spec": { "containers": [{ "name": "c", "image": "app" }] },
+            "status": { "phase": "Pending" }
+        }))
+        .unwrap();
+        let untagged = summary_of(w("Pod", "other", "c"), "ghcr.io/org/app", false, "");
+        let digested = summary_of(
+            w("Pod", "other", "c"),
+            "index.docker.io/library/app",
+            false,
+            "sha256:abc",
+        );
+        let rows = aggregate(&pod_images(&[pod]), &[untagged, digested]);
+        let live = rows.iter().find(|r| r.running).unwrap();
+        assert!(!live.scanned, "{rows:?}");
+        let names: Vec<_> = rows
+            .iter()
+            .filter(|r| r.scanned)
+            .map(|r| r.image.as_str())
+            .collect();
+        assert_eq!(names, ["app@sha256:abc", "ghcr.io/org/app"]);
+    }
+
     #[test]
     fn a_report_without_a_running_pod_is_its_own_row() {
         let (reports, _) = parse_list(include_bytes!("testdata/reports.json")).unwrap();
@@ -626,5 +800,113 @@ pub(crate) mod tests {
         for bad in ["", "../x", "a/b", "A", "-a", "a-", &"a".repeat(64)] {
             assert!(check_namespace(bad).is_err(), "{bad}");
         }
+    }
+
+    /// A cluster where only namespaced lists are allowed: `default` and
+    /// `ns-0`..`ns-2`, each with 900 reports and no pods. Records the path
+    /// of each request.
+    fn fallback_server() -> (Client, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        use http_body_util::BodyExt;
+        use kube::client::Body;
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let log = seen.clone();
+        let svc = tower::service_fn(move |req: http::Request<Body>| {
+            let log = log.clone();
+            async move {
+                let path = req.uri().path().to_string();
+                let query = req.uri().query().unwrap_or_default().to_string();
+                log.lock().unwrap().push(path.clone());
+                let param = |name: &str| {
+                    query
+                        .split('&')
+                        .find_map(|kv| kv.strip_prefix(&format!("{name}=")))
+                        .map(str::to_string)
+                };
+                let body = if path == "/apis/aquasecurity.github.io/v1alpha1" {
+                    serde_json::json!({
+                        "kind": "APIResourceList", "groupVersion": "aquasecurity.github.io/v1alpha1",
+                        "resources": [{ "name": "vulnerabilityreports", "singularName": "",
+                            "namespaced": true, "kind": "VulnerabilityReport", "verbs": ["list"] }]
+                    })
+                } else if path.ends_with("/selfsubjectaccessreviews") {
+                    let bytes = req.into_body().collect().await.unwrap().to_bytes();
+                    let review: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                    let namespaced = review
+                        .pointer("/spec/resourceAttributes/namespace")
+                        .is_some_and(|n| n.is_string());
+                    let mut review = review;
+                    review["status"] = serde_json::json!({ "allowed": namespaced });
+                    review
+                } else if path == "/api/v1/namespaces" {
+                    let items: Vec<_> = (0..3)
+                        .map(|i| serde_json::json!({ "metadata": { "name": format!("ns-{i}") } }))
+                        .collect();
+                    serde_json::json!({ "kind": "NamespaceList", "metadata": {}, "items": items })
+                } else if path.ends_with("/vulnerabilityreports") {
+                    let limit: usize = param("limit").and_then(|l| l.parse().ok()).unwrap_or(900);
+                    let start: usize = param("continue").and_then(|c| c.parse().ok()).unwrap_or(0);
+                    let end = (start + limit).min(900);
+                    let items: Vec<_> = (start..end)
+                        .map(|i| serde_json::json!({
+                            "metadata": { "name": format!("r{i}"), "namespace": "x" },
+                            "report": { "artifact": { "repository": format!("{}-app{i}", path.split('/').nth(5).unwrap_or("")), "tag": "1" },
+                                "summary": { "lowCount": 1 } }
+                        }))
+                        .collect();
+                    let token = if end < 900 {
+                        end.to_string()
+                    } else {
+                        String::new()
+                    };
+                    serde_json::json!({ "metadata": { "continue": token }, "items": items })
+                } else {
+                    serde_json::json!({ "kind": "PodList", "metadata": {}, "items": [] })
+                };
+                Ok::<_, std::convert::Infallible>(http::Response::new(Body::from(
+                    body.to_string().into_bytes(),
+                )))
+            }
+        });
+        (Client::new(svc, "default"), seen)
+    }
+
+    /// The per-namespace fallback shares one budget: 4 namespaces of 900
+    /// reports give 2000 in all, and the last namespace is not read.
+    #[tokio::test]
+    async fn the_namespace_fallback_shares_one_budget() {
+        let (client, seen) = fallback_server();
+        let s = image_vulns(&client, &VulnsArgs::default()).await.unwrap();
+        assert_eq!(s.state, VulnsState::Ok);
+        assert_eq!(s.namespaces_read, ["default", "ns-0", "ns-1", "ns-2"]);
+        assert_eq!(
+            s.images.len(),
+            crate::image_security::trivy_operator::MAX_REPORTS
+        );
+        assert!(
+            s.notes
+                .iter()
+                .any(|n| n.starts_with("Only the first 2000 VulnerabilityReports")),
+            "{:?}",
+            s.notes
+        );
+        let seen = seen.lock().unwrap();
+        assert!(
+            !seen
+                .iter()
+                .any(|p| p.contains("/namespaces/ns-2/vulnerabilityreports")),
+            "{seen:?}"
+        );
+    }
+
+    /// The app passes the kinds it discovered: no discovery request.
+    #[tokio::test]
+    async fn the_discovered_kinds_say_whether_the_crd_exists() {
+        let (client, seen) = fallback_server();
+        let s = image_vulns_in(&client, &[], &VulnsArgs::default())
+            .await
+            .unwrap();
+        assert_eq!(s.state, VulnsState::NoOperator);
+        assert_eq!(s.source, ScanSource::TrivyOperator);
+        assert!(seen.lock().unwrap().is_empty());
     }
 }

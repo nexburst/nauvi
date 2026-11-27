@@ -235,6 +235,8 @@ pub struct ReportSummary {
     pub owner: Workload,
     /// `index.docker.io/library/nginx:1.27`, from the artifact.
     pub reference: String,
+    /// The artifact has a tag (a reference without one is not `:latest`).
+    pub tagged: bool,
     /// `sha256:...`, empty when the report has none.
     pub digest: String,
     /// `Trivy 0.58.1`.
@@ -251,6 +253,13 @@ pub struct ReportSummary {
 pub struct FullReport {
     pub summary: ReportSummary,
     pub vulnerabilities: Vec<Vulnerability>,
+}
+
+/// Cluster text on one line, without control, bidi or zero-width
+/// characters: every string a report gives goes through it, so the JSON
+/// output and the app get clean text too, not only the table.
+fn clean(s: &str) -> String {
+    crate::text::single_line(s)
 }
 
 fn secs(ts: &str) -> i64 {
@@ -282,30 +291,28 @@ fn summarize<V>(raw: &Raw<V>, fixable: SeverityCounts) -> ReportSummary {
         reference.push(':');
         reference.push_str(&r.artifact.tag);
     }
-    let scanner = format!("{} {}", r.scanner.name, r.scanner.version)
-        .trim()
-        .to_string();
     let scanned_at = match secs(&r.update_timestamp) {
         0 => secs(&m.creation_timestamp),
         t => t,
     };
     let s = &r.summary;
     let namespace = match label(m, "trivy-operator.resource.namespace") {
-        "" => m.namespace.clone(),
-        ns => ns.to_string(),
+        "" => m.namespace.as_str(),
+        ns => ns,
     };
     ReportSummary {
-        namespace: m.namespace.clone(),
-        name: m.name.clone(),
+        namespace: clean(&m.namespace),
+        name: clean(&m.name),
         owner: Workload {
-            kind: label(m, "trivy-operator.resource.kind").to_string(),
-            namespace,
-            name: label(m, "trivy-operator.resource.name").to_string(),
-            container: label(m, "trivy-operator.container.name").to_string(),
+            kind: clean(label(m, "trivy-operator.resource.kind")),
+            namespace: clean(namespace),
+            name: clean(label(m, "trivy-operator.resource.name")),
+            container: clean(label(m, "trivy-operator.container.name")),
         },
-        reference,
-        digest: r.artifact.digest.clone(),
-        scanner,
+        reference: clean(&reference),
+        tagged: !r.artifact.tag.trim().is_empty(),
+        digest: clean(&r.artifact.digest),
+        scanner: clean(&format!("{} {}", r.scanner.name, r.scanner.version)),
         scanned_at,
         counts: SeverityCounts {
             critical: s.critical_count,
@@ -318,10 +325,31 @@ fn summarize<V>(raw: &Raw<V>, fixable: SeverityCounts) -> ReportSummary {
     }
 }
 
+/// An advisory link as shown: an `http(s)://` URL with a host and no user
+/// info, else empty.
+pub fn safe_link(s: &str) -> String {
+    let s = s.trim();
+    if s.chars().any(|c| c.is_whitespace() || c.is_control()) || s != clean(s) {
+        return String::new();
+    }
+    let Ok(uri) = s.parse::<http::Uri>() else {
+        return String::new();
+    };
+    let scheme_ok = matches!(uri.scheme_str(), Some("https") | Some("http"));
+    let host_ok = uri
+        .authority()
+        .is_some_and(|a| !a.as_str().contains('@') && !a.host().is_empty());
+    if scheme_ok && host_ok {
+        s.to_string()
+    } else {
+        String::new()
+    }
+}
+
 fn lite_summary(raw: Raw<LiteVuln>) -> ReportSummary {
     let mut fixable = SeverityCounts::default();
     for v in &raw.report.vulnerabilities {
-        if !v.fixed_version.trim().is_empty() {
+        if !clean(&v.fixed_version).is_empty() {
             fixable.add(Severity::parse(&v.severity));
         }
     }
@@ -334,14 +362,14 @@ fn full_report(raw: Raw<FullVuln>) -> FullReport {
         .vulnerabilities
         .iter()
         .map(|v| Vulnerability {
-            id: v.vulnerability_id.clone(),
-            package: v.resource.clone(),
-            installed_version: v.installed_version.clone(),
-            fixed_version: v.fixed_version.trim().to_string(),
+            id: clean(&v.vulnerability_id),
+            package: clean(&v.resource),
+            installed_version: clean(&v.installed_version),
+            fixed_version: clean(&v.fixed_version),
             severity: Severity::parse(&v.severity),
             score: v.score.filter(|s| s.is_finite()).unwrap_or(0.0),
-            title: v.title.clone(),
-            link: v.primary_link.clone(),
+            title: clean(&v.title),
+            link: safe_link(&v.primary_link),
         })
         .collect();
     let mut fixable = SeverityCounts::default();
@@ -394,13 +422,19 @@ pub struct Listed {
 }
 
 /// The reports in `namespace` (`None`: all namespaces), as summaries, read
-/// in pages of [`PAGE_SIZE`], at most [`MAX_REPORTS`].
-pub async fn list_summaries(client: &Client, namespace: Option<&str>) -> kube::Result<Listed> {
+/// in pages of [`PAGE_SIZE`], at most `cap` (callers share [`MAX_REPORTS`]
+/// across one call).
+pub async fn list_summaries(
+    client: &Client,
+    namespace: Option<&str>,
+    cap: usize,
+) -> kube::Result<Listed> {
+    let cap = cap.max(1);
     let path = url_path(namespace);
     let mut out = Listed::default();
     let mut token = String::new();
     loop {
-        let left = MAX_REPORTS - out.reports.len();
+        let left = cap - out.reports.len();
         let mut lp = ListParams::default().limit(PAGE_SIZE.min(left as u32).max(1));
         let continuing = !token.is_empty();
         if continuing {
@@ -420,12 +454,12 @@ pub async fn list_summaries(client: &Client, namespace: Option<&str>) -> kube::R
         if token.is_empty() {
             break;
         }
-        if out.reports.len() >= MAX_REPORTS {
+        if out.reports.len() >= cap {
             out.more = true;
             break;
         }
     }
-    out.reports.truncate(MAX_REPORTS);
+    out.reports.truncate(cap);
     Ok(out)
 }
 
@@ -523,7 +557,9 @@ mod tests {
     async fn reports_are_read_in_small_pages() {
         let (client, seen) = server(true, 45);
         assert!(served(&client).await.unwrap());
-        let listed = list_summaries(&client, Some("shop")).await.unwrap();
+        let listed = list_summaries(&client, Some("shop"), MAX_REPORTS)
+            .await
+            .unwrap();
         assert_eq!(listed.reports.len(), 45);
         assert!(!listed.more);
         assert_eq!(listed.reports[44].name, "r44");
@@ -595,6 +631,80 @@ mod tests {
         // No score: 0.
         assert_eq!(full.vulnerabilities[5].score, 0.0);
         assert_eq!(full.summary.fixable.total(), 3);
+    }
+
+    /// Every string a report gives is clean in the types, so `-o json`
+    /// and the app get it clean too, not only the table.
+    #[test]
+    fn report_text_is_clean_in_json() {
+        let dirty = "a\u{202E}b\u{200B}c\u{1b}[31md\u{2066}e\nf";
+        let report = serde_json::json!({
+            "metadata": { "name": "r", "namespace": "shop", "labels": {
+                "trivy-operator.resource.kind": dirty,
+                "trivy-operator.resource.name": dirty,
+                "trivy-operator.container.name": dirty } },
+            "report": {
+                "artifact": { "repository": dirty, "tag": dirty, "digest": dirty },
+                "registry": { "server": dirty },
+                "scanner": { "name": dirty, "version": dirty },
+                "vulnerabilities": [{ "vulnerabilityID": dirty, "resource": dirty,
+                    "installedVersion": dirty, "fixedVersion": dirty, "severity": "HIGH",
+                    "title": dirty, "primaryLink": "https://x.example/\u{202E}a" }]
+            }
+        });
+        let full = parse_report(report.to_string().as_bytes()).unwrap();
+        let s = &full.summary;
+        let v = &full.vulnerabilities[0];
+        for text in [
+            &s.owner.kind,
+            &s.owner.name,
+            &s.owner.container,
+            &s.reference,
+            &s.digest,
+            &s.scanner,
+            &v.id,
+            &v.package,
+            &v.installed_version,
+            &v.fixed_version,
+            &v.title,
+        ] {
+            assert!(text.starts_with("abc[31mde f"), "{text:?}");
+        }
+        assert_eq!(v.title, "abc[31mde f");
+        assert_eq!(v.link, "");
+        let json = serde_json::to_string(&full.vulnerabilities).unwrap();
+        for bad in ['\u{202E}', '\u{200B}', '\u{1b}', '\u{2066}', '\n'] {
+            assert!(!json.contains(bad), "{bad:?} in {json}");
+        }
+        // Escaped forms would be just as bad once decoded.
+        assert!(!json.contains("\\u001b") && !json.contains("\\n"), "{json}");
+    }
+
+    #[test]
+    fn only_plain_web_links_are_kept() {
+        for ok in [
+            "https://avd.aquasec.com/nvd/cve-2026-0001",
+            "http://example.com/a?b=c#d",
+        ] {
+            assert_eq!(safe_link(ok), ok);
+        }
+        assert_eq!(safe_link("  https://a.example/x "), "https://a.example/x");
+        for bad in [
+            "",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "ftp://a.example/x",
+            "https://user:pw@a.example/x",
+            "https://a.example@b.example/",
+            "https:///nohost",
+            "//a.example/x",
+            "/relative",
+            "https://a.example/x y",
+            "https://a.example/\u{202E}x",
+            "data:text/html,hi",
+        ] {
+            assert_eq!(safe_link(bad), "", "{bad}");
+        }
     }
 
     #[test]

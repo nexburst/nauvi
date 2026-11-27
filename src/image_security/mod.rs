@@ -150,16 +150,29 @@ pub struct Workload {
     pub container: String,
 }
 
+/// Where vulnerability data comes from (ADR 0011).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+#[serde(rename_all = "snake_case")]
+pub enum ScanSource {
+    /// The Trivy Operator's VulnerabilityReports in the cluster.
+    TrivyOperator,
+}
+
 /// One distinct image (by digest, else by reference) and what is known
 /// about its vulnerabilities.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct ImageVulns {
+    pub source: ScanSource,
     /// The reference as a pod names it (`nginx:1.27`), or as the report
-    /// does when no running pod matched.
+    /// does when no running pod matched (`repo@sha256:...` without a tag).
     pub image: String,
     /// `sha256:...`, empty when neither the pods nor the report know it.
     pub digest: String,
+    /// A pod in the scope runs it. False for a report of an image no pod
+    /// runs (a deleted workload, or an older build of a mutable tag).
+    pub running: bool,
     /// A report covers this image.
     pub scanned: bool,
     /// From the newest report's summary (all zero when not scanned).
@@ -199,6 +212,7 @@ pub enum VulnsState {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[cfg_attr(feature = "specta", derive(specta::Type))]
 pub struct VulnsSummary {
+    pub source: ScanSource,
     pub state: VulnsState,
     /// The namespace asked for, empty for all namespaces.
     pub namespace: String,
@@ -271,4 +285,4 @@ pub struct VulnsArgs {
     pub fixable: bool,
 }
 
-pub use report::{cli_vulns, image_detail, image_vulns};
+pub use report::{cli_vulns, image_detail, image_vulns, image_vulns_in};

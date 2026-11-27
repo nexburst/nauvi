@@ -357,6 +357,7 @@ mod tests {
 
     fn summary(state: VulnsState) -> VulnsSummary {
         VulnsSummary {
+            source: crate::image_security::ScanSource::TrivyOperator,
             state,
             namespace: "shop".into(),
             namespaces_read: Vec::new(),
