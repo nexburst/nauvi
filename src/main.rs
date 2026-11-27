@@ -207,6 +207,22 @@ async fn run(cli: Cli) -> Result<()> {
             "nodes" => print_top_nodes(&client).await?,
             other => anyhow::bail!("unknown resource for top: {other} (use pods or nodes)"),
         },
+        Commands::Vulns {
+            image,
+            namespace,
+            all_namespaces: _,
+            severity,
+            fixable,
+            output,
+        } => {
+            let args = nauvi::image_security::VulnsArgs {
+                namespace,
+                severity,
+                fixable,
+            };
+            let json = output == args::VulnsOutput::Json;
+            nauvi::image_security::cli_vulns(&client, &args, image.as_deref(), json).await?
+        }
         Commands::Scale {
             target,
             replicas,

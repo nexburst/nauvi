@@ -122,3 +122,20 @@ nauvi top [OPTIONS] [<RESOURCE>]
 | --- | --- |
 | `<RESOURCE>` | What to show: pods or nodes. Default: `pods` |
 | `-n, --namespace <NAMESPACE>` | Only show pods in this namespace |
+
+## `nauvi vulns`
+
+Known vulnerabilities of the running images, from the Trivy Operator's VulnerabilityReports: one row per image with its counts by severity, how many have a fix, and the workloads that use it. nauvi scans nothing itself; the data is as old as the last scan.
+
+```text
+nauvi vulns [OPTIONS] [<IMAGE>]
+```
+
+| Argument | What it does |
+| --- | --- |
+| `<IMAGE>` | Show this image's vulnerabilities and the package upgrades that fix them: a reference as listed (`nginx:1.27`) or a digest (at least 12 characters) |
+| `-n, --namespace <NAMESPACE>` | Only this namespace (default: all namespaces you may read) |
+| `-A, --all-namespaces` | All namespaces (the default; accepted for kubectl habits) |
+| `--severity <SEVERITY>` | Only images (and vulnerabilities) of this severity or worse. One of `unknown`, `low`, `medium`, `high`, `critical` |
+| `--fixable` | Only vulnerabilities that have a fixed version |
+| `-o, --output <OUTPUT>` | Output format. One of `table`, `json`. Default: `table` |
