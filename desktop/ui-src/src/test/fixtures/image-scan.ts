@@ -31,6 +31,7 @@ const v = (id: string, pkg: string, installed: string, severity: Vulnerability["
   score: 0,
   title: `${pkg} issue`,
   link: `https://avd.aquasec.com/nvd/${id.toLowerCase()}`,
+  exploit: { kev: false, epss: 0, epss_percentile: 0, risk: 0 },
 });
 
 export const defaultVulns: Vulnerability[] = [

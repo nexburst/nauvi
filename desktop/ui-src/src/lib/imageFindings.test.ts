@@ -31,6 +31,8 @@ function img(p: Partial<ImageVulns> & Pick<ImageVulns, "image">): ImageVulns {
     scanned: true,
     counts: zero,
     fixable: zero,
+    ignored: zero,
+    kev: 0,
     fixes_known: true,
     workloads: [],
     report_namespace: "demo",
@@ -196,6 +198,12 @@ describe("the Vulns cell", () => {
     const one = vulnsCell([{ row: img({ image: "a", counts: c({ critical: 1 }) }), containers: ["a"] }], S);
     const many = vulnsCell([{ row: img({ image: "b", counts: c({ high: 99 }) }), containers: ["b"] }], S);
     expect(one.sort).toBeGreaterThan(many.sort);
+    // #537: a known exploited image is marked, and sorts above them all.
+    const kev = vulnsCell([{ row: img({ image: "k", counts: c({ low: 1 }), kev: 1 }), containers: ["k"] }], S);
+    expect(kev.text).toBe("KEV");
+    expect(kev.sort).toBeGreaterThan(one.sort);
+    const both = vulnsCell([{ row: img({ image: "k", counts: c({ high: 2 }), kev: 1 }), containers: ["k"] }], S);
+    expect(both.text).toBe("KEV 2H");
     expect(shortCounts(c({ high: 1, unknown: 2 }))).toBe("1H 2?");
   });
 });
@@ -273,6 +281,9 @@ describe("the prompt and the Overview", () => {
   it("points to the MCP tool only for the operator's reports (#536)", () => {
     const op = index.byWorkload.get("demo/Deployment/web")!;
     expect(promptLines(op, S, NOW).at(-1)).toContain("image_vulnerabilities");
+    expect(promptLines(op, S, NOW).at(-1)).not.toContain("ignores");
+    const ign = op.map((w) => ({ ...w, row: { ...w.row, ignored: c({ high: 1 }) } }));
+    expect(promptLines(ign, S, NOW).at(-1)).toContain("it does not apply the ignores counted here");
     const local = op.map((w) => ({ ...w, row: { ...w.row, source: "local_scanner" as const } }));
     const lines = promptLines(local, S, NOW);
     expect(lines[0]).toContain("local scans");

@@ -57,3 +57,26 @@ the Vulns column is shown. It is still one cached listing per context
 (`cache_ttl_hours`), shared by the view and all of these, with no watch
 and no polling. While the feature is off nothing is read, at start-up or
 later.
+
+## Amendment (2026-11-27, #537): ignores, KEV and EPSS
+- **Ignores** are nauvi's own (a vulnerability id, a scope: an image's
+  repository, a workload or a namespace of one cluster; a required reason;
+  an optional expiry) and the lines of a `.trivyignore` the user chooses
+  (`exp:` dates and comments as Trivy reads them). An ignored vulnerability
+  leaves the counts but is never hidden silently: rows say "4 ignored" and
+  the panel lists them with their reasons. An expired ignore no longer
+  applies. A listing still keeps only counts of each report, plus the few
+  vulnerabilities an ignore or the KEV catalogue names.
+- **KEV**: Grype's own KEV data is used as it comes. CISA's catalogue of
+  Known Exploited Vulnerabilities is a separate opt-in, **off by default**:
+  nauvi then downloads one static file
+  (`https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json`),
+  over https only, from that one host (a redirect elsewhere is refused),
+  without a proxy, at most 16 MB, when a listing is made and the kept copy
+  is a day old (after a failure, not again for an hour), or when the user
+  asks. Nothing about the clusters or images is sent. A compact copy (ids
+  and dates) is kept in the app's cache folder, readable only by the user.
+  This is the only download image security makes; it still never downloads
+  a scanner or a vulnerability database.
+- **EPSS and risk scores** are shown only where the scanner gives them
+  (Grype); nauvi downloads no EPSS data.

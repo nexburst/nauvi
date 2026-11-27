@@ -100,20 +100,27 @@ export function imageListGeneration(): number {
  *  started; a scan from before a reset is dropped. */
 export function patchImage(detail: ImageDetail, gen: number) {
   if (gen !== generation) return;
-  const list = imageSecurity.list;
-  if (!list) return;
+  if (!patchRow(detail.image)) return;
   const key = rowKey(detail.image);
-  const images = list.summary.images.map((r) => (rowKey(r) === key ? detail.image : r));
-  const patched = { ...list, summary: { ...list.summary, images, unscanned: images.filter((r) => !r.scanned).length } };
-  imageSecurity.list = patched;
-  // The Vulns column, Security tab, cards and Overview show it too.
-  shareFindings(patched, listedFor);
   if (imageSecurity.selected === key) {
     detailSeq++;
     imageSecurity.detail = detail;
     imageSecurity.detailError = "";
     imageSecurity.detailLoading = false;
   }
+}
+
+/** Put `row` in place of its row in the listing, and share it with the
+ *  Vulns column, Security tab, cards and Overview. False without a listing. */
+function patchRow(row: ImageVulns): boolean {
+  const list = imageSecurity.list;
+  if (!list) return false;
+  const key = rowKey(row);
+  const images = list.summary.images.map((r) => (rowKey(r) === key ? row : r));
+  const patched = { ...list, summary: { ...list.summary, images, unscanned: images.filter((r) => !r.scanned).length } };
+  imageSecurity.list = patched;
+  shareFindings(patched, listedFor);
+  return true;
 }
 
 /** The selected image's row in the listing. */
@@ -136,12 +143,16 @@ async function loadDetail() {
   const row = selectedImage();
   if (!row) return;
   const seq = ++detailSeq;
+  const gen = generation;
   imageSecurity.detailLoading = true;
   try {
     const detail = await api(visibleCluster()).cmdImageSecurityImage(listedFor, row.image, row.digest);
     if (seq !== detailSeq) return;
     imageSecurity.detail = detail;
     imageSecurity.detailError = "";
+    // Kubescape's summaries count without fixes, ignores or KEV (#537):
+    // the row takes them from its full report, like the backend's listing.
+    if (detail.image.source === "kubescape" && gen === generation) patchRow(detail.image);
   } catch (e) {
     if (seq !== detailSeq) return;
     imageSecurity.detailError = String(e);

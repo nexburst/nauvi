@@ -22,7 +22,7 @@
         "fix": { "versions": [], "state": "not-fixed" }
       },
       "relatedVulnerabilities": [
-        { "id": "CVE-2026-1002", "description": "from the related one", "cvss": [{ "metrics": { "baseScore": 7.5 } }] }
+        { "id": "CVE-2026-1002", "description": "from the related one", "cvss": [{ "metrics": { "baseScore": 7.5 } }], "knownExploited": [{ "cve": "CVE-2026-1002", "knownRansomwareCampaignUse": "Unknown" }] }
       ],
       "artifact": { "name": "curl", "version": "7.88.1-10", "type": "deb" }
     },

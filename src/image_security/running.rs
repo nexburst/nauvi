@@ -12,6 +12,7 @@ use super::report::{
     aggregate, api_error, check_namespace, filter_vulnerabilities, fix_groups, is_forbidden,
     sort_rows, MAX_PODS,
 };
+use super::triage::{Mark, Triage};
 use super::{ImageDetail, ImageVulns, ScanSource, VulnsArgs, VulnsState, VulnsSummary};
 use crate::bounded_list::list_bounded;
 use anyhow::{bail, Result};
@@ -132,12 +133,35 @@ pub fn apply_scan(row: &mut ImageVulns, scan: &CachedScan) {
 /// `summary` without a report, then the rows sorted again and
 /// `unscanned` counted again.
 pub fn overlay(summary: &mut VulnsSummary, lookup: impl Fn(&str) -> Option<CachedScan>) {
+    overlay_triaged(summary, lookup, &Triage::default());
+}
+
+/// The marks of a local scan for [`Triage::apply_row`]: all its
+/// vulnerabilities.
+pub fn marks_of(scan: &CachedScan) -> Vec<Mark> {
+    scan.vulnerabilities().iter().map(Mark::of).collect()
+}
+
+/// [`apply_scan`], then `triage`'s ignores and KEV (#537).
+pub fn apply_scan_triaged(row: &mut ImageVulns, scan: &CachedScan, triage: &Triage) {
+    apply_scan(row, scan);
+    if !triage.is_empty() {
+        triage.apply_row(row, &marks_of(scan));
+    }
+}
+
+/// [`overlay`] with `triage`'s ignores and KEV on the scans (#537).
+pub fn overlay_triaged(
+    summary: &mut VulnsSummary,
+    lookup: impl Fn(&str) -> Option<CachedScan>,
+    triage: &Triage,
+) {
     for row in &mut summary.images {
         if row.scanned || !row.running || row.digest.is_empty() {
             continue;
         }
         if let Some(scan) = lookup(&row.digest) {
-            apply_scan(row, &scan);
+            apply_scan_triaged(row, &scan, triage);
         }
     }
     sort_rows(&mut summary.images);
@@ -150,6 +174,33 @@ pub fn overlay(summary: &mut VulnsSummary, lookup: impl Fn(&str) -> Option<Cache
 
 /// `row` with the vulnerabilities and fixes of `scan` after `args`'
 /// filters.
+/// [`detail_of_scan`] with `triage`'s ignores and KEV (#537), on the row
+/// and the findings.
+pub fn triaged_detail_of_scan(
+    row: ImageVulns,
+    scan: &CachedScan,
+    args: &VulnsArgs,
+    triage: &Triage,
+) -> ImageDetail {
+    let mut row = row;
+    apply_scan(&mut row, scan);
+    let mut all = scan.vulnerabilities();
+    // Marked before the filter, so a known exploited one always shows.
+    triage.mark_kev(&mut all);
+    if !triage.is_empty() {
+        triage.apply_row(&mut row, &marks_of(scan));
+    }
+    let vulnerabilities = filter_vulnerabilities(all, args);
+    let mut d = ImageDetail {
+        fix_groups: fix_groups(&vulnerabilities),
+        image: row,
+        vulnerabilities,
+        ignored: Vec::new(),
+    };
+    triage.apply_detail(&mut d);
+    d
+}
+
 pub fn detail_of_scan(mut row: ImageVulns, scan: &CachedScan, args: &VulnsArgs) -> ImageDetail {
     apply_scan(&mut row, scan);
     let vulnerabilities = filter_vulnerabilities(scan.vulnerabilities(), args);
@@ -158,6 +209,7 @@ pub fn detail_of_scan(mut row: ImageVulns, scan: &CachedScan, args: &VulnsArgs) 
         image: row,
         vulnerabilities,
         fix_groups,
+        ignored: Vec::new(),
     }
 }
 
@@ -245,6 +297,8 @@ mod tests {
             scanned,
             counts: SeverityCounts::default(),
             fixable: SeverityCounts::default(),
+            ignored: SeverityCounts::default(),
+            kev: 0,
             fixes_known: true,
             workloads: vec![Workload {
                 kind: "Deployment".into(),
@@ -270,6 +324,7 @@ mod tests {
             score: 0.0,
             title: String::new(),
             link: String::new(),
+            exploit: Default::default(),
         };
         CachedScan::new(
             ScannerKind::Trivy,
@@ -341,5 +396,55 @@ mod tests {
         assert_eq!(detail.vulnerabilities.len(), 1);
         assert_eq!(detail.fix_groups.len(), 1);
         assert_eq!(detail.image.counts.low, 1, "the row counts everything");
+    }
+
+    /// #537: a known exploited medium shows in the panel with the default
+    /// High, and in the id list the ignore form offers, like on the row.
+    #[test]
+    fn a_kev_finding_below_the_severity_still_shows() {
+        let d = format!("sha256:{}", "7".repeat(64));
+        let v = |id: &str, s| Vulnerability {
+            id: id.into(),
+            package: "openssl".into(),
+            installed_version: "1".into(),
+            fixed_version: String::new(),
+            severity: s,
+            score: 0.0,
+            title: String::new(),
+            link: String::new(),
+            exploit: Default::default(),
+        };
+        let scan = CachedScan::new(
+            ScannerKind::Trivy,
+            "0.58.1",
+            "db",
+            "",
+            &d,
+            "r",
+            50,
+            &[
+                v("CVE-1", Severity::High),
+                v("CVE-2", Severity::Medium),
+                v("CVE-3", Severity::Low),
+            ],
+        );
+        let triage = Triage {
+            kev: ["CVE-2".to_string()].into(),
+            ..Default::default()
+        };
+        let args = VulnsArgs {
+            severity: Some(Severity::High),
+            fixable: true,
+            ..Default::default()
+        };
+        let detail = triaged_detail_of_scan(row("a:1", &d, false), &scan, &args, &triage);
+        let ids: Vec<_> = detail
+            .vulnerabilities
+            .iter()
+            .map(|v| v.id.as_str())
+            .collect();
+        assert_eq!(ids, ["CVE-2"], "only fixable and High: only the KEV one");
+        assert!(detail.vulnerabilities[0].exploit.kev);
+        assert_eq!(detail.image.kev, 1);
     }
 }

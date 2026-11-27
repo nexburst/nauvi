@@ -183,6 +183,8 @@ fn summarize(raw: RawSummary) -> Option<ReportSummary> {
         scanned_at,
         counts,
         fixable: SeverityCounts::default(),
+        // A summary has no ids: ignores and KEV apply to its full report.
+        marks: Vec::new(),
     })
 }
 
@@ -323,6 +325,7 @@ fn vulnerability(m: Match) -> Vulnerability {
         score,
         title: title(&v.description),
         link: safe_link(&v.data_source),
+        exploit: Default::default(),
     }
 }
 

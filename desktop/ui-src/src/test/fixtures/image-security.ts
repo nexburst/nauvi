@@ -2,7 +2,15 @@
 // fake cluster's images, as `cmd_image_security_summary` lists them, and
 // one full report (nginx).
 
-import type { ImageDetail, ImageVulns, SeverityCounts, Vulnerability, VulnsState, Workload } from "../../lib/bindings";
+import type {
+  IgnoreRule_Serialize as IgnoreRule,
+  ImageDetail,
+  ImageVulns,
+  SeverityCounts,
+  Vulnerability,
+  VulnsState,
+  Workload,
+} from "../../lib/bindings";
 
 /** What the fake image security answers (`FakeCluster.imageSecurity`). */
 export interface FakeImageSecurity {
@@ -17,6 +25,14 @@ export interface FakeImageSecurity {
   notes: string[];
   /** The reports may be listed across all namespaces (default: yes). */
   allNamespaces?: boolean;
+  /** #537 (`fake/image-triage.ts`): the ignore file's ignores, or why it cannot be read. */
+  fileRules?: IgnoreRule[];
+  fileError?: string;
+  /** A KEV catalogue is kept, with these ids; a download fails with `kevFail`. */
+  kevKept?: boolean;
+  kevIds?: string[];
+  kevFetchedAt?: number;
+  kevFail?: string;
 }
 
 const zero: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
@@ -37,6 +53,8 @@ function image(p: Partial<ImageVulns> & Pick<ImageVulns, "image">): ImageVulns {
     scanned: true,
     counts: zero,
     fixable: zero,
+    ignored: zero,
+    kev: 0,
     fixes_known: true,
     workloads: [],
     report_namespace: "",
@@ -57,6 +75,7 @@ const v = (id: string, pkg: string, installed: string, severity: Vulnerability["
   score: 0,
   title: `${pkg} issue`,
   link: `https://avd.aquasec.com/nvd/${id.toLowerCase()}`,
+  exploit: { kev: false, epss: 0, epss_percentile: 0, risk: 0 },
 });
 
 export function imageSecurityFixture(): FakeImageSecurity {
@@ -107,6 +126,7 @@ export function imageSecurityFixture(): FakeImageSecurity {
         ids: ["CVE-2026-1007"],
       },
     ],
+    ignored: [],
   };
   const images = [
     nginx,
@@ -160,5 +180,6 @@ export function imageSecurityFixture(): FakeImageSecurity {
     details: { [`${nginx.image}@${nginx.digest}`]: detail },
     forbidden: [],
     notes: [],
+    kevIds: ["CVE-2026-1002"],
   };
 }

@@ -23,7 +23,7 @@
 
 mod approval;
 
-use super::image_security::{listing, remember_scan};
+use super::image_security::{listing, remember_scan, triage_of};
 use crate::settings::SettingsStore;
 use crate::state::Cluster;
 use nauvi::image_security::cache::{create_private_dir, CachedScan, ScanCache};
@@ -32,7 +32,8 @@ use nauvi::image_security::local::{
     self, find_binary, inspect, refused_build, refused_version, scan_target, Fingerprint,
     ScanOptions, ScannerKind, ScannerVersion,
 };
-use nauvi::image_security::running::{detail_of_scan, platform_of};
+use nauvi::image_security::running::{platform_of, triaged_detail_of_scan};
+use nauvi::image_security::triage::Triage;
 use nauvi::image_security::{ImageDetail, ImageVulns, VulnsArgs, VulnsSummary};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -549,7 +550,8 @@ pub(crate) async fn cmd_image_scan(
         }
     };
     remember_scan(&cluster, &scan);
-    Ok(detail_of_scan(row, &scan, &args_of(&s)))
+    let (triage, _) = triage_of(&cluster, &s, Some(&dirs)).await;
+    Ok(triaged_detail_of_scan(row, &scan, &args_of(&s), &triage))
 }
 
 pub(crate) fn args_of(s: &crate::settings::ImageSecuritySettings) -> VulnsArgs {
@@ -561,9 +563,18 @@ pub(crate) fn args_of(s: &crate::settings::ImageSecuritySettings) -> VulnsArgs {
 }
 
 /// The kept local scans on the rows of `summary` that have no report.
-pub(crate) fn overlay(dirs: &ScanDirs, scanner: ScannerKind, summary: &mut VulnsSummary) {
+pub(crate) fn overlay(
+    dirs: &ScanDirs,
+    scanner: ScannerKind,
+    summary: &mut VulnsSummary,
+    triage: &Triage,
+) {
     let results = dirs.results();
-    nauvi::image_security::running::overlay(summary, |digest| results.get(scanner, digest));
+    nauvi::image_security::running::overlay_triaged(
+        summary,
+        |digest| results.get(scanner, digest),
+        triage,
+    );
 }
 
 /// The findings of a row a local scan covers, from the kept scan.
@@ -572,6 +583,7 @@ pub(crate) fn kept_detail(
     scanner: ScannerKind,
     row: ImageVulns,
     args: &VulnsArgs,
+    triage: &Triage,
 ) -> Result<ImageDetail, String> {
     let scan = dirs.results().get(scanner, &row.digest).ok_or_else(|| {
         format!(
@@ -579,7 +591,7 @@ pub(crate) fn kept_detail(
             row.image
         )
     })?;
-    Ok(detail_of_scan(row, &scan, args))
+    Ok(triaged_detail_of_scan(row, &scan, args, triage))
 }
 
 #[cfg(test)]

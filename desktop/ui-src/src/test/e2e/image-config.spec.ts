@@ -183,6 +183,8 @@ test("Kubescape's counts never claim a fix; the panel's full report does", async
       reports: 1,
       scanner: "Kubescape",
       scanned_at: Math.floor(Date.now() / 1000) - 3600,
+      ignored: zero,
+      kev: 0,
     };
     const vuln = (
       id: string,
@@ -197,6 +199,7 @@ test("Kubescape's counts never claim a fix; the panel's full report does", async
       score: 0,
       title: "openssl issue",
       link: "",
+      exploit: { kev: false, epss: 0, epss_percentile: 0, risk: 0 },
     });
     cluster.imageSecurity = {
       state: "ok",
@@ -223,6 +226,7 @@ test("Kubescape's counts never claim a fix; the panel's full report does", async
               ids: ["CVE-1", "CVE-2", "CVE-3"],
             },
           ],
+          ignored: [],
         },
       },
       forbidden: [],

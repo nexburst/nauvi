@@ -9,6 +9,7 @@
   import { parseNamespaceList } from "../catalog";
   import { scansText } from "../imageScan";
   import ImageScannerSettings from "./ImageScannerSettings.svelte";
+  import ImageTriageSettings from "./ImageTriageSettings.svelte";
 
   /** Settings → Image security (#534, ADR 0011). Off by default; each
    *  cluster can turn it on or off for itself in its cluster settings. */
@@ -106,6 +107,7 @@
     days old are marked as old scans.
   </p>
   <ImageScannerSettings />
+  <ImageTriageSettings />
 </fieldset>
 
 <style>

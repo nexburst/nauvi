@@ -111,7 +111,7 @@ export function localDetail(s: FakeState, row: ImageVulns): ImageDetail {
   const vulns = vulnsOf(scanData(s), row.image).filter(
     (v) => rank(v.severity) >= rank(st.min_severity) && (!st.only_fixable || v.fixed_version),
   );
-  return { image: row, vulnerabilities: structuredClone(vulns), fix_groups: groups(vulns) };
+  return { image: row, vulnerabilities: structuredClone(vulns), fix_groups: groups(vulns), ignored: [] };
 }
 
 let running: string | null = null;

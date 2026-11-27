@@ -5,6 +5,8 @@
   import { imageSecurity, imageSecuritySettings, selectImage } from "../stores/imageSecurity.svelte";
   import { usesLocal } from "../imageScan";
   import ImageScanAction from "./ImageScanAction.svelte";
+  import ExploitedFindings from "./ExploitedFindings.svelte";
+  import IgnoredFindings from "./IgnoredFindings.svelte";
 
   /** The findings of one image (#534), in order: the verdict, what to do
    *  (the fixes by package), what has no fix yet (collapsed: nothing to do
@@ -38,6 +40,7 @@
       {:else if !detail}
         <p class="muted">Reading the report…</p>
       {:else}
+        <ExploitedFindings {detail} />
         {#if groups.fixable.length > 0}
           <h3>What to do</h3>
           <ul class="fixes" data-testid="findings-fixes">
@@ -74,6 +77,7 @@
             </ul>
           </details>
         {/if}
+        <IgnoredFindings {detail} />
       {/if}
     {/if}
     {#if usesLocal(s.source) && (!target.scanned || target.source === "local_scanner")}

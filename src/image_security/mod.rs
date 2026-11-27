@@ -22,6 +22,9 @@
 //!   [`cache`] keeps its results on disk by digest, and [`running`] lists
 //!   the running images to scan. [`go_buildinfo`] reads a scanner's
 //!   version from its file, before it is ever run.
+//! - [`ignore`], [`kev`], [`triage`]: ignores (nauvi's own and a
+//!   `.trivyignore`), CISA's catalogue of known exploited vulnerabilities
+//!   (an opt-in download), and both applied to rows and findings (#537).
 //!
 //! Results are never "problems": no pill, no notification.
 
@@ -29,13 +32,16 @@ pub mod cache;
 pub mod config_audit;
 pub mod go_buildinfo;
 pub mod grype_json;
+pub mod ignore;
 pub mod images;
+pub mod kev;
 pub mod kubescape;
 pub mod local;
 mod paged;
 pub mod render;
 pub mod report;
 pub mod running;
+pub mod triage;
 pub mod trivy_json;
 pub mod trivy_operator;
 
@@ -258,6 +264,10 @@ pub struct ImageVulns {
     pub counts: SeverityCounts,
     /// How many of `counts` have a fixed version.
     pub fixable: SeverityCounts,
+    /// Vulnerabilities an ignore covers (#537), not in `counts`.
+    pub ignored: SeverityCounts,
+    /// How many of `counts` are known to be exploited in the wild (#537).
+    pub kev: u32,
     /// Whether `fixable` is known: false for Kubescape's summaries, which
     /// count by severity only (its full report has the fixes).
     pub fixes_known: bool,
@@ -338,6 +348,37 @@ pub struct Vulnerability {
     pub title: String,
     /// The advisory's page, empty when none.
     pub link: String,
+    /// Whether it is known to be exploited, and how likely (#537).
+    pub exploit: Exploit,
+}
+
+/// What is known about a vulnerability being exploited (#537).
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub struct Exploit {
+    /// Known to be exploited in the wild: in CISA's KEV catalogue, as the
+    /// scanner (Grype) says or as the catalogue nauvi downloaded (opt-in).
+    pub kev: bool,
+    /// EPSS: the probability of exploitation in the next 30 days (0 to 1),
+    /// only where the scanner gives it (Grype); 0 when it gives none.
+    pub epss: f64,
+    /// Its percentile among all scored vulnerabilities (0 to 1), 0 when
+    /// not given.
+    pub epss_percentile: f64,
+    /// Grype's risk score, 0 when it gives none.
+    pub risk: f64,
+}
+
+/// A finding an ignore covers (#537): shown apart, with its reason.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub struct IgnoredVuln {
+    pub vulnerability: Vulnerability,
+    pub reason: String,
+    /// From the ignore file, not one of nauvi's own ignores.
+    pub from_file: bool,
+    /// When the ignore ends (unix seconds), 0 for never.
+    pub expires: i64,
 }
 
 /// The vulnerabilities one package upgrade would fix (or that have no fix
@@ -366,6 +407,8 @@ pub struct ImageDetail {
     pub vulnerabilities: Vec<Vulnerability>,
     /// Worst first, after the filters.
     pub fix_groups: Vec<FixGroup>,
+    /// What an ignore covers (#537), not in `vulnerabilities`.
+    pub ignored: Vec<IgnoredVuln>,
 }
 
 /// What to list: the arguments of `nauvi vulns`.

@@ -454,6 +454,7 @@ mod tests {
             image: fixture_rows()[0].clone(),
             fix_groups: fix_groups(&vulnerabilities),
             vulnerabilities,
+            ignored: Vec::new(),
         };
         let text = render_detail(&d, NOW);
         assert!(

@@ -143,6 +143,8 @@ test("a container card says what image security knows about its image", async ({
           scanned: true,
           counts: { ...zero, critical: 1, high: 2 },
           fixable: { ...zero, critical: 1 },
+          ignored: zero,
+          kev: 0,
           fixes_known: true,
           workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "app" }],
           report_namespace: "demo",
@@ -233,6 +235,8 @@ test("a CronJob's panel has the Security tab and the Images section like any wor
       reports: 1,
       scanner: "Trivy 0.69.3",
       scanned_at: Math.floor(Date.now() / 1000) - 3600,
+      ignored: zero,
+      kev: 0,
     };
     cluster.imageSecurity = { state: "ok", forbidden: [], notes: [], details: {}, images: [] };
     cluster.imageSecurity.images.push(

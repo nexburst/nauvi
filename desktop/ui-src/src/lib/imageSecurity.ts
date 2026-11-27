@@ -17,6 +17,7 @@ import type {
   VulnsSummary,
   Workload,
 } from "./bindings";
+import { triageParts } from "./imageTriage";
 
 export const IMAGE_SECURITY_VIEW = "image-security";
 
@@ -39,6 +40,9 @@ export const DEFAULT_IMAGE_SECURITY: ImageSecuritySettings = {
   db_repository: "",
   skip_db_update: false,
   server_url: "",
+  ignore_file: "",
+  ignores: [],
+  kev_download: false,
 };
 
 /** The cache hours offered in Settings. */
@@ -118,8 +122,18 @@ export interface Verdict {
   fixable: number;
 }
 
-/** The sentence a row leads with: "2 critical and 5 high. 6 of 7 have a fix." */
+/** The sentence a row leads with: "2 critical and 5 high. 6 of 7 have a fix."
+ *  Known exploited findings (#537) come first and make it red, whatever the
+ *  severity counted; ignored ones are counted at the end. */
 export function verdict(row: ImageVulns, s: ImageSecuritySettings): Verdict {
+  const v = countVerdict(row, s);
+  const t = triageParts(row, s.min_severity);
+  if (t.kev) Object.assign(v, { kind: "findings", tone: "critical", text: `${t.kev} ${v.text}` });
+  if (t.ignored) v.text = `${v.text} ${t.ignored}`;
+  return v;
+}
+
+function countVerdict(row: ImageVulns, s: ImageSecuritySettings): Verdict {
   if (!row.scanned) return { kind: "unscanned", tone: "neutral", text: "Not scanned yet.", counted: 0, fixable: 0 };
   const counted = countedOf(row, s);
   const n = atLeast(counted, "unknown");
