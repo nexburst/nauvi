@@ -210,13 +210,16 @@ pub fn filter(rows: Vec<ImageVulns>, args: &VulnsArgs) -> Vec<ImageVulns> {
         .collect()
 }
 
-/// The vulnerabilities `args` asks for, worst first (then by score, id).
+/// The vulnerabilities `args` asks for, worst first (then by score, id). A
+/// known exploited one (#537) is always kept, whatever its severity or fix.
 pub fn filter_vulnerabilities(
     mut vulns: Vec<Vulnerability>,
     args: &VulnsArgs,
 ) -> Vec<Vulnerability> {
     let min = args.severity.unwrap_or(Severity::Unknown);
-    vulns.retain(|v| v.severity >= min && (!args.fixable || !v.fixed_version.is_empty()));
+    vulns.retain(|v| {
+        v.exploit.kev || (v.severity >= min && (!args.fixable || !v.fixed_version.is_empty()))
+    });
     vulns.sort_by(|a, b| {
         b.severity
             .cmp(&a.severity)
@@ -862,6 +865,8 @@ pub async fn image_detail_triaged(
         row.fixable = fixable;
         row.fixes_known = true;
     }
+    let mut all = all;
+    triage.mark_kev(&mut all);
     if row.source == ScanSource::Kubescape && !triage.is_empty() {
         let marks: Vec<_> = all.iter().map(super::triage::Mark::of).collect();
         triage.apply_row(&mut row, &marks);

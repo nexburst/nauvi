@@ -148,13 +148,30 @@ async fn download_kev(dir: &Path) -> Result<KevCatalog, String> {
     )?;
     let fetch = HttpsFetch::new(&base, None, ca.as_deref())?;
     tracing::info!("downloading the KEV catalogue from {url}");
-    kev::download(&fetch, &url, dir, now()).await
+    // A slow server must not hold the download lock (and every listing
+    // waiting on it) for long.
+    tokio::time::timeout(TOTAL_TIMEOUT, kev::download(&fetch, &url, dir, now()))
+        .await
+        .map_err(|_| {
+            format!(
+                "Could not download {url}: no answer within {} seconds.",
+                TOTAL_TIMEOUT.as_secs()
+            )
+        })?
 }
+
+/// The longest a download of the catalogue may take.
+const TOTAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Before a listing: download the catalogue when it is on and the kept one
 /// is missing or a day old. A failure is a note; the old copy stays.
 pub(crate) async fn refresh_kev(s: &ImageSecuritySettings, dir: Option<&Path>) -> Option<String> {
-    let dir = dir.filter(|_| s.kev_download)?;
+    let dir = dir?;
+    if !s.kev_download {
+        // Turned off: the kept copy goes too.
+        kev::remove(dir);
+        return None;
+    }
     if kev::load(dir).is_some_and(|c| !c.stale(now())) {
         return None;
     }
@@ -236,7 +253,12 @@ pub(crate) fn cmd_image_triage_status(
     settings: State<'_, Arc<SettingsStore>>,
 ) -> TriageStatus {
     let dir = kev_dir(&app).ok();
-    status_of(&settings.get().image_security, dir.as_deref())
+    let s = settings.get().image_security;
+    if let (false, Some(d)) = (s.kev_download, dir.as_deref()) {
+        // Turned off: nothing of it is kept.
+        kev::remove(d);
+    }
+    status_of(&s, dir.as_deref())
 }
 
 /// Download the catalogue now (Settings → Image security). Refused while
@@ -327,5 +349,12 @@ mod tests {
         let s = ImageSecuritySettings::default();
         assert!(refresh_kev(&s, Some(&dir)).await.is_none());
         assert!(!dir.exists(), "nothing was written");
+        // A copy kept from before is removed once it is off.
+        let c = kev::parse_catalog(br#"{"vulnerabilities":[{"cveID":"CVE-2026-1001"}]}"#, now())
+            .unwrap();
+        kev::save(&dir, &c).unwrap();
+        assert!(refresh_kev(&s, Some(&dir)).await.is_none());
+        assert!(kev::load(&dir).is_none(), "the kept copy is gone");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

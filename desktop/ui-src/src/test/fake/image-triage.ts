@@ -5,7 +5,7 @@
 
 import type { IgnoreRule_Serialize as IgnoreRule, ImageDetail, ImageVulns, TriageStatus, VulnsSummary } from "../../lib/bindings";
 import { DEFAULT_IMAGE_SECURITY } from "../../lib/imageSecurity";
-import { ignoreActive, repositoryOf } from "../../lib/imageTriage";
+import { ignoreActive, ruleCovers } from "../../lib/imageTriage";
 import { imageSecurityFixture } from "../fixtures/image-security";
 import type { FakeImageSecurity } from "../fixtures/image-security";
 import type { AreaHandlers, FakeState } from "./state";
@@ -31,24 +31,8 @@ function kevIds(s: FakeState): Set<string> {
   return new Set(settingsOf(s).kev_download && d.kevKept ? (d.kevIds ?? []) : []);
 }
 
-function covers(r: IgnoreRule, row: ImageVulns): boolean {
-  switch (r.scope) {
-    case "image":
-      return repositoryOf(r.image) === repositoryOf(row.image);
-    case "namespace":
-      return row.workloads.length > 0 && row.workloads.every((w) => w.namespace === r.namespace);
-    case "workload":
-      return (
-        row.workloads.length > 0 &&
-        row.workloads.every((w) => w.namespace === r.namespace && w.kind === r.kind && w.name === r.name)
-      );
-    default:
-      return true;
-  }
-}
-
 function ruleFor(s: FakeState, id: string, row: ImageVulns): IgnoreRule | undefined {
-  return rules(s).find((r) => r.id.toLowerCase() === id.toLowerCase() && covers(r, row));
+  return rules(s).find((r) => r.id.toLowerCase() === id.toLowerCase() && ruleCovers(r, row));
 }
 
 /** The row's counts with the ignores taken out, from its full report when the fixture has one. */
@@ -74,7 +58,13 @@ export function triageListing(s: FakeState, summary: VulnsSummary): VulnsSummary
   const st = settingsOf(s);
   const d = data(s);
   if (st.ignore_file && d.fileError) notes.push(d.fileError);
-  return { ...summary, notes, images: summary.images.map((r) => triageRow(s, r)) };
+  // Like the backend: Kubescape's summaries name no vulnerabilities, so its
+  // rows are triaged once their full report is read.
+  const kubescape = summary.images.some((r) => r.source === "kubescape");
+  if (kubescape && (rules(s).length > 0 || kevIds(s).size > 0))
+    notes.push("Ignores and known exploited vulnerabilities apply to a Kubescape image once you open it.");
+  const images = summary.images.map((r) => (r.source === "kubescape" ? r : triageRow(s, r)));
+  return { ...summary, notes, images };
 }
 
 export function triageDetail(s: FakeState, detail: ImageDetail): ImageDetail {

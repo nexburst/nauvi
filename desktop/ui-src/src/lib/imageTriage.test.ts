@@ -78,6 +78,8 @@ describe("ignores (#537)", () => {
       ],
     });
     expect(scopeChoices(two).map((c) => c.scope)).toEqual(["image"]);
+    // Without a cluster, nothing tied to one.
+    expect(scopeChoices(row(), "").map((c) => c.scope)).toEqual(["image"]);
   });
 
   it("says when an ignore ends, and that an expired one no longer applies", () => {

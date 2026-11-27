@@ -182,11 +182,22 @@ pub fn triaged_detail_of_scan(
     args: &VulnsArgs,
     triage: &Triage,
 ) -> ImageDetail {
-    let mut d = detail_of_scan(row, scan, args);
+    let mut row = row;
+    apply_scan(&mut row, scan);
+    let mut all = scan.vulnerabilities();
+    // Marked before the filter, so a known exploited one always shows.
+    triage.mark_kev(&mut all);
     if !triage.is_empty() {
-        triage.apply_row(&mut d.image, &marks_of(scan));
-        triage.apply_detail(&mut d);
+        triage.apply_row(&mut row, &marks_of(scan));
     }
+    let vulnerabilities = filter_vulnerabilities(all, args);
+    let mut d = ImageDetail {
+        fix_groups: fix_groups(&vulnerabilities),
+        image: row,
+        vulnerabilities,
+        ignored: Vec::new(),
+    };
+    triage.apply_detail(&mut d);
     d
 }
 
@@ -385,5 +396,55 @@ mod tests {
         assert_eq!(detail.vulnerabilities.len(), 1);
         assert_eq!(detail.fix_groups.len(), 1);
         assert_eq!(detail.image.counts.low, 1, "the row counts everything");
+    }
+
+    /// #537: a known exploited medium shows in the panel with the default
+    /// High, and in the id list the ignore form offers, like on the row.
+    #[test]
+    fn a_kev_finding_below_the_severity_still_shows() {
+        let d = format!("sha256:{}", "7".repeat(64));
+        let v = |id: &str, s| Vulnerability {
+            id: id.into(),
+            package: "openssl".into(),
+            installed_version: "1".into(),
+            fixed_version: String::new(),
+            severity: s,
+            score: 0.0,
+            title: String::new(),
+            link: String::new(),
+            exploit: Default::default(),
+        };
+        let scan = CachedScan::new(
+            ScannerKind::Trivy,
+            "0.58.1",
+            "db",
+            "",
+            &d,
+            "r",
+            50,
+            &[
+                v("CVE-1", Severity::High),
+                v("CVE-2", Severity::Medium),
+                v("CVE-3", Severity::Low),
+            ],
+        );
+        let triage = Triage {
+            kev: ["CVE-2".to_string()].into(),
+            ..Default::default()
+        };
+        let args = VulnsArgs {
+            severity: Some(Severity::High),
+            fixable: true,
+            ..Default::default()
+        };
+        let detail = triaged_detail_of_scan(row("a:1", &d, false), &scan, &args, &triage);
+        let ids: Vec<_> = detail
+            .vulnerabilities
+            .iter()
+            .map(|v| v.id.as_str())
+            .collect();
+        assert_eq!(ids, ["CVE-2"], "only fixable and High: only the KEV one");
+        assert!(detail.vulnerabilities[0].exploit.kev);
+        assert_eq!(detail.image.kev, 1);
     }
 }

@@ -32,6 +32,10 @@ use tauri::State;
 pub(crate) const OFF: &str = "Image security is off for this cluster. Turn it on in Settings → \
      Image security, or in this cluster's settings.";
 
+/// Kubescape's summaries name no vulnerabilities (#537).
+pub(crate) const KUBESCAPE_TRIAGE: &str = "Ignores and known exploited vulnerabilities apply to a \
+     Kubescape image once you open it.";
+
 /// The last listing of a cluster.
 pub(crate) struct VulnsCache {
     /// The namespaces it was made for, sorted (empty: all).
@@ -171,6 +175,9 @@ pub(crate) async fn listing(
         }
     }
     summary.notes.extend(triage_notes);
+    if summary.source == ScanSource::Kubescape && !triage.is_empty() {
+        summary.notes.push(KUBESCAPE_TRIAGE.into());
+    }
     let read_at = now_secs();
     // Not kept if the window left the cluster meanwhile.
     if !cluster.is_closed() {
@@ -265,9 +272,34 @@ pub(crate) async fn cmd_image_security_image(
         return image_scan::kept_detail(&dirs, s.scanner, row, &args, &triage);
     }
     let client = cluster.client().await?;
-    image_detail_triaged(&client, row, &args, &triage)
+    let key = triage.key();
+    let detail = image_detail_triaged(&client, row, &args, &triage)
         .await
-        .map_err(|e| nauvi::error_text(&e))
+        .map_err(|e| nauvi::error_text(&e))?;
+    if detail.image.source == ScanSource::Kubescape {
+        remember_kubescape(&cluster, &detail.image, key);
+    }
+    Ok(detail)
+}
+
+/// A Kubescape row read in full (#537): its fixes, ignores and KEV are now
+/// known, so the kept listing takes them (when it was made with the same
+/// ignores), and the view, the Vulns column and the cards agree.
+fn remember_kubescape(cluster: &ClusterSession, row: &nauvi::image_security::ImageVulns, key: u64) {
+    if let Some(c) = cluster.image_security.lock().unwrap().as_mut() {
+        if c.triage_key != key {
+            return;
+        }
+        let s = &mut c.summary;
+        if let Some(r) = s
+            .images
+            .iter_mut()
+            .find(|r| r.image == row.image && r.digest == row.digest && r.source == row.source)
+        {
+            *r = row.clone();
+        }
+        nauvi::image_security::report::sort_rows(&mut s.images);
+    }
 }
 
 /// The ignores and KEV for a listing of `cluster` (#537), the catalogue

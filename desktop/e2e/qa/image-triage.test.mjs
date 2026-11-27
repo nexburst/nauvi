@@ -42,9 +42,10 @@ const KEV = {
   title: "CISA Catalog of Known Exploited Vulnerabilities",
   catalogVersion: "2026.11.25",
   dateReleased: "2026-11-25T19:48:12.4344Z",
-  count: 2,
+  count: 3,
   vulnerabilities: [
     { cveID: "CVE-2026-1002", dateAdded: "2026-11-20", knownRansomwareCampaignUse: "Known" },
+    { cveID: "CVE-2026-1005", dateAdded: "2026-11-21", knownRansomwareCampaignUse: "Unknown" },
     { cveID: "CVE-2021-44228", dateAdded: "2021-12-10", knownRansomwareCampaignUse: "Known" },
   ],
 };
@@ -195,6 +196,8 @@ describe("image security: ignores and known exploited (#537)", { timeout: 15 * 6
             vuln("CVE-2026-1002", "openssl", "HIGH", "3.0.14-1", "3.0.11-1"),
             vuln("CVE-2026-1003", "curl", "HIGH", "", "7.88.1-10"),
             vuln("CVE-2026-1004", "libc6", "HIGH", "", "2.36-9"),
+            // Below the High counted by default: shows once it is on the KEV list.
+            vuln("CVE-2026-1005", "zlib1g", "MEDIUM", "", "1:1.2.13"),
           ]),
           reportJson(ns, "tool", "library/busybox", "1.36", []),
         ],
@@ -302,7 +305,7 @@ describe("image security: ignores and known exploited (#537)", { timeout: 15 * 6
     }
     const { app } = s;
     await app.js(`document.querySelector('input[aria-label="Download the list of known exploited vulnerabilities"]').click()`);
-    await app.waitFor(async () => /Catalogue 2026\.11\.25, 2 vulnerabilities/.test(await textOf(app, "kev-status")), {
+    await app.waitFor(async () => /Catalogue 2026\.11\.25, 3 vulnerabilities/.test(await textOf(app, "kev-status")), {
       message: "the catalogue's status",
     });
     assert.equal(served.requests.length, 1, JSON.stringify(served.requests.map((r) => r.url)));
@@ -313,12 +316,17 @@ describe("image security: ignores and known exploited (#537)", { timeout: 15 * 6
     await closeSettings(app);
     await setTheme(app, "dark");
     const row = await nginxRow(app, (r) => /known to be exploited/.test(r.verdict), "the KEV mark on the row");
-    assert.equal(row.verdict, "1 known to be exploited in the wild. 2 high. 1 of 2 has a fix. 2 ignored.");
+    assert.equal(row.verdict, "2 known to be exploited in the wild. 2 high. 1 of 2 has a fix. 2 ignored.");
     assert.equal(row.tone, "critical");
     await app.waitFor(async () => /CVE-2026-1002/.test(await textOf(app, "findings-kev")), {
       message: "the KEV section of the panel",
     });
-    assert.match(await textOf(app, "findings-kev"), /Known to be exploited in the wild \(1\)/);
+    // The medium one too, although the panel counts High and worse.
+    await app.waitFor(async () => /CVE-2026-1005/.test(await textOf(app, "findings-kev")), {
+      message: "the medium KEV finding in the panel",
+    });
+    assert.match(await textOf(app, "findings-kev"), /Known to be exploited in the wild \(2\)/);
+    await app.shot("kev panel with a medium finding");
     // Kept for the user only.
     const kept = join(profile.home, ".cache", "com.nauvi.app", "known-exploited", "known-exploited.json");
     const mode = Number(execFileSync("stat", ["-c", "%a", kept]).toString().trim());

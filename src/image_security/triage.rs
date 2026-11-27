@@ -108,6 +108,14 @@ impl Triage {
         row.kev = kev;
     }
 
+    /// Mark the known exploited ones of `vulns` (the catalogue's; the
+    /// scanner's own marks stay). Before a filter, so they always show.
+    pub fn mark_kev(&self, vulns: &mut [Vulnerability]) {
+        for v in vulns {
+            v.exploit.kev = self.known_exploited(&v.id, v.exploit.kev);
+        }
+    }
+
     /// Mark the known exploited findings of `detail` and move its ignored
     /// ones to `ignored`, with their reasons; the fixes are grouped again.
     /// Its row is not changed (the listing's is already triaged).

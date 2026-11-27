@@ -113,6 +113,10 @@ impl IgnoreRule {
         self.expires = self.expires.max(0);
         let missing = match self.scope {
             IgnoreScope::Image => self.image.is_empty().then_some("an image"),
+            // Of one cluster: without one it would match every cluster.
+            IgnoreScope::Namespace | IgnoreScope::Workload if self.context.is_empty() => {
+                Some("a cluster")
+            }
             IgnoreScope::Namespace => self.namespace.is_empty().then_some("a namespace"),
             IgnoreScope::Workload => {
                 (self.namespace.is_empty() || self.kind.is_empty() || self.name.is_empty())
@@ -341,6 +345,7 @@ mod tests {
         assert!(r.clone().checked().unwrap_err().contains("needs a reason"));
         let mut w = rule(IgnoreScope::Workload);
         w.namespace = "shop".into();
+        w.context = "kind".into();
         assert!(w
             .clone()
             .checked()
@@ -352,6 +357,8 @@ mod tests {
         // A later ignore of the same target replaces the earlier one.
         let mut a = rule(IgnoreScope::Namespace);
         a.namespace = "shop".into();
+        assert!(a.clone().checked().unwrap_err().contains("needs a cluster"));
+        a.context = "kind".into();
         let mut b = a.clone();
         b.reason = "newer".into();
         let mut img = rule(IgnoreScope::Image);

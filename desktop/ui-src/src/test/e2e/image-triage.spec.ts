@@ -206,3 +206,90 @@ test("EPSS and risk show only where the scanner gives them", async ({ page }) =>
   await expect(epss).toContainText("CVE-2026-1005");
   await expect(epss).toContainText("curl: EPSS 42% (top 3%), risk 31.5");
 });
+
+test("a Kubescape row takes its ignores once opened, and the listing says so", async ({ page }) => {
+  await openApp(page, (cluster) => {
+    const zero = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
+    cluster.settings.image_security = {
+      ...cluster.settings.image_security,
+      enabled: true,
+      ignores: [
+        {
+          id: "CVE-1",
+          scope: "image",
+          context: "",
+          image: "nginx:1.27",
+          namespace: "",
+          kind: "",
+          name: "",
+          reason: "Not reachable",
+          expires: 0,
+          added: 0,
+          from_file: false,
+        },
+      ],
+    };
+    const row = {
+      source: "kubescape" as const,
+      image: "nginx:1.27",
+      digest: "sha256:1111111111111111",
+      running: true,
+      scanned: true,
+      counts: { ...zero, critical: 1, high: 2 },
+      fixable: zero,
+      fixes_known: false,
+      ignored: zero,
+      kev: 0,
+      workloads: [{ kind: "Deployment", namespace: "demo", name: "web", container: "nginx" }],
+      report_namespace: "kubescape",
+      report_name: "docker.io-library-nginx-1.27-abcdef",
+      reports: 1,
+      scanner: "Kubescape",
+      scanned_at: Math.floor(Date.now() / 1000) - 3600,
+    };
+    const vuln = (id: string, severity: "critical" | "high", fixed: string) => ({
+      id,
+      package: "openssl",
+      installed_version: "3.0.11-1",
+      fixed_version: fixed,
+      severity,
+      score: 0,
+      title: "openssl issue",
+      link: "",
+      exploit: { kev: false, epss: 0, epss_percentile: 0, risk: 0 },
+    });
+    cluster.imageSecurity = {
+      state: "ok",
+      images: [row],
+      details: {
+        [`${row.image}@${row.digest}`]: {
+          image: { ...row, fixable: { ...zero, critical: 1 }, fixes_known: true },
+          vulnerabilities: [vuln("CVE-1", "critical", "3.0.15-1"), vuln("CVE-2", "high", ""), vuln("CVE-3", "high", "")],
+          fix_groups: [
+            {
+              package: "openssl",
+              installed_version: "3.0.11-1",
+              fixed_in: ["3.0.15-1"],
+              counts: { ...zero, critical: 1, high: 2 },
+              fixable: 1,
+              ids: ["CVE-1", "CVE-2", "CVE-3"],
+            },
+          ],
+          ignored: [],
+        },
+      },
+      forbidden: [],
+      notes: [],
+    };
+  });
+  await goToImageSecurity(page);
+  const row = imageRow(page, "nginx:1.27");
+  await expect(row.getByTestId("image-verdict")).toHaveText("1 critical and 2 high. Open it to see which have a fix.");
+  await expect(view(page)).toContainText(
+    "Ignores and known exploited vulnerabilities apply to a Kubescape image once you open it.",
+  );
+  await row.click();
+  await expect(panel(page).getByTestId("findings-verdict")).toHaveText("2 high. None has a fix yet. 1 ignored.");
+  // The row (and the surfaces that share it) now say the same.
+  await expect(row.getByTestId("image-verdict")).toHaveText("2 high. None has a fix yet. 1 ignored.");
+});

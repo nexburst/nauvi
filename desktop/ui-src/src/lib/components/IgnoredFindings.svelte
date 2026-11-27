@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { IgnoredVuln, IgnoreScope, ImageDetail } from "../bindings";
-  import { EXPIRY_CHOICES, expiryText, makeRule, scopeChoices, scopeText } from "../imageTriage";
+  import { EXPIRY_CHOICES, expiryText, makeRule, ruleCovers, scopeChoices, scopeText } from "../imageTriage";
   import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
   import { addIgnore, removeIgnore } from "../stores/imageTriage.svelte";
   import { currentContextName } from "../stores/app.svelte";
@@ -11,7 +11,9 @@
 
   const now = Math.floor(Date.now() / 1000);
   const ids = $derived([...new Set(detail.vulnerabilities.map((v) => v.id))]);
-  const scopes = $derived(scopeChoices(detail.image));
+  const context = currentContextName() ?? "";
+  // A workload or namespace ignore is of one cluster: none without one.
+  const scopes = $derived(scopeChoices(detail.image, context));
 
   let id = $state("");
   let scope = $state<IgnoreScope>("image");
@@ -25,7 +27,7 @@
     if (!ready) return;
     saving = true;
     try {
-      await addIgnore(makeRule(chosen, scope, detail.image, reason, days, currentContextName() ?? "", now));
+      await addIgnore(makeRule(chosen, scope, detail.image, reason, days, context, now));
       reason = "";
       id = "";
     } finally {
@@ -35,8 +37,14 @@
 
   /** nauvi's own ignore behind `i`, to remove it (a file's is changed in the file). */
   function ownRule(i: IgnoredVuln) {
+    if (i.from_file) return undefined;
     return imageSecuritySettings().ignores.find(
-      (r) => r.id.toLowerCase() === i.vulnerability.id.toLowerCase() && r.reason === i.reason,
+      (r) =>
+        r.id.toLowerCase() === i.vulnerability.id.toLowerCase() &&
+        r.reason === i.reason &&
+        r.expires === i.expires &&
+        (!r.context || r.context === context) &&
+        ruleCovers(r, detail.image),
     );
   }
 </script>

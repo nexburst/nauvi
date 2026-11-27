@@ -71,11 +71,16 @@ export function scopeText(r: Pick<IgnoreRule, "scope" | "image" | "namespace" | 
   }
 }
 
-/** The scopes the form offers for `row`: its image, its one workload, its one namespace. */
-export function scopeChoices(row: Pick<ImageVulns, "image" | "workloads">): { scope: IgnoreScope; label: string }[] {
+/** The scopes the form offers for `row`: its image, its one workload, its
+ *  one namespace (these two only with a cluster to tie them to). */
+export function scopeChoices(
+  row: Pick<ImageVulns, "image" | "workloads">,
+  context = "x",
+): { scope: IgnoreScope; label: string }[] {
   const out: { scope: IgnoreScope; label: string }[] = [
     { scope: "image", label: `Every ${repositoryOf(row.image)} image` },
   ];
+  if (!context) return out;
   const workloads = uniqueWorkloads(row.workloads);
   if (workloads.length === 1) {
     const w = workloads[0];
@@ -121,6 +126,26 @@ export function makeRule(
     from_file: false,
   };
   return rule;
+}
+
+/** Whether `r` covers `row` (as the backend's `IgnoreRule::covers`). */
+export function ruleCovers(
+  r: Pick<IgnoreRule, "scope" | "image" | "namespace" | "kind" | "name">,
+  row: Pick<ImageVulns, "image" | "workloads">,
+): boolean {
+  switch (r.scope) {
+    case "image":
+      return repositoryOf(r.image) === repositoryOf(row.image);
+    case "namespace":
+      return row.workloads.length > 0 && row.workloads.every((w) => w.namespace === r.namespace);
+    case "workload":
+      return (
+        row.workloads.length > 0 &&
+        row.workloads.every((w) => w.namespace === r.namespace && w.kind === r.kind && w.name === r.name)
+      );
+    default:
+      return true;
+  }
 }
 
 /** Whether two ignores are about the same thing (the backend keeps the later one). */
