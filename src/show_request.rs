@@ -7,12 +7,14 @@
 //! 0700, in the temp folder; the file 0600) and passes the file's path
 //! (`<app> --ask-ai-show <file> <request>`).
 //!
-//! The app reads at most [`MAX_TOKEN_LEN`] bytes from that path, only from
-//! a regular file (never through a link, never a FIFO or device), and
-//! compares them with its live tokens. Only when they are a live token does
-//! it write its answer into the same file, replacing the token: so it only
-//! writes to a file that already held a token, which only a holder of the
-//! token can have written. `nauvi show` reads the answer, says what
+//! The app opens that path once, for reading and writing, only as a
+//! regular file (never through a link, never a FIFO or device), reads at
+//! most [`MAX_TOKEN_LEN`] bytes and compares them with its live tokens.
+//! Only when they are a live token does it write its answer, on that same
+//! open file, replacing the token: so it only writes to the very file that
+//! held a token, which only a holder of the token can have written. The
+//! path is never opened a second time, so swapping a folder on it for a
+//! link after the read can't send the answer anywhere else. `nauvi show` reads the answer, says what
 //! happened and exits non-zero when nothing was opened, then removes the
 //! folder.
 
@@ -127,23 +129,22 @@ fn write_new_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
     options.open(path)?.write_all(bytes)
 }
 
-/// Open `path` as an existing regular file, never through a link and
-/// without blocking on a FIFO.
-fn open_regular(path: &Path, write: bool) -> io::Result<File> {
+/// Open `path` for reading and writing as an existing regular file, never
+/// through a link (its last part) and without blocking on a FIFO.
+fn open_regular(path: &Path) -> io::Result<File> {
     let mut options = OpenOptions::new();
-    if write {
-        options.write(true);
-    } else {
-        options.read(true);
-    }
+    options.read(true).write(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
     }
-    #[cfg(not(unix))]
-    if fs::symlink_metadata(path)?.file_type().is_symlink() {
-        return Err(io::Error::other("a link"));
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // FILE_FLAG_OPEN_REPARSE_POINT: a link (or junction) is opened
+        // itself, not followed; it is then not a regular file below.
+        options.custom_flags(0x0020_0000);
     }
     let file = options.open(path)?;
     if !file.metadata()?.is_file() {
@@ -152,22 +153,39 @@ fn open_regular(path: &Path, write: bool) -> io::Result<File> {
     Ok(file)
 }
 
-/// The token in the file at `path`, if it is a regular file with at most
-/// [`MAX_TOKEN_LEN`] bytes.
-pub fn read_token(path: &Path) -> Option<String> {
-    let file = open_regular(path, false).ok()?;
-    let mut text = String::new();
-    file.take(MAX_TOKEN_LEN + 1)
-        .read_to_string(&mut text)
-        .ok()?;
-    (text.len() as u64 <= MAX_TOKEN_LEN).then(|| text.trim().to_string())
+/// A request file the app opened, with the token it held.
+pub struct TokenFile {
+    file: File,
+    token: String,
 }
 
-/// Write the app's answer into the file at `path` (it must exist).
-pub fn write_reply(path: &Path, reply: &Reply) -> io::Result<()> {
-    let mut file = open_regular(path, true)?;
-    file.set_len(0)?;
-    file.write_all(reply.to_text().as_bytes())
+impl TokenFile {
+    /// Open the file at `path` (a regular file with at most
+    /// [`MAX_TOKEN_LEN`] bytes) and read its token.
+    pub fn open(path: &Path) -> Option<Self> {
+        let file = open_regular(path).ok()?;
+        let mut text = String::new();
+        (&file)
+            .take(MAX_TOKEN_LEN + 1)
+            .read_to_string(&mut text)
+            .ok()?;
+        (text.len() as u64 <= MAX_TOKEN_LEN).then(|| Self {
+            file,
+            token: text.trim().to_string(),
+        })
+    }
+
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// Write the app's answer over the token, in the file opened.
+    pub fn answer(mut self, reply: &Reply) -> io::Result<()> {
+        use std::io::{Seek, SeekFrom};
+        self.file.set_len(0)?;
+        self.file.seek(SeekFrom::Start(0))?;
+        self.file.write_all(reply.to_text().as_bytes())
+    }
 }
 
 #[cfg(test)]
@@ -185,14 +203,19 @@ mod tests {
             assert_eq!(mode(&path), 0o600);
             assert_eq!(mode(path.parent().unwrap()), 0o700);
         }
-        assert_eq!(read_token(&path).as_deref(), Some("abc123"));
+        let file = TokenFile::open(&path).unwrap();
+        assert_eq!(file.token(), "abc123");
         assert_eq!(request.reply(), None);
-        write_reply(&path, &Reply::Dropped("too soon\nreally".into())).unwrap();
+        file.answer(&Reply::Dropped("too soon\nreally".into()))
+            .unwrap();
         assert_eq!(
             request.reply(),
             Some(Reply::Dropped("too soon really".into()))
         );
-        write_reply(&path, &Reply::Opened).unwrap();
+        TokenFile::open(&path)
+            .unwrap()
+            .answer(&Reply::Opened)
+            .unwrap();
         assert_eq!(request.reply(), Some(Reply::Opened));
         let dir = path.parent().unwrap().to_path_buf();
         drop(request);
@@ -202,17 +225,45 @@ mod tests {
     #[test]
     fn reads_only_a_short_regular_file() {
         let request = RequestFile::create(&"a".repeat(200)).unwrap();
-        assert_eq!(read_token(request.path()), None, "too long");
+        assert!(TokenFile::open(request.path()).is_none(), "too long");
         let dir = request.path().parent().unwrap();
-        assert_eq!(read_token(dir), None, "a folder");
-        assert_eq!(read_token(&dir.join("missing")), None);
-        assert!(write_reply(&dir.join("missing"), &Reply::Opened).is_err());
+        assert!(TokenFile::open(dir).is_none(), "a folder");
+        assert!(TokenFile::open(&dir.join("missing")).is_none());
         #[cfg(unix)]
         {
             let link = dir.join("link");
             std::os::unix::fs::symlink(request.path(), &link).unwrap();
-            assert_eq!(read_token(&link), None, "never through a link");
-            assert!(write_reply(&link, &Reply::Opened).is_err());
+            assert!(TokenFile::open(&link).is_none(), "never through a link");
         }
+    }
+
+    /// The answer goes to the file that held the token, even when the
+    /// path's folder is swapped for a link to another folder in between.
+    #[cfg(unix)]
+    #[test]
+    fn the_answer_never_follows_a_swapped_path() {
+        let request = RequestFile::create("tok").unwrap();
+        let dir = request.path().parent().unwrap().to_path_buf();
+        let other = dir.with_extension("other");
+        fs::create_dir(&other).unwrap();
+        let victim = other.join("request");
+        fs::write(&victim, "keep me").unwrap();
+
+        let file = TokenFile::open(request.path()).unwrap();
+        assert_eq!(file.token(), "tok");
+        // Swap the folder for a link to the other one.
+        let moved = dir.with_extension("moved");
+        fs::rename(&dir, &moved).unwrap();
+        std::os::unix::fs::symlink(&other, &dir).unwrap();
+        file.answer(&Reply::Opened).unwrap();
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep me");
+        assert_eq!(
+            fs::read_to_string(moved.join("request")).unwrap(),
+            "opened\n"
+        );
+        fs::remove_file(&dir).unwrap();
+        fs::remove_dir_all(&moved).unwrap();
+        fs::remove_dir_all(&other).unwrap();
     }
 }

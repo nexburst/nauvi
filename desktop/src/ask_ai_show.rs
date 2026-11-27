@@ -38,7 +38,7 @@ use crate::commands::term_out::{send_data, TermOut};
 use crate::links::{deliver_quiet, LinkRequest};
 use crate::settings::SettingsStore;
 use nauvi::links::{parse_show, SHOW_FLAG};
-use nauvi::show_request::{read_token, write_reply, Reply};
+use nauvi::show_request::{Reply, TokenFile};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -182,9 +182,10 @@ pub(crate) fn handle(app: &AppHandle, file: &str, request: &str) {
     let enabled = app
         .try_state::<Arc<SettingsStore>>()
         .is_some_and(|s| s.get().ask_ai_open_views);
-    let file = Path::new(file);
-    let token = read_token(file).unwrap_or_default();
-    let reply = match decide(&token, request, enabled, Instant::now()) {
+    // Opened once: the answer goes on this same open file.
+    let file = TokenFile::open(Path::new(file));
+    let token = file.as_ref().map(TokenFile::token).unwrap_or_default();
+    let reply = match decide(token, request, enabled, Instant::now()) {
         (Outcome::Ignored, _) => {
             tracing::warn!("nauvi show without a live Ask AI session token: ignored");
             return;
@@ -203,7 +204,7 @@ pub(crate) fn handle(app: &AppHandle, file: &str, request: &str) {
         }
     };
     // Only into the file that held this live token.
-    if let Err(e) = write_reply(file, &reply) {
+    if let Some(Err(e)) = file.map(|f| f.answer(&reply)) {
         tracing::warn!("nauvi show: cannot answer in its request file: {e}");
     }
 }
