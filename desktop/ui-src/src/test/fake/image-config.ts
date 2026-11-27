@@ -1,7 +1,8 @@
 // Misconfigurations (`commands/image_config.rs`, #538), from
 // `fixtures/image-config.ts` unless a test sets `cluster.imageConfig`.
 // Like the backend, it refuses while image security is off for the
-// current context.
+// current context, and with a scanner on this computer as the only
+// Source (#563).
 
 import type { ConfigSummary, ImageConfigList } from "../../lib/bindings";
 import {
@@ -14,6 +15,16 @@ import type { AreaHandlers, FakeState } from "./state";
 
 const OFF =
   "Image security is off for this cluster. Turn it on in Settings → Image security, or in this cluster's settings.";
+
+const LOCAL_ONLY =
+  "Configuration checks come from the Trivy Operator or Kubescape in the cluster. Source is set to a scanner on this computer only, so nauvi reads no reports from the cluster.";
+
+/** Why nothing is read, or nothing. */
+function refusal(s: FakeState): string | null {
+  if (!enabled(s)) return OFF;
+  const app = s.cluster.settings.image_security ?? DEFAULT_IMAGE_SECURITY;
+  return app.source === "local" ? LOCAL_ONLY : null;
+}
 
 function data(s: FakeState): FakeImageConfig {
   s.cluster.imageConfig ??= imageConfigFixture();
@@ -66,7 +77,8 @@ function summary(s: FakeState, namespaces: string[]): ConfigSummary {
 export function imageConfigHandlers(s: FakeState) {
   return {
     cmdImageConfigDetail: (namespaces, kind, namespace, name) => {
-      if (!enabled(s)) throw OFF;
+      const no = refusal(s);
+      if (no) throw no;
       const found = summary(s, namespaces).workloads.find(
         (w) =>
           w.target.kind === kind &&
@@ -81,7 +93,8 @@ export function imageConfigHandlers(s: FakeState) {
       );
     },
     cmdImageConfigSummary: (namespaces, _refresh): ImageConfigList => {
-      if (!enabled(s)) throw OFF;
+      const no = refusal(s);
+      if (no) throw no;
       return {
         summary: summary(s, namespaces),
         read_at: Math.floor(Date.now() / 1000),

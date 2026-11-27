@@ -5,8 +5,13 @@
 //! per cluster). Read only when the view asks; the listing is kept in the
 //! [`ClusterSession`] for `cache_ttl_hours` (dropped with it, and on an
 //! idle disconnect).
+//!
+//! With Source set to a local scanner only, nothing is read from the
+//! cluster (ADR 0011, #563): the checks come from the Trivy Operator or
+//! Kubescape, which local mode does not use.
 
 use super::image_security::{enabled, now_secs, sorted, OFF};
+use crate::settings::image_security::VulnSource;
 use crate::settings::SettingsStore;
 use crate::state::{Cluster, ClusterSession};
 use nauvi::image_security::config_audit::{
@@ -16,6 +21,11 @@ use nauvi::resources;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::State;
+
+/// Why nothing is read with a local scanner as the only source.
+pub(crate) const LOCAL_ONLY: &str = "Configuration checks come from the Trivy Operator or \
+     Kubescape in the cluster. Source is set to a scanner on this computer only, so nauvi \
+     reads no reports from the cluster.";
 
 /// The last listing of a cluster.
 pub(crate) struct ConfigCache {
@@ -41,6 +51,9 @@ async fn listing(
 ) -> Result<ImageConfigList, String> {
     if !enabled(cluster, settings) {
         return Err(OFF.to_string());
+    }
+    if settings.get().image_security.source == VulnSource::Local {
+        return Err(LOCAL_ONLY.to_string());
     }
     let namespaces = sorted(namespaces);
     let ttl = Duration::from_secs(u64::from(settings.get().image_security.cache_ttl_hours) * 3600);
@@ -129,6 +142,26 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err, OFF);
+        assert!(cluster.image_config.lock().unwrap().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// #563: on, with a local scanner as the only source, no report is
+    /// read (no client is built) and nothing is cached.
+    #[tokio::test]
+    async fn nothing_is_read_with_a_local_source_only() {
+        use crate::settings::ImageSecurityMode;
+        let (cluster, dir) = super::super::image_security::tests::session("nauvi-563-local");
+        let settings = SettingsStore::open(None);
+        let id = cluster.context_id().unwrap();
+        settings.modify(|s| {
+            s.image_security.source = VulnSource::Local;
+            s.contexts.entry(id).or_default().image_security = ImageSecurityMode::On;
+        });
+        let err = listing(&cluster, &settings, vec![], true)
+            .await
+            .unwrap_err();
+        assert_eq!(err, LOCAL_ONLY);
         assert!(cluster.image_config.lock().unwrap().is_none());
         let _ = std::fs::remove_dir_all(dir);
     }

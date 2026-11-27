@@ -14,6 +14,8 @@
 //   claims a fix from the counts, the panel lists the fixes; the
 //   Configuration tab there says the cluster has no configuration audits.
 //   The CRDs are removed afterwards.
+// - a scanner on this computer only (#563): the Configuration tab reads
+//   nothing from the cluster and says where the checks come from.
 // Light and dark theme at 1280x800.
 
 import assert from "node:assert/strict";
@@ -224,6 +226,68 @@ describe("misconfigurations", { timeout: 15 * 60_000 }, () => {
     await setTheme(app, "dark");
     await pickNamespaces(app, [found]);
     await app.waitFor(async () => (await rowsOf(app)).length === 3, { timeout: 60_000, message: "three rows" });
+  });
+});
+
+describe("a scanner on this computer only", { timeout: 10 * 60_000 }, () => {
+  let found = "";
+  before(() => {
+    kubectl(["apply", "-f", CONFIG_CRD]);
+    kubectl(["wait", "--for=condition=Established", "crd/configauditreports.aquasecurity.github.io", "--timeout=60s"]);
+    found = tempNamespace("qa-config-local", deploymentYaml("web"));
+    const web = replicaSetOf(found, "web");
+    kubectl(
+      ["-n", found, "apply", "-f", "-"],
+      list([
+        configReport(found, "ReplicaSet", web, [
+          check("KSV017", "CRITICAL", "Privileged container", "Change 'containers[].securityContext.privileged' to 'false'."),
+        ]),
+      ]),
+    );
+  });
+  after(() => deleteNamespace(found));
+
+  const s = appSession("image-config-local", () => {
+    const profile = createProfile();
+    profile.writeSettings({
+      version: 1,
+      image_security: {
+        enabled: true,
+        min_severity: "high",
+        only_fixable: false,
+        excluded_namespaces: [],
+        cache_ttl_hours: 24,
+        source: "local",
+        scanner: "trivy",
+      },
+    });
+    return { profile };
+  });
+
+  it("the Configuration tab reads no reports and says why (light)", T, async () => {
+    const { app } = s;
+    await resizeWindow(app, 1280, 800);
+    await setTheme(app, "light");
+    await waitLive(app);
+    await openView(app);
+    await pickNamespaces(app, [found]);
+    await openTab(app, "config");
+    await app.find(byTestId("image-config-local"));
+    const text = await viewText(app);
+    assert.match(text, /Configuration checks come from the cluster/);
+    assert.match(text, /scanner on this computer only/);
+    // The report in the namespace is not listed: nothing was read.
+    assert.equal((await rowsOf(app)).length, 0);
+    assert.doesNotMatch(text, /Privileged container|Fails 1 check/);
+  });
+
+  it("the same state in dark, and after Refresh", T, async () => {
+    const { app } = s;
+    await setTheme(app, "dark");
+    await app.js(`document.querySelector('button[aria-label="Refresh"]').click()`);
+    await new Promise((r) => setTimeout(r, 1000));
+    await app.find(byTestId("image-config-local"));
+    assert.equal((await rowsOf(app)).length, 0);
   });
 });
 

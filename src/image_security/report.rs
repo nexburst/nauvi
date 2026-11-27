@@ -19,6 +19,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 /// Most pods one listing reads.
 pub const MAX_PODS: usize = 5000;
 
+/// Why a local scan's row has no report to read.
+const LOCAL_SCAN: &str = "a local scan is kept on this computer, not in the cluster";
+
 /// How a row of a report no running pod matched names its image:
 /// `nginx:1.27`, or `nginx@sha256:...` without a tag.
 fn report_image(r: &ReportSummary) -> String {
@@ -837,29 +840,32 @@ pub async fn image_detail_triaged(
             ignored: Vec::new(),
         });
     }
+    // A local row names no report: say so before checking its (empty) name.
+    if row.source == ScanSource::LocalScanner {
+        bail!("{LOCAL_SCAN}");
+    }
     check_namespace(&row.report_namespace)?;
     check_object_name(&row.report_name)?;
-    let all = match row.source {
-        ScanSource::TrivyOperator => {
+    let (all, capped) = match row.source {
+        ScanSource::TrivyOperator => (
             trivy::get_report(client, &row.report_namespace, &row.report_name)
                 .await
                 .map_err(|e| api_error(&format!("VulnerabilityReport {}", row.report_name), e))?
-                .vulnerabilities
-        }
+                .vulnerabilities,
+            false,
+        ),
         ScanSource::Kubescape => {
             super::kubescape::get_manifest(client, &row.report_namespace, &row.report_name)
                 .await
                 .map_err(|e| api_error(&format!("VulnerabilityManifest {}", row.report_name), e))?
         }
-        ScanSource::LocalScanner => {
-            bail!("a local scan is kept on this computer, not in the cluster")
-        }
+        ScanSource::LocalScanner => bail!("{LOCAL_SCAN}"),
     };
     let mut row = row;
     let mut all = all;
     triage.mark_kev(&mut all);
     if row.source == ScanSource::Kubescape {
-        kubescape_row_of(&mut row, &all, triage);
+        kubescape_row_of(&mut row, &all, capped, triage);
     } else if !row.fixes_known {
         // The full report says which have a fix.
         let (_, fixable) = counts_of(&all);
@@ -894,9 +900,30 @@ fn counts_of(vulns: &[Vulnerability]) -> (SeverityCounts, SeverityCounts) {
 /// from `all`, then the ignores and KEV applied. Always from the manifest,
 /// never from the row's counts, so a row that was already triaged (the
 /// kept listing's, after an earlier open) comes out the same.
-pub fn kubescape_row_of(row: &mut ImageVulns, all: &[Vulnerability], triage: &Triage) {
+///
+/// `capped`: the manifest had more than [`super::kubescape::MAX_MATCHES`]
+/// matches and `all` is only the first of them (#563). The counts are then
+/// the summary's (with an earlier open's ignores put back), and only the
+/// ignores found in `all` come off them.
+pub fn kubescape_row_of(
+    row: &mut ImageVulns,
+    all: &[Vulnerability],
+    capped: bool,
+    triage: &Triage,
+) {
     let (counts, fixable) = counts_of(all);
-    row.counts = counts;
+    row.counts = if capped {
+        let (c, i) = (row.counts, row.ignored);
+        SeverityCounts {
+            critical: c.critical.saturating_add(i.critical),
+            high: c.high.saturating_add(i.high),
+            medium: c.medium.saturating_add(i.medium),
+            low: c.low.saturating_add(i.low),
+            unknown: c.unknown.saturating_add(i.unknown),
+        }
+    } else {
+        counts
+    };
     row.fixable = fixable;
     row.fixes_known = true;
     row.ignored = SeverityCounts::default();
@@ -1029,15 +1056,90 @@ pub(crate) mod tests {
         let mut row = fixture_rows().remove(0);
         row.source = ScanSource::Kubescape;
         row.fixes_known = false;
-        kubescape_row_of(&mut row, &all, &triage);
+        kubescape_row_of(&mut row, &all, false, &triage);
         let first = row.clone();
         assert_eq!(first.counts.critical, 0);
         assert_eq!(first.counts.high, 2);
         assert_eq!(first.ignored.critical, 1);
         assert_eq!(first.fixable.total(), 0);
         assert_eq!(first.kev, 1);
-        kubescape_row_of(&mut row, &all, &triage);
+        kubescape_row_of(&mut row, &all, false, &triage);
         assert_eq!(row, first, "the same counts on the second open");
+    }
+
+    /// #563: a manifest cut at MAX_MATCHES keeps the summary's counts and
+    /// only takes the ignores it names off them, on every open.
+    #[test]
+    fn a_capped_kubescape_manifest_keeps_the_summary_counts() {
+        use crate::image_security::ignore::{IgnoreRule, IgnoreScope};
+        let v = |id: &str, sev| Vulnerability {
+            id: id.into(),
+            package: "openssl".into(),
+            installed_version: "1".into(),
+            fixed_version: String::new(),
+            severity: sev,
+            score: 0.0,
+            title: String::new(),
+            link: String::new(),
+            exploit: Default::default(),
+        };
+        // The first matches of a manifest the summary counts 7000 highs in.
+        let all = vec![
+            v("CVE-2026-0001", Severity::Critical),
+            v("CVE-2026-0002", Severity::High),
+        ];
+        let triage = Triage {
+            rules: vec![IgnoreRule {
+                id: "CVE-2026-0001".into(),
+                scope: IgnoreScope::Everywhere,
+                reason: "not reachable".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let mut row = fixture_rows().remove(0);
+        row.source = ScanSource::Kubescape;
+        row.counts = SeverityCounts {
+            critical: 3,
+            high: 7000,
+            ..Default::default()
+        };
+        row.ignored = SeverityCounts::default();
+        kubescape_row_of(&mut row, &all, true, &triage);
+        let first = row.clone();
+        assert_eq!(
+            first.counts.critical, 2,
+            "one ignored critical off the summary's 3"
+        );
+        assert_eq!(
+            first.counts.high, 7000,
+            "the summary's, not the manifest's 1"
+        );
+        assert_eq!(first.ignored.critical, 1);
+        kubescape_row_of(&mut row, &all, true, &triage);
+        assert_eq!(row, first, "the same counts on the second open");
+        // Not cut: the manifest's own counts.
+        kubescape_row_of(&mut row, &all, false, &triage);
+        assert_eq!(row.counts.high, 1);
+    }
+
+    /// #563: a local scan's row is refused plainly, before its empty report
+    /// name is checked, and without a request.
+    #[tokio::test]
+    async fn a_local_row_is_refused_before_its_name_is_checked() {
+        let svc = tower::service_fn(|_req: http::Request<kube::client::Body>| async {
+            Err::<http::Response<kube::client::Body>, tower::BoxError>("offline".into())
+        });
+        let client = Client::new(svc, "default");
+        let mut row = fixture_rows().remove(0);
+        row.source = ScanSource::LocalScanner;
+        row.scanned = true;
+        row.report_namespace = String::new();
+        row.report_name = String::new();
+        let err = image_detail_triaged(&client, row, &VulnsArgs::default(), &Triage::default())
+            .await
+            .unwrap_err();
+        assert_eq!(err.to_string(), LOCAL_SCAN);
     }
 
     fn w(kind: &str, name: &str, container: &str) -> Workload {

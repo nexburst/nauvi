@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte";
   import { app, setNamespaces, stamp } from "../stores/app.svelte";
+  import { openSettings } from "../stores/keyboard.svelte";
   import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
   import { imageConfig, loadImageConfig, resetImageConfig, selectConfig } from "../stores/imageConfig.svelte";
   import {
@@ -21,9 +22,12 @@
   /** The Configuration tab of Image security (#538): one row per workload
    *  of the namespaces shown, with the checks the Trivy Operator's
    *  ConfigAuditReports say it fails. Read when the tab opens, on Refresh
-   *  and when the namespaces change, never in the background. */
+   *  and when the namespaces change, never in the background. With a
+   *  scanner on this computer as the only Source nothing is read from the
+   *  cluster (ADR 0011, #563). */
 
   const s = $derived(imageSecuritySettings());
+  const localOnly = $derived(s.source === "local");
   const ROW_HEIGHT = $derived(rowHeightPx(52, settings.current.row_height));
 
   let now = $state(Math.floor(Date.now() / 1000));
@@ -31,6 +35,13 @@
 
   let lastNonce = -1;
   $effect(() => {
+    if (localOnly) {
+      untrack(() => {
+        resetImageConfig();
+        lastNonce = -1;
+      });
+      return;
+    }
     const nonce = app.refreshNonce;
     const namespaces = [...app.selectedNamespaces];
     untrack(() => {
@@ -53,7 +64,7 @@
   const getKey = $derived((i: number) => rows[i]?.key ?? i);
 
   $effect(() => {
-    app.count = summary && !empty ? `${rows.length} of ${allRows.length} workloads` : "";
+    app.count = summary && !empty && !localOnly ? `${rows.length} of ${allRows.length} workloads` : "";
   });
 
   function again() {
@@ -62,7 +73,17 @@
 </script>
 
 <div class="config" data-testid="image-config">
-  {#if imageConfig.error}
+  {#if localOnly}
+    <div class="center" data-testid="image-config-local">
+      <EmptyState
+        title="Configuration checks come from the cluster"
+        detail="They come from the Trivy Operator or Kubescape in the cluster. Source is set to a scanner on this computer only, so nauvi reads no reports from the cluster. Pick a Source with the cluster's reports in Settings → Image security to see them."
+        reason="off"
+      >
+        <button type="button" class="btn" onclick={openSettings}>Settings…</button>
+      </EmptyState>
+    </div>
+  {:else if imageConfig.error}
     <div class="center">
       <EmptyState title="Could not read the configuration audits" detail={imageConfig.error} reason="error">
         <button type="button" class="btn primary" onclick={again}>Try again</button>

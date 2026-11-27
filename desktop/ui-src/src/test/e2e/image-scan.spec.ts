@@ -166,6 +166,33 @@ test("local only: the pods' images, not scanned until a click; Scan all scans th
   expect(new Set(scanned).size).toBe(6);
 });
 
+test("Scan all goes on while the Configuration tab is shown", async ({ page }) => {
+  const fake = await openApp(page, (cluster) => {
+    cluster.settings.image_security = { ...cluster.settings.image_security, enabled: true, source: "local" };
+    cluster.imageScan = {
+      found: { trivy: { path: "/usr/local/bin/trivy", version: "0.58.1", db: "2026-11-25T06:13:33Z" } },
+      approved: { trivy: "/usr/local/bin/trivy" },
+      changed: [],
+      vulns: { "busybox:1.36": [] },
+      errors: {},
+      delayMs: 300,
+      scanned: {},
+      calls: [],
+    };
+  });
+  await goToImageSecurity(page);
+  await expect(imageRows(page)).toHaveCount(6);
+  await view(page).getByTestId("image-scan-all").click();
+  await expect(view(page).getByTestId("image-scan-progress")).toBeVisible();
+  await page.getByTestId("image-security-tab-config").click();
+  await expect(view(page).getByTestId("image-config-local")).toBeVisible();
+  // All six are scanned although the tab changed after the first.
+  await expect.poll(async () => (await fake.calls("cmdImageScan")).length, { timeout: 10_000 }).toBe(6);
+  await page.getByTestId("image-security-tab-images").click();
+  await expect(imageRow(page, "busybox:1.36")).toContainText("No known vulnerabilities.");
+  await expect(view(page).getByTestId("image-scan-bar")).not.toContainText("6 images not scanned yet.");
+});
+
 test("one image from its panel, then its findings; Cancel stops a scan", async ({ page }) => {
   const fake = await openApp(page, (cluster) => {
     cluster.settings.image_security = { ...cluster.settings.image_security, enabled: true, source: "local" };
