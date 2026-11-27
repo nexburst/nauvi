@@ -288,3 +288,59 @@ test("a local scan shows in the Vulns column, the Security tab and the prompt; a
   await expect(row(page, "web").getByRole("gridcell", { name: "2C 5H", exact: true })).toBeVisible();
   expect(fake.errors).toEqual([]);
 });
+
+async function vulnsColumnOn(page: Page) {
+  await openKind(page, "Deployments");
+  await openChooser(page);
+  await page.getByRole("dialog", { name: "Columns" }).getByRole("checkbox", { name: "Vulns", exact: true }).check();
+  await page.keyboard.press("Escape");
+}
+
+test("the view open under Settings follows a new Source, rows and Vulns column alike", async ({ page }) => {
+  const fake = await openApp(page, localApproved);
+  await vulnsColumnOn(page);
+  await goToImageSecurity(page);
+  await imageRow(page, "nginx:1.27").click();
+  await panel(page).getByTestId("image-scan-one").click();
+  await expect(imageRow(page, "nginx:1.27")).toContainText("Trivy 0.58.1 on this computer");
+
+  // The view stays under the dialog: it reads the new source at once.
+  const { dialog, section } = await openSettingsSection(page);
+  const reads = (await fake.calls("cmdImageSecuritySummary")).length;
+  await section.getByRole("combobox", { name: "Where vulnerabilities come from" }).selectOption("cluster");
+  await expect.poll(async () => (await fake.calls("cmdImageSecuritySummary")).length).toBeGreaterThan(reads);
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(imageRow(page, "nginx:1.27")).toContainText("through Trivy Operator");
+  await expect(imageRow(page, "nginx:1.27")).not.toContainText("on this computer");
+  await expect(view(page).getByTestId("image-scan-bar")).toHaveCount(0);
+  await openKind(page, "Deployments");
+  await expect(row(page, "web").getByRole("gridcell", { name: "2C 5H", exact: true })).toBeVisible();
+  expect(fake.errors).toEqual([]);
+});
+
+test("a scan that ends after the Source changed brings nothing of the old source back", async ({ page }) => {
+  const fake = await openApp(page, localApproved);
+  await page.evaluate(() => {
+    window.__fake.cluster.imageScan!.delayMs = 1500;
+  });
+  await vulnsColumnOn(page);
+  await goToImageSecurity(page);
+  await imageRow(page, "nginx:1.27").click();
+  await panel(page).getByTestId("image-scan-one").click();
+  await expect(view(page).getByTestId("image-scan-progress")).toContainText("Scanning nginx:1.27…");
+
+  // Switched to the cluster's reports while the scan runs.
+  const { dialog, section } = await openSettingsSection(page);
+  await section.getByRole("combobox", { name: "Where vulnerabilities come from" }).selectOption("cluster");
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(imageRow(page, "nginx:1.27")).toContainText("through Trivy Operator");
+  // The scan ends; its row is dropped, not written over the new listing.
+  await expect.poll(async () => page.evaluate(() => window.__fake.cluster.imageScan!.scanned)).not.toEqual({});
+  await page.waitForTimeout(300);
+  expect(await fake.calls("cmdImageScan")).toHaveLength(1);
+  await expect(imageRow(page, "nginx:1.27")).toContainText("through Trivy Operator");
+  await expect(imageRow(page, "nginx:1.27")).not.toContainText("on this computer");
+  await openKind(page, "Deployments");
+  await expect(row(page, "web").getByRole("gridcell", { name: "2C 5H", exact: true })).toBeVisible();
+  expect(fake.errors).toEqual([]);
+});

@@ -7,7 +7,7 @@ import { commands } from "../bindings";
 import type { ImageVulns, ScannerKind, ScannerStatus } from "../bindings";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import { rowKey } from "../imageSecurity";
-import { imageSecuritySettings, listedNamespaces, patchImage } from "./imageSecurity.svelte";
+import { imageListGeneration, imageSecuritySettings, listedNamespaces, patchImage } from "./imageSecurity.svelte";
 
 class ImageScanStore {
   status = $state.raw<ScannerStatus | null>(null);
@@ -88,15 +88,18 @@ function setError(key: string, image: string, error: string | null) {
 }
 
 /** Scan one image; `refresh` scans again although a scan is kept. */
-async function scanOne(row: ImageVulns, refresh: boolean): Promise<boolean> {
+async function scanOne(row: ImageVulns, refresh: boolean, gen: number): Promise<boolean> {
   const key = rowKey(row);
   imageScan.running = { key, image: row.image };
   try {
     const detail = await api(visibleCluster()).cmdImageScan(listedNamespaces(), row.image, row.digest, refresh);
+    // The listing was reset (Source, Scanner or cluster) while it ran.
+    if (gen !== imageListGeneration()) return false;
     setError(key, row.image, null);
-    patchImage(detail);
+    patchImage(detail, gen);
     return true;
   } catch (e) {
+    if (gen !== imageListGeneration()) return false;
     setError(key, row.image, String(e));
     return false;
   } finally {
@@ -108,7 +111,7 @@ async function scanOne(row: ImageVulns, refresh: boolean): Promise<boolean> {
 export async function scanImage(row: ImageVulns, refresh = false) {
   if (imageScan.running) return;
   cancelled = false;
-  await scanOne(row, refresh);
+  await scanOne(row, refresh, imageListGeneration());
 }
 
 /** Scan `rows` one after another (the "Scan all" button). */
@@ -117,11 +120,12 @@ export async function scanAll(rows: readonly ImageVulns[]) {
   cancelled = false;
   imageScan.errors = new Map();
   imageScan.batch = { done: 0, total: rows.length };
+  const gen = imageListGeneration();
   try {
     for (let i = 0; i < rows.length; i++) {
-      if (cancelled) break;
+      if (cancelled || gen !== imageListGeneration()) break;
       imageScan.batch = { done: i, total: rows.length };
-      await scanOne(rows[i], false);
+      await scanOne(rows[i], false, gen);
     }
   } finally {
     imageScan.batch = null;

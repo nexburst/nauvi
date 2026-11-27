@@ -32,13 +32,15 @@
   let now = $state(Math.floor(Date.now() / 1000));
   const tick = setInterval(() => (now = Math.floor(Date.now() / 1000)), 30_000);
 
-  // Read on open, again for each namespace change; Refresh reads the
-  // reports again instead of taking the cache.
+  // Read on open, again for each namespace, Source or Scanner change;
+  // Refresh reads the reports again instead of taking the cache.
   let lastNonce = -1;
   $effect(() => {
     if (!enabled) return;
     const nonce = app.refreshNonce;
     const namespaces = [...app.selectedNamespaces];
+    void s.source;
+    void s.scanner;
     untrack(() => {
       const refresh = lastNonce !== -1 && nonce !== lastNonce;
       lastNonce = nonce;

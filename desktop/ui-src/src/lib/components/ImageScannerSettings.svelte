@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import type { ImageSecuritySettings_Serialize as ImageSecuritySettings, ScannerKind, VulnSource } from "../bindings";
   import { SCANNERS, SOURCES, scannerLabel, scannerStateText, usesLocal } from "../imageScan";
-  import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
+  import { imageSecuritySettings, resetImageSecurity } from "../stores/imageSecurity.svelte";
   import { approveScanner, forgetScanner, imageScan, loadScannerStatus } from "../stores/imageScan.svelte";
   import { resetFindings } from "../stores/imageFindings.svelte";
   import { updateSettings } from "../stores/settings.svelte";
@@ -28,6 +28,9 @@
   });
 
   async function setSource(source: VulnSource) {
+    // Drop the view's listing (and a scan from it) before the change shows,
+    // so the view reads the new source and nothing writes the old one back.
+    resetImageSecurity();
     await save({ source });
     // The surfaces read the listing again, from the new source.
     resetFindings();
@@ -48,6 +51,7 @@
   }
 
   async function setScanner(scanner: ScannerKind) {
+    resetImageSecurity();
     await save({ scanner });
     resetFindings();
     void loadScannerStatus(scanner);
