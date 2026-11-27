@@ -32,6 +32,7 @@ import { closeNotifications, notifications } from "./notifications.svelte";
 import { watch } from "./watch.svelte";
 import { openLocalShell } from "./localShell";
 import { askAi } from "./askAi.svelte";
+import { protect } from "./contextMode.svelte";
 import { settings, zoomIn, zoomOut, zoomReset } from "./settings.svelte";
 import { unsaved } from "./unsaved.svelte";
 import { refresh } from "./app.svelte";
@@ -168,7 +169,8 @@ function modalOpen(): boolean {
     createUi.open ||
     unsaved.asking ||
     catalog.settingsFor !== null ||
-    askAi.scope !== null
+    askAi.scope !== null ||
+    protect.queue.length > 0
   );
 }
 
@@ -309,6 +311,9 @@ export function handleKey(e: KeyboardEvent) {
       if (table) done(e, () => table?.sortBy(SORT_KEYS[hit.index]));
       return;
     case "commandMode":
+      // `:` is k9s's command mode, typed at the table: a row key like `d`.
+      // Elsewhere (a button, the detail panel) Ctrl+K opens the palette.
+      if (!rowKeysApply()) return;
       return done(e, () => openPalette(KIND_PREFIX));
     case "rowKill":
     case "rowPreviousLogs":

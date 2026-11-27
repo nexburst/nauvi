@@ -11,6 +11,9 @@
 // - Settings → Keyboard → k9s keys: then Ctrl+K opens Force delete with its
 //   name field focused, and ? lists Ctrl+K and Shift+L
 // - Shift+N sorts by name
+// - #580: the force delete's "Type … to confirm" is one line, no key in ?
+//   runs into its description, and `:` opens the palette from the table but
+//   not from a header button
 
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
@@ -189,6 +192,12 @@ describe("k9s keys and keyboard confirm dialogs", { timeout: 15 * 60_000 }, () =
     assert.match(text, /Force delete Pod/);
     assert.equal(await count(app, '[role="dialog"][aria-label="Command palette"]'), 0, "no palette");
     assert.equal(await app.js(`return document.activeElement?.tagName`), "INPUT", "the name field has the focus");
+    const label = await app.js(`const s = document.querySelector('[data-testid="action-dialog"] label.field > span');
+      const r = s.getBoundingClientRect();
+      return { text: s.textContent.trim(), height: r.height };`);
+    console.log(`confirm label: ${JSON.stringify(label)}`);
+    assert.match(label.text, /^Type qa-k9s-\w to confirm$/);
+    assert.ok(label.height < 24, `the label is one line (${label.height}px)`);
     await bothThemes(app, "force-delete");
     await press(app, Key.ESCAPE);
     await waitActionDialogClosed(app);
@@ -200,7 +209,37 @@ describe("k9s keys and keyboard confirm dialogs", { timeout: 15 * 60_000 }, () =
     assert.match(helpText, /Kill: force delete/);
     assert.match(helpText, /previous run/);
     assert.match(helpText, /k9s keys are on/);
+    const overlaps = await app.js(`const out = [];
+      for (const dt of arguments[0].querySelectorAll("dt")) {
+        const left = dt.nextElementSibling.getBoundingClientRect().left;
+        for (const k of dt.querySelectorAll("kbd, .or"))
+          if (k.getBoundingClientRect().right > left + 0.5) out.push(k.textContent + " / " + dt.nextElementSibling.textContent);
+      }
+      return out;`, help);
+    assert.deepEqual(overlaps, [], "no key runs into its description");
     await bothThemes(app, "help");
+    await press(app, Key.ESCAPE);
+  });
+
+  it(": opens the palette from the table, not from a header button", T, async () => {
+    const { app } = s;
+    await podsTable(app);
+    // A button outside the table: the first visible one of the header.
+    const button = await app.js(`const b = [...document.querySelectorAll("header button")].find((b) => b.offsetParent !== null);
+      b.focus();
+      return document.activeElement === b ? (b.getAttribute("aria-label") || b.textContent.trim()) : "";`);
+    console.log(`focused button: ${button}`);
+    assert.ok(button, "a header button has the focus");
+    await press(app, ":");
+    await app.js("return new Promise((r) => setTimeout(r, 300))");
+    assert.equal(await count(app, '[role="dialog"][aria-label="Command palette"]'), 0, "no palette from a button");
+    await app.js(`document.querySelector('[role="grid"]').focus()`);
+    await press(app, ":");
+    await app.waitFor(async () => (await count(app, '[role="dialog"][aria-label="Command palette"]')) === 1, {
+      message: "the palette from the table",
+    });
+    assert.equal(await app.js(`return document.activeElement?.value`), ":");
+    await app.shot("command-mode");
     await press(app, Key.ESCAPE);
   });
 

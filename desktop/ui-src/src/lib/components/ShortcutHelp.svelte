@@ -154,9 +154,10 @@
   }
   dt {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 4px;
-    white-space: nowrap;
+    min-width: 0;
   }
   dd {
     margin: 0;
@@ -168,6 +169,7 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--bg);
+    white-space: nowrap;
   }
   .or {
     color: var(--text-muted);

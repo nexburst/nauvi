@@ -49,7 +49,7 @@
           This cannot be undone.
         </p>
         <label class="field">
-          Type <span class="mono">{req.name}</span> to confirm
+          <span>Type <span class="mono">{req.name}</span> to confirm</span>
           <input
             class="input mono"
             bind:value={req.typed}
