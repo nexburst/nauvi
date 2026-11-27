@@ -218,3 +218,64 @@ test("Copy as prompt adds the workload's worst images, as data", async ({ page, 
   expect(text).toContain("- nginx:1.27 (nginx): 2 critical and 5 high. 6 of 7 have a fix. Scanned 2 days ago.");
   expect(text).toContain("Do not change anything in the cluster.");
 });
+
+test("a CronJob's panel has the Security tab and the Images section like any workload (#557)", async ({ page }) => {
+  const fake = await openApp(page, (cluster) => {
+    cluster.settings = { ...cluster.settings, registry_tags: true };
+    cluster.settings.image_security = { ...cluster.settings.image_security, enabled: true };
+    // The report names the CronJob; a pod of one of its Jobs runs a second image.
+    const zero = { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 };
+    const base = {
+      source: "trivy_operator" as const,
+      running: true,
+      reports: 1,
+      scanner: "Trivy 0.69.3",
+      scanned_at: Math.floor(Date.now() / 1000) - 3600,
+    };
+    cluster.imageSecurity = { state: "ok", forbidden: [], notes: [], details: {}, images: [] };
+    cluster.imageSecurity.images.push(
+      {
+        ...base,
+        image: "alpine:3.20",
+        digest: "sha256:7777",
+        scanned: true,
+        counts: { ...zero, high: 1 },
+        fixable: { ...zero, high: 1 },
+        workloads: [{ kind: "CronJob", namespace: "demo", name: "nightly", container: "backup" }],
+        report_namespace: "demo",
+        report_name: "cronjob-nightly-backup",
+      },
+      {
+        ...base,
+        image: "rclone:1.68",
+        digest: "",
+        scanned: false,
+        scanner: "",
+        scanned_at: 0,
+        reports: 0,
+        counts: zero,
+        fixable: zero,
+        workloads: [{ kind: "Job", namespace: "demo", name: "nightly-29384100", container: "upload" }],
+        report_namespace: "",
+        report_name: "",
+      },
+    );
+    cluster.workloadImages = { nightly: [{ container: "backup", image: "alpine:3.20", kind: "regular" }] };
+  });
+  await openKind(page, "CronJobs");
+  await row(page, "nightly").click();
+  // The Images section of its Job template (Available tags).
+  await expect(panel(page).getByTestId("workload-images")).toContainText("alpine:3.20");
+
+  await panel(page).getByRole("tab", { name: "Security" }).click();
+  const tab = page.getByTestId("workload-security");
+  await expect(tab.getByTestId("workload-security-image")).toHaveCount(2);
+  await expect(tab.getByTestId("workload-security-verdict").first()).toHaveText("1 high. It has a fix.");
+  await expect(tab).toContainText("Container backup");
+  await expect(tab).toContainText("rclone:1.68");
+
+  // The Vulns column of the CronJobs table joins the same way.
+  await showVulns(page);
+  await expect(row(page, "nightly").getByRole("gridcell", { name: "1H", exact: true })).toBeVisible();
+  expect(fake.errors).toEqual([]);
+});

@@ -139,7 +139,11 @@ pub fn aggregate(running: &[RunningImage], reports: &[ReportSummary]) -> Vec<Ima
             Some((_, w)) if joined_owner => w,
             _ => r.owner.clone(),
         };
-        if i >= running_rows && !workload.name.is_empty() {
+        // A running image lists the workloads its pods show, plus a
+        // CronJob's report: a CronJob runs pods only now and then (its
+        // Jobs'), so a report is how its panel finds the image (#557).
+        let cron = !joined_owner && r.owner.kind == "CronJob";
+        if (i >= running_rows || cron) && !workload.name.is_empty() {
             add_workload(row, workload);
         }
         row.reports += 1;
@@ -850,6 +854,30 @@ pub(crate) mod tests {
             [w("ReplicaSet", "web-5f6b7c", "nginx")]
         );
         assert!(live[0].running && live[0].digest == "sha256:1111");
+    }
+
+    /// A CronJob's report of an image another workload runs: the running
+    /// row names the CronJob too, which runs no pod right now (#557).
+    #[test]
+    fn a_cronjob_report_names_the_cronjob_on_a_running_image() {
+        let cron = summary_of(
+            w("CronJob", "nightly", "backup"),
+            "index.docker.io/library/nginx:1.27",
+            true,
+            "sha256:1111",
+        );
+        let rows = aggregate(&running(), &[cron]);
+        let nginx: Vec<_> = rows.iter().filter(|r| r.image == "nginx:1.27").collect();
+        assert_eq!(nginx.len(), 1, "{rows:?}");
+        assert!(nginx[0].running && nginx[0].scanned);
+        assert_eq!(
+            nginx[0].workloads,
+            [
+                w("CronJob", "nightly", "backup"),
+                w("Deployment", "web", "nginx"),
+                w("Pod", "static", "nginx")
+            ]
+        );
     }
 
     /// A report with a digest but no tag is not `:latest`: it never joins

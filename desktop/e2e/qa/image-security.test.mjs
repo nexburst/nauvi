@@ -7,7 +7,7 @@
 //   for critical with a fix, amber for high, an old scan marked; the panel
 //   says what to update, with "No fix yet" collapsed
 // - where people already look (#535): the Vulns column (pods joined to
-//   their Deployment), a Deployment's Security tab, the line on a container
+//   their Deployment), a Deployment's and a CronJob's (#557) Security tab, the line on a container
 //   card and the Overview card; none of it while the feature is off
 // - the empty states: not scanned (no reports in the namespace), no known
 //   vulnerabilities (a clean report), no Trivy Operator (the second cluster,
@@ -102,18 +102,39 @@ const vuln = (id, pkg, severity, fixed, installed = "1.0") => ({
   publishedDate: "2026-01-01T00:00:00Z",
 });
 
-/** A report as the operator writes it for the pod `name` (container `app`). */
-function reportJson(ns, name, repository, tag, vulns, daysAgo = 1) {
+/** A suspended CronJob (#557: its Security tab): it never runs a pod. */
+function cronJobYaml(name, image) {
+  return `---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ${name}
+spec:
+  schedule: "0 3 * * *"
+  suspend: true
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: app
+              image: ${image}
+`;
+}
+
+/** A report as the operator writes it for the `kind` `name` (container `app`). */
+function reportJson(ns, name, repository, tag, vulns, daysAgo = 1, kind = "Pod") {
   const summary = { criticalCount: 0, highCount: 0, mediumCount: 0, lowCount: 0, unknownCount: 0, noneCount: 0 };
   for (const v of vulns) summary[`${v.severity.toLowerCase()}Count`] += 1;
   return {
     apiVersion: "aquasecurity.github.io/v1alpha1",
     kind: "VulnerabilityReport",
     metadata: {
-      name: `pod-${name}-app`,
+      name: `${kind.toLowerCase()}-${name}-app`,
       namespace: ns,
       labels: {
-        "trivy-operator.resource.kind": "Pod",
+        "trivy-operator.resource.kind": kind,
         "trivy-operator.resource.name": name,
         "trivy-operator.resource.namespace": ns,
         "trivy-operator.container.name": "app",
@@ -179,9 +200,16 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
         podYaml("db", "postgres:15") +
         podYaml("tool", "busybox:1.36") +
         // The same image as web (no digest: never pulled), so web's report covers it.
-        deploymentYaml("shop", "nginx:1.27"),
+        deploymentYaml("shop", "nginx:1.27") +
+        // #557: the operator scans a CronJob as itself (no pod needed).
+        cronJobYaml("nightly", "redis:7.2"),
     );
     applyReports(found, [
+      // Older than cache's, with the same findings: the row stays cache's.
+      reportJson(found, "nightly", "library/redis", "7.2", [
+        vuln("CVE-2026-2001", "redis", "HIGH", ""),
+        vuln("CVE-2026-2002", "redis", "HIGH", ""),
+      ], 2, "CronJob"),
       reportJson(found, "web", "library/nginx", "1.27", [
         vuln("CVE-2026-1001", "openssl", "CRITICAL", "3.0.15-1", "3.0.11-1"),
         vuln("CVE-2026-1002", "openssl", "HIGH", "3.0.14-1", "3.0.11-1"),
@@ -322,6 +350,22 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
 
   it("the Security tab in light", T, async () => {
     await setTheme(s.app, "light");
+  });
+
+  it("a CronJob's Security tab, like any workload's (#557, light)", T, async () => {
+    const { app } = s;
+    await app.openDetail("CronJobs", found, "nightly");
+    const tab = await app.find(By.xpath("//*[@data-testid='detail-panel']//button[@role='tab'][normalize-space()='Security']"));
+    await tab.click();
+    await app.find(byTestId("workload-security"));
+    const text = await textOf(app, "workload-security");
+    assert.match(text, /redis:7\.2/);
+    assert.match(text, /2 high\. None has a fix yet\./);
+    assert.match(text, /Container app/);
+  });
+
+  it("the CronJob's Security tab in dark", T, async () => {
+    await setTheme(s.app, "dark");
   });
 
   it("a container card says what the report says about its image (light)", T, async () => {
