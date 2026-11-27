@@ -209,7 +209,16 @@ fn tools_are_read_only_unless_writes_are_allowed() {
     s.initialize();
     assert_eq!(
         s.tool_names(),
-        ["list", "get", "describe", "logs", "events", "problems", "top"]
+        [
+            "list",
+            "get",
+            "describe",
+            "logs",
+            "events",
+            "problems",
+            "top",
+            "image_vulnerabilities"
+        ]
     );
     let reply = s.request("tools/list", json!({}));
     for t in reply["result"]["tools"].as_array().unwrap() {
@@ -220,7 +229,7 @@ fn tools_are_read_only_unless_writes_are_allowed() {
     let mut w = offline(&["--allow-writes"]);
     w.initialize();
     let names = w.tool_names();
-    assert_eq!(&names[7..], ["scale", "restart", "delete", "apply"]);
+    assert_eq!(&names[8..], ["scale", "restart", "delete", "apply"]);
 }
 
 #[test]
@@ -244,7 +253,7 @@ fn a_missing_kubeconfig_is_a_tool_error_not_a_crash() {
     assert!(err, "{text}");
     assert!(text.to_lowercase().contains("kubeconfig"), "{text}");
     // The server is still there.
-    assert_eq!(s.tool_names().len(), 7);
+    assert_eq!(s.tool_names().len(), 8);
 }
 
 #[test]

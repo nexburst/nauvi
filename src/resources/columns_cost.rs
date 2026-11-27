@@ -71,7 +71,11 @@ fn extra(r: &ResourceRef, with: &[ColumnDef], without: &[ColumnDef]) -> (usize, 
 #[test]
 fn optional_pod_columns_cost_at_5k_pods() {
     let r = rref("", "Pod", "pods", true);
-    let all = columns_for(&r, &[]);
+    // The Vulns column (#535) is filled by the UI: its cell is always empty.
+    let all: Vec<_> = columns_for(&r, &[])
+        .into_iter()
+        .filter(|c| c.key != "vulns")
+        .collect();
     let default: Vec<_> = all.iter().filter(|c| !c.default_hidden).cloned().collect();
     assert_eq!(all.len() - default.len(), 6);
     let no_image: Vec<_> = all.iter().filter(|c| c.key != "image").cloned().collect();

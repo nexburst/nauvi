@@ -118,6 +118,15 @@ const fn image(f: fn(&Value) -> String) -> Col {
         default_hidden: true,
     }
 }
+/// The Vulns column (#535), off by default: the UI fills it from the image
+/// security listing (watch rows carry an empty cell).
+const VULNS: Col = Col {
+    key: "vulns",
+    label: "Vulns",
+    kind: ColumnKind::Vulns,
+    src: StaticSrc::Ui,
+    default_hidden: true,
+};
 const fn rollout(f: fn(&Value) -> String) -> Col {
     Col {
         key: "status",
@@ -182,6 +191,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             )),
             off(containers("containers", "Containers")),
             image(pod_images),
+            VULNS,
         ],
     },
     KindSpec {
@@ -200,6 +210,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             number("available", "Available", ".status.availableReplicas"),
             AGE,
             image(template_images),
+            VULNS,
         ],
     },
     KindSpec {
@@ -216,6 +227,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             }),
             AGE,
             image(template_images),
+            VULNS,
         ],
     },
     KindSpec {
@@ -234,6 +246,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             number("available", "Available", ".status.numberAvailable"),
             AGE,
             image(template_images),
+            VULNS,
         ],
     },
     KindSpec {
@@ -265,6 +278,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             number("active", "Active", ".status.active"),
             AGE,
             image(template_images),
+            VULNS,
         ],
     },
     KindSpec {
@@ -281,6 +295,7 @@ pub(super) const KINDS: &[KindSpec] = &[
             text("last", "Last schedule", ".status.lastScheduleTime"),
             AGE,
             image(cronjob_images),
+            VULNS,
         ],
     },
     KindSpec {
@@ -1163,7 +1178,8 @@ mod tests {
                 "ip",
                 "nominated",
                 "containers",
-                "image"
+                "image",
+                "vulns"
             ]
         );
         let pods = columns_for(&rref("", "Pod", "pods", true), &[]);
@@ -1174,14 +1190,22 @@ mod tests {
             .collect();
         assert_eq!(
             off,
-            ["owner", "qos", "ip", "nominated", "containers", "image"]
+            [
+                "owner",
+                "qos",
+                "ip",
+                "nominated",
+                "containers",
+                "image",
+                "vulns"
+            ]
         );
-        // Every other kind's columns are on by default, but the Image column.
+        // Every other kind's columns are on by default, but Image and Vulns.
         for k in KINDS.iter().filter(|k| k.kind != "Pod") {
             let on = k
                 .columns
                 .iter()
-                .all(|c| !c.default_hidden || c.key == "image");
+                .all(|c| !c.default_hidden || c.key == "image" || c.key == "vulns");
             assert!(on, "{}", k.kind);
             if [
                 "Deployment",
@@ -1194,6 +1218,10 @@ mod tests {
             .contains(&k.kind)
             {
                 assert!(k.columns.iter().any(|c| c.key == "image"), "{}", k.kind);
+                // The Vulns column joins by workload: a ReplicaSet's pods
+                // are listed under their Deployment.
+                let vulns = k.columns.iter().any(|c| c.key == "vulns");
+                assert_eq!(vulns, k.kind != "ReplicaSet", "{}", k.kind);
             }
         }
         let nodes = columns_for(&rref("", "Node", "nodes", false), &[]);
