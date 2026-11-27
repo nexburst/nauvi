@@ -247,6 +247,51 @@ async fn a_trivy_of_unknown_version_is_refused_without_running_it() {
     let _ = std::fs::remove_dir_all(d.config.parent().unwrap());
 }
 
+/// A Homebrew Trivy (built with -trimpath: `(devel)`, no -ldflags in its
+/// build info) runs with its Cellar folder's version, shown in Settings; a
+/// malicious one from its folder is refused without running (#561).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_homebrew_trivy_takes_its_folder_s_version() {
+    let d = dirs("cellar");
+    let root = d.config.parent().unwrap().to_path_buf();
+    let ran = root.join("ran");
+    let body = format!(
+        "echo run >> {}\necho '{{\"Version\":\"0.58.1\"}}'",
+        ran.display()
+    );
+    for (version, ok) in [("0.58.1", true), ("0.69.5_1", false)] {
+        let bin = root.join("Cellar/trivy").join(version).join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let trivy = bin.join("trivy");
+        script_with(&trivy, &body, Some(&trivy_block("(devel)")));
+        let real = trivy.canonicalize().unwrap();
+        let shown = with_trivy(&real, || scanner_status(&d, ScannerKind::Trivy, false)).await;
+        let real_s = real.display().to_string();
+        let s = with_trivy(&real, || {
+            approve(&d, ScannerKind::Trivy, &real_s, &shown.0.sha256)
+        })
+        .await
+        .unwrap();
+        if ok {
+            assert_eq!(s.state, ScannerState::Ready, "{s:?}");
+            assert_eq!(s.message, "Version 0.58.1 from its Homebrew folder.");
+            assert!(ran.exists());
+            std::fs::remove_file(&ran).unwrap();
+        } else {
+            assert_eq!(s.state, ScannerState::Refused, "{s:?}");
+            assert!(s.message.contains("Trivy 0.69.5 is one"), "{}", s.message);
+            assert!(
+                s.message.contains("from its Homebrew folder"),
+                "{}",
+                s.message
+            );
+            assert!(!ran.exists(), "nauvi ran a malicious Homebrew build");
+        }
+    }
+    let _ = std::fs::remove_dir_all(root);
+}
+
 /// Run `f` with `NAUVI_TRIVY` set to `path` (one test at a time sets it).
 async fn with_trivy<F, T>(path: &Path, f: impl FnOnce() -> F) -> T
 where

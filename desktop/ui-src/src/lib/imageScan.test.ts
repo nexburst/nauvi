@@ -46,6 +46,9 @@ describe("image scan words", () => {
   it("says where the scanner is and what to do", () => {
     expect(scannerStateText(status({}))).toBe("Trivy 0.58.1 at /usr/bin/trivy. Its database was built 2026-11-25.");
     expect(scannerStateText(status({ db: "" }))).toMatch(/no database yet/);
+    expect(scannerStateText(status({ message: "Version 0.58.1 from its Homebrew folder." }))).toBe(
+      "Trivy 0.58.1 at /usr/bin/trivy. Version 0.58.1 from its Homebrew folder. Its database was built 2026-11-25.",
+    );
     expect(scannerStateText(status({ state: "unapproved", version: "" }))).toBe(
       "Trivy found at /usr/bin/trivy (on PATH). nauvi runs it only once you approve it.",
     );

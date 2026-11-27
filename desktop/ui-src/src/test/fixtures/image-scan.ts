@@ -16,6 +16,8 @@ export interface FakeImageScan {
         sha256?: string;
         /** A Trivy whose file names no version (#561): refused before it runs. */
         unversioned?: boolean;
+        /** Where the backend read its version when its build info names none. */
+        note?: string;
       }
     >
   >;
@@ -68,7 +70,7 @@ export function imageScanFixture(): FakeImageScan {
 
 /** The end of the backend's refusal of a Trivy of unknown version. */
 export const UNVERSIONED_TRIVY =
-  "nauvi does not run it: Trivy 0.69.4 to 0.69.6 ran malicious code as soon as they started (CVE-2026-33634). Install a release build of Trivy (from its GitHub releases, its apt or yum repository, or brew install aquasecurity/trivy/trivy), or set NAUVI_TRIVY to one.";
+  "nauvi does not run it: Trivy 0.69.4 to 0.69.6 ran malicious code as soon as they started (CVE-2026-33634). Install a release build of Trivy (from its GitHub releases, its apt or yum repository, Homebrew or Nix), or set NAUVI_TRIVY to one.";
 
 /** The SHA-256 of a scanner file the fake finds, unless it names one. */
 export const FAKE_SHA256 = "3f1a9c0b7d2e" + "4a5b6c7d8e9f".repeat(4) + "0123";
@@ -118,5 +120,5 @@ export const scannerStatusOf = (kind: ScannerKind, f: FakeImageScan): ScannerSta
       version: found.version,
       message: `Trivy ${found.version} is one of the malicious releases (0.69.4 to 0.69.6, CVE-2026-33634): nauvi does not run it.`,
     };
-  return { ...withPath, state: "ready", version: found.version, db: found.db };
+  return { ...withPath, state: "ready", version: found.version, db: found.db, message: found.note ?? "" };
 };

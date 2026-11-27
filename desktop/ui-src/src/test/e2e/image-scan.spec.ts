@@ -142,6 +142,35 @@ test("a changed binary and a malicious Trivy release are asked about again or re
   await expect(section.getByTestId("image-scanner-approve")).toHaveCount(0);
 });
 
+test("a Homebrew Trivy says where its version was read (#561)", async ({ page }) => {
+  await openApp(page, (cluster) => {
+    cluster.settings.image_security = { ...cluster.settings.image_security, enabled: true, source: "local" };
+    cluster.imageScan = {
+      found: {
+        trivy: {
+          path: "/opt/homebrew/Cellar/trivy/0.58.1/bin/trivy",
+          version: "0.58.1",
+          db: "2026-11-25T06:13:33Z",
+          note: "Version 0.58.1 from its Homebrew folder.",
+        },
+      },
+      approved: { trivy: "/opt/homebrew/Cellar/trivy/0.58.1/bin/trivy" },
+      changed: [],
+      vulns: {},
+      errors: {},
+      delayMs: 50,
+      scanned: {},
+      calls: [],
+    };
+  });
+  const { section } = await openSettingsSection(page);
+  const status = section.getByTestId("image-scanner-status");
+  await expect(status).toHaveAttribute("data-state", "ready");
+  await expect(status.locator("p.muted").first()).toHaveText(
+    "Trivy 0.58.1 at /opt/homebrew/Cellar/trivy/0.58.1/bin/trivy. Version 0.58.1 from its Homebrew folder. Its database was built 2026-11-25.",
+  );
+});
+
 test("a Trivy whose file names no version is refused before it runs, with what to install instead (#561)", async ({ page }) => {
   const fake = await openApp(page, (cluster) => {
     cluster.settings.image_security = { ...cluster.settings.image_security, enabled: true, source: "local" };
@@ -161,7 +190,7 @@ test("a Trivy whose file names no version is refused before it runs, with what t
   // Refused from the file: there is nothing to approve.
   await expect(status).toHaveAttribute("data-state", "refused");
   await expect(status.locator("p.error-text")).toHaveText(`This Trivy's Go build info names no version (built from source?), so nauvi cannot tell which version it is without running it. ${UNVERSIONED_TRIVY}`);
-  await expect(status).toContainText("brew install aquasecurity/trivy/trivy");
+  await expect(status).toContainText("Homebrew or Nix");
   await expect(section.getByTestId("image-scanner-approve")).toHaveCount(0);
   await expect(section.getByTestId("image-scanner-forget")).toHaveCount(0);
   // The file is still shown, so the user can tell which one it is.

@@ -39,7 +39,8 @@ export function scannerStateText(s: ScannerStatus): string {
     case "changed":
       return s.message;
     case "ready":
-      return `${name} ${s.version} at ${s.path}. ${s.db ? `Its database was built ${dbDate(s.db)}.` : "It has no database yet: it downloads one on its first scan."}`;
+      // `s.message`: where its version was read when its build info names none (#561).
+      return `${name} ${s.version} at ${s.path}. ${s.message ? `${s.message} ` : ""}${s.db ? `Its database was built ${dbDate(s.db)}.` : "It has no database yet: it downloads one on its first scan."}`;
     case "refused":
       return s.message;
     case "broken":
