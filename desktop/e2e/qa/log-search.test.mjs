@@ -385,13 +385,23 @@ describe("log search (#220)", { timeout: 20 * 60_000 }, () => {
         { timeout: 30_000, interval: 50, message: "a trim of the lines above the match" },
       );
       console.log(`after a trim the current match is ${after}`);
-      const kept = await app.js(
-        `const l = document.querySelector(arguments[0] + ' [data-testid="log-line"].current');
-         if (!l) return null;
-         const r = l.getBoundingClientRect(); const o = document.querySelector(arguments[0] + ' [data-testid="log-output"]').getBoundingClientRect();
-         return { text: l.textContent, inView: r.top >= o.top - 1 && r.bottom <= o.bottom + 1 };`,
-        pane(sid),
-      );
+      // The count changes with the trim, the lines in view one frame later:
+      // the view moves its scroll position back by the trimmed lines, and the
+      // list renders the rows there on the scroll event of the next frame
+      // (#574). So read the line once the frames after the trim are drawn,
+      // for a few frames at most; it must be in view then, not just in the
+      // list.
+      let kept = null;
+      for (let i = 0; i < 10 && !kept?.inView; i++) {
+        await app.frames(2);
+        kept = await app.js(
+          `const l = document.querySelector(arguments[0] + ' [data-testid="log-line"].current');
+           if (!l) return null;
+           const r = l.getBoundingClientRect(); const o = document.querySelector(arguments[0] + ' [data-testid="log-output"]').getBoundingClientRect();
+           return { text: l.textContent, inView: r.top >= o.top - 1 && r.bottom <= o.bottom + 1 };`,
+          pane(sid),
+        );
+      }
       console.log(`after the trim the current match: ${JSON.stringify(kept)}`);
       assert.ok(kept?.inView, `the current match stays in view: ${JSON.stringify(kept)}`);
       await shots(app, "busy-highlight");

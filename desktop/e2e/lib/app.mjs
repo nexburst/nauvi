@@ -356,6 +356,19 @@ export class App {
     }
   }
 
+  /**
+   * Resolve after the webview has drawn `n` more frames: what a state change
+   * renders (and the scroll events it causes) is then in the DOM.
+   */
+  async frames(n = 2) {
+    await this.driver.executeAsyncScript(
+      `const done = arguments[arguments.length - 1]; let n = arguments[0];
+       const step = () => (--n <= 0 ? done() : requestAnimationFrame(step));
+       requestAnimationFrame(step);`,
+      n,
+    );
+  }
+
   /** Wait for a visible element. */
   async find(locator, opts = {}) {
     return this.waitFor(

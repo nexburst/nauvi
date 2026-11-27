@@ -23,13 +23,6 @@ export function backgroundLuminance(app) {
     return 0.2126 * r + 0.7152 * g + 0.0722 * b;`);
 }
 
-/** Resolve after the browser has painted two more frames. */
-function twoFrames(app) {
-  return app.driver.executeAsyncScript(
-    "const done = arguments[arguments.length - 1]; requestAnimationFrame(() => requestAnimationFrame(() => done()));",
-  );
-}
-
 /**
  * Wait until the page shows `theme` ("light", "dark", or null for the
  * system's): `data-theme` is that value (absent for null), the body's
@@ -53,7 +46,7 @@ export async function waitTheme(app, theme, { timeout = 10_000, reapply = false 
         const lum = await backgroundLuminance(app);
         last = `background luminance ${lum.toFixed(2)}`;
         if (light ? lum < 0.6 : lum > 0.2) return false;
-        await twoFrames(app);
+        await app.frames(2);
         // Still the same after the frames (the app did not set it back).
         return (await app.js("return document.documentElement.dataset.theme ?? ''")) === want;
       },
