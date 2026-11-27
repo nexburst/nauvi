@@ -31,6 +31,19 @@
     if (usesLocal(source)) void loadScannerStatus();
   }
 
+  /** Whether the full SHA-256 was just copied ("" / "copied" / "failed"). */
+  let copied = $state("");
+
+  async function copyHash(hash: string) {
+    try {
+      await navigator.clipboard.writeText(hash);
+      copied = "copied";
+    } catch {
+      copied = "failed";
+    }
+    setTimeout(() => (copied = ""), 2000);
+  }
+
   async function setScanner(scanner: ScannerKind) {
     await save({ scanner });
     void loadScannerStatus(scanner);
@@ -67,7 +80,10 @@
     </label>
     <div class="status" data-testid="image-scanner-status" data-state={status?.state ?? ""}>
       {#if imageScan.statusError}
-        <p class="error-text">{imageScan.statusError}</p>
+        <p class="error-text" data-testid="image-scanner-error">{imageScan.statusError}</p>
+        <div class="actions">
+          <button type="button" class="btn" onclick={() => loadScannerStatus()}>Check again</button>
+        </div>
       {:else if !status}
         <p class="muted">Looking for {scannerLabel(s.scanner)}…</p>
       {:else}
@@ -75,7 +91,19 @@
           {scannerStateText(status)}
         </p>
         {#if status.file && status.state !== "not_installed"}
-          <p class="muted file" data-testid="image-scanner-file">{status.file}</p>
+          <p class="muted file" data-testid="image-scanner-file">
+            <span title={status.sha256 ? `SHA-256 ${status.sha256}` : undefined}>{status.file}</span>
+            {#if status.sha256}
+              <button
+                type="button"
+                class="link"
+                data-testid="image-scanner-copy-hash"
+                aria-label="Copy the full SHA-256"
+                onclick={() => copyHash(status.sha256)}
+                >{copied === "copied" ? "Copied" : copied === "failed" ? "Could not copy" : "Copy SHA-256"}</button
+              >
+            {/if}
+          </p>
         {/if}
         {#if status.state === "unapproved" || status.state === "changed"}
           <div class="actions">
@@ -175,6 +203,22 @@
   }
   .file {
     font-family: var(--font-mono, monospace);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+    align-items: baseline;
+  }
+  .link {
+    background: none;
+    border: none;
+    padding: 0;
+    color: var(--accent);
+    cursor: pointer;
+    font: inherit;
+    font-family: var(--font-sans, inherit);
+  }
+  .link:hover {
+    text-decoration: underline;
   }
   .hint {
     margin: 0;

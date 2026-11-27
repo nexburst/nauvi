@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ObjectLink, ResourceKind } from "./bindings";
-import { linkApiVersion, linkKind, linkProblem } from "./links";
+import { linkApiVersion, linkKind, linkProblem, linkTitle } from "./links";
 
 const kind = (group: string, version: string, k: string, namespaced = true): ResourceKind => ({
   resource: { group, version, kind: k, plural: k.toLowerCase() + "s", namespaced },
@@ -56,5 +56,16 @@ describe("links", () => {
     const node = linkKind(kinds, link({ kind: "Node" }));
     expect(linkProblem(link({ kind: "Node", namespace: "demo" }), "kind-test", node)).toMatch(/cluster-scoped/);
     expect(linkProblem(link({ kind: "Node", namespace: "" }), "kind-test", node)).toBe("");
+  });
+
+  it("takes a kind's table from nauvi show (#548)", () => {
+    const pods = linkKind(kinds, link({ name: "" }));
+    expect(linkProblem(link({ name: "", namespace: "" }), "kind-test", pods)).toBe("");
+    expect(linkProblem(link({ name: "", namespace: "demo" }), "kind-test", pods)).toBe("");
+    const node = linkKind(kinds, link({ kind: "Node", name: "" }));
+    expect(linkProblem(link({ kind: "Node", namespace: "", name: "" }), "kind-test", node)).toBe("");
+    expect(linkProblem(link({ kind: "Node", namespace: "demo", name: "" }), "kind-test", node)).toMatch(/cluster-scoped/);
+    expect(linkTitle(link({ name: "", namespace: "demo" }))).toBe("the Pod table in demo");
+    expect(linkTitle(link({ kind: "Node", namespace: "", name: "n1" }))).toBe("Node n1");
   });
 });

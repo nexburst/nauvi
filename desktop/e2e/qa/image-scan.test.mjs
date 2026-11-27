@@ -11,8 +11,10 @@
 //   one says why
 // - the panel: what to update; Cancel kills a slow scan; an unreachable
 //   registry says so plainly
-// - a changed binary is asked about again; a malicious Trivy version is
-//   refused
+// - a changed binary is asked about again; a file swapped after the
+//   prompt showed it is not approved; a malicious Trivy version is
+//   refused, and a file whose Go build info names one is refused without
+//   running it at all
 // Light and dark theme at 1280x800.
 
 import assert from "node:assert/strict";
@@ -79,6 +81,26 @@ if [ -f "$d/unreachable" ]; then
 fi
 cat "$d/report.json"
 `;
+}
+
+/** A Go 1.18+ build info block naming Trivy `version` (see
+ *  src/image_security/go_buildinfo.rs). */
+function goBuildInfo(version) {
+  const mod = `path\tgithub.com/aquasecurity/trivy/cmd/trivy\nmod\tgithub.com/aquasecurity/trivy\tv${version}\th1:x=\n`;
+  const go = Buffer.from("go1.24.1");
+  const m = Buffer.concat([Buffer.alloc(16), Buffer.from(mod), Buffer.alloc(16)]);
+  const head = Buffer.alloc(32);
+  Buffer.from("\xff Go buildinf:", "latin1").copy(head);
+  head[14] = 8;
+  head[15] = 2;
+  return Buffer.concat([head, Buffer.from([go.length]), go, Buffer.from([m.length]), m]);
+}
+
+/** The fake trivy with a build info block after it (at a 16-byte boundary). */
+function fakeTrivyBuild(dir, printed, built) {
+  const script = Buffer.from(fakeTrivy(dir, printed) + "exit 0\n");
+  const pad = Buffer.alloc(Math.ceil(script.length / 16) * 16 + 64 - script.length, 0x23);
+  return Buffer.concat([script, pad, goBuildInfo(built)]);
 }
 
 const viewText = (app) => app.js(`return document.querySelector('[data-testid="image-security"]')?.innerText ?? ""`);
@@ -163,6 +185,10 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     assert.match(await scannerText(app), /Trivy found at .*trivy \(on PATH\)\. nauvi runs it only once you approve it\./);
     // What is approved: its size and the start of its SHA-256.
     assert.match(await scannerText(app), /\d+(\.\d)? (bytes|KB|MB), SHA-256 [0-9a-f]{12}…/);
+    // The full hash is on hover, and can be copied.
+    const title = await app.js(`return document.querySelector('[data-testid="image-scanner-file"] span')?.title ?? ""`);
+    assert.match(title, /^SHA-256 [0-9a-f]{64}$/);
+    await app.find(byTestId("image-scanner-copy-hash"));
     assert.deepEqual(calls(), [], "the scanner ran before it was approved");
   });
 
@@ -301,11 +327,28 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     assert.match(await scannerText(app), /changed since you approved it/);
   });
 
+  it("a file swapped after the prompt showed it is not approved (dark)", T, async () => {
+    const { app } = s;
+    await setTheme(app, "dark");
+    // The prompt still shows the "update"; the file is another one now.
+    writeFileSync(trivyPath(), fakeTrivy(dir, "0.69.4"));
+    chmodSync(trivyPath(), 0o755);
+    const before = calls().length;
+    await (await app.find(byTestId("image-scanner-approve"))).click();
+    await app.waitFor(async () => /The file changed since it was shown\. Check again\./.test(await scannerText(app)), {
+      timeout: 30_000,
+      message: "changed since shown",
+    });
+    assert.equal(calls().length, before, "the swapped file ran");
+    const approval = JSON.parse(readFileSync(join(profile.configDir, "image-scanner.json"), "utf8"));
+    assert.equal(approval.approved[0].binary.path.endsWith("trivy"), true);
+  });
+
   it("a malicious Trivy release is refused (dark)", T, async () => {
     const { app } = s;
     await setTheme(app, "dark");
-    writeFileSync(trivyPath(), fakeTrivy(dir, "0.69.4"));
-    chmodSync(trivyPath(), 0o755);
+    await (await app.find(By.xpath("//*[@data-testid='image-scanner-status']//button[normalize-space()='Check again']"))).click();
+    await app.waitFor(async () => (await scannerState(app)) === "changed", { timeout: 30_000, message: "changed" });
     await (await app.find(byTestId("image-scanner-approve"))).click();
     await app.waitFor(async () => (await scannerState(app)) === "refused", { timeout: 30_000, message: "refused" });
     assert.match(await scannerText(app), /Trivy 0\.69\.4 is one of the malicious releases .*CVE-2026-33634/);
@@ -314,5 +357,21 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     // Nothing was scanned with it: the scans of Scan all, the cancelled one
     // and the unreachable one.
     assert.equal(calls().filter((c) => c === "scan").length, scannable.length + 2);
+  });
+
+  it("a malicious build is refused from its file, without running it (dark)", T, async () => {
+    const { app } = s;
+    // Prints a fine version, but its build info names 0.69.5.
+    writeFileSync(trivyPath(), fakeTrivyBuild(dir, "0.58.1", "0.69.5"));
+    chmodSync(trivyPath(), 0o755);
+    rmSync(join(dir, "calls"), { force: true });
+    await (await app.find(By.xpath("//*[@data-testid='image-scanner-status']//button[normalize-space()='Check again']"))).click();
+    await app.waitFor(async () => /Trivy 0\.69\.5 is one of the malicious releases/.test(await scannerText(app)), {
+      timeout: 30_000,
+      message: "refused from the build info",
+    });
+    assert.equal(await scannerState(app), "refused");
+    assert.equal((await app.driver.findElements(byTestId("image-scanner-approve"))).length, 0);
+    assert.deepEqual(calls(), [], "nauvi ran a malicious build");
   });
 });

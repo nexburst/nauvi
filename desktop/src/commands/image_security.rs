@@ -1,10 +1,12 @@
 //! Image security (#534, ADR 0011): the images of the namespaces shown
 //! with what the Trivy Operator's VulnerabilityReports say about them.
 //!
-//! Off by default (Settings → Image security, and per cluster). Nothing
-//! runs at start-up or while idle: the reports are read only when the view
-//! asks, and the listing is kept in the [`ClusterSession`] (dropped with
-//! it, and on an idle disconnect) for `cache_ttl_hours`.
+//! Off by default (Settings → Image security, and per cluster). While it
+//! is off nothing is read. While it is on, the reports are read when the
+//! Image security view, the Overview, a pod or workload panel or the Vulns
+//! column is shown (#535): one listing per context, kept in the
+//! [`ClusterSession`] (dropped with it, and on an idle disconnect) for
+//! `cache_ttl_hours`, which all of them share. No watch, no polling.
 //!
 //! With a local scanner as a source (#536, `image_scan`), the listing is
 //! the pods' images (without the operator, or when it is the only source)

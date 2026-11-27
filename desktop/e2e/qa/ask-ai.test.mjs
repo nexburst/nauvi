@@ -12,6 +12,13 @@
 // It runs in its own folder in the app's data folder, never HOME (#532: on
 // macOS a CLI scanning HOME makes macOS ask for nauvi to access Photos),
 // unless the cluster's settings set a working directory.
+// #548: the fake CLI also prints the `nauvi link` of a pod (plain and as an
+// OSC 8 link) and runs `nauvi show` (at start, and for "show <target>"
+// typed in its terminal). A click on the link opens the pod in the same
+// window; the same link in a pod shell does nothing. With "Let Ask AI open
+// views" off `nauvi show` prints the link; on, it opens the view with
+// "Opened by Ask AI", Back returns, a second view within 3 s is dropped,
+// and a wrong, missing or closed session's token opens nothing.
 //
 // Helpers: `terminal`, `closeTab`, `setTheme`.
 
@@ -23,16 +30,18 @@ import { after, before, describe, it } from "node:test";
 import { By, Key } from "selenium-webdriver";
 import { byTestId, CONTEXT, REPO, xq } from "../lib/app.mjs";
 import { deleteNamespace, httpPodYaml, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { closeTab, dockTabs } from "../lib/dock.mjs";
+import { closeTab, dockTabs, panelButton } from "../lib/dock.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { createProfile } from "../lib/profile.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
+import { cannotLaunchTwice, startBus } from "../lib/second-launch.mjs";
 import { terminal } from "../lib/terminal.mjs";
 
 const T = { timeout: 180_000 };
 const target = process.env.CARGO_TARGET_DIR || join(REPO, "target");
 const CLI = process.env.NAUVI_CLI || join(target, "debug", "nauvi");
 const noCli = existsSync(CLI) ? false : `no nauvi CLI at ${CLI} (cargo build -p nauvi)`;
+const noBus = cannotLaunchTwice();
 const noPython = existsSync("/usr/bin/python3") ? false : "no /usr/bin/python3 for the fake AI CLI";
 const AI_NAMES = ["claude", "codex", "gemini"];
 // A pod that keeps failing, for `nauvi problems` to find.
@@ -79,6 +88,27 @@ try:
     rec["problems_code"] = p.returncode
 except Exception as e:
     rec["problems_error"] = repr(e)
+# #548: what nauvi show needs, and the link the skill says to print.
+# The token itself is never recorded (the record could end up in uploaded
+# artifacts): only its shape, and the token in a private file the test
+# reads in a shell, so it is not on screen either.
+token = os.environ.get("NAUVI_ASK_AI_SESSION", "")
+rec["show_token"] = "hex64" if len(token) == 64 and all(c in "0123456789abcdef" for c in token) else ("" if not token else "other")
+if token:
+    fd = os.open(os.environ["ASK_AI_TOKEN_FILE"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token)
+rec["show_app"] = os.environ.get("NAUVI_APP", "")
+rec["link_context"] = os.environ.get("NAUVI_LINK_CONTEXT", "")
+def nauvi(*a):
+    p = subprocess.run(["nauvi", *a], capture_output=True, text=True, timeout=60)
+    return p.stdout, p.stderr[-400:], p.returncode
+try:
+    rec["link"], rec["link_err"], rec["link_code"] = nauvi("link", "pod/broken", "-n", ns)
+    rec["link"] = rec["link"].strip()
+    rec["show_first"], _, rec["show_first_code"] = nauvi("show", "pod/broken", "-n", ns)
+except Exception as e:
+    rec["link_error"] = repr(e)
 with open(os.environ["ASK_AI_RECORD"], "a") as f:
     f.write(json.dumps(rec) + "\n")
 print("FAKE-AI started with %d arguments" % len(args))
@@ -87,8 +117,21 @@ for line in rec.get("problems", "").splitlines()[:6]:
     print("| " + line[:110])
 print("Type done to exit")
 for line in sys.stdin:
-    if line.strip() == "done":
+    cmd = line.strip()
+    if cmd == "done":
         break
+    # "links": the answer the skill asks for, a pod and its link.
+    if cmd == "links" and rec.get("link"):
+        print("Pod %s/broken keeps failing:" % ns)
+        print(rec["link"])
+        print("\x1b]8;;%s\x07OSC-BROKEN\x1b]8;;\x07" % rec["link"])
+    # "show pod/x": what the skill does when the user asks to see something.
+    if cmd.startswith("show "):
+        out, err, code = nauvi("show", *cmd.split()[1:], "-n", ns)
+        for l in (out + err).splitlines():
+            print("SHOW| " + l[:150])
+        print("SHOW-CODE %d" % code)
+        print("SHOW-DONE")
 print("FAKE-AI bye")
 `;
 
@@ -149,6 +192,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
   const bin = join(work, "bin");
   const tmp = join(work, "tmp");
   const record = join(work, "record.jsonl");
+  const tokenFile = join(work, "token");
   mkdirSync(bin);
   mkdirSync(tmp);
   writeFileSync(join(bin, "claude"), FAKE_CLAUDE);
@@ -165,17 +209,26 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
   const skillDir = join(profile.home, ".claude", "skills", "nauvi");
   const skillFile = join(skillDir, "SKILL.md");
   const askAiDir = join(profile.home, ".local", "share", "com.nauvi.app", "ask-ai");
-  const s = appSession("ask-ai", () => ({
-    profile,
-    env: {
-      PATH: pathWithoutAiClis([profile.bin, bin]),
-      TMPDIR: tmp,
-      ASK_AI_RECORD: record,
-      ASK_AI_NS: ns,
-      CLAUDE_CONFIG_DIR: "",
-    },
-  }));
+  // A private session bus, so `nauvi show` reaches this app through the
+  // single-instance hand-over (as single-instance.test.mjs).
+  let bus = null;
+  const s = appSession("ask-ai", async () => {
+    if (!noBus) bus = await startBus();
+    return {
+      profile,
+      env: {
+        PATH: pathWithoutAiClis([profile.bin, bin]),
+        TMPDIR: tmp,
+        ASK_AI_RECORD: record,
+        ASK_AI_TOKEN_FILE: tokenFile,
+        ASK_AI_NS: ns,
+        CLAUDE_CONFIG_DIR: "",
+        ...(bus ? { DBUS_SESSION_BUS_ADDRESS: bus.address } : {}),
+      },
+    };
+  });
   after(() => {
+    bus?.stop();
     profile.remove();
     deleteNamespace(ns);
     rmSync(work, { recursive: true, force: true });
@@ -399,7 +452,199 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     const tab = (await dockTabs(app)).find((t) => t.title.startsWith("AI: "));
     if (tab) await closeTab(app, tab.title);
   });
+
+  // #548: links the AI prints, and `nauvi show`.
+  const brokenLink = () => `nauvi://${CONTEXT}/core/v1/Pod/${ns}/broken`;
+
+  it("the AI's nauvi:// links open the pod in this window (light and dark)", { ...T, skip: noCli || noPython }, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    await app.openDetail("Pods", ns, "asked");
+    const before = records(record).length;
+    await app.palette("ask ai", "Ask AI");
+    await waitDialog(app);
+    await (await app.find(byTestId("ask-ai-start"))).click();
+    const term = terminal(app);
+    await term.waitFor("Type done to exit", { timeout: 90_000 });
+    await app.waitFor(() => records(record).length > before, { message: "the fake CLI recorded its start" });
+    const rec = records(record).at(-1);
+    // `nauvi link` prints what Copy link copies, for this context's catalog id.
+    assert.equal(rec.link_code, 0, rec.link_err);
+    assert.equal(rec.link, brokenLink());
+    assert.equal(rec.link_context, CONTEXT);
+    await term.type("links");
+    await term.waitFor("OSC-BROKEN");
+    // The setting is off: no token, and `nauvi show` gives the link instead.
+    assert.equal(rec.show_token, "");
+    assert.match(rec.show_first, /Let Ask AI open views/);
+    assert.equal(rec.show_first_code, 2, "nothing opened: exit code 2");
+    assert.ok(rec.show_first.includes(brokenLink()), rec.show_first);
+    assert.match(await panelText(app), /\basked\b/, "nauvi show opened nothing");
+    await app.shot("links-printed");
+
+    await clickText(app, brokenLink());
+    assert.equal(await screenTitle(app), `Open Pod ${ns}/broken (${CONTEXT}) in nauvi`);
+    await app.waitFor(async () => /\bbroken\b/.test(await panelText(app)), { message: "the clicked link's pod in the panel" });
+    assert.equal((await app.driver.findElements(byTestId("opened-by-ai"))).length, 0, "a click is the user's, not Ask AI's");
+    await app.shot("link-opened-light");
+    await setTheme(app, "dark");
+    await app.shot("link-opened-dark");
+    await setTheme(app, "light");
+
+    // The OSC 8 link too.
+    await app.openDetail("Pods", ns, "asked");
+    await clickText(app, "OSC-BROKEN");
+    await app.waitFor(async () => /\bbroken\b/.test(await panelText(app)), { message: "the OSC 8 link's pod in the panel" });
+    await term.type("done");
+    await term.waitFor("This is your shell", { timeout: 30_000 });
+  });
+
+  it("the same links printed in a pod shell do nothing", { ...T, skip: noCli || noPython }, async () => {
+    const { app } = s;
+    for (const tab of await dockTabs(app)) if (tab.title.startsWith("AI: ")) await closeTab(app, tab.title);
+    await app.openDetail("Pods", ns, "asked");
+    await panelButton(app, "Shell");
+    const term = terminal(app);
+    await term.waitForPrompt();
+    await term.type("clear");
+    await term.type(`printf '%s\\n' '${brokenLink()}'`);
+    await term.type(`printf '\\033]8;;${brokenLink()}\\007OSC-SHELL\\033]8;;\\007\\n'`);
+    await term.waitFor(/^OSC-SHELL$/m);
+    await clickText(app, brokenLink());
+    await clickText(app, "OSC-SHELL");
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.doesNotMatch(await screenTitle(app), /in nauvi/);
+    assert.match(await panelText(app), /\basked\b/);
+    assert.doesNotMatch(await panelText(app), /\bbroken\b/);
+    await app.shot("pod-shell-link-ignored");
+    for (const tab of await dockTabs(app)) await closeTab(app, tab.title);
+  });
+
+  it("with Let Ask AI open views on, nauvi show opens the pod; Back returns; one per 3 s (light and dark)", { ...T, skip: noCli || noPython || noBus }, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    await openAiSettings(app);
+    const box = await app.find(byTestId("ask-ai-open-views"));
+    await app.js("arguments[0].scrollIntoView({ block: 'center' })", box);
+    assert.equal(await box.isSelected(), false, "off by default");
+    await app.shot("settings-open-views-off");
+    await box.click();
+    await app.waitFor(() => app.profile.settings()?.ask_ai_open_views === true, { message: "the setting saved" });
+    await closeSettings(app);
+
+    await app.nav("Deployments");
+    const before = records(record).length;
+    await app.palette("ask ai", "Ask AI");
+    await waitDialog(app);
+    await (await app.find(byTestId("ask-ai-start"))).click();
+    const term = terminal(app);
+    await term.waitFor("Type done to exit", { timeout: 90_000 });
+    await app.waitFor(() => records(record).length > before, { message: "the fake CLI recorded its start" });
+    const rec = records(record).at(-1);
+    assert.equal(rec.show_token, "hex64", "a token for this session");
+    assert.match(readFileSync(tokenFile, "utf8"), /^[0-9a-f]{64}$/);
+    assert.ok(existsSync(rec.show_app), rec.show_app);
+    // Its first `nauvi show` (at start) opened the broken pod.
+    await app.waitFor(async () => /\bbroken\b/.test(await panelText(app)), { timeout: 30_000, message: "nauvi show's pod" });
+    await app.find(byTestId("opened-by-ai"));
+    assert.match(rec.show_first, /The nauvi app shows Pod .*\/broken/);
+    assert.equal(rec.show_first_code, 0);
+    await app.shot("show-opened-light");
+    await setTheme(app, "dark");
+    await app.shot("show-opened-dark");
+    await setTheme(app, "light");
+
+    // Again within 3 s: dropped, with a line in the terminal.
+    await new Promise((r) => setTimeout(r, 3200));
+    await term.type("show pod/asked");
+    await term.waitFor("SHOW| The nauvi app shows Pod", { timeout: 30_000 });
+    await term.type("show pod/broken");
+    await term.waitFor("asked again within 3 seconds", { timeout: 30_000 });
+    await term.waitFor("SHOW-CODE 2", { timeout: 30_000 });
+    await app.waitFor(async () => /\basked\b/.test(await panelText(app)), { message: "the second request's pod" });
+    await app.shot("show-rate-limited");
+
+    // Back returns to where the user was before Ask AI opened it.
+    const back = await app.find(By.xpath("//*[@data-testid='opened-by-ai']//button[normalize-space()='Back']"));
+    await back.click();
+    await app.waitFor(async () => /\bbroken\b/.test(await panelText(app)), { message: "Back to the previous view" });
+
+    // A kind's table.
+    await new Promise((r) => setTimeout(r, 3200));
+    await term.type("show pods");
+    await app.waitFor(
+      async () => (await app.js("return document.body.innerText")).includes(`Opened by Ask AI: the Pod table in ${ns}`),
+      { timeout: 30_000, message: "the table notice" },
+    );
+    await app.shot("show-table");
+
+    // From the user's shell after the CLI: a wrong token never opens anything.
+    await term.type("done");
+    await term.waitFor("This is your shell", { timeout: 30_000 });
+    await term.waitForPrompt();
+    await app.openDetail("Pods", ns, "asked");
+    await new Promise((r) => setTimeout(r, 3200));
+    const wrong = await term.run(`NAUVI_ASK_AI_SESSION=${"0".repeat(64)} nauvi show pod/broken -n ${ns}`, { timeout: 60_000 });
+    assert.match(wrong, /did not take the request/);
+    const none = await term.run(`env -u NAUVI_ASK_AI_SESSION nauvi show pod/broken -n ${ns}`, { timeout: 60_000 });
+    assert.match(none, /opens views only from the Ask AI terminal/);
+    await new Promise((r) => setTimeout(r, 2000));
+    assert.doesNotMatch(await panelText(app), /\bbroken\b/, "no view from a wrong or missing token");
+
+    // The session's token goes with its terminal.
+    for (const tab of await dockTabs(app)) await closeTab(app, tab.title);
+    await app.palette("local term", "New local terminal");
+    const local = terminal(app);
+    await local.waitForPrompt();
+    const closed = await local.run(
+      `NAUVI_ASK_AI_SESSION=$(cat '${tokenFile}') NAUVI_APP='${rec.show_app}' nauvi show pod/broken -n ${ns}`,
+      { timeout: 60_000 },
+    );
+    assert.match(closed, /did not take the request/);
+    await new Promise((r) => setTimeout(r, 2000));
+    assert.doesNotMatch(await panelText(app), /\bbroken\b/, "a closed session's token opens nothing");
+    for (const tab of await dockTabs(app)) await closeTab(app, tab.title);
+  });
 });
+
+const panelText = (app) => app.js(`return document.querySelector('[data-testid="detail-panel"]')?.innerText ?? ""`);
+
+/** The tooltip of the visible terminal: where the hovered link goes. */
+const screenTitle = (app) =>
+  app.js(
+    `const term = Array.from(document.querySelectorAll('[data-testid="terminal"]')).find((el) => el.offsetParent !== null);
+     return term?.querySelector('.screen')?.title ?? "";`,
+  );
+
+/** Hover, then click `text` on the row that reads just `text` (as terminal-links.test.mjs). */
+async function clickText(app, text) {
+  const rect = await app.waitFor(
+    () =>
+      app.js(
+        `const text = arguments[0];
+         const term = Array.from(document.querySelectorAll('[data-testid="terminal"]')).find((el) => el.offsetParent !== null);
+         const rows = Array.from(term?.querySelector('.xterm-rows')?.children ?? []);
+         const row = rows.find((r) => r.textContent.replace(/\\u00a0/g, ' ').trim() === text);
+         if (!row) return null;
+         const r = row.getBoundingClientRect();
+         const ch = r.width / Math.max(1, row.textContent.length);
+         return [r.x, r.y, Math.min(r.width, ch * text.length), r.height];`,
+        text,
+      ),
+    { message: `${text} on the terminal's screen` },
+  );
+  const [x, y, w, h] = rect;
+  const cx = Math.round(x + Math.min(w / 2, 60));
+  const cy = Math.round(y + h / 2);
+  await app.driver
+    .actions()
+    .move({ origin: "viewport", x: cx - 3, y: cy })
+    .pause(100)
+    .move({ origin: "viewport", x: cx, y: cy })
+    .pause(400)
+    .click()
+    .perform();
+}
 
 /** Pick a mode on this cluster's settings page (as context-mode.test.mjs). */
 async function setMode(app, label) {

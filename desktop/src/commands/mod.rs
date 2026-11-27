@@ -125,6 +125,7 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             image_security::cmd_image_security_summary,
             kubectl::cmd_kubectl_download,
             kubectl::cmd_kubectl_match,
+            links::cmd_check_link,
             links::cmd_object_link,
             links::cmd_take_link,
             local_shell::cmd_local_shell_ack,

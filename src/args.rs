@@ -68,6 +68,30 @@ pub enum Commands {
         #[arg(short, long)]
         namespace: Option<String>,
     },
+    /// Print an object's nauvi:// link, the same as the app's Copy link.
+    /// In the app's Ask AI terminal, clicking it opens the object
+    Link {
+        /// `<kind>/<name>`, or the kind followed by the name
+        target: String,
+        /// The object's name, when the kind is given on its own
+        name: Option<String>,
+        /// Namespace (default: the context's namespace)
+        #[arg(short, long)]
+        namespace: Option<String>,
+    },
+    /// Open an object, or a kind's table, in the nauvi app: only from its
+    /// Ask AI terminal, with Settings, AI, "Let Ask AI open views" on.
+    /// Elsewhere it prints the link
+    Show {
+        /// `<kind>/<name>` for one object, or a kind for its table
+        target: String,
+        /// The object's name, when the kind is given on its own
+        name: Option<String>,
+        /// Namespace (default for an object: the context's namespace; for a
+        /// table: the namespaces the app shows)
+        #[arg(short, long)]
+        namespace: Option<String>,
+    },
     /// Only what is wrong, and why: crash-looping, failed, not ready or
     /// pending pods, recent restarts, workloads short of replicas, failed
     /// Jobs, not-ready Nodes, lost PVCs (the same findings as the MCP

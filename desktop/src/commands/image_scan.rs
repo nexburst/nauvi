@@ -5,8 +5,12 @@
 //! - nauvi never downloads a scanner or a database. The binary (from
 //!   `NAUVI_TRIVY`/`NAUVI_GRYPE` or `PATH`) runs only once the user
 //!   approved it ([`approval`]); a changed binary is asked about again,
-//!   and known malicious releases are refused, also after an approval.
-//!   Nothing of the binary runs before the approval (not even `version`).
+//!   and known malicious releases are refused, also after an approval:
+//!   first from the Go build info in the file, before anything of it runs
+//!   (Trivy 0.69.4 to 0.69.6 ran their payload even for `version`), then
+//!   by the version it prints. Nothing of the binary runs before the
+//!   approval (not even `version`), and an approval is of the SHA-256 the
+//!   user was shown.
 //! - Only an image of the listing can be scanned: the reference and digest
 //!   come from the pods (untrusted), checked by `local::scan_target`.
 //! - One scan at a time in the whole app, cancellable
@@ -23,9 +27,10 @@ use super::image_security::{listing, remember_scan};
 use crate::settings::SettingsStore;
 use crate::state::Cluster;
 use nauvi::image_security::cache::{create_private_dir, CachedScan, ScanCache};
+use nauvi::image_security::go_buildinfo::BuildInfo;
 use nauvi::image_security::local::{
-    self, find_binary, fingerprint, refused_version, scan_target, Fingerprint, ScanOptions,
-    ScannerKind, ScannerVersion,
+    self, find_binary, inspect, refused_build, refused_version, scan_target, Fingerprint,
+    ScanOptions, ScannerKind, ScannerVersion,
 };
 use nauvi::image_security::running::{detail_of_scan, platform_of};
 use nauvi::image_security::{ImageDetail, ImageVulns, VulnsArgs, VulnsSummary};
@@ -112,13 +117,16 @@ pub(crate) struct ScannerStatus {
     /// The file found, so the user sees what they approve:
     /// `48.2 MB, SHA-256 1a2b3c4d5e6f…` (empty when none was read).
     pub(crate) file: String,
+    /// The file's full SHA-256 (empty when none was read): the approval
+    /// sends it back, so only the file shown can be approved.
+    pub(crate) sha256: String,
 }
 
 /// Fingerprints by (path, size, time), so a 100 MB binary is hashed again
 /// only when it changed; versions by SHA-256.
 #[derive(Default)]
 struct Known {
-    fingerprints: HashMap<FileKey, Fingerprint>,
+    fingerprints: HashMap<FileKey, Inspected>,
     versions: HashMap<String, ScannerVersion>,
 }
 
@@ -167,26 +175,47 @@ fn file_key(path: &Path, meta: &std::fs::Metadata) -> Option<FileKey> {
     }
 }
 
-async fn fingerprint_of(path: &Path) -> Result<Fingerprint, String> {
+/// A file's fingerprint and the Go build info in it.
+#[derive(Debug, Clone)]
+struct Inspected {
+    fp: Fingerprint,
+    build: Option<BuildInfo>,
+}
+
+async fn inspect_of(path: &Path) -> Result<Inspected, String> {
     let meta =
         std::fs::metadata(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
     let key = file_key(path, &meta);
-    if let Some(fp) = key
+    if let Some(known) = key
         .as_ref()
         .and_then(|key| with_known(|k| k.fingerprints.get(key).cloned()))
     {
-        return Ok(fp);
+        return Ok(known);
     }
     let p = path.to_path_buf();
-    let fp = tokio::task::spawn_blocking(move || fingerprint(&p))
+    let (fp, build) = tokio::task::spawn_blocking(move || inspect(&p))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    let known = Inspected { fp, build };
     if let Some(key) = key {
-        with_known(|k| k.fingerprints.insert(key, fp.clone()));
+        with_known(|k| k.fingerprints.insert(key, known.clone()));
     }
-    Ok(fp)
+    Ok(known)
 }
+
+#[cfg(test)]
+async fn fingerprint_of(path: &Path) -> Result<Fingerprint, String> {
+    inspect_of(path).await.map(|i| i.fp)
+}
+
+/// Why `found` must not run, from its file alone.
+fn refused_file(scanner: ScannerKind, found: &Inspected) -> Option<String> {
+    found.build.as_ref().and_then(|b| refused_build(scanner, b))
+}
+
+/// What the approval says when the file is not the one shown.
+pub(crate) const CHANGED_SINCE_SHOWN: &str = "The file changed since it was shown. Check again.";
 
 fn status(scanner: ScannerKind, state: ScannerState) -> ScannerStatus {
     ScannerStatus {
@@ -199,6 +228,7 @@ fn status(scanner: ScannerKind, state: ScannerState) -> ScannerStatus {
         db: String::new(),
         message: String::new(),
         file: String::new(),
+        sha256: String::new(),
     }
 }
 
@@ -239,15 +269,24 @@ pub(crate) async fn scanner_status(
     } else {
         "PATH".to_string()
     };
-    let fp = match fingerprint_of(&path).await {
-        Ok(fp) => fp,
+    let found = match inspect_of(&path).await {
+        Ok(found) => found,
         Err(e) => {
             s.state = ScannerState::Broken;
             s.message = e;
             return (s, None);
         }
     };
-    s.file = file_text(&fp);
+    s.file = file_text(&found.fp);
+    s.sha256 = found.fp.sha256.clone();
+    // Before the approval is even looked at: such a file never runs.
+    if let Some(why) = refused_file(scanner, &found) {
+        let _ = approval::forget(&dirs.approvals(), scanner);
+        s.state = ScannerState::Refused;
+        s.message = why;
+        return (s, None);
+    }
+    let fp = found.fp;
     let Some(ok) = approval::approved(&dirs.approvals(), scanner) else {
         s.message = format!(
             "nauvi runs {} only once you approve this file.",
@@ -319,24 +358,27 @@ pub(crate) async fn cmd_image_scanner_status(
     Ok(scanner_status(&dirs, scanner, false).await.0)
 }
 
-/// Approve the binary at `path` for `scanner`: it must be the one found
-/// now (the UI cannot approve another file). Returns the new status (a
-/// refused version is not kept).
+/// Approve the binary at `path` with the SHA-256 the prompt showed
+/// (`sha256`, from [`ScannerStatus`]) for `scanner`: it must be the one
+/// found now, unchanged (the UI cannot approve another file). Returns the
+/// new status (a refused version is not kept).
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_image_scanner_approve(
     app: AppHandle,
     scanner: ScannerKind,
     path: String,
+    sha256: String,
 ) -> Result<ScannerStatus, String> {
     let dirs = ScanDirs::of(&app)?;
-    approve(&dirs, scanner, &path).await
+    approve(&dirs, scanner, &path, &sha256).await
 }
 
 pub(crate) async fn approve(
     dirs: &ScanDirs,
     scanner: ScannerKind,
     path: &str,
+    sha256: &str,
 ) -> Result<ScannerStatus, String> {
     let found = find_binary(scanner)?;
     if found.display().to_string() != path {
@@ -346,8 +388,13 @@ pub(crate) async fn approve(
             found.display()
         ));
     }
-    let fp = fingerprint_of(&found).await?;
-    approval::approve(&dirs.approvals(), scanner, fp)?;
+    let file = inspect_of(&found).await?;
+    if sha256.is_empty() || !file.fp.sha256.eq_ignore_ascii_case(sha256) {
+        return Err(CHANGED_SINCE_SHOWN.to_string());
+    }
+    if refused_file(scanner, &file).is_none() {
+        approval::approve(&dirs.approvals(), scanner, file.fp)?;
+    }
     let (s, _) = scanner_status(dirs, scanner, true).await;
     Ok(s)
 }

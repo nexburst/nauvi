@@ -15,11 +15,13 @@
 //! - [`local`]: a Trivy or Grype the user installed (#536), run on an
 //!   approved path; [`trivy_json`], [`grype_json`] read its output,
 //!   [`cache`] keeps its results on disk by digest, and [`running`] lists
-//!   the running images to scan.
+//!   the running images to scan. [`go_buildinfo`] reads a scanner's
+//!   version from its file, before it is ever run.
 //!
 //! Results are never "problems": no pill, no notification.
 
 pub mod cache;
+pub mod go_buildinfo;
 pub mod grype_json;
 pub mod images;
 pub mod local;

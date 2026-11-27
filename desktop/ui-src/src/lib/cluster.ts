@@ -31,6 +31,7 @@ export const GLOBAL_COMMANDS = [
   "cmdAutostartEnabled",
   "cmdAutostartSet",
   "cmdCheckContext",
+  "cmdCheckLink",
   "cmdDiagnostics",
   "cmdDiscardAndClose",
   "cmdExecCommands",

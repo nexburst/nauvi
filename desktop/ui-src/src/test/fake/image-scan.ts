@@ -156,10 +156,11 @@ export function imageScanHandlers(s: FakeState) {
     cmdImageScanCancel: () => {
       cancel?.();
     },
-    cmdImageScannerApprove: (scanner, path) => {
+    cmdImageScannerApprove: (scanner, path, sha256) => {
       const d = scanData(s);
       const found = d.found[scanner];
       if (!found || found.path !== path) throw `${path} is not the ${scanner} nauvi finds now. Check Settings again.`;
+      if (sha256 !== statusOf(scanner).sha256) throw "The file changed since it was shown. Check again.";
       d.approved[scanner] = path;
       d.changed = d.changed.filter((p) => p !== path);
       const st = statusOf(scanner);

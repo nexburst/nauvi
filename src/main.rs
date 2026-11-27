@@ -58,6 +58,10 @@ async fn async_main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
+        // `nauvi show` already said why it opened nothing.
+        Err(e) if e.is::<nauvi::cli_links::NotShown>() => {
+            ExitCode::from(nauvi::cli_links::NOT_SHOWN)
+        }
         Err(e) => {
             eprintln!("error: {}", error_text(&e));
             exit_code_of(&e)
@@ -167,6 +171,29 @@ async fn run(cli: Cli) -> Result<()> {
             (kind, Some(name)) => print_describe(&client, kind, name, namespace.as_deref()).await?,
             (_, None) => anyhow::bail!("describe needs <kind>/<name> or <kind> <name>"),
         },
+        Commands::Link {
+            ref target,
+            ref name,
+            ref namespace,
+        }
+        | Commands::Show {
+            ref target,
+            ref name,
+            ref namespace,
+        } => {
+            let args = nauvi::cli_links::LinkArgs {
+                kubeconfig: cli.kubeconfig.as_deref(),
+                context: cli.context.as_deref(),
+                target,
+                name: name.as_deref(),
+                namespace: namespace.as_deref(),
+            };
+            if matches!(cli.command, Commands::Link { .. }) {
+                nauvi::cli_links::print_link(&client, &args).await?;
+            } else {
+                nauvi::cli_links::show(&client, &args).await?;
+            }
+        }
         Commands::Problems {
             namespace,
             kinds,

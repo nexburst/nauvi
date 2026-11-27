@@ -34,6 +34,7 @@ function status(over: Partial<ScannerStatus>): ScannerStatus {
     db: "2026-11-25T06:13:33Z",
     message: "",
     file: "48.2 MB, SHA-256 0123456789ab…",
+    sha256: "0123456789ab".padEnd(64, "0"),
     ...over,
   };
 }

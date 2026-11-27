@@ -2,6 +2,7 @@
 //! `status.containerStatuses[].imageID`), by reference when there is none.
 
 use super::Workload;
+use crate::registry_tags::ImageRef;
 use crate::text::single_line;
 use k8s_openapi::api::core::v1::Pod;
 use std::collections::BTreeMap;
@@ -45,28 +46,11 @@ pub fn image_digest(image_id: &str) -> String {
 pub fn normalize(reference: &str) -> String {
     let r = reference.trim();
     let r = r.split_once('@').map_or(r, |(name, _)| name);
-    let (first, rest) = match r.split_once('/') {
-        Some((f, rest)) if f.contains('.') || f.contains(':') || f == "localhost" => {
-            (f.to_ascii_lowercase(), rest)
-        }
-        _ => ("docker.io".to_string(), r),
-    };
-    let registry = match first.as_str() {
-        "index.docker.io" | "registry-1.docker.io" => "docker.io".to_string(),
-        _ => first,
-    };
-    // A tag is after the last ':' of the last path segment.
-    let last = rest.rsplit('/').next().unwrap_or(rest);
-    let (repo, tag) = match last.rsplit_once(':') {
-        Some((_, t)) => (&rest[..rest.len() - t.len() - 1], t),
-        None => (rest, "latest"),
-    };
-    let repo = if registry == "docker.io" && !repo.contains('/') {
-        format!("library/{repo}")
-    } else {
-        repo.to_string()
-    };
-    format!("{registry}/{repo}:{tag}")
+    // The shared parser (#547); a name it refuses is compared as written.
+    match ImageRef::parse(r) {
+        Ok(i) => format!("{}/{}:{}", i.registry, i.repository, i.tag),
+        Err(_) => r.to_string(),
+    }
 }
 
 /// [`normalize`]d, without the `docker.io/library/` or `docker.io/` that

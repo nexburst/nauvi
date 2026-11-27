@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { openApp } from "./helpers";
 import type { FakeCluster } from "../fixtures/cluster";
+import { FAKE_SHA256 } from "../fixtures/image-scan";
 
 // The local scanner (#536, ADR 0011): a separate source in Settings → Image
 // security; nothing of the scanner runs before its file is approved; a scan
@@ -65,7 +66,10 @@ test("the source is the cluster by default; choosing the local scanner asks to a
   await section.getByTestId("image-scanner-approve").click();
   await expect(status).toHaveAttribute("data-state", "ready");
   await expect(status).toContainText("Trivy 0.58.1 at /usr/local/bin/trivy. Its database was built 2026-11-25.");
-  expect((await fake.lastCall("cmdImageScannerApprove")).path).toBe("/usr/local/bin/trivy");
+  const approved = await fake.lastCall("cmdImageScannerApprove");
+  expect(approved.path).toBe("/usr/local/bin/trivy");
+  // The approval names the file shown, by its full SHA-256.
+  expect(approved.sha256).toBe(FAKE_SHA256);
   // Trivy's own options; Grype has none of them.
   await expect(section.getByRole("textbox", { name: "Trivy database repository" })).toBeVisible();
   await section.getByRole("combobox", { name: "Scanner on this computer" }).selectOption("grype");
@@ -75,6 +79,42 @@ test("the source is the cluster by default; choosing the local scanner asks to a
   await dialog.getByRole("button", { name: "Close", exact: true }).click();
   const saved = await page.evaluate(() => window.__fake.cluster.settings.image_security);
   expect(saved).toMatchObject({ source: "local", scanner: "grype" });
+});
+
+test("the full SHA-256 can be copied, and a file that changed after it was shown is not approved", async ({ page }) => {
+  await page.addInitScript(() => {
+    const copied: string[] = [];
+    (window as unknown as { __copied: string[] }).__copied = copied;
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: async (t: string) => void copied.push(t) },
+      configurable: true,
+    });
+  });
+  const fake = await openApp(page, (cluster) => {
+    cluster.settings.image_security = { ...cluster.settings.image_security, enabled: true, source: "local" };
+  });
+  const { section } = await openSettingsSection(page);
+  const status = section.getByTestId("image-scanner-status");
+  await expect(status).toHaveAttribute("data-state", "unapproved");
+  const file = section.getByTestId("image-scanner-file");
+  await expect(file.locator("span")).toHaveAttribute("title", `SHA-256 ${FAKE_SHA256}`);
+  await section.getByTestId("image-scanner-copy-hash").click();
+  await expect(section.getByTestId("image-scanner-copy-hash")).toHaveText("Copied");
+  expect(await page.evaluate(() => (window as unknown as { __copied: string[] }).__copied)).toEqual([FAKE_SHA256]);
+
+  // Swapped after the prompt showed it: the approval is refused.
+  const other = "ab".repeat(32);
+  await page.evaluate((sha) => {
+    window.__fake.cluster.imageScan!.found.trivy!.sha256 = sha;
+  }, other);
+  await section.getByTestId("image-scanner-approve").click();
+  await expect(section.getByTestId("image-scanner-error")).toHaveText("The file changed since it was shown. Check again.");
+  expect((await fake.lastCall("cmdImageScannerApprove")).sha256).toBe(FAKE_SHA256);
+  // Checking again shows the new file, which can then be approved.
+  await section.getByRole("button", { name: "Check again", exact: true }).click();
+  await expect(file).toContainText(`SHA-256 ${other.slice(0, 12)}…`);
+  await section.getByTestId("image-scanner-approve").click();
+  await expect(status).toHaveAttribute("data-state", "ready");
 });
 
 test("a changed binary and a malicious Trivy release are asked about again or refused", async ({ page }) => {

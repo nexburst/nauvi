@@ -224,6 +224,55 @@ fn malicious_trivy_releases_are_refused() {
     assert_eq!(parse_version("v1.2"), Some((1, 2, 0)));
 }
 
+/// The build info alone refuses the malicious releases, by the module's
+/// version or by the version the release build set; anything else is left
+/// to the version the binary prints.
+#[test]
+fn malicious_trivy_builds_are_refused_from_the_file() {
+    use crate::image_security::go_buildinfo::{fixture, BuildInfo};
+    let info = |module: &str, version: &str, x: &[(&str, &str)]| BuildInfo {
+        main_module: module.into(),
+        main_version: version.into(),
+        ldflags_x: x
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect(),
+        ..BuildInfo::default()
+    };
+    let t = ScannerKind::Trivy;
+    for v in [
+        "v0.69.4",
+        "v0.69.5",
+        "v0.69.6",
+        "v0.69.4-0.20260301000000-abcdef012345",
+    ] {
+        let why = refused_build(t, &info(TRIVY_MODULE, v, &[])).unwrap();
+        assert!(why.contains("CVE-2026-33634"), "{v}: {why}");
+    }
+    // A devel build with the release's version set.
+    let x = [(TRIVY_VERSION_VAR, "0.69.6")];
+    assert!(refused_build(t, &info(TRIVY_MODULE, "(devel)", &x)).is_some());
+    // Fine, or nothing to tell from.
+    assert!(refused_build(t, &info(TRIVY_MODULE, "v0.69.3", &[])).is_none());
+    assert!(refused_build(t, &info(TRIVY_MODULE, "(devel)", &[])).is_none());
+    assert!(refused_build(t, &BuildInfo::default()).is_none());
+    // Another module's version is not Trivy's.
+    assert!(refused_build(t, &info("example.com/other", "v0.69.5", &[])).is_none());
+    assert!(refused_build(ScannerKind::Grype, &info(TRIVY_MODULE, "v0.69.5", &[])).is_none());
+
+    // From a file, in the same read as its hash.
+    let dir = temp("buildinfo");
+    let file = dir.join("trivy");
+    let mut data = vec![0u8; 1024 * 1024 + 48];
+    data.extend_from_slice(&fixture::block("go1.24.1", fixture::TRIVY));
+    data.extend_from_slice(&[0u8; 4096]);
+    std::fs::write(&file, &data).unwrap();
+    let (fp, build) = inspect(&file).unwrap();
+    assert_eq!(fp, fingerprint(&file).unwrap());
+    assert!(refused_build(t, &build.unwrap()).is_some());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[cfg(unix)]
 #[test]
 fn the_binary_comes_from_the_variable_or_an_absolute_path_entry() {

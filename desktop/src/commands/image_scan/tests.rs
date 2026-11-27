@@ -17,11 +17,12 @@ fn script(path: &Path, body: &str) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// The only test that sets `NAUVI_TRIVY` (nothing else in the app reads
-/// it): the whole approval flow on a fake trivy.
+/// The whole approval flow on a fake trivy (the tests that set
+/// `NAUVI_TRIVY` hold [`TRIVY_VAR`]; nothing else in the app reads it).
 #[cfg(unix)]
 #[tokio::test]
 async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
+    let _g = TRIVY_VAR.lock().await;
     let d = dirs("flow");
     let bin = d.config.parent().unwrap().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
@@ -46,12 +47,27 @@ async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
     assert!(path.is_none());
     assert!(!ran.exists(), "the binary ran before it was approved");
 
-    // Only the file found now can be approved.
-    let err = approve(&d, ScannerKind::Trivy, "/usr/bin/evil")
+    assert_eq!(s.sha256.len(), 64, "{s:?}");
+    assert!(s.file.contains(&s.sha256[..12]));
+
+    // Only the file found now, as it was shown, can be approved.
+    let err = approve(&d, ScannerKind::Trivy, "/usr/bin/evil", &s.sha256)
         .await
         .unwrap_err();
     assert!(err.contains("is not the trivy nauvi finds now"), "{err}");
-    let s = approve(&d, ScannerKind::Trivy, &real).await.unwrap();
+    let err = approve(&d, ScannerKind::Trivy, &real, &"0".repeat(64))
+        .await
+        .unwrap_err();
+    assert_eq!(err, CHANGED_SINCE_SHOWN);
+    let err = approve(&d, ScannerKind::Trivy, &real, "")
+        .await
+        .unwrap_err();
+    assert_eq!(err, CHANGED_SINCE_SHOWN);
+    assert_eq!(approval::approved(&d.approvals(), ScannerKind::Trivy), None);
+    assert!(!ran.exists());
+    let s = approve(&d, ScannerKind::Trivy, &real, &s.sha256)
+        .await
+        .unwrap();
     assert_eq!(s.state, ScannerState::Ready, "{s:?}");
     assert_eq!(
         (s.version.as_str(), s.db.as_str()),
@@ -73,9 +89,13 @@ async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
     assert!(path.is_none());
     assert!(!ran.exists());
 
-    // A malicious release: refused, and the approval is dropped.
+    // A malicious release (as it says once run): refused, and the
+    // approval is dropped.
     script(&trivy, &version("0.69.4"));
-    let s = approve(&d, ScannerKind::Trivy, &real).await.unwrap();
+    let shown = scanner_status(&d, ScannerKind::Trivy, false).await.0;
+    let s = approve(&d, ScannerKind::Trivy, &real, &shown.sha256)
+        .await
+        .unwrap();
     assert_eq!(s.state, ScannerState::Refused, "{s:?}");
     assert!(s.message.contains("CVE-2026-33634"));
     assert_eq!(approval::approved(&d.approvals(), ScannerKind::Trivy), None);
@@ -84,7 +104,10 @@ async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
 
     // Another path than the approved one.
     script(&trivy, &version("0.58.1"));
-    approve(&d, ScannerKind::Trivy, &real).await.unwrap();
+    let shown = scanner_status(&d, ScannerKind::Trivy, false).await.0;
+    approve(&d, ScannerKind::Trivy, &real, &shown.sha256)
+        .await
+        .unwrap();
     let other = bin.join("trivy2");
     script(&other, &version("0.58.1"));
     std::env::set_var("NAUVI_TRIVY", &other);
@@ -100,6 +123,84 @@ async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
     std::env::remove_var("NAUVI_TRIVY");
     let _ = std::fs::remove_dir_all(d.config.parent().unwrap());
 }
+
+/// The Go build info block of a Trivy 0.69.5 release build, as Go 1.18+
+/// writes it (`nauvi::image_security::go_buildinfo` has the format).
+fn malicious_block() -> Vec<u8> {
+    let go = b"go1.24.1";
+    let modinfo = "path\tgithub.com/aquasecurity/trivy/cmd/trivy\n\
+        mod\tgithub.com/aquasecurity/trivy\tv0.69.5\th1:x=\n";
+    let mut b = b"\xff Go buildinf:".to_vec();
+    b.extend_from_slice(&[8, 2]);
+    b.resize(32, 0);
+    b.push(go.len() as u8);
+    b.extend_from_slice(go);
+    let mut m = vec![0u8; 16];
+    m.extend_from_slice(modinfo.as_bytes());
+    m.extend_from_slice(&[0u8; 16]);
+    b.push(m.len() as u8);
+    b.extend_from_slice(&m);
+    b
+}
+
+/// A file whose build info names a malicious Trivy is refused before
+/// anything of it runs: not approved, not even asked its version, and an
+/// approval kept from before is dropped.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_malicious_build_is_refused_without_running_it() {
+    use std::os::unix::fs::PermissionsExt;
+    let d = dirs("buildinfo");
+    let bin = d.config.parent().unwrap().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let trivy = bin.join("trivy");
+    let ran = bin.join("ran");
+    let mut data = format!(
+        "#!/bin/sh\necho run >> {}\necho '{{\"Version\":\"0.58.1\"}}'\nexit 0\n",
+        ran.display()
+    )
+    .into_bytes();
+    data.resize(data.len().div_ceil(16) * 16 + 64, b'#');
+    data.extend_from_slice(&malicious_block());
+    std::fs::write(&trivy, &data).unwrap();
+    std::fs::set_permissions(&trivy, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let real = trivy.canonicalize().unwrap();
+    let fp = fingerprint_of(&real).await.unwrap();
+    // As if it had been approved before nauvi knew.
+    approval::approve(&d.approvals(), ScannerKind::Trivy, fp.clone()).unwrap();
+
+    let s = with_trivy(&real, || scanner_status(&d, ScannerKind::Trivy, true)).await;
+    assert_eq!(s.0.state, ScannerState::Refused, "{:?}", s.0);
+    assert!(s.0.message.contains("0.69.5"), "{}", s.0.message);
+    assert!(s.1.is_none());
+    assert_eq!(approval::approved(&d.approvals(), ScannerKind::Trivy), None);
+
+    let real_s = real.display().to_string();
+    let s = with_trivy(&real, || {
+        approve(&d, ScannerKind::Trivy, &real_s, &fp.sha256)
+    })
+    .await
+    .unwrap();
+    assert_eq!(s.state, ScannerState::Refused, "{s:?}");
+    assert_eq!(approval::approved(&d.approvals(), ScannerKind::Trivy), None);
+    assert!(!ran.exists(), "nauvi ran a malicious build");
+    let _ = std::fs::remove_dir_all(d.config.parent().unwrap());
+}
+
+/// Run `f` with `NAUVI_TRIVY` set to `path` (one test at a time sets it).
+async fn with_trivy<F, T>(path: &Path, f: impl FnOnce() -> F) -> T
+where
+    F: std::future::Future<Output = T>,
+{
+    let _g = TRIVY_VAR.lock().await;
+    std::env::set_var("NAUVI_TRIVY", path);
+    let out = f().await;
+    std::env::remove_var("NAUVI_TRIVY");
+    out
+}
+
+/// Held while a test sets `NAUVI_TRIVY`.
+static TRIVY_VAR: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// A same-size rewrite with the modification time set back is hashed
 /// again (the change time moved), and so is a swap (another inode).

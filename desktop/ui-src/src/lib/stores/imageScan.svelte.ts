@@ -48,14 +48,15 @@ export async function loadScannerStatus(scanner?: ScannerKind) {
   }
 }
 
-/** Approve the binary the status shows. */
+/** Approve the binary the status shows, by the SHA-256 it showed: a
+ *  file changed since is refused by the backend. */
 export async function approveScanner() {
   const s = imageScan.status;
   if (!s || !s.path) return;
   const seq = ++statusSeq;
   imageScan.statusLoading = true;
   try {
-    const next = await commands.cmdImageScannerApprove(s.scanner, s.path);
+    const next = await commands.cmdImageScannerApprove(s.scanner, s.path, s.sha256);
     if (seq !== statusSeq) return;
     imageScan.status = next;
     imageScan.statusError = "";

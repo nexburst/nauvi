@@ -5,7 +5,7 @@ import type { ScannerKind, ScannerStatus, Vulnerability } from "../../lib/bindin
 
 export interface FakeImageScan {
   /** The scanner the fake finds, per kind (absent: not installed). */
-  found: Partial<Record<ScannerKind, { path: string; version: string; db: string; from?: string }>>;
+  found: Partial<Record<ScannerKind, { path: string; version: string; db: string; from?: string; sha256?: string }>>;
   /** Approved paths by kind. */
   approved: Partial<Record<ScannerKind, string>>;
   /** Paths that changed since they were approved. */
@@ -52,6 +52,9 @@ export function imageScanFixture(): FakeImageScan {
   };
 }
 
+/** The SHA-256 of a scanner file the fake finds, unless it names one. */
+export const FAKE_SHA256 = "3f1a9c0b7d2e" + "4a5b6c7d8e9f".repeat(4) + "0123";
+
 export const scannerStatusOf = (kind: ScannerKind, f: FakeImageScan): ScannerStatus => {
   const found = f.found[kind];
   const base: ScannerStatus = {
@@ -64,6 +67,7 @@ export const scannerStatusOf = (kind: ScannerKind, f: FakeImageScan): ScannerSta
     db: "",
     message: "",
     file: "",
+    sha256: "",
   };
   if (!found) {
     return {
@@ -71,7 +75,8 @@ export const scannerStatusOf = (kind: ScannerKind, f: FakeImageScan): ScannerSta
       message: `${kind} is not installed or not on PATH. Install it yourself, or set ${kind === "trivy" ? "NAUVI_TRIVY" : "NAUVI_GRYPE"} to its path: nauvi never downloads a scanner.`,
     };
   }
-  const withPath = { ...base, path: found.path, from: found.from ?? "PATH", file: "48.2 MB, SHA-256 3f1a9c0b7d2e…" };
+  const sha256 = found.sha256 ?? FAKE_SHA256;
+  const withPath = { ...base, path: found.path, from: found.from ?? "PATH", file: `48.2 MB, SHA-256 ${sha256.slice(0, 12)}…`, sha256 };
   const approved = f.approved[kind];
   if (!approved) return { ...withPath, state: "unapproved", message: `nauvi runs ${kind} only once you approve this file.` };
   if (approved !== found.path || f.changed.includes(found.path))

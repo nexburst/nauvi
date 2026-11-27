@@ -17,6 +17,7 @@ test("a watch snapshot renders rows", async ({ page }) => {
   expect(start).toEqual({
     resource: { group: "", version: "v1", kind: "Pod", plural: "pods", namespaced: true },
     namespace: null,
+    custom: [],
     // Its own channel (#115).
     onEvent: expect.stringMatching(/^__CHANNEL__:\d+$/),
   });

@@ -4,7 +4,7 @@
 
 use crate::state::{next_session, Cluster, ClusterSession};
 use kube::Client;
-use nauvi::resources::{self, ResourceKind, ResourceRef, ResourceRow};
+use nauvi::resources::{self, CustomColumn, ResourceKind, ResourceRef, ResourceRow};
 use nauvi::watch;
 use serde::Serialize;
 use specta::Type;
@@ -72,17 +72,22 @@ async fn kind_of(
 }
 
 /// Start watching a kind (in `namespace`, if it is namespaced); its rows
-/// and states go to `on_event`. Returns the watch id for `cmd_watch_stop`.
+/// and states go to `on_event`. The rows carry a cell for each of the
+/// `custom` columns too, after the kind's own (#547). Returns the watch id
+/// for `cmd_watch_stop`.
 #[tauri::command]
 #[specta::specta]
 pub(crate) async fn cmd_watch_start(
     cluster: Cluster,
     resource: ResourceRef,
     namespace: Option<String>,
+    custom: Vec<CustomColumn>,
     on_event: Channel<WatchMessage>,
 ) -> Result<String, String> {
+    let extra = resources::custom_column_defs(&custom)?;
     let (client, prober) = cluster.watch_client().await?;
-    let kind = kind_of(&cluster, &client, &resource).await?;
+    let mut kind = kind_of(&cluster, &client, &resource).await?;
+    kind.columns.extend(extra);
     let id = next_session("watch");
     let updates = watch::watch_resource(&client, &prober, &kind, namespace.as_deref());
     let task = tauri::async_runtime::spawn(pump_watch(on_event, updates));

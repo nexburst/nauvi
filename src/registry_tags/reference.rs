@@ -119,6 +119,38 @@ impl ImageRef {
             format!("{}:{}", self.name(), self.tag)
         }
     }
+
+    /// What a table cell shows (the Image column, #547): the last part of
+    /// the repository and the tag (`mongo:7.0.1`, `redis:7`), or the start
+    /// of the digest without a tag (`app@sha256:4f3c2b1a0d9e`).
+    pub fn short(&self) -> String {
+        let last = self
+            .repository
+            .rsplit('/')
+            .next()
+            .unwrap_or(&self.repository);
+        if self.tag.is_empty() {
+            let digest: String = self.digest.chars().take("sha256:".len() + 12).collect();
+            format!("{last}@{digest}")
+        } else {
+            format!("{last}:{}", self.tag)
+        }
+    }
+
+    /// The whole reference, registry included
+    /// (`docker.io/library/mongo:7.0.1@sha256:…`).
+    pub fn full(&self) -> String {
+        let mut out = format!("{}/{}", self.registry, self.repository);
+        if !self.tag.is_empty() {
+            out.push(':');
+            out.push_str(&self.tag);
+        }
+        if !self.digest.is_empty() {
+            out.push('@');
+            out.push_str(&self.digest);
+        }
+        out
+    }
 }
 
 /// The digest an `imageID` from a pod's status says the container runs,
@@ -307,6 +339,30 @@ mod tests {
 
     fn p(s: &str) -> ImageRef {
         ImageRef::parse(s).unwrap()
+    }
+
+    #[test]
+    fn short_and_full_forms_for_the_image_column() {
+        let r = |s: &str| ImageRef::parse(s).unwrap();
+        assert_eq!(r("mongo:7.0.1").short(), "mongo:7.0.1");
+        assert_eq!(r("docker.io/library/mongo:7.0.1").short(), "mongo:7.0.1");
+        assert_eq!(r("bitnami/redis:7").short(), "redis:7");
+        assert_eq!(r("nginx").short(), "nginx:latest");
+        assert_eq!(
+            r("registry.k8s.io/kube-apiserver:v1.30.0").short(),
+            "kube-apiserver:v1.30.0"
+        );
+        let d = format!("sha256:{}", "4f".repeat(32));
+        assert_eq!(
+            r(&format!("ghcr.io/org/app@{d}")).short(),
+            "app@sha256:4f4f4f4f4f4f"
+        );
+        assert_eq!(r(&format!("ghcr.io/org/app:1@{d}")).short(), "app:1");
+        assert_eq!(r("mongo:7.0.1").full(), "docker.io/library/mongo:7.0.1");
+        assert_eq!(
+            r(&format!("ghcr.io/org/app:1@{d}")).full(),
+            format!("ghcr.io/org/app:1@{d}")
+        );
     }
 
     #[test]

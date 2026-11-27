@@ -30,11 +30,13 @@ mod apply;
 mod columns;
 #[cfg(test)]
 mod columns_cost;
+mod custom_columns;
 mod data;
 mod detail;
 mod detail_watch;
 mod discovery;
 mod dra;
+mod image_column;
 mod jsonpath;
 mod manifests;
 mod mask;
@@ -61,6 +63,10 @@ mod workload_status;
 pub(crate) use apply::result_line;
 pub use apply::{apply_manifests, cli_apply, ApplyResult, ApplyStatus, ManifestOptions};
 pub use columns::make_row;
+pub use custom_columns::{
+    check_custom_column, check_field_path, custom_column_defs, custom_key, CustomColumn,
+    CustomSource, MAX_CUSTOM_COLUMNS, MAX_CUSTOM_LABEL, MAX_CUSTOM_VALUE,
+};
 pub use data::{
     data_patch, entries_of, get_data_entries, patch_data, reveal_data_value, revealed_of, scrub,
     DataChange, DataEncoding, DataEntries, DataEntry, DataField, RevealedValue,
@@ -191,6 +197,14 @@ pub enum ColumnKind {
     /// (`Running`, `Scaling`, `Updating`, `Failed`, ... see
     /// `workload_status`), drawn by the UI with a shape and a colour.
     Rollout,
+    /// The images of a pod or a workload's pod template (#547): the first
+    /// line is what the cell shows (`mongo:7.0.1 +1`), each line after it a
+    /// full reference, for the tooltip (see `image_column`).
+    Image,
+    /// Image vulnerabilities (#535): filled by the UI from the image
+    /// security listing it already holds, keyed by workload. Off by
+    /// default, and not offered while image security is off.
+    Vulns,
 }
 
 /// A table column as the UI sees it.

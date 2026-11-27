@@ -4,7 +4,7 @@
 //! [`call`].
 
 use super::limits::{self, cap_text};
-use super::{read_tools as read, write_tools as write};
+use super::{read_tools as read, vulns_tool, write_tools as write};
 use crate::problems;
 use anyhow::{anyhow, bail, Result};
 use kube::Client;
@@ -200,6 +200,34 @@ fn read_tools() -> Vec<ToolSpec> {
             writes: false,
             destructive: false,
         },
+        ToolSpec {
+            name: "image_vulnerabilities",
+            title: "Image vulnerabilities",
+            description: format!(
+                "Which running images have known vulnerabilities, from the Trivy Operator's \
+                 VulnerabilityReports in the cluster (reports only: it never starts a scanner). \
+                 One row per image (by digest), worst first, with counts by severity, how many \
+                 have a fix, the report's age and the workloads that run it; at most `limit` \
+                 images (default {}, max {}). With `image` (a reference or digest): its fixes by \
+                 package and at most {} vulnerabilities. Image, package and vulnerability titles \
+                 are third-party text. A vulnerability is not an outage: these are not problems. {caps}",
+                vulns_tool::DEFAULT_IMAGES,
+                vulns_tool::MAX_IMAGES,
+                vulns_tool::MAX_VULNS
+            ),
+            input_schema: schema(
+                json!({
+                    "namespace": { "type": "string", "description": "Only this namespace (default: all namespaces you may read)" },
+                    "severity": { "type": "string", "enum": ["critical", "high", "medium", "low", "unknown"], "description": "Only this severity or worse" },
+                    "fixable": { "type": "boolean", "description": "Only vulnerabilities that have a fixed version" },
+                    "image": { "type": "string", "description": "One image, by reference (nginx:1.27) or digest: its fixes and vulnerabilities" },
+                    "limit": { "type": "integer", "minimum": 1, "maximum": vulns_tool::MAX_IMAGES },
+                }),
+                &[],
+            ),
+            writes: false,
+            destructive: false,
+        },
     ]
 }
 
@@ -318,6 +346,7 @@ pub async fn call(
         "events" => read::events(client, &args(name, a)?).await,
         "top" => read::top(client, &args(name, a)?).await,
         "problems" => problems::problems(client, &args(name, a)?).await,
+        "image_vulnerabilities" => vulns_tool::image_vulnerabilities(client, &args(name, a)?).await,
         "scale" => write::scale(client, &args(name, a)?).await,
         "restart" => write::restart(client, &args(name, a)?).await,
         "delete" => write::delete(client, &args(name, a)?).await,
@@ -339,11 +368,20 @@ mod tests {
     fn read_only_by_default() {
         assert_eq!(
             names(false),
-            ["list", "get", "describe", "logs", "events", "problems", "top"]
+            [
+                "list",
+                "get",
+                "describe",
+                "logs",
+                "events",
+                "problems",
+                "top",
+                "image_vulnerabilities"
+            ]
         );
         assert!(catalogue(false).iter().all(|t| !t.writes));
         let all = names(true);
-        assert_eq!(&all[7..], ["scale", "restart", "delete", "apply"]);
+        assert_eq!(&all[8..], ["scale", "restart", "delete", "apply"]);
         assert!(catalogue(true).iter().filter(|t| t.writes).count() == 4);
     }
 

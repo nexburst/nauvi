@@ -6,7 +6,9 @@
 //!   else the first `trivy` / `grype` in an absolute `PATH` entry. The app
 //!   runs it only on a path the user approved, by its [`Fingerprint`]: a
 //!   changed binary is a new question. Known malicious releases are
-//!   refused ([`refused_version`]).
+//!   refused before anything of the binary runs, from the Go build info
+//!   in the file ([`refused_build`]), and again by the version it prints
+//!   ([`refused_version`]).
 //! - **The image reference comes from the cluster and is untrusted.**
 //!   [`scan_target`] parses it with [`ImageRef`] (only the characters the
 //!   distribution spec allows), refuses registries on this machine,
@@ -22,6 +24,7 @@
 //! - The scanner uses the user's own docker config for credentials; nauvi
 //!   never reads `imagePullSecrets`.
 
+use super::go_buildinfo::{BuildInfo, Finder};
 use super::{grype_json, trivy_json, Vulnerability};
 use crate::registry_tags::{check_host, ImageRef, DOCKER_HUB};
 use anyhow::{anyhow, bail, Result};
@@ -189,6 +192,12 @@ pub struct Fingerprint {
 /// [`Fingerprint`] of `path` (reads the whole file: call it off the async
 /// threads).
 pub fn fingerprint(path: &Path) -> std::io::Result<Fingerprint> {
+    inspect(path).map(|(fp, _)| fp)
+}
+
+/// [`Fingerprint`] of `path` and the Go build info in it, from one read
+/// of the file (never running it): what [`refused_build`] looks at.
+pub fn inspect(path: &Path) -> std::io::Result<(Fingerprint, Option<BuildInfo>)> {
     use sha2::{Digest, Sha256};
     use std::io::Read;
     let meta = std::fs::metadata(path)?;
@@ -199,6 +208,7 @@ pub fn fingerprint(path: &Path) -> std::io::Result<Fingerprint> {
         .map_or(0, |d| d.as_secs() as i64);
     let mut file = std::fs::File::open(path)?;
     let mut hash = Sha256::new();
+    let mut finder = Finder::new();
     let mut buf = vec![0u8; 256 * 1024];
     loop {
         let n = file.read(&mut buf)?;
@@ -206,14 +216,16 @@ pub fn fingerprint(path: &Path) -> std::io::Result<Fingerprint> {
             break;
         }
         hash.update(&buf[..n]);
+        finder.feed(&buf[..n]);
     }
     let sha256 = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    Ok(Fingerprint {
+    let fp = Fingerprint {
         path: path.display().to_string(),
         size: meta.len(),
         modified,
         sha256,
-    })
+    };
+    Ok((fp, finder.finish()))
 }
 
 /// `0.58.1`, `v0.58.1`, `0.58.1-rc1` as numbers.
@@ -231,9 +243,21 @@ pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
-/// Why nauvi does not run this version (`None`: it may). Trivy 0.69.4 to
-/// 0.69.6 were malicious releases published with stolen credentials
-/// (CVE-2026-33634). A version nauvi cannot read is refused too.
+/// Trivy 0.69.4 to 0.69.6 were malicious releases published with stolen
+/// credentials (CVE-2026-33634).
+fn malicious_trivy(v: (u64, u64, u64)) -> Option<String> {
+    ((0, 69, 4)..=(0, 69, 6)).contains(&v).then(|| {
+        format!(
+            "Trivy {}.{}.{} is one of the malicious releases (0.69.4 to 0.69.6, CVE-2026-33634): \
+             nauvi does not run it. Install another version, and rotate the credentials it could \
+             read on this computer.",
+            v.0, v.1, v.2
+        )
+    })
+}
+
+/// Why nauvi does not run this version (`None`: it may), as the scanner
+/// says it once run. A version nauvi cannot read is refused too.
 pub fn refused_version(kind: ScannerKind, version: &str) -> Option<String> {
     let Some(v) = parse_version(version) else {
         return Some(format!(
@@ -242,15 +266,32 @@ pub fn refused_version(kind: ScannerKind, version: &str) -> Option<String> {
             crate::text::single_line(version)
         ));
     };
-    if kind == ScannerKind::Trivy && ((0, 69, 4)..=(0, 69, 6)).contains(&v) {
-        return Some(format!(
-            "Trivy {}.{}.{} is one of the malicious releases (0.69.4 to 0.69.6, CVE-2026-33634): \
-             nauvi does not run it. Install another version, and rotate the credentials it could \
-             read on this computer.",
-            v.0, v.1, v.2
-        ));
+    if kind == ScannerKind::Trivy {
+        return malicious_trivy(v);
     }
     None
+}
+
+/// The module of Trivy's releases, and the variable its release builds
+/// set to their version (`-ldflags -X`).
+pub const TRIVY_MODULE: &str = "github.com/aquasecurity/trivy";
+pub const TRIVY_VERSION_VAR: &str = "github.com/aquasecurity/trivy/pkg/version/app.ver";
+
+/// Why nauvi does not run this binary, from its build info alone (before
+/// anything of it runs): a Trivy whose module version, or the version its
+/// release build set, is a malicious one. `None` when the build info names
+/// none of them (the version the binary prints is checked too, by
+/// [`refused_version`]).
+pub fn refused_build(kind: ScannerKind, info: &BuildInfo) -> Option<String> {
+    if kind != ScannerKind::Trivy {
+        return None;
+    }
+    let module = (info.main_module == TRIVY_MODULE).then_some(info.main_version.as_str());
+    module
+        .into_iter()
+        .chain(info.x(TRIVY_VERSION_VAR))
+        .filter_map(parse_version)
+        .find_map(malicious_trivy)
 }
 
 /// The scanner's version and its vulnerability database's.

@@ -14,6 +14,10 @@
   import ServicePorts from "./ServicePorts.svelte";
   import UsageCharts from "./UsageCharts.svelte";
   import WorkloadImages from "./WorkloadImages.svelte";
+  import WorkloadSecurity from "./WorkloadSecurity.svelte";
+  import { findingsIndex, useFindings } from "../stores/imageFindings.svelte";
+  import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
+  import { FINDING_KINDS, workloadImages } from "../imageFindings";
   import { settings } from "../stores/settings.svelte";
   import { isWorkloadResource } from "../dock";
   import { crdInstancesKind, isCrdDefinitions } from "../crd";
@@ -51,13 +55,27 @@
   );
   /** A CRD gets a button to the table of its instances. */
   const instances = $derived(isCrdDefinitions(target.resource) ? crdInstancesKind(kinds.all, target.name) : undefined);
+  /** The images of a workload in the image security listing (#535): a
+   *  Security tab while there are any (never while the feature is off). */
+  // svelte-ignore state_referenced_locally
+  const findsImages = isWorkloadResource(target.resource) && FINDING_KINDS.includes(target.resource.kind);
+  if (findsImages) useFindings();
+  const securityImages = $derived.by(() => {
+    const index = findsImages ? findingsIndex() : null;
+    return index ? workloadImages(index, target.resource.kind, target.namespace, target.name, imageSecuritySettings()) : [];
+  });
   const tabs = $derived([
     { id: "overview", label: "Overview" },
     { id: "yaml", label: "YAML" },
+    ...(securityImages.length > 0 ? [{ id: "security", label: "Security" }] : []),
   ]);
   // Opened with E from the table: straight to the YAML editor.
   let tab = $state(detail.yaml ? "yaml" : "overview");
   detail.yaml = false;
+  // The Security tab went away (image security turned off): back to Overview.
+  $effect(() => {
+    if (!tabs.some((t) => t.id === tab)) untrack(() => (tab = "overview"));
+  });
   // YAML wants the room: it takes the sheet (W gives the table back).
   $effect(() => {
     if (tab === "yaml" && !chart.pinned) untrack(() => (chart.wide = true));
@@ -146,6 +164,8 @@
     </div>
   {:else if tab === "yaml"}
     <YamlEditor {target} />
+  {:else if tab === "security"}
+    <WorkloadSecurity images={securityImages} />
   {/if}
 </aside>
 
