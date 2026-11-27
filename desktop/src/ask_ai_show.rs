@@ -9,13 +9,18 @@
 //! process ends (the tab closed, the window closed, the context turned
 //! read-only, the app quit): the token then opens nothing.
 //!
-//! `nauvi show` starts the app's program as `<app> --ask-ai-show <token>
-//! <request>`, which the single-instance check hands over to the running
-//! app (`single_instance.rs`; no new listener or port) and exits. The
-//! request is a `nauvi://` link (or a kind's table, `nauvi::links::
-//! parse_show`), checked as any link. Then:
+//! `nauvi show` writes the token to a private file and starts the app's
+//! program as `<app> --ask-ai-show <file> <request>`, which the
+//! single-instance check hands over to the running app
+//! (`single_instance.rs`; no new listener or port) and exits. The token is
+//! never an argument: arguments are in the process list for every local
+//! user. The app reads the token from the file (`nauvi::show_request`:
+//! a short regular file, never through a link). The request is a
+//! `nauvi://` link (or a kind's table, `nauvi::links::parse_show`), checked
+//! as any link. Then:
 //!
-//! - an unknown token: nothing happens (logged without the token);
+//! - an unknown token: nothing happens (logged without the token), and the
+//!   file is left alone;
 //! - the setting turned off since, a request for another context, a
 //!   malformed request, or a second one within [`MIN_GAP`]: dropped, with
 //!   a line in that session's terminal saying so;
@@ -24,12 +29,18 @@
 //!   kind's table, which only read, says "Opened by Ask AI", and records it
 //!   as a normal history entry, so Back returns. It runs no action and
 //!   opens no dialog.
+//!
+//! For a live token the app writes what it did into the file, in place of
+//! the token, so `nauvi show` can say so and exit non-zero when nothing
+//! was opened.
 
 use crate::commands::term_out::{send_data, TermOut};
 use crate::links::{deliver_quiet, LinkRequest};
 use crate::settings::SettingsStore;
 use nauvi::links::{parse_show, SHOW_FLAG};
+use nauvi::show_request::{read_token, write_reply, Reply};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
@@ -89,7 +100,7 @@ impl Drop for ShowGrant {
     }
 }
 
-/// `(token, request)` if `args` (a launch's, the program first) are a
+/// `(token file, request)` if `args` (a launch's, the program first) are a
 /// `nauvi show` hand-over. Any launch whose first argument is the flag is
 /// one, well-formed or not, and never also opens a link.
 pub(crate) fn request_in(args: &[String]) -> Option<(&str, &str)> {
@@ -97,7 +108,7 @@ pub(crate) fn request_in(args: &[String]) -> Option<(&str, &str)> {
         return None;
     }
     match args {
-        [_, _, token, request] => Some((token, request)),
+        [_, _, file, request] => Some((file, request)),
         _ => Some(("", "")),
     }
 }
@@ -166,25 +177,34 @@ fn decide(token: &str, request: &str, enabled: bool, now: Instant) -> (Outcome, 
     )
 }
 
-/// Handle a hand-over from `nauvi show`.
-pub(crate) fn handle(app: &AppHandle, token: &str, request: &str) {
+/// Handle a hand-over from `nauvi show`: `file` holds the token.
+pub(crate) fn handle(app: &AppHandle, file: &str, request: &str) {
     let enabled = app
         .try_state::<Arc<SettingsStore>>()
         .is_some_and(|s| s.get().ask_ai_open_views);
-    match decide(token, request, enabled, Instant::now()) {
+    let file = Path::new(file);
+    let token = read_token(file).unwrap_or_default();
+    let reply = match decide(&token, request, enabled, Instant::now()) {
         (Outcome::Ignored, _) => {
             tracing::warn!("nauvi show without a live Ask AI session token: ignored");
+            return;
         }
         (Outcome::Dropped(line), out) => {
             tracing::info!("nauvi show: {line}");
             if let Some(out) = out {
                 send_data(&out, format!("\r\n\x1b[90m{line}\x1b[0m\r\n").into_bytes());
             }
+            Reply::Dropped(line.to_string())
         }
         (Outcome::Show(label, request), _) => {
             tracing::info!("nauvi show: opening a view in its Ask AI window");
             deliver_quiet(app, &label, request);
+            Reply::Opened
         }
+    };
+    // Only into the file that held this live token.
+    if let Err(e) = write_reply(file, &reply) {
+        tracing::warn!("nauvi show: cannot answer in its request file: {e}");
     }
 }
 
@@ -280,8 +300,8 @@ mod tests {
     fn reads_a_hand_over_and_nothing_else() {
         let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
         assert_eq!(
-            request_in(&a(&["nauvi", SHOW_FLAG, "tok", POD])),
-            Some(("tok", POD))
+            request_in(&a(&["nauvi", SHOW_FLAG, "/tmp/f", POD])),
+            Some(("/tmp/f", POD))
         );
         // Malformed hand-overs are still hand-overs: never a plain link.
         assert_eq!(request_in(&a(&["nauvi", SHOW_FLAG, POD])), Some(("", "")));

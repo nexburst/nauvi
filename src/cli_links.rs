@@ -9,14 +9,18 @@
 //! so from inside an Ask AI terminal whose session was started with
 //! "Let Ask AI open views" on: that terminal's environment holds the
 //! session's token ([`links::SHOW_SESSION_ENV`]) and the app's own program
-//! ([`links::SHOW_APP_ENV`]). The CLI starts that program with
-//! [`links::SHOW_FLAG`], the token and the request; the program hands them
-//! over to the running app (its single-instance check) and exits. The app
-//! checks the token, the setting and a rate limit, and only opens a view.
-//! Anywhere else `nauvi show` prints the link instead.
+//! ([`links::SHOW_APP_ENV`]). The CLI writes the token to a private file
+//! (`show_request.rs`: never an argument, which every local user can see)
+//! and starts that program with [`links::SHOW_FLAG`], the file and the
+//! request; the program hands them over to the running app (its
+//! single-instance check) and exits. The app checks the token, the setting
+//! and a rate limit, only opens a view, and writes its answer into the
+//! file. Anywhere else `nauvi show` prints the link instead. It exits with
+//! [`NOT_SHOWN`] when nothing was opened.
 
 use crate::get::{object_namespace, resolve_kind_named, split_target};
 use crate::links::{self, ObjectLink};
+use crate::show_request::{Reply, RequestFile};
 use anyhow::{Context, Result};
 use kube::config::Kubeconfig;
 use kube::Client;
@@ -26,6 +30,24 @@ use std::time::Duration;
 
 /// How long the hand-over to the running app may take.
 const HAND_OVER: Duration = Duration::from_secs(20);
+/// How long to wait for the app's answer after the hand-over (on Linux and
+/// Windows it is there at once; macOS hands over without waiting).
+const ANSWER: Duration = Duration::from_secs(3);
+
+/// The exit code of `nauvi show` when it opened nothing.
+pub const NOT_SHOWN: u8 = 2;
+
+/// `nauvi show` opened nothing; what it printed says why.
+#[derive(Debug)]
+pub struct NotShown;
+
+impl std::fmt::Display for NotShown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("nothing was opened")
+    }
+}
+
+impl std::error::Error for NotShown {}
 
 /// What `nauvi link` and `nauvi show` are asked about.
 pub struct LinkArgs<'a> {
@@ -100,7 +122,9 @@ fn what(link: &ObjectLink) -> String {
     }
 }
 
-/// `nauvi show`: ask the app to open the view, or print its link.
+/// `nauvi show`: ask the app to open the view, or print its link. Fails
+/// with [`NotShown`] (after printing why, and the link) when nothing was
+/// opened.
 pub async fn show(client: &Client, a: &LinkArgs<'_>) -> Result<()> {
     let link = target(client, a, true).await?;
     let request = link.to_show_url().map_err(link_error)?;
@@ -109,45 +133,45 @@ pub async fn show(client: &Client, a: &LinkArgs<'_>) -> Result<()> {
     } else {
         Some(link.to_url().map_err(link_error)?)
     };
-    let print_instead = |why: &str| {
+    let not_shown = |why: &str| -> Result<()> {
         println!("{why}");
         if let Some(url) = &url {
             println!("{url}");
         }
+        Err(NotShown.into())
     };
     let token = std::env::var(links::SHOW_SESSION_ENV).unwrap_or_default();
     let app = std::env::var_os(links::SHOW_APP_ENV).unwrap_or_default();
     if token.is_empty() || app.is_empty() {
-        print_instead(
+        return not_shown(
             "nauvi show opens views only from the Ask AI terminal of the nauvi app, with \
              Settings, AI, \"Let Ask AI open views\" on (then start Ask AI again). \
              Nothing was opened; give the user the link instead:",
         );
-        return Ok(());
     }
     match hand_over(Path::new(&app), &token, &request).await {
-        Ok(()) => {
-            println!(
-                "Asked the nauvi app to show {}. If it is not shown, the Ask AI terminal says why.",
-                what(&link)
-            );
+        Ok(Reply::Opened) => {
+            println!("The nauvi app shows {}.", what(&link));
             if let Some(url) = &url {
                 println!("{url}");
             }
+            Ok(())
         }
-        Err(e) => print_instead(&format!(
+        Ok(Reply::Dropped(why)) => not_shown(&format!("{why} Give the user the link instead:")),
+        Err(e) => not_shown(&format!(
             "Could not reach the nauvi app ({e:#}). Nothing was opened; give the user the link instead:"
         )),
     }
-    Ok(())
 }
 
-/// Start the app's program with the request: it hands it to the running
-/// app and exits (with an error if no app runs).
-async fn hand_over(app: &Path, token: &str, request: &str) -> Result<()> {
+/// Start the app's program with the request and the file holding the
+/// token: it hands them to the running app and exits (with an error if no
+/// app runs). Then the app's answer, from the file.
+async fn hand_over(app: &Path, token: &str, request: &str) -> Result<Reply> {
+    let file = RequestFile::create(token).context("cannot write the request file")?;
     let mut child = tokio::process::Command::new(app)
         .arg(links::SHOW_FLAG)
-        .arg(token)
+        .arg(file.path())
         .arg(request)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -159,7 +183,22 @@ async fn hand_over(app: &Path, token: &str, request: &str) -> Result<()> {
         .await
         .context("it did not answer in time")??;
     anyhow::ensure!(status.success(), "the nauvi app is not running");
-    Ok(())
+    let deadline = tokio::time::Instant::now() + ANSWER;
+    loop {
+        if let Some(reply) = file.reply() {
+            return Ok(reply);
+        }
+        if tokio::time::Instant::now() >= deadline {
+            // The app answers only a live session's token.
+            return Ok(Reply::Dropped(
+                "The nauvi app did not take the request: this is not a live Ask AI session \
+                 (it was closed, or started before \"Let Ask AI open views\" was on). \
+                 Nothing was opened."
+                    .into(),
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
 }
 
 #[cfg(test)]

@@ -58,6 +58,10 @@ async fn async_main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli).await {
         Ok(()) => ExitCode::SUCCESS,
+        // `nauvi show` already said why it opened nothing.
+        Err(e) if e.is::<nauvi::cli_links::NotShown>() => {
+            ExitCode::from(nauvi::cli_links::NOT_SHOWN)
+        }
         Err(e) => {
             eprintln!("error: {}", error_text(&e));
             exit_code_of(&e)

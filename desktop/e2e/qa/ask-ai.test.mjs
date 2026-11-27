@@ -89,7 +89,15 @@ try:
 except Exception as e:
     rec["problems_error"] = repr(e)
 # #548: what nauvi show needs, and the link the skill says to print.
-rec["show_token"] = os.environ.get("NAUVI_ASK_AI_SESSION", "")
+# The token itself is never recorded (the record could end up in uploaded
+# artifacts): only its shape, and the token in a private file the test
+# reads in a shell, so it is not on screen either.
+token = os.environ.get("NAUVI_ASK_AI_SESSION", "")
+rec["show_token"] = "hex64" if len(token) == 64 and all(c in "0123456789abcdef" for c in token) else ("" if not token else "other")
+if token:
+    fd = os.open(os.environ["ASK_AI_TOKEN_FILE"], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(token)
 rec["show_app"] = os.environ.get("NAUVI_APP", "")
 rec["link_context"] = os.environ.get("NAUVI_LINK_CONTEXT", "")
 def nauvi(*a):
@@ -98,7 +106,7 @@ def nauvi(*a):
 try:
     rec["link"], rec["link_err"], rec["link_code"] = nauvi("link", "pod/broken", "-n", ns)
     rec["link"] = rec["link"].strip()
-    rec["show_first"], _, _ = nauvi("show", "pod/broken", "-n", ns)
+    rec["show_first"], _, rec["show_first_code"] = nauvi("show", "pod/broken", "-n", ns)
 except Exception as e:
     rec["link_error"] = repr(e)
 with open(os.environ["ASK_AI_RECORD"], "a") as f:
@@ -119,9 +127,10 @@ for line in sys.stdin:
         print("\x1b]8;;%s\x07OSC-BROKEN\x1b]8;;\x07" % rec["link"])
     # "show pod/x": what the skill does when the user asks to see something.
     if cmd.startswith("show "):
-        out, err, _ = nauvi("show", *cmd.split()[1:], "-n", ns)
+        out, err, code = nauvi("show", *cmd.split()[1:], "-n", ns)
         for l in (out + err).splitlines():
             print("SHOW| " + l[:150])
+        print("SHOW-CODE %d" % code)
         print("SHOW-DONE")
 print("FAKE-AI bye")
 `;
@@ -183,6 +192,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
   const bin = join(work, "bin");
   const tmp = join(work, "tmp");
   const record = join(work, "record.jsonl");
+  const tokenFile = join(work, "token");
   mkdirSync(bin);
   mkdirSync(tmp);
   writeFileSync(join(bin, "claude"), FAKE_CLAUDE);
@@ -210,6 +220,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
         PATH: pathWithoutAiClis([profile.bin, bin]),
         TMPDIR: tmp,
         ASK_AI_RECORD: record,
+        ASK_AI_TOKEN_FILE: tokenFile,
         ASK_AI_NS: ns,
         CLAUDE_CONFIG_DIR: "",
         ...(bus ? { DBUS_SESSION_BUS_ADDRESS: bus.address } : {}),
@@ -466,6 +477,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     // The setting is off: no token, and `nauvi show` gives the link instead.
     assert.equal(rec.show_token, "");
     assert.match(rec.show_first, /Let Ask AI open views/);
+    assert.equal(rec.show_first_code, 2, "nothing opened: exit code 2");
     assert.ok(rec.show_first.includes(brokenLink()), rec.show_first);
     assert.match(await panelText(app), /\basked\b/, "nauvi show opened nothing");
     await app.shot("links-printed");
@@ -529,12 +541,14 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     await term.waitFor("Type done to exit", { timeout: 90_000 });
     await app.waitFor(() => records(record).length > before, { message: "the fake CLI recorded its start" });
     const rec = records(record).at(-1);
-    assert.match(rec.show_token, /^[0-9a-f]{64}$/, "a token for this session");
+    assert.equal(rec.show_token, "hex64", "a token for this session");
+    assert.match(readFileSync(tokenFile, "utf8"), /^[0-9a-f]{64}$/);
     assert.ok(existsSync(rec.show_app), rec.show_app);
     // Its first `nauvi show` (at start) opened the broken pod.
     await app.waitFor(async () => /\bbroken\b/.test(await panelText(app)), { timeout: 30_000, message: "nauvi show's pod" });
     await app.find(byTestId("opened-by-ai"));
-    assert.match(rec.show_first, /Asked the nauvi app to show Pod .*\/broken/);
+    assert.match(rec.show_first, /The nauvi app shows Pod .*\/broken/);
+    assert.equal(rec.show_first_code, 0);
     await app.shot("show-opened-light");
     await setTheme(app, "dark");
     await app.shot("show-opened-dark");
@@ -543,9 +557,10 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     // Again within 3 s: dropped, with a line in the terminal.
     await new Promise((r) => setTimeout(r, 3200));
     await term.type("show pod/asked");
-    await term.waitFor("SHOW| Asked the nauvi app to show Pod", { timeout: 30_000 });
+    await term.waitFor("SHOW| The nauvi app shows Pod", { timeout: 30_000 });
     await term.type("show pod/broken");
     await term.waitFor("asked again within 3 seconds", { timeout: 30_000 });
+    await term.waitFor("SHOW-CODE 2", { timeout: 30_000 });
     await app.waitFor(async () => /\basked\b/.test(await panelText(app)), { message: "the second request's pod" });
     await app.shot("show-rate-limited");
 
@@ -570,7 +585,7 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     await app.openDetail("Pods", ns, "asked");
     await new Promise((r) => setTimeout(r, 3200));
     const wrong = await term.run(`NAUVI_ASK_AI_SESSION=${"0".repeat(64)} nauvi show pod/broken -n ${ns}`, { timeout: 60_000 });
-    assert.match(wrong, /Asked the nauvi app/);
+    assert.match(wrong, /did not take the request/);
     const none = await term.run(`env -u NAUVI_ASK_AI_SESSION nauvi show pod/broken -n ${ns}`, { timeout: 60_000 });
     assert.match(none, /opens views only from the Ask AI terminal/);
     await new Promise((r) => setTimeout(r, 2000));
@@ -581,10 +596,11 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     await app.palette("local term", "New local terminal");
     const local = terminal(app);
     await local.waitForPrompt();
-    await local.run(
-      `NAUVI_ASK_AI_SESSION=${rec.show_token} NAUVI_APP='${rec.show_app}' nauvi show pod/broken -n ${ns}`,
+    const closed = await local.run(
+      `NAUVI_ASK_AI_SESSION=$(cat '${tokenFile}') NAUVI_APP='${rec.show_app}' nauvi show pod/broken -n ${ns}`,
       { timeout: 60_000 },
     );
+    assert.match(closed, /did not take the request/);
     await new Promise((r) => setTimeout(r, 2000));
     assert.doesNotMatch(await panelText(app), /\bbroken\b/, "a closed session's token opens nothing");
     for (const tab of await dockTabs(app)) await closeTab(app, tab.title);

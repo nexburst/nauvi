@@ -41,7 +41,8 @@ pub const LINK_KUBE_CONTEXT_ENV: &str = "NAUVI_LINK_KUBE_CONTEXT";
 /// `nauvi show` (#548): the Ask AI session's token in its terminal's
 /// environment (set only while "Let Ask AI open views" was on when the
 /// session started), the app's own program, and the argument that starts
-/// that program as a hand-over: `<program> --ask-ai-show <token> <request>`.
+/// that program as a hand-over: `<program> --ask-ai-show <file> <request>`,
+/// the file holding the token (`show_request.rs`).
 pub const SHOW_SESSION_ENV: &str = "NAUVI_ASK_AI_SESSION";
 pub const SHOW_APP_ENV: &str = "NAUVI_APP";
 pub const SHOW_FLAG: &str = "--ask-ai-show";
