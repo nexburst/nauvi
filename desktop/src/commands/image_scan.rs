@@ -7,7 +7,8 @@
 //!   approved it ([`approval`]); a changed binary is asked about again,
 //!   and known malicious releases are refused, also after an approval:
 //!   first from the Go build info in the file, before anything of it runs
-//!   (Trivy 0.69.4 to 0.69.6 ran their payload even for `version`), then
+//!   (Trivy 0.69.4 to 0.69.6 ran their payload even for `version`; a
+//!   Trivy whose file names no version is refused too), then
 //!   by the version it prints. Nothing of the binary runs before the
 //!   approval (not even `version`), and an approval is of the SHA-256 the
 //!   user was shown.
@@ -210,9 +211,10 @@ async fn fingerprint_of(path: &Path) -> Result<Fingerprint, String> {
     inspect_of(path).await.map(|i| i.fp)
 }
 
-/// Why `found` must not run, from its file alone.
+/// Why `found` must not run, from its file alone (a Trivy whose file names
+/// no version is refused too).
 fn refused_file(scanner: ScannerKind, found: &Inspected) -> Option<String> {
-    found.build.as_ref().and_then(|b| refused_build(scanner, b))
+    refused_build(scanner, found.build.as_ref())
 }
 
 /// What the approval says when the file is not the one shown.

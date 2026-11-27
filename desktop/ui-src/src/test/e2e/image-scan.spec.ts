@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { openApp, openKind, row } from "./helpers";
 import type { FakeCluster } from "../fixtures/cluster";
-import { FAKE_SHA256 } from "../fixtures/image-scan";
+import { FAKE_SHA256, UNVERSIONED_TRIVY } from "../fixtures/image-scan";
 
 // The local scanner (#536, ADR 0011): a separate source in Settings → Image
 // security; nothing of the scanner runs before its file is approved; a scan
@@ -140,6 +140,40 @@ test("a changed binary and a malicious Trivy release are asked about again or re
   await expect(status).toHaveAttribute("data-state", "refused");
   await expect(status).toContainText("CVE-2026-33634");
   await expect(section.getByTestId("image-scanner-approve")).toHaveCount(0);
+});
+
+test("a Trivy whose file names no version is refused before it runs, with what to install instead (#561)", async ({ page }) => {
+  const fake = await openApp(page, (cluster) => {
+    cluster.settings.image_security = { ...cluster.settings.image_security, enabled: true, source: "local" };
+    cluster.imageScan = {
+      found: { trivy: { path: "/home/me/go/bin/trivy", version: "0.58.1", db: "", unversioned: true } },
+      approved: {},
+      changed: [],
+      vulns: {},
+      errors: {},
+      delayMs: 50,
+      scanned: {},
+      calls: [],
+    };
+  });
+  const { section } = await openSettingsSection(page);
+  const status = section.getByTestId("image-scanner-status");
+  // Refused from the file: there is nothing to approve.
+  await expect(status).toHaveAttribute("data-state", "refused");
+  await expect(status.locator("p.error-text")).toHaveText(`This Trivy's Go build info names no version (built from source?), so nauvi cannot tell which version it is without running it. ${UNVERSIONED_TRIVY}`);
+  await expect(status).toContainText("brew install aquasecurity/trivy/trivy");
+  await expect(section.getByTestId("image-scanner-approve")).toHaveCount(0);
+  await expect(section.getByTestId("image-scanner-forget")).toHaveCount(0);
+  // The file is still shown, so the user can tell which one it is.
+  await expect(section.getByTestId("image-scanner-file")).toContainText(`SHA-256 ${FAKE_SHA256.slice(0, 12)}…`);
+  expect(await fake.calls("cmdImageScannerApprove")).toHaveLength(0);
+  await page.keyboard.press("Escape");
+
+  // A scan from the view says the same, and scans nothing.
+  await goToImageSecurity(page);
+  await view(page).getByTestId("image-scan-all").click();
+  await expect(view(page).getByTestId("image-scan-errors")).toContainText("names no version");
+  expect(await page.evaluate(() => window.__fake.cluster.imageScan!.calls)).toHaveLength(0);
 });
 
 test("local only: the pods' images, not scanned until a click; Scan all scans them one after another", async ({ page }) => {

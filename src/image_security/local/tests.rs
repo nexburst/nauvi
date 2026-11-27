@@ -246,19 +246,28 @@ fn malicious_trivy_builds_are_refused_from_the_file() {
         "v0.69.6",
         "v0.69.4-0.20260301000000-abcdef012345",
     ] {
-        let why = refused_build(t, &info(TRIVY_MODULE, v, &[])).unwrap();
-        assert!(why.contains("CVE-2026-33634"), "{v}: {why}");
+        let why = refused_build(t, Some(&info(TRIVY_MODULE, v, &[]))).unwrap();
+        assert!(why.contains("is one of the malicious releases"), "{v}: {why}");
     }
     // A devel build with the release's version set.
     let x = [(TRIVY_VERSION_VAR, "0.69.6")];
-    assert!(refused_build(t, &info(TRIVY_MODULE, "(devel)", &x)).is_some());
-    // Fine, or nothing to tell from.
-    assert!(refused_build(t, &info(TRIVY_MODULE, "v0.69.3", &[])).is_none());
-    assert!(refused_build(t, &info(TRIVY_MODULE, "(devel)", &[])).is_none());
-    assert!(refused_build(t, &BuildInfo::default()).is_none());
+    let why = refused_build(t, Some(&info(TRIVY_MODULE, "(devel)", &x))).unwrap();
+    assert!(why.contains("Trivy 0.69.6 is one"), "{why}");
+    // A fine module version, but the version set is a malicious one.
+    let why = refused_build(t, Some(&info(TRIVY_MODULE, "v0.58.1", &x))).unwrap();
+    assert!(why.contains("Trivy 0.69.6 is one"), "{why}");
+    // Fine.
+    assert!(refused_build(t, Some(&info(TRIVY_MODULE, "v0.69.3", &[]))).is_none());
+    let x = [(TRIVY_VERSION_VAR, "0.58.1")];
+    assert!(refused_build(t, Some(&info(TRIVY_MODULE, "(devel)", &x))).is_none());
+    // Trivy 0.26 and before: `-X main.version=`, no module.
+    let old = [("main.version", "0.26.0")];
+    assert!(refused_build(t, Some(&info("", "", &old))).is_none());
     // Another module's version is not Trivy's.
-    assert!(refused_build(t, &info("example.com/other", "v0.69.5", &[])).is_none());
-    assert!(refused_build(ScannerKind::Grype, &info(TRIVY_MODULE, "v0.69.5", &[])).is_none());
+    let why = refused_build(t, Some(&info("example.com/other", "v0.69.5", &[]))).unwrap();
+    assert!(why.contains("names no version"), "{why}");
+    // Grype has no malicious release to look for.
+    assert!(refused_build(ScannerKind::Grype, Some(&info(TRIVY_MODULE, "v0.69.5", &[]))).is_none());
 
     // From a file, in the same read as its hash.
     let dir = temp("buildinfo");
@@ -269,8 +278,59 @@ fn malicious_trivy_builds_are_refused_from_the_file() {
     std::fs::write(&file, &data).unwrap();
     let (fp, build) = inspect(&file).unwrap();
     assert_eq!(fp, fingerprint(&file).unwrap());
-    assert!(refused_build(t, &build.unwrap()).is_some());
+    assert!(refused_build(t, build.as_ref()).is_some());
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A Trivy whose file names no version is refused before it runs (#561):
+/// nauvi cannot tell it from a malicious release. Grype is not.
+#[test]
+fn a_trivy_whose_file_names_no_version_is_refused() {
+    use crate::image_security::go_buildinfo::{find, fixture};
+    let t = ScannerKind::Trivy;
+    // A `(devel)` build under -trimpath: Go records no -ldflags then.
+    let devel = find(&fixture::block(
+        "go1.23.4",
+        "path\tgithub.com/aquasecurity/trivy/cmd/trivy\n\
+         mod\tgithub.com/aquasecurity/trivy\t(devel)\t\n\
+         dep\tgithub.com/spf13/cobra\tv1.8.0\th1:def=\n\
+         build\t-trimpath=true\n",
+    ));
+    let why = refused_build(t, devel.as_ref()).unwrap();
+    assert!(why.starts_with("This Trivy's Go build info names no version"), "{why}");
+    assert!(why.contains("CVE-2026-33634"), "{why}");
+    assert!(why.contains(&format!("-X {TRIVY_VERSION_VAR}=<version>")), "{why}");
+    // A -X that is not a version.
+    let odd = find(&fixture::block(
+        "go1.23.4",
+        &format!(
+            "path\tgithub.com/aquasecurity/trivy/cmd/trivy\n\
+             mod\tgithub.com/aquasecurity/trivy\t(devel)\t\n\
+             build\t-ldflags=\"-X {TRIVY_VERSION_VAR}=dev\"\n"
+        ),
+    ));
+    assert!(refused_build(t, odd.as_ref()).unwrap().contains("names no version"));
+    // A packed (UPX) binary, or a script: no build info nauvi can read.
+    let mut packed = b"\x7fELF\x02\x01\x01UPX!".to_vec();
+    packed.resize(64 * 1024, 0x5a);
+    assert!(find(&packed).is_none());
+    let why = refused_build(t, None).unwrap();
+    assert!(why.starts_with("nauvi finds no Go build info in this file"), "{why}");
+    assert!(why.contains("Install a release build of Trivy"), "{why}");
+    assert!(why.ends_with("or set NAUVI_TRIVY to one."), "{why}");
+    // A release build (as 0.76.2's reads) runs.
+    let release = find(&fixture::block(
+        "go1.27.3",
+        &format!(
+            "path\tgithub.com/aquasecurity/trivy/cmd/trivy\n\
+             mod\tgithub.com/aquasecurity/trivy\tv0.76.2\t\n\
+             build\t-ldflags=\"-s -w -extldflags '-static' -X {TRIVY_VERSION_VAR}=0.76.2\"\n"
+        ),
+    ));
+    assert!(refused_build(t, release.as_ref()).is_none());
+    // Grype: the version it prints is what is checked.
+    assert!(refused_build(ScannerKind::Grype, None).is_none());
+    assert!(refused_build(ScannerKind::Grype, devel.as_ref()).is_none());
 }
 
 #[cfg(unix)]

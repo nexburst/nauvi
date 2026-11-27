@@ -32,6 +32,8 @@ pub const MAX_BLOCK: usize = 64 * 1024;
 const FLAG_INLINE: u8 = 2;
 /// The markers around the module info (16 bytes each).
 const SENTINEL: usize = 16;
+/// The longest Go version taken (`go1.25.7 X:jsonv2,boringcrypto`).
+const MAX_GO_VERSION: usize = 256;
 
 /// What the block says.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -91,10 +93,12 @@ pub fn parse_block(b: &[u8]) -> Option<BuildInfo> {
         return None;
     }
     let (go_version, rest) = string(&b[HEADER..])?;
-    let go_version = std::str::from_utf8(go_version).ok()?;
-    if !go_version.starts_with("go") {
+    // Checked on the bytes first: a crafted candidate with a long "version"
+    // costs no UTF-8 pass over it (#561).
+    if go_version.len() > MAX_GO_VERSION || !go_version.starts_with(b"go") {
         return None;
     }
+    let go_version = std::str::from_utf8(go_version).ok()?;
     let (mut modinfo, _) = string(rest)?;
     // Go puts 16 bytes (not text) before and after it.
     if modinfo.len() > 2 * SENTINEL && modinfo[modinfo.len() - SENTINEL - 1] == b'\n' {
@@ -223,7 +227,7 @@ pub fn find(data: &[u8]) -> Option<BuildInfo> {
 pub(crate) mod fixture {
     use super::*;
 
-    fn put_uvarint(out: &mut Vec<u8>, mut v: u64) {
+    pub(crate) fn put_uvarint(out: &mut Vec<u8>, mut v: u64) {
         while v >= 0x80 {
             out.push((v as u8) | 0x80);
             v >>= 7;
@@ -265,7 +269,7 @@ pub(crate) mod fixture {
 
 #[cfg(test)]
 mod tests {
-    use super::fixture::{block, TRIVY};
+    use super::fixture::{self, block, TRIVY};
     use super::*;
 
     /// `filler` bytes, then the block at an aligned offset, then more.
@@ -347,6 +351,40 @@ mod tests {
         assert!(find(&cut).is_none());
         // Not a Go version.
         assert!(find(&block("hello", TRIVY)).is_none());
+        assert!(find(&block(&"go1".repeat(200), TRIVY)).is_none());
+    }
+
+    /// A candidate with the header of a block and a long string where the
+    /// Go version goes, `go…` or not.
+    fn candidate(version: &[u8]) -> Vec<u8> {
+        let mut b = MAGIC.to_vec();
+        b.extend_from_slice(&[8, FLAG_INLINE]);
+        b.resize(HEADER, 0);
+        fixture::put_uvarint(&mut b, version.len() as u64);
+        b.extend_from_slice(version);
+        b.extend_from_slice(&[0u8; 8]);
+        b
+    }
+
+    /// The `go` prefix and the length are checked on the bytes, before the
+    /// string is decoded (#561); a crafted file with candidates every 16
+    /// bytes is still read, and its real block found.
+    #[test]
+    fn crafted_candidates_are_dropped_early() {
+        assert!(parse_block(&candidate(&[b'x'; 60_000])).is_none());
+        let mut long = b"go".to_vec();
+        long.resize(60_000, b'1');
+        assert!(parse_block(&candidate(&long)).is_none());
+        assert!(parse_block(&candidate(b"go\xff1.24")).is_none());
+
+        let mut data = Vec::new();
+        while data.len() < 1024 * 1024 {
+            data.extend_from_slice(MAGIC);
+            data.extend_from_slice(&[8, FLAG_INLINE]);
+        }
+        data.extend_from_slice(&block("go1.24.1", TRIVY));
+        data.extend_from_slice(&[0u8; 1024]);
+        assert_eq!(find(&data).unwrap().main_version, "v0.69.5");
     }
 
     #[test]

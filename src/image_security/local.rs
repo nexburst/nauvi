@@ -7,7 +7,8 @@
 //!   runs it only on a path the user approved, by its [`Fingerprint`]: a
 //!   changed binary is a new question. Known malicious releases are
 //!   refused before anything of the binary runs, from the Go build info
-//!   in the file ([`refused_build`]), and again by the version it prints
+//!   in the file ([`refused_build`]; a Trivy whose file names no version is
+//!   refused too), and again by the version it prints
 //!   ([`refused_version`]).
 //! - **The image reference comes from the cluster and is untrusted.**
 //!   [`scan_target`] parses it with [`ImageRef`] (only the characters the
@@ -276,23 +277,61 @@ pub fn refused_version(kind: ScannerKind, version: &str) -> Option<String> {
 /// set to their version (`-ldflags -X`).
 pub const TRIVY_MODULE: &str = "github.com/aquasecurity/trivy";
 pub const TRIVY_VERSION_VAR: &str = "github.com/aquasecurity/trivy/pkg/version/app.ver";
+/// Where old Trivy releases (0.26 and before) set it.
+const OLD_TRIVY_VERSION_VAR: &str = "main.version";
 
-/// Why nauvi does not run this binary, from its build info alone (before
-/// anything of it runs): a Trivy whose module version, or the version its
-/// release build set, is a malicious one. `None` when the build info names
-/// none of them (the version the binary prints is checked too, by
-/// [`refused_version`]).
-pub fn refused_build(kind: ScannerKind, info: &BuildInfo) -> Option<String> {
+/// Why nauvi does not run this binary, from its file alone (before anything
+/// of it runs). Trivy 0.69.4 to 0.69.6 ran their payload as soon as they
+/// started, even for `version`, so nauvi must know a Trivy's version from
+/// its Go build info (`info`; `None` when the file has none it can read)
+/// before it asks the binary:
+///
+/// - a module version, or a version the build set (`-ldflags -X`), that is
+///   a malicious release is refused;
+/// - so is a Trivy whose build info names no version at all (a `(devel)`
+///   build under `-trimpath`, a packed binary, a script around it): nauvi
+///   cannot tell it from a malicious one without running it (#561).
+///
+/// `None`: it may run, and the version it prints is checked too, by
+/// [`refused_version`]. Grype has no known malicious release to look for
+/// before it runs, so a Grype is never refused here.
+pub fn refused_build(kind: ScannerKind, info: Option<&BuildInfo>) -> Option<String> {
     if kind != ScannerKind::Trivy {
         return None;
     }
+    let Some(info) = info else {
+        return Some(format!(
+            "nauvi finds no Go build info in this file (a packed binary, or a script around \
+             Trivy?), so it cannot tell which version of Trivy this is without running it. \
+             {UNVERSIONED_TRIVY}"
+        ));
+    };
     let module = (info.main_module == TRIVY_MODULE).then_some(info.main_version.as_str());
-    module
+    let versions: Vec<_> = module
         .into_iter()
         .chain(info.x(TRIVY_VERSION_VAR))
+        .chain(info.x(OLD_TRIVY_VERSION_VAR))
         .filter_map(parse_version)
-        .find_map(malicious_trivy)
+        .collect();
+    if let Some(why) = versions.iter().copied().find_map(malicious_trivy) {
+        return Some(why);
+    }
+    if versions.is_empty() {
+        return Some(format!(
+            "This Trivy's Go build info names no version (built from source?), so nauvi cannot \
+             tell which version it is without running it. {UNVERSIONED_TRIVY} Or build it \
+             without -trimpath and with -ldflags \"-X {TRIVY_VERSION_VAR}=<version>\"."
+        ));
+    }
+    None
 }
+
+/// Why a Trivy of unknown version does not run, and what to do instead.
+/// Trivy's own release builds name their version (module and `-X`).
+const UNVERSIONED_TRIVY: &str = "nauvi does not run it: Trivy 0.69.4 to 0.69.6 ran malicious \
+     code as soon as they started (CVE-2026-33634). Install a release build of Trivy (from its \
+     GitHub releases, its apt or yum repository, or brew install aquasecurity/trivy/trivy), or \
+     set NAUVI_TRIVY to one.";
 
 /// The scanner's version and its vulnerability database's.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
