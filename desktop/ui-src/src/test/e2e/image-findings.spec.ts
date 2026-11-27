@@ -247,7 +247,7 @@ test("a CronJob's panel has the Security tab and the Images section like any wor
         scanned: true,
         counts: { ...zero, high: 1 },
         fixable: { ...zero, high: 1 },
-        workloads: [{ kind: "CronJob", namespace: "demo", name: "nightly", container: "backup" }],
+        workloads: [{ kind: "CronJob", namespace: "demo", name: "nightly", container: "backup", cron_job: "" }],
         report_namespace: "demo",
         report_name: "cronjob-nightly-backup",
       },
@@ -261,7 +261,23 @@ test("a CronJob's panel has the Security tab and the Images section like any wor
         reports: 0,
         counts: zero,
         fixable: zero,
-        workloads: [{ kind: "Job", namespace: "demo", name: "nightly-29384100", container: "upload" }],
+        workloads: [{ kind: "Job", namespace: "demo", name: "nightly-29384100", container: "upload", cron_job: "nightly" }],
+        report_namespace: "",
+        report_name: "",
+      },
+      // A standalone Job named like a scheduled one (#559): its controller
+      // is no CronJob, so it is not nightly's.
+      {
+        ...base,
+        image: "lookalike:1",
+        digest: "",
+        scanned: false,
+        scanner: "",
+        scanned_at: 0,
+        reports: 0,
+        counts: zero,
+        fixable: zero,
+        workloads: [{ kind: "Job", namespace: "demo", name: "nightly-1732700000", container: "x", cron_job: "" }],
         report_namespace: "",
         report_name: "",
       },
@@ -279,6 +295,7 @@ test("a CronJob's panel has the Security tab and the Images section like any wor
   await expect(tab.getByTestId("workload-security-verdict").first()).toHaveText("1 high. It has a fix.");
   await expect(tab).toContainText("Container backup");
   await expect(tab).toContainText("rclone:1.68");
+  await expect(tab).not.toContainText("lookalike:1");
 
   // The Vulns column of the CronJobs table joins the same way.
   await showVulns(page);

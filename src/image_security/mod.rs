@@ -174,6 +174,9 @@ pub struct Workload {
     pub namespace: String,
     pub name: String,
     pub container: String,
+    /// A Job's CronJob, from the Job's controller owner reference (#559);
+    /// empty for any other workload, and when the Jobs may not be listed.
+    pub cron_job: String,
 }
 
 /// Where vulnerability data comes from (ADR 0011).

@@ -5,7 +5,6 @@ import { columnsFor, shownColumns, EMPTY_METRICS } from "./columns";
 import {
   buildIndex,
   containerImage,
-  cronJobOf,
   digestOf,
   overviewFindings,
   podWorkload,
@@ -122,28 +121,31 @@ describe("the findings index", () => {
   });
 
   it("gives a CronJob its own reports and its Jobs' running pods", () => {
-    expect(cronJobOf("nightly-29384100")).toBe("nightly");
-    expect(cronJobOf("my-backup-123456789")).toBe("my-backup");
-    // Not a scheduled minute: a Job of its own.
-    expect(cronJobOf("migrate-2")).toBe("");
-    expect(cronJobOf("29384100")).toBe("");
-    // The report names the CronJob; the running pod its Job (same image).
+    // The report names the CronJob; the running pod its Job (same image),
+    // whose controller is the CronJob (#559).
     const alpine = img({
       image: "alpine:3.20",
       digest: "sha256:6666",
       counts: c({ high: 1 }),
       workloads: [
-        { kind: "CronJob", namespace: "demo", name: "nightly", container: "main" },
-        { kind: "Job", namespace: "demo", name: "nightly-29384100", container: "main" },
+        { kind: "CronJob", namespace: "demo", name: "nightly", container: "main", cron_job: "" },
+        { kind: "Job", namespace: "demo", name: "nightly-29384100", container: "main", cron_job: "nightly" },
       ],
     });
     // Only the Job's running pod knows this one (not scanned).
     const sidecar = img({
       image: "sidecar:1",
       scanned: false,
-      workloads: [{ kind: "Job", namespace: "demo", name: "nightly-29384101", container: "side" }],
+      workloads: [{ kind: "Job", namespace: "demo", name: "nightly-29384101", container: "side", cron_job: "nightly" }],
     });
-    const idx = buildIndex([...images, alpine, sidecar], S);
+    // A standalone Job named like a scheduled one: no controller, so not
+    // the CronJob's, whatever its name.
+    const lookalike = img({
+      image: "lookalike:1",
+      scanned: false,
+      workloads: [{ kind: "Job", namespace: "demo", name: "nightly-1732700000", container: "x", cron_job: "" }],
+    });
+    const idx = buildIndex([...images, alpine, sidecar, lookalike], S);
     const cron = workloadImages(idx, "CronJob", "demo", "nightly", S);
     expect(cron.map((w) => w.row)).toEqual([alpine, sidecar]);
     expect(cron[0].containers).toEqual(["main"]);
@@ -153,7 +155,7 @@ describe("the findings index", () => {
     expect(rowImages(idx, true, "Pod", "demo", "nightly-29384100-x", "Job/nightly-29384100")?.map((w) => w.row)).toEqual([
       alpine,
     ]);
-    expect(idx.byWorkload.has("demo/CronJob/migrate")).toBe(false);
+    expect(workloadImages(idx, "Job", "demo", "nightly-1732700000", S).map((w) => w.row)).toEqual([lookalike]);
   });
 
   it("keeps a bare ReplicaSet's pods under the ReplicaSet", () => {

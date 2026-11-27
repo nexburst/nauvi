@@ -213,6 +213,7 @@ mod tests {
                 namespace: "shop".into(),
                 name: "web".into(),
                 container: "nginx".into(),
+                cron_job: String::new(),
             }],
             report_namespace: String::new(),
             report_name: String::new(),

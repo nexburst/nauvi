@@ -9,6 +9,8 @@
 // - where people already look (#535): the Vulns column (pods joined to
 //   their Deployment), a Deployment's and a CronJob's (#557) Security tab, the line on a container
 //   card and the Overview card; none of it while the feature is off
+// - a CronJob's running Job joins it by the Job's controller (#559); a
+//   standalone Job named like a scheduled one (`hourly-1732700000`) does not
 // - the empty states: not scanned (no reports in the namespace), no known
 //   vulnerabilities (a clean report), no Trivy Operator (the second cluster,
 //   which has no CRD) and not allowed (the limited user)
@@ -123,6 +125,34 @@ spec:
 `;
 }
 
+/** A Job of its own (no owner) whose pod never schedules (#559). */
+function jobYaml(name, image) {
+  return `---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ${name}
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        nauvi.test/no-such-node: "true"
+      containers:
+        - name: app
+          image: ${image}
+`;
+}
+
+/** A suspended CronJob whose Job template never schedules, so a Job made
+ *  from it (`kubectl create job --from`) keeps running (#559). */
+function pendingCronJobYaml(name, image) {
+  return cronJobYaml(name, image).replace(
+    "          restartPolicy: Never\n",
+    '          restartPolicy: Never\n          nodeSelector:\n            nauvi.test/no-such-node: "true"\n',
+  );
+}
+
 /** A report as the operator writes it for the `kind` `name` (container `app`). */
 function reportJson(ns, name, repository, tag, vulns, daysAgo = 1, kind = "Pod") {
   const summary = { criticalCount: 0, highCount: 0, mediumCount: 0, lowCount: 0, unknownCount: 0, noneCount: 0 };
@@ -202,8 +232,14 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
         // The same image as web (no digest: never pulled), so web's report covers it.
         deploymentYaml("shop", "nginx:1.27") +
         // #557: the operator scans a CronJob as itself (no pod needed).
-        cronJobYaml("nightly", "redis:7.2"),
+        cronJobYaml("nightly", "redis:7.2") +
+        // #559: hourly's Job runs busybox (tool's image, so still four
+        // rows); a standalone Job named like hourly's runs postgres.
+        pendingCronJobYaml("hourly", "busybox:1.36") +
+        jobYaml("hourly-1732700000", "postgres:15"),
     );
+    // Named unlike a scheduled Job: only its controller says it is hourly's.
+    kubectl(["-n", found, "create", "job", "--from=cronjob/hourly", "hourly-manual"]);
     applyReports(found, [
       // Older than cache's, with the same findings: the row stays cache's.
       reportJson(found, "nightly", "library/redis", "7.2", [
@@ -366,6 +402,39 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
 
   it("the CronJob's Security tab in dark", T, async () => {
     await setTheme(s.app, "dark");
+  });
+
+  it("a CronJob's running Job joins it by its controller, a look-alike Job does not (#559, dark)", T, async () => {
+    const { app } = s;
+    const owner = kubectl(["-n", found, "get", "job", "hourly-manual", "-o", "jsonpath={.metadata.ownerReferences[0].kind}"]);
+    assert.equal(String(owner).trim(), "CronJob");
+    await app.openDetail("CronJobs", found, "hourly");
+    const tab = await app.find(By.xpath("//*[@data-testid='detail-panel']//button[@role='tab'][normalize-space()='Security']"));
+    await tab.click();
+    await app.find(byTestId("workload-security"));
+    const text = await app.waitFor(
+      async () => {
+        const t = await textOf(app, "workload-security");
+        return /busybox:1\.36/.test(t) ? t : null;
+      },
+      { message: "hourly's Job's image in its Security tab" },
+    );
+    assert.match(text, /No known vulnerabilities/);
+    // hourly-1732700000 is no Job of hourly: its image is not listed.
+    assert.doesNotMatch(text, /postgres/);
+    assert.equal(await count(app, "workload-security-image"), 1, text);
+  });
+
+  it("the look-alike Job's own Security tab lists its image (#559, light)", T, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    await app.openDetail("Jobs", found, "hourly-1732700000");
+    const tab = await app.find(By.xpath("//*[@data-testid='detail-panel']//button[@role='tab'][normalize-space()='Security']"));
+    await tab.click();
+    await app.find(byTestId("workload-security"));
+    const text = await textOf(app, "workload-security");
+    assert.match(text, /postgres:15/);
+    assert.doesNotMatch(text, /busybox/);
   });
 
   it("a container card says what the report says about its image (light)", T, async () => {

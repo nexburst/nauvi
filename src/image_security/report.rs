@@ -1,7 +1,8 @@
 //! One row per image from the running pods and the reports, the filters,
 //! and a report's fixes grouped by package.
 
-use super::images::{normalize, pod_images, short_reference, RunningImage};
+use super::config_audit::Owners;
+use super::images::{job_owners, normalize, pod_images, short_reference, RunningImage};
 use super::triage::Triage;
 use super::trivy_operator::{self as trivy, Access, ReportSummary};
 use super::{
@@ -325,6 +326,8 @@ pub(crate) fn is_forbidden(e: &kube::Error) -> bool {
 #[derive(Default)]
 struct Read {
     pods: Vec<Pod>,
+    /// The CronJobs of the pods' Jobs (#559).
+    jobs: Owners,
     reports: Vec<ReportSummary>,
     forbidden: bool,
 }
@@ -484,6 +487,7 @@ async fn read_scope(
         Ok(list) => {
             budget.cut_pods |= list.more;
             budget.pods -= list.items.len().min(budget.pods);
+            out.jobs = job_owners(client, namespace, &list.items).await;
             out.pods = list.items;
         }
         Err(e) => notes.push(format!(
@@ -684,7 +688,7 @@ async fn read_vulns(
     let Some(scopes) = scopes_of(client, source, namespace, several, &mut out).await else {
         return Ok(out);
     };
-    let (mut pods, mut reports) = (Vec::new(), Vec::new());
+    let (mut pods, mut reports, mut jobs) = (Vec::new(), Vec::new(), Owners::new());
     let mut forbidden = Vec::new();
     let mut budget = Budget::new(source);
     for scope in &scopes {
@@ -700,6 +704,7 @@ async fn read_vulns(
             forbidden.push(scope.clone().unwrap_or_default());
         }
         pods.extend(read.pods);
+        jobs.extend(read.jobs);
         reports.extend(read.reports);
     }
     out.forbidden_namespaces
@@ -709,7 +714,7 @@ async fn read_vulns(
         out.notes.clear();
         return Ok(out);
     }
-    let running = pod_images(&pods);
+    let running = pod_images(&pods, &jobs);
     let mut rows = aggregate(&running, &reports);
     if source == ScanSource::Kubescape {
         for row in &mut rows {
@@ -977,7 +982,7 @@ pub(crate) mod tests {
             serde_json::from_str(include_str!("testdata/pods.json")).unwrap();
         let pods: Vec<Pod> = serde_json::from_value(v["items"].clone()).unwrap();
         let (reports, _) = parse_list(include_bytes!("testdata/reports.json")).unwrap();
-        aggregate(&pod_images(&pods), &reports)
+        aggregate(&pod_images(&pods, &Owners::new()), &reports)
     }
 
     /// #537: an ignored critical leaves the counts (into `ignored`), a KEV
@@ -1010,7 +1015,7 @@ pub(crate) mod tests {
             .unwrap();
         let ids: Vec<_> = web.marks.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, ["CVE-2026-0001", "CVE-2026-0002"]);
-        let mut rows = aggregate(&pod_images(&pods), &reports);
+        let mut rows = aggregate(&pod_images(&pods, &Owners::new()), &reports);
         let before = rows[0].clone();
         apply_triage(&mut rows, &reports, &triage);
         let nginx = rows.iter().find(|r| r.image == "nginx:1.27").unwrap();
@@ -1148,6 +1153,7 @@ pub(crate) mod tests {
             namespace: "shop".into(),
             name: name.into(),
             container: container.into(),
+            cron_job: String::new(),
         }
     }
 
@@ -1206,7 +1212,7 @@ pub(crate) mod tests {
         let v: serde_json::Value =
             serde_json::from_str(include_str!("testdata/pods.json")).unwrap();
         let pods: Vec<Pod> = serde_json::from_value(v["items"].clone()).unwrap();
-        pod_images(&pods)
+        pod_images(&pods, &Owners::new())
     }
 
     /// A report of an older build of a mutable tag: its workload still
@@ -1276,7 +1282,7 @@ pub(crate) mod tests {
             false,
             "sha256:abc",
         );
-        let rows = aggregate(&pod_images(&[pod]), &[untagged, digested]);
+        let rows = aggregate(&pod_images(&[pod], &Owners::new()), &[untagged, digested]);
         let live = rows.iter().find(|r| r.running).unwrap();
         assert!(!live.scanned, "{rows:?}");
         let names: Vec<_> = rows
@@ -1535,6 +1541,7 @@ pub(crate) mod tests {
                 namespace: ns.into(),
                 name: "p".into(),
                 container: "c".into(),
+                cron_job: String::new(),
             });
             r
         };

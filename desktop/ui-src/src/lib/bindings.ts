@@ -4015,6 +4015,11 @@ export type Workload = {
 	namespace: string,
 	name: string,
 	container: string,
+	/**
+	 *  A Job's CronJob, from the Job's controller owner reference (#559);
+	 *  empty for any other workload, and when the Jobs may not be listed.
+	 */
+	cron_job: string,
 };
 
 /**  One workload (or other object) and how many checks it fails. */

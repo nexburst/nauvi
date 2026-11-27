@@ -175,6 +175,7 @@ fn summarize(raw: RawSummary) -> Option<ReportSummary> {
             namespace: clean(namespace),
             name: clean(get(&m.labels, "kubescape.io/workload-name")),
             container: clean(get(&m.labels, "kubescape.io/workload-container-name")),
+            cron_job: String::new(),
         },
         reference: clean(reference),
         tagged,
@@ -522,6 +523,7 @@ mod tests {
                 namespace: "shop".into(),
                 name: "web".into(),
                 container: "nginx".into(),
+                cron_job: String::new(),
             }
         );
         assert_eq!(web.reference, "docker.io/library/nginx:1.27");
