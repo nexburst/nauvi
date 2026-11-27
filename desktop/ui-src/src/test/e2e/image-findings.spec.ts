@@ -232,7 +232,8 @@ test("a CronJob's panel has the Security tab and the Images section like any wor
       scanner: "Trivy 0.69.3",
       scanned_at: Math.floor(Date.now() / 1000) - 3600,
     };
-    cluster.imageSecurity!.images.push(
+    cluster.imageSecurity = { state: "ok", forbidden: [], notes: [], details: {}, images: [] };
+    cluster.imageSecurity.images.push(
       {
         ...base,
         image: "alpine:3.20",
@@ -269,7 +270,7 @@ test("a CronJob's panel has the Security tab and the Images section like any wor
   await panel(page).getByRole("tab", { name: "Security" }).click();
   const tab = page.getByTestId("workload-security");
   await expect(tab.getByTestId("workload-security-image")).toHaveCount(2);
-  await expect(tab.getByTestId("workload-security-verdict").first()).toHaveText("1 high. 1 has a fix.");
+  await expect(tab.getByTestId("workload-security-verdict").first()).toHaveText("1 high. It has a fix.");
   await expect(tab).toContainText("Container backup");
   await expect(tab).toContainText("rclone:1.68");
 
