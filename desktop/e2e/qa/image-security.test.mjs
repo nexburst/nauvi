@@ -347,14 +347,18 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
   });
 
   it("the Overview card in light", T, async () => {
-    await setTheme(s.app, "light");
-    await openView(s.app);
-    // openDetail filtered the tables to one name: the view shares the filter.
-    await s.app.filter("");
+    const { app } = s;
+    await setTheme(app, "light");
+    // Still on the Overview: the screenshot is of the card in light.
+    await app.nav("Overview");
+    await app.waitFor(async () => (await count(app, "overview-image-findings")) === 1, { message: "the Overview card" });
   });
 
   it("not scanned yet: a namespace without reports (light)", T, async () => {
     const { app } = s;
+    await openView(app);
+    // openDetail filtered the tables to one name: the view shares the filter.
+    await app.filter("");
     await setTheme(app, "light");
     await pickNamespaces(app, [unscanned]);
     await app.waitFor(async () => (await stateOf(app)) === "no_reports", { timeout: 60_000, message: "no_reports" });

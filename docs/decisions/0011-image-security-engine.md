@@ -47,3 +47,13 @@ that downloads and runs a scanner inherits that supply chain.
 - The kind test cluster has only the VulnerabilityReport CRD
   (`scripts/test-cluster/trivy-vulnerabilityreports-crd.yaml`, vendored);
   tests create fixture reports, no operator runs.
+
+## Amendment (2026-11-26, #535)
+"Nothing at start-up: reports are read when the user asks" now covers more
+places than the Image security view. While image security is on for a
+context, the reports are also read when the Overview (its image findings
+card), a pod or workload panel (the container cards, the Security tab) or
+the Vulns column is shown. It is still one cached listing per context
+(`cache_ttl_hours`), shared by the view and all of these, with no watch
+and no polling. While the feature is off nothing is read, at start-up or
+later.

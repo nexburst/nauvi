@@ -49,7 +49,7 @@
   import { tableCsv } from "../csv";
   import { ensureFindings, findings, findingsIndex, findingsOn } from "../stores/imageFindings.svelte";
   import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
-  import { FINDING_KINDS, podWorkload, promptLines, workloadKey } from "../imageFindings";
+  import { FINDING_KINDS, promptLines, rowImages } from "../imageFindings";
 
   interface Props {
     kind: ResourceKind;
@@ -593,8 +593,8 @@
     const index = findingsIndex();
     if (!index) return [];
     const ownerAt = kind.columns.findIndex((c) => c.kind === "owner");
-    const w = isPod ? podWorkload(row.name, ownerAt >= 0 ? (row.cells[ownerAt] ?? "") : "") : { kind: r.kind, name: row.name };
-    const images = index.byWorkload.get(workloadKey(w.kind, row.namespace, w.name)) ?? [];
+    const owner = isPod && ownerAt >= 0 ? (row.cells[ownerAt] ?? "") : "";
+    const images = rowImages(index, isPod, r.kind, row.namespace, row.name, owner) ?? [];
     return promptLines(images, imageSecuritySettings(), Math.floor(Date.now() / 1000));
   }
 

@@ -6,7 +6,7 @@
 
 import type { ColumnDef, ImageSecuritySettings_Serialize as ImageSecuritySettings, ResourceKind } from "./bindings";
 import type { Column, Row } from "./columns";
-import { podWorkload, vulnsCell, workloadKey, type FindingsIndex, type VulnsCell } from "./imageFindings";
+import { rowImages, vulnsCell, type FindingsIndex, type VulnsCell } from "./imageFindings";
 
 export interface VulnsSource {
   /** Image security is on for the cluster on screen. */
@@ -29,8 +29,8 @@ export function vulnsOf(kind: ResourceKind, ownerAt: number, row: Row): VulnsCel
   const index = source.index();
   if (!index) return EMPTY;
   const isPod = kind.resource.group === "" && kind.resource.kind === "Pod";
-  const w = isPod ? podWorkload(row.name, ownerAt >= 0 ? (row.cells[ownerAt] ?? "") : "") : { kind: kind.resource.kind, name: row.name };
-  const images = index.byWorkload.get(workloadKey(w.kind, row.namespace, w.name));
+  const owner = isPod && ownerAt >= 0 ? (row.cells[ownerAt] ?? "") : "";
+  const images = rowImages(index, isPod, kind.resource.kind, row.namespace, row.name, owner);
   return images ? vulnsCell(images, source.settings()) : EMPTY;
 }
 

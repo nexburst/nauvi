@@ -9,6 +9,7 @@ import {
   overviewFindings,
   podWorkload,
   promptLines,
+  rowImages,
   shortCounts,
   vulnsCell,
   workloadImages,
@@ -83,11 +84,29 @@ describe("the findings index", () => {
   it("finds a container's image by digest, else by reference", () => {
     expect(digestOf("docker.io/library/nginx@sha256:1111")).toBe("sha256:1111");
     expect(digestOf("sha256:1111")).toBe("");
-    expect(containerImage(index, "nginx:1.27", "docker.io/library/nginx@sha256:1111")).toBe(nginx);
-    expect(containerImage(index, "nginx:1.27", "docker.io/library/nginx@sha256:9999")).toBeNull();
-    expect(containerImage(index, "worker:3", "")).toBe(worker);
+    expect(containerImage(index, "demo", "nginx:1.27", "docker.io/library/nginx@sha256:1111")).toBe(nginx);
+    expect(containerImage(index, "demo", "nginx:1.27", "docker.io/library/nginx@sha256:9999")).toBeNull();
+    expect(containerImage(index, "team-a", "worker:3", "")).toBe(worker);
     // An excluded namespace's image is not shown.
-    expect(containerImage(index, "secret:1", "x@sha256:3333")).toBeNull();
+    expect(containerImage(index, "kube-system", "secret:1", "x@sha256:3333")).toBeNull();
+  });
+
+  it("shows a container's image only for its own, not excluded, namespace", () => {
+    const shared = img({
+      image: "busybox:1.36",
+      digest: "sha256:4444",
+      counts: c({ high: 1 }),
+      workloads: [
+        { kind: "Deployment", namespace: "demo", name: "tools", container: "main" },
+        { kind: "Deployment", namespace: "kube-system", name: "tools", container: "main" },
+      ],
+    });
+    const idx = buildIndex([...images, shared], S);
+    expect(containerImage(idx, "demo", "busybox:1.36", "b@sha256:4444")).toBe(shared);
+    // The same image in an excluded namespace, or in one the row does not name.
+    expect(containerImage(idx, "kube-system", "busybox:1.36", "b@sha256:4444")).toBeNull();
+    expect(containerImage(idx, "other", "busybox:1.36", "b@sha256:4444")).toBeNull();
+    expect(containerImage(idx, "other", "nginx:1.27", "x@sha256:1111")).toBeNull();
   });
 
   it("puts a pod under its Deployment", () => {
@@ -95,6 +114,26 @@ describe("the findings index", () => {
     expect(podWorkload("my-app-5d8f-abc", "ReplicaSet/my-app-5d8f")).toEqual({ kind: "Deployment", name: "my-app" });
     expect(podWorkload("db-0", "StatefulSet/db")).toEqual({ kind: "StatefulSet", name: "db" });
     expect(podWorkload("static", "")).toEqual({ kind: "Pod", name: "static" });
+  });
+
+  it("keeps a bare ReplicaSet's pods under the ReplicaSet", () => {
+    // Not a template hash: never a Deployment's.
+    expect(podWorkload("cache-old-x1", "ReplicaSet/cache-old")).toEqual({ kind: "ReplicaSet", name: "cache-old" });
+    // A bare ReplicaSet `web-5d8f` next to a Deployment `web`: the listing
+    // names the ReplicaSet, so its pods are its own.
+    const bare = img({
+      image: "redis:7",
+      digest: "sha256:5555",
+      counts: c({ low: 1 }),
+      workloads: [{ kind: "ReplicaSet", namespace: "demo", name: "web-5d8f", container: "redis" }],
+    });
+    const idx = buildIndex([...images, bare], S);
+    const known = (k: string, n: string) => idx.byWorkload.has(`demo/${k}/${n}`);
+    expect(podWorkload("web-5d8f-abc", "ReplicaSet/web-5d8f", known)).toEqual({ kind: "ReplicaSet", name: "web-5d8f" });
+    expect(rowImages(idx, true, "Pod", "demo", "web-5d8f-abc", "ReplicaSet/web-5d8f")?.map((w) => w.row)).toEqual([bare]);
+    // The Deployment's own pods still find the Deployment's images.
+    const own = rowImages(idx, true, "Pod", "demo", "web-7c9b-xyz", "ReplicaSet/web-7c9b");
+    expect(own?.map((w) => w.row.image)).toEqual(["nginx:1.27", "envoy:1.31"]);
   });
 });
 

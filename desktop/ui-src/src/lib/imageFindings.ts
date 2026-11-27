@@ -27,12 +27,14 @@ export interface FindingsIndex {
   byDigest: Map<string, ImageVulns>;
   /** By the reference as the pods name it, for images without a digest. */
   byImage: Map<string, ImageVulns>;
+  /** The excluded namespaces (Settings → Image security). */
+  excluded: Set<string>;
 }
 
 export const workloadKey = (kind: string, namespace: string, name: string) => `${namespace}/${kind}/${name}`;
 
 /** The workload kinds the listing names (a ReplicaSet's pods are its Deployment's). */
-export const FINDING_KINDS = ["Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod"];
+export const FINDING_KINDS = ["Deployment", "ReplicaSet", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod"];
 
 /** The listing's images by workload and by image, the excluded namespaces left out. */
 export function buildIndex(images: readonly ImageVulns[], s: ImageSecuritySettings): FindingsIndex {
@@ -55,7 +57,7 @@ export function buildIndex(images: readonly ImageVulns[], s: ImageSecuritySettin
       byWorkload.set(key, list);
     }
   }
-  return { byWorkload, byDigest, byImage };
+  return { byWorkload, byDigest, byImage, excluded };
 }
 
 /** The repository digest of a container's `imageID`, "" when it has none
@@ -67,29 +69,58 @@ export function digestOf(imageId: string): string {
   return d.startsWith("sha256:") && d.length > 7 ? d : "";
 }
 
-/** The listing's row of a container's image: by digest, else as named. */
-export function containerImage(index: FindingsIndex, image: string, imageId: string): ImageVulns | null {
+/** The listing's row of the image a container of a pod in `namespace`
+ *  runs: by digest, else as named. None for a pod in an excluded
+ *  namespace, or when the row's workloads are all in other namespaces. */
+export function containerImage(index: FindingsIndex, namespace: string, image: string, imageId: string): ImageVulns | null {
+  if (index.excluded.has(namespace)) return null;
   const d = digestOf(imageId);
-  if (d) return index.byDigest.get(d) ?? null;
-  return index.byImage.get(image) ?? null;
+  const row = (d ? index.byDigest.get(d) : index.byImage.get(image)) ?? null;
+  if (row && row.workloads.length > 0 && !row.workloads.some((w) => w.namespace === namespace)) return null;
+  return row;
 }
+
+/** The characters of a `pod-template-hash` (`rand.SafeEncodeString`). */
+const TEMPLATE_HASH = /^[bcdfghjklmnpqrstvwxz2456789]{1,10}$/;
 
 /**
  * The workload a pod row belongs to, from its Controlled By cell
- * (`ReplicaSet/web-5f6b7c`): a ReplicaSet's pods are listed under their
- * Deployment (the ReplicaSet's name without its template hash), a pod
- * without an owner under itself.
+ * (`ReplicaSet/web-5f6b7c`). Like `owner_of` in
+ * `src/image_security/images.rs`, a Deployment's ReplicaSet's pods are
+ * listed under the Deployment, any other ReplicaSet's under itself. The
+ * row has no labels to read the `pod-template-hash` from, so a
+ * `ReplicaSet/<name>` the listing names (`known`) wins, and only a name
+ * that ends in a hash is taken for a Deployment's. A pod without an owner
+ * is listed under itself.
  */
-export function podWorkload(name: string, owner: string): { kind: string; name: string } {
+export function podWorkload(
+  name: string,
+  owner: string,
+  known: (kind: string, name: string) => boolean = () => false,
+): { kind: string; name: string } {
   const slash = owner.indexOf("/");
   if (slash < 0) return { kind: "Pod", name };
   const kind = owner.slice(0, slash);
   const ownerName = owner.slice(slash + 1);
-  if (kind === "ReplicaSet") {
+  if (kind === "ReplicaSet" && !known(kind, ownerName)) {
     const dash = ownerName.lastIndexOf("-");
-    if (dash > 0) return { kind: "Deployment", name: ownerName.slice(0, dash) };
+    if (dash > 0 && TEMPLATE_HASH.test(ownerName.slice(dash + 1))) return { kind: "Deployment", name: ownerName.slice(0, dash) };
   }
   return { kind, name: ownerName };
+}
+
+/** The listing's images of a pod row (by its owner) or of a workload row. */
+export function rowImages(
+  index: FindingsIndex,
+  isPod: boolean,
+  kind: string,
+  namespace: string,
+  name: string,
+  owner: string,
+): WorkloadImage[] | undefined {
+  const known = (k: string, n: string) => index.byWorkload.has(workloadKey(k, namespace, n));
+  const w = isPod ? podWorkload(name, owner, known) : { kind, name };
+  return index.byWorkload.get(workloadKey(w.kind, namespace, w.name));
 }
 
 /** The images of one workload, worst first. */

@@ -56,7 +56,7 @@
   useFindings();
   const finding = $derived.by(() => {
     const index = findingsIndex();
-    return index ? containerImage(index, c.image, c.image_id) : null;
+    return index && pod ? containerImage(index, pod.namespace, c.image, c.image_id) : null;
   });
   const findingVerdict = $derived(finding ? verdict(finding, imageSecuritySettings()) : null);
 </script>
