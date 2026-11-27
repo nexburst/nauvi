@@ -77,7 +77,11 @@ A `nauvi://` link only opens a view. It never changes the cluster.
   installed. nauvi never downloads one, and runs the file only after you
   approve it, by its size and SHA-256; a changed file is asked about again.
   Trivy 0.69.4 to 0.69.6, malicious releases, are refused before they run,
-  from the version recorded in the file. nauvi turns off Trivy's telemetry
+  from the version recorded in the file, or for a Homebrew or Nix install,
+  from the folder it was installed in. A Trivy whose version nauvi cannot
+  tell that way is refused too, without being run
+  ([Which Trivy nauvi runs](../how-to/image-security.md#which-trivy-nauvi-runs)).
+  nauvi turns off Trivy's telemetry
   and the scanners' own update checks. The scanner still downloads and
   updates its vulnerability database unless you turn on **Do not let the
   scanner update its database**.

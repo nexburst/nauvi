@@ -141,6 +141,12 @@ its ReplicaSet's, and a CronJob by its name, not its Job's.
 The **Count** and **Leave out namespaces** settings apply to the checks too.
 The tab reads the reports only while it is open, like the vulnerabilities.
 
+The checks come from the cluster only. With **Source** set to **A scanner on
+this computer**, nauvi reads nothing from the cluster, and the tab says
+"Configuration checks come from the cluster" with a **Settings…** button. To
+see the checks, set **Source** to **Trivy Operator reports in the cluster**
+or **Cluster reports, then this computer for the rest**.
+
 When nothing is listed:
 
 | Message | What to do |
@@ -188,11 +194,8 @@ unless you turn on **Do not let the scanner update its database**.
    (an update, or another file first on your `PATH`), nauvi asks again.
 5. In the **Image security** view, click **Scan N images with Trivy** (or
    Grype) above the list, or open an image and click **Scan with Trivy**.
-   One image is scanned at a time; **Cancel** stops it.
-
-Trivy 0.69.4 to 0.69.6 are refused: they were malicious releases
-(CVE-2026-33634). nauvi refuses them before they run, from the version
-recorded in the file.
+   One image is scanned at a time; **Cancel** stops it. A scan of all
+   images goes on when you switch to the **Configuration** tab and back.
 
 The three **Source** choices:
 
@@ -228,6 +231,34 @@ Options in **Settings → Image security**:
 - **Trivy server** (Trivy): scan through a Trivy server;
 - **Do not let the scanner update its database**;
 - **Forget approval** and **Check again**.
+
+### Which Trivy nauvi runs
+
+Trivy 0.69.4 to 0.69.6 were malicious releases (CVE-2026-33634): they ran
+malicious code as soon as they started, even to print their version. So
+nauvi reads a Trivy's version from its file before it ever runs it, and
+runs it only when it can tell the version that way:
+
+- Trivy's release builds record their version in the file. These are the
+  builds from its GitHub releases, its apt or yum repository and the
+  `aquasecurity/trivy` Homebrew tap.
+- A Trivy installed with Homebrew (in a `Cellar/trivy/<version>` folder) or
+  Nix (in `/nix/store/…-trivy-<version>`) does not record its version in the
+  file. nauvi reads the version from the folder it was installed in, and
+  Settings says so: "Version 0.58.1 from its Homebrew folder."
+- Any other Trivy that does not record its version is refused before it
+  runs, approved or not: one built from a source tarball or checkout that
+  records no version, a packed binary, a script around Trivy, or a
+  distribution's own build such as Arch's. (`go install
+  github.com/aquasecurity/trivy/cmd/trivy@<version>` records its version, so
+  it is accepted.)
+
+Trivy 0.69.4 to 0.69.6 are refused either way, wherever the version comes
+from. A refused Trivy shows the reason in red in Settings, with no
+**Approve** button. To use Trivy, install a release build (from its GitHub
+releases, its apt or yum repository or the `aquasecurity/trivy` tap),
+install it with Homebrew or Nix, or set `NAUVI_TRIVY` to the full path of
+a release build. Then click **Check again**. Grype is not affected.
 
 ## Ignore a vulnerability
 
@@ -291,7 +322,9 @@ days. nauvi downloads nothing for EPSS.
   **Read the reports again after**. **Read again** in the view reads them
   now. There is no watch and no polling.
 - With a scanner on this computer, nauvi lists the pods to see which images
-  run. It scans only when you click.
+  run. It scans only when you click. With **Source** set to **A scanner on
+  this computer**, it reads no reports from the cluster, not even for the
+  **Configuration** tab.
 
 ## From the CLI
 
