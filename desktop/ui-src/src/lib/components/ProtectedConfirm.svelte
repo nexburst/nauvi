@@ -1,5 +1,6 @@
 <script lang="ts">
   import { protect } from "../stores/contextMode.svelte";
+  import { dialogKeydown } from "../dialogFocus";
 
   /** The typed confirmation of a change to a protected context (#338). */
   const pending = $derived(protect.queue[0] ?? null);
@@ -16,11 +17,14 @@
     if (matches) close(typed);
   }
 
-  function onkeydown(e: KeyboardEvent) {
+  function onkeydown(e: KeyboardEvent & { currentTarget: HTMLElement }) {
     // Not the dialogs underneath (the action dialog closes on Escape too).
     e.stopPropagation();
     if (e.key === "Escape") close(null);
-    if (e.key === "Enter") confirm();
+    // On a button, Enter presses that button (#575): Cancel never confirms.
+    if (e.key === "Enter" && !(e.target instanceof HTMLButtonElement)) confirm();
+    const dialog = e.currentTarget.querySelector<HTMLElement>(".dialog");
+    if (dialog) dialogKeydown(e, dialog);
   }
 
   function focus(node: HTMLElement) {

@@ -7,7 +7,16 @@ import type { ResourceKind } from "../bindings";
 import type { ActionTarget } from "../actions";
 import type { Row } from "../columns";
 import type { Command } from "../keys";
-import { bindingFor, inEditorOrTerminal, isActivatable, isMacPlatform, isTextEntry, leftToTerminal } from "../keys";
+import {
+  bindingFor,
+  inEditorOrTerminal,
+  isActivatable,
+  isMacPlatform,
+  isTextEntry,
+  leftToTerminal,
+  SORT_KEYS,
+} from "../keys";
+import { KIND_PREFIX } from "../palette";
 import { actionUi } from "./actions.svelte";
 import { apps, selectApplication } from "./applications.svelte";
 import { helm, selectRelease } from "./helm.svelte";
@@ -23,7 +32,7 @@ import { closeNotifications, notifications } from "./notifications.svelte";
 import { watch } from "./watch.svelte";
 import { openLocalShell } from "./localShell";
 import { askAi } from "./askAi.svelte";
-import { zoomIn, zoomOut, zoomReset } from "./settings.svelte";
+import { settings, zoomIn, zoomOut, zoomReset } from "./settings.svelte";
 import { unsaved } from "./unsaved.svelte";
 import { refresh } from "./app.svelte";
 import { goBack, goForward } from "./navigation.svelte";
@@ -40,6 +49,18 @@ export const keyboard = $state({
 
 export type RowMove = "next" | "prev" | "first" | "last";
 
+export type RowVerb =
+  | "logs"
+  | "shell"
+  | "edit"
+  | "restart"
+  | "prompt"
+  | "kill"
+  | "previousLogs"
+  | "forward"
+  | "owner"
+  | "node";
+
 /** What the keyboard can do with the resource table on screen. */
 export interface TableHandle {
   kind: ResourceKind;
@@ -48,8 +69,14 @@ export interface TableHandle {
   toggleFocused(): void;
   menuForFocused(): void;
   deleteRows(): void;
-  /** Logs, a shell or the YAML editor of the focused row. */
-  rowVerb(verb: "logs" | "shell" | "edit" | "restart" | "prompt"): void;
+  /** Logs, a shell or the YAML editor of the focused row; the k9s verbs (#575). */
+  rowVerb(verb: RowVerb): void;
+  /** Ctrl+Space (k9s): select from the last selected row to the focused one. */
+  markRange(): void;
+  /** Ctrl+\ (k9s): clear the selection. */
+  clearMarks(): void;
+  /** Shift+C/M/N/A/S (k9s): sort by that column, again the other way. */
+  sortBy(key: string): void;
   /** Every row of the table (not only the filtered ones), for the palette. */
   rows(): Row[];
   /** The checked rows, else the focused row, else the one in the detail panel. */
@@ -178,7 +205,7 @@ function rowKeysApply(): boolean {
  */
 export function handleKey(e: KeyboardEvent) {
   if (e.defaultPrevented || e.isComposing) return;
-  const hit = bindingFor(e, mac);
+  const hit = bindingFor(e, mac, settings.current.k9s_keys);
   if (!hit) return;
   // Zoom (#207) works everywhere: over menus and dialogs, in the editor and the terminal.
   const zoom = ZOOM[hit.binding.command];
@@ -251,6 +278,9 @@ export function handleKey(e: KeyboardEvent) {
     case "rowFirst":
     case "rowLast": {
       const to = ({ rowDown: "next", rowUp: "prev", rowFirst: "first", rowLast: "last" } as const)[command];
+      // Home/End in a (read-only) editor of the panel are its own: moving
+      // the row would give the table the keys typed next (`d` opens a row).
+      if ((to === "first" || to === "last") && pointerInPanel) return;
       if (table) done(e, () => table?.move(to));
       return;
     }
@@ -258,13 +288,46 @@ export function handleKey(e: KeyboardEvent) {
     case "toggleRow":
       // Enter and Space keep their meaning on buttons, checkboxes and links.
       if (!table || isActivatable(target)) return;
+      // `d` (k9s's describe) is a letter: a row key like `l` and `s`.
+      if (e.key === "d" && !rowKeysApply()) return;
       return done(e, () => (command === "openRow" ? table?.openFocused() : table?.toggleFocused()));
     case "rowMenu":
       if (table) done(e, () => table?.menuForFocused());
       return;
     case "deleteRows":
+      // Ctrl+D (k9s) only from the table: elsewhere it is not about its rows.
+      if (e.ctrlKey && !rowKeysApply()) return;
       if (table) done(e, () => table?.deleteRows());
       return;
+    case "markRange":
+    case "clearMarks":
+      if (!rowKeysApply()) return;
+      if (table) done(e, () => (command === "markRange" ? table?.markRange() : table?.clearMarks()));
+      return;
+    case "sortBy":
+      if (!rowKeysApply()) return;
+      if (table) done(e, () => table?.sortBy(SORT_KEYS[hit.index]));
+      return;
+    case "commandMode":
+      return done(e, () => openPalette(KIND_PREFIX));
+    case "rowKill":
+    case "rowPreviousLogs":
+    case "rowForward":
+    case "rowOwner":
+    case "rowNode": {
+      const verb = (
+        {
+          rowKill: "kill",
+          rowPreviousLogs: "previousLogs",
+          rowForward: "forward",
+          rowOwner: "owner",
+          rowNode: "node",
+        } as const
+      )[command];
+      if (!rowKeysApply()) return;
+      if (table) done(e, () => table?.rowVerb(verb));
+      return;
+    }
     case "problemsOnly":
       if (!rowKeysApply()) return;
       if (table) done(e, () => (app.statusFilter = app.statusFilter === PROBLEMS_STATUS ? "" : PROBLEMS_STATUS));

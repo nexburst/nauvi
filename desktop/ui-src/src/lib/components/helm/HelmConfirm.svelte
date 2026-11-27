@@ -1,6 +1,7 @@
 <script lang="ts">
   import { app } from "../../stores/app.svelte";
   import { canConfirmHelm, closeHelmDialog, confirmHelmAction, helm } from "../../stores/helm.svelte";
+  import { dialogKeydown } from "../../dialogFocus";
 
   /** Confirmation for a Helm rollback or uninstall (run through the helm CLI). */
   const req = $derived(helm.request);
@@ -26,7 +27,16 @@
 {#if req}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="backdrop" onclick={(e) => e.target === e.currentTarget && closeHelmDialog()}>
-    <div class="dialog" role="alertdialog" aria-modal="true" aria-label={title} data-testid="helm-dialog" use:focusFirst>
+    <div
+      class="dialog"
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={title}
+      data-testid="helm-dialog"
+      tabindex="-1"
+      use:focusFirst
+      onkeydown={(e) => dialogKeydown(e, e.currentTarget)}
+    >
       <h2 class:danger={req.action === "uninstall"}>{title}</h2>
       {#if req.action === "rollback"}
         <p class="lead">

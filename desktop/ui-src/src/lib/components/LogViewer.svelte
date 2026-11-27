@@ -989,14 +989,16 @@
     if (!ready || started) return;
     started = true;
     const a = untrack(() => (pod ? takeLogAsk(cluster, pod.namespace, pod.name) : undefined));
-    if (a && containers.some((c) => c.name === a.container)) {
+    // Workloads follow all containers by default.
+    const firstMain = isWorkload ? undefined : containers.find((c) => !c.init);
+    // An ask without a container (Shift+L in the table, #575): the first one.
+    const asked = a ? a.container || (firstMain?.name ?? "") : "";
+    if (a && containers.some((c) => c.name === asked)) {
       askSeen = a.seq;
-      container = a.container;
+      container = asked;
       previous = a.previous;
       follow = !previous;
     } else {
-      // Workloads follow all containers by default.
-      const firstMain = isWorkload ? undefined : containers.find((c) => !c.init);
       container = firstMain?.name ?? "";
     }
     startLogs();
@@ -1008,8 +1010,10 @@
     askSeen = a.seq;
     untrack(() => {
       if (pod) takeLogAsk(cluster, pod.namespace, pod.name);
-      if (!containers.some((c) => c.name === a.container)) return;
-      container = a.container;
+      // No container named: the one the tab shows, else the first.
+      const asked = a.container || container || (containers.find((c) => !c.init)?.name ?? "");
+      if (!containers.some((c) => c.name === asked)) return;
+      container = asked;
       previous = a.previous;
       void onPreviousChange();
     });

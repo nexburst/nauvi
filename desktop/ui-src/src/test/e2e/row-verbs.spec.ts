@@ -31,16 +31,26 @@ test("L, S and E act on the focused row; the strip under the table says so", asy
   await expect(page.getByTestId("detail-panel").locator(".cm-content")).toBeFocused();
 });
 
-test("E on a kind with tabs opens its YAML tab; kinds without a shell say so", async ({ page }) => {
+test("E on a kind with tabs opens its YAML tab; S scales a workload, kinds without either say so", async ({ page }) => {
   await openApp(page);
+  await openKind(page, "Services");
+  await page.getByRole("grid").focus();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("s");
+  await expect(page.getByRole("status")).toContainText("Services have no shell.");
+
   await openKind(page, "Deployments");
   await expect(row(page, "web")).toBeVisible();
   await page.getByRole("grid").focus();
   await page.keyboard.press("ArrowDown");
   await expect(page.getByTestId("row-keys")).not.toContainText("shell");
+  // As in k9s (#575): `s` on a scalable workload opens Scale.
   await page.keyboard.press("s");
-  await expect(page.getByRole("status")).toContainText("Deployments have no shell.");
+  await expect(page.getByTestId("action-dialog")).toHaveAccessibleName("Scale Deployment");
+  await expect(page.getByTestId("action-replicas")).toBeFocused();
+  await page.keyboard.press("Escape");
 
+  await page.getByRole("grid").focus();
   await page.keyboard.press("e");
   await expect(page.locator("aside").getByRole("tab", { name: "YAML" })).toHaveAttribute("aria-selected", "true");
 });

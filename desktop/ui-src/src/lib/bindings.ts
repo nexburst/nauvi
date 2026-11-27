@@ -3320,6 +3320,7 @@ export type SettingsPatch_Deserialize = {
 	tips_left?: number | null,
 	/**  The whole image security section (#534). */
 	image_security?: ImageSecuritySettings_Deserialize | null,
+	k9s_keys?: boolean | null,
 };
 
 /**
@@ -3361,6 +3362,7 @@ export type SettingsPatch_Serialize = {
 	tips_left?: number | null,
 	/**  The whole image security section (#534). */
 	image_security?: ImageSecuritySettings_Serialize | null,
+	k9s_keys?: boolean | null,
 };
 
 export type Settings_Deserialize = {
@@ -3486,6 +3488,12 @@ export type Settings_Deserialize = {
 	tips_left?: number,
 	/**  Image security (#534): off by default. */
 	image_security?: ImageSecuritySettings_Deserialize,
+	/**
+	 *  The k9s keys that clash with nauvi's own (#575): Ctrl+K kills a
+	 *  pod (the palette stays on Ctrl+P outside macOS) and Shift+L opens
+	 *  a pod's previous logs. Off by default.
+	 */
+	k9s_keys?: boolean,
 };
 
 export type Settings_Serialize = {
@@ -3611,6 +3619,12 @@ export type Settings_Serialize = {
 	tips_left: number,
 	/**  Image security (#534): off by default. */
 	image_security: ImageSecuritySettings_Serialize,
+	/**
+	 *  The k9s keys that clash with nauvi's own (#575): Ctrl+K kills a
+	 *  pod (the palette stays on Ctrl+P outside macOS) and Shift+L opens
+	 *  a pod's previous logs. Off by default.
+	 */
+	k9s_keys: boolean,
 };
 
 /**

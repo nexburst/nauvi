@@ -145,6 +145,7 @@
     { id: "helm", label: "Helm" },
     { id: "agents", label: "Agents (MCP)" },
     { id: "image-security", label: "Image security" },
+    { id: "keyboard", label: "Keyboard" },
     { id: "about", label: "About nauvi" },
     { id: "all", label: "All settings" },
   ];
@@ -594,6 +595,26 @@
     <div hidden={!on("agents")}><AgentSettings /></div>
 
     <div hidden={!on("image-security")}><ImageSecuritySettings /></div>
+
+    <fieldset data-testid="keyboard-settings" hidden={!on("keyboard")}>
+      <legend>Keyboard</legend>
+      <label class="choice">
+        <input
+          type="checkbox"
+          data-testid="k9s-keys"
+          checked={current.k9s_keys}
+          onchange={(e) => updateSettings({ k9s_keys: e.currentTarget.checked })}
+        />
+        k9s keys
+      </label>
+      <p class="muted hint">
+        Adds the k9s keys that mean something else in nauvi: {mac ? "⌃K" : "Ctrl+K"} kills (force deletes) the
+        focused pod{mac ? "" : ", and the command palette stays on Ctrl+P"}, and {mac ? "⇧L" : "Shift+L"} opens
+        a pod's previous logs. The other k9s keys ({mac ? "⌃D" : "Ctrl+D"} delete, d describe, {mac ? "⇧F" : "Shift+F"}
+        port-forward, {mac ? "⇧J" : "Shift+J"} owner, o node, r restart, the sorts and :) always work. ? lists
+        them all.
+      </p>
+    </fieldset>
 
     <div hidden={!on("about")}><AboutSection /></div>
         {#if matches === 0}<p class="muted none">No setting matches "{q.trim()}".</p>{/if}

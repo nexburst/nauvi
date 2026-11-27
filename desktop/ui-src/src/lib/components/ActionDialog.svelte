@@ -1,13 +1,15 @@
 <script lang="ts">
   import ClusterLabel from "./ClusterLabel.svelte";
   import ModeBadge from "./ModeBadge.svelte";
-  import { contextMode } from "../stores/contextMode.svelte";
+  import { contextMode, protect } from "../stores/contextMode.svelte";
   import { currentContextName } from "../stores/app.svelte";
   import { contextLabel } from "../stores/catalog.svelte";
   import { confirmCopy, isDestructive, listTargets } from "../actions";
   import { actionUi, canConfirm, closeDialog, confirmRequest } from "../stores/actions.svelte";
   import ForwardDialog from "./ForwardDialog.svelte";
   import DebugDialog from "./DebugDialog.svelte";
+  import { activeTable } from "../stores/keyboard.svelte";
+  import { dialogKeydown, focusDefault } from "../dialogFocus";
 
   const req = $derived(actionUi.request);
   const copy = $derived(
@@ -22,9 +24,30 @@
     if (e.key === "Escape") closeDialog();
   }
 
-  /** Focus the first field when the dialog opens. */
-  function focusFirst(node: HTMLElement) {
-    node.querySelector<HTMLElement>("input")?.focus();
+  // The keyboard starts in the dialog (#575): on its field, else on its
+  // confirm button, so Enter confirms and Escape cancels. Again when its
+  // content changes (an error after Working…, the failures, a drain), but
+  // not under the protected-cluster prompt, whose field has the focus.
+  let dialogEl = $state<HTMLElement | null>(null);
+  $effect(() => {
+    void actionUi.busy;
+    void actionUi.error;
+    void failures.length;
+    void drain?.finished;
+    const el = dialogEl;
+    if (el && protect.queue.length === 0) focusDefault(el);
+  });
+
+  /** Back to the table when the dialog goes, if nothing else took the focus. */
+  function returnFocus(_node: HTMLElement) {
+    return {
+      destroy() {
+        queueMicrotask(() => {
+          const a = document.activeElement;
+          if (!a || a === document.body) activeTable()?.focus();
+        });
+      },
+    };
   }
 </script>
 
@@ -35,7 +58,17 @@
 {#if req && copy}
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="backdrop" onclick={(e) => e.target === e.currentTarget && closeDialog()}>
-    <div class="dialog" role="alertdialog" data-testid="action-dialog" aria-modal="true" aria-label={copy.title} use:focusFirst>
+    <div
+      class="dialog"
+      role="alertdialog"
+      data-testid="action-dialog"
+      aria-modal="true"
+      aria-label={copy.title}
+      tabindex="-1"
+      bind:this={dialogEl}
+      use:returnFocus
+      onkeydown={(e) => dialogEl && dialogKeydown(e, dialogEl)}
+    >
       <h2 class:danger>{copy.title}</h2>
 
       {#if drain}

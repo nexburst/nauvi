@@ -29,7 +29,8 @@
   import Icon from "../icons/Icon.svelte";
 
   const REFRESH_SHORTCUT = shortcutHint("refresh", isMacPlatform());
-  const PALETTE_SHORTCUT = shortcutHint("palette", isMacPlatform());
+  // Ctrl+K kills a pod with the k9s keys on (#575): then only Ctrl+P.
+  const PALETTE_SHORTCUT = $derived(shortcutHint("palette", isMacPlatform(), settings.current.k9s_keys));
   const SETTINGS_SHORTCUT = shortcutHint("settings", isMacPlatform());
   // The problem pill (#491): how many pods need a look, as of the last
   // Overview update; a click lists them.
