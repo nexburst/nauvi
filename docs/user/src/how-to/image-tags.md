@@ -54,7 +54,9 @@ again. See [`nauvi tags`](../reference/cli/inspect.md#nauvi-tags).
   login.
 - **Private images** use your own `docker login`: the `auths` of
   `~/.docker/config.json` (or `$DOCKER_CONFIG/config.json`) and its
-  credential helpers. nauvi never uses the cluster's image pull secrets.
+  credential helpers (`docker-credential-<name>`, found only in the
+  folders of your `PATH` written as full paths). nauvi never uses the
+  cluster's image pull secrets.
 - Registries that work: Docker Hub, GHCR, Quay, Harbor, GitLab (gitlab.com
   and self-hosted), Azure Container Registry, and others that sign you in on
   their own host or its parent domain.
