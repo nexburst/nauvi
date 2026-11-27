@@ -247,7 +247,10 @@ fn malicious_trivy_builds_are_refused_from_the_file() {
         "v0.69.4-0.20260301000000-abcdef012345",
     ] {
         let why = refused_build(t, Some(&info(TRIVY_MODULE, v, &[]))).unwrap();
-        assert!(why.contains("is one of the malicious releases"), "{v}: {why}");
+        assert!(
+            why.contains("is one of the malicious releases"),
+            "{v}: {why}"
+        );
     }
     // A devel build with the release's version set.
     let x = [(TRIVY_VERSION_VAR, "0.69.6")];
@@ -267,7 +270,11 @@ fn malicious_trivy_builds_are_refused_from_the_file() {
     let why = refused_build(t, Some(&info("example.com/other", "v0.69.5", &[]))).unwrap();
     assert!(why.contains("names no version"), "{why}");
     // Grype has no malicious release to look for.
-    assert!(refused_build(ScannerKind::Grype, Some(&info(TRIVY_MODULE, "v0.69.5", &[]))).is_none());
+    assert!(refused_build(
+        ScannerKind::Grype,
+        Some(&info(TRIVY_MODULE, "v0.69.5", &[]))
+    )
+    .is_none());
 
     // From a file, in the same read as its hash.
     let dir = temp("buildinfo");
@@ -297,9 +304,15 @@ fn a_trivy_whose_file_names_no_version_is_refused() {
          build\t-trimpath=true\n",
     ));
     let why = refused_build(t, devel.as_ref()).unwrap();
-    assert!(why.starts_with("This Trivy's Go build info names no version"), "{why}");
+    assert!(
+        why.starts_with("This Trivy's Go build info names no version"),
+        "{why}"
+    );
     assert!(why.contains("CVE-2026-33634"), "{why}");
-    assert!(why.contains(&format!("-X {TRIVY_VERSION_VAR}=<version>")), "{why}");
+    assert!(
+        why.contains(&format!("-X {TRIVY_VERSION_VAR}=<version>")),
+        "{why}"
+    );
     // A -X that is not a version.
     let odd = find(&fixture::block(
         "go1.23.4",
@@ -309,13 +322,18 @@ fn a_trivy_whose_file_names_no_version_is_refused() {
              build\t-ldflags=\"-X {TRIVY_VERSION_VAR}=dev\"\n"
         ),
     ));
-    assert!(refused_build(t, odd.as_ref()).unwrap().contains("names no version"));
+    assert!(refused_build(t, odd.as_ref())
+        .unwrap()
+        .contains("names no version"));
     // A packed (UPX) binary, or a script: no build info nauvi can read.
     let mut packed = b"\x7fELF\x02\x01\x01UPX!".to_vec();
     packed.resize(64 * 1024, 0x5a);
     assert!(find(&packed).is_none());
     let why = refused_build(t, None).unwrap();
-    assert!(why.starts_with("nauvi finds no Go build info in this file"), "{why}");
+    assert!(
+        why.starts_with("nauvi finds no Go build info in this file"),
+        "{why}"
+    );
     assert!(why.contains("Install a release build of Trivy"), "{why}");
     assert!(why.ends_with("or set NAUVI_TRIVY to one."), "{why}");
     // A release build (as 0.76.2's reads) runs.

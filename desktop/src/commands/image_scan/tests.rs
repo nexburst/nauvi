@@ -218,7 +218,10 @@ async fn a_trivy_of_unknown_version_is_refused_without_running_it() {
     let devel = trivy_block("(devel)");
     for (block, says) in [
         (None, "nauvi finds no Go build info in this file"),
-        (Some(devel.as_slice()), "This Trivy's Go build info names no version"),
+        (
+            Some(devel.as_slice()),
+            "This Trivy's Go build info names no version",
+        ),
     ] {
         script_with(&trivy, &body, block);
         let real = trivy.canonicalize().unwrap();
