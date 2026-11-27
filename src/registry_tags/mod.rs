@@ -508,6 +508,9 @@ impl Session<'_> {
                 // review): never another host the registry names.
                 auth::check_realm(&self.registry(), &self.api, &realm)?;
                 self.http.check(&realm)?;
+                // Credentials only where the port matches too.
+                let realm_host = realm.authority().map(|a| a.as_str()).unwrap_or("");
+                let creds = creds.filter(|_| auth::may_send_credentials(&self.api, realm_host));
                 let mut url = realm.to_string();
                 url.push(if realm.query().is_some() { '&' } else { '?' });
                 if let Some(service) = challenge.params.get("service") {

@@ -138,14 +138,25 @@ pub(crate) fn may_send_credentials(registry_host: &str, realm_host: &str) -> boo
 }
 
 /// The Bearer token service `realm` a challenge from `api` (the registry
-/// API's `host[:port]`) names is followed only on a host credentials may go
-/// to ([`may_send_credentials`]): the registry's own host, its parent
-/// domain, or `auth.docker.io` for Docker Hub. Anything else (another
-/// host, an internal address) is refused, so a registry named by the
-/// cluster cannot send nauvi to an arbitrary URL.
+/// API's `host[:port]`) names is followed only on the registry's own host
+/// name or its parent domain, on any port (a self-hosted GitLab serves its
+/// registry on `gitlab.example.com:5050` and signs in at
+/// `gitlab.example.com`), or `auth.docker.io` for Docker Hub. An IP literal
+/// must match exactly, port included. Anything else (another host, an
+/// internal address) is refused, so a registry named by the cluster cannot
+/// send nauvi to an arbitrary URL. Credentials follow the stricter
+/// [`may_send_credentials`] (ports must match).
 pub(crate) fn check_realm(registry: &str, api: &str, realm: &http::Uri) -> Result<(), String> {
     let host = realm.authority().map(|a| a.as_str()).unwrap_or("");
-    if !host.is_empty() && may_send_credentials(api, host) {
+    let name = |a: &str| -> Option<String> {
+        let (h, _) = split_host(a).ok()?;
+        h.parse::<std::net::IpAddr>().is_err().then_some(h)
+    };
+    let same_name = match (name(api), name(host)) {
+        (Some(r), Some(t)) => may_send_credentials(&r, &t),
+        _ => false,
+    };
+    if !host.is_empty() && (may_send_credentials(api, host) || same_name) {
         return Ok(());
     }
     let shown: String = host.chars().filter(|c| !c.is_control()).take(120).collect();
@@ -417,6 +428,33 @@ mod tests {
         )
         .unwrap_err();
         assert!(e.contains("another host, 10.0.0.5:8443:"), "{e}");
+        // Self-hosted GitLab: registry on :5050, sign-in on the same name.
+        let gl = "gitlab.example.com:5050";
+        assert_eq!(
+            check_realm(gl, gl, &uri("https://gitlab.example.com/jwt/auth")),
+            Ok(())
+        );
+        assert_eq!(
+            check_realm(gl, gl, &uri("https://gitlab.example.com:8443/jwt/auth")),
+            Ok(())
+        );
+        assert_eq!(
+            check_realm(
+                "registry.gitlab.example.com:5050",
+                "registry.gitlab.example.com:5050",
+                &uri("https://gitlab.example.com/jwt/auth")
+            ),
+            Ok(())
+        );
+        // ...but credentials only go where the port matches too.
+        assert!(!may_send_credentials(gl, "gitlab.example.com"));
+        // Another name on any port is still refused, and so is nvcr.io's
+        // sign-in on an unrelated host.
+        assert!(check_realm(gl, gl, &uri("https://evil.example.com/jwt/auth")).is_err());
+        assert!(check_realm(gl, gl, &uri("https://example.com.evil.net/x")).is_err());
+        assert!(check_realm("nvcr.io", "nvcr.io", &uri("https://authn.nvidia.com/token")).is_err());
+        // A name and an IP literal never match by name.
+        assert!(check_realm(gl, gl, &uri("https://10.0.0.1/jwt/auth")).is_err());
         assert_eq!(
             check_realm(
                 "10.0.0.5:5000",
