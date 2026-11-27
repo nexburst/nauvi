@@ -12,7 +12,10 @@
 // - a user who may read the pod and ConfigMaps but not Secrets gets
 //   "not allowed to read Secret ..." on the Secret rows
 // - no Secret value reaches the app log or the driver log
-// Screenshots in the dark and the light theme.
+// - #541: one grid, so every value starts at the same x; envFrom rows say
+//   no source (only `key level` under a prefix), env rows keep theirs; a
+//   long name wraps in its column; Copy shows on hover or focus only
+// Screenshots at 1280x800 in the dark and the light theme.
 
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -53,6 +56,15 @@ data:
   api-key: ${b64(API_KEY)}
 ---
 apiVersion: v1
+kind: ConfigMap
+metadata: { name: qa-app-config }
+data:
+  ANTENNA_MODE: "True"
+  DB_HOST: db
+  WORKER_MAX_MEMORY_PER_CHILD_IN_KILOBYTES_FOR_THE_QUEUE: "7000000"
+  EXTRA_JAVA_OPTS: "-Xms256m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -Dfile.encoding=UTF-8 -Duser.timezone=UTC"
+---
+apiVersion: v1
 kind: Pod
 metadata: { name: qa-env }
 spec:
@@ -66,7 +78,9 @@ spec:
           prefix: CFG_
         - secretRef: { name: qa-creds }
           prefix: S_
+        - configMapRef: { name: qa-app-config }
       env:
+        - { name: DB_HOST, value: db.override }
         - { name: GREETING, value: hello world }
         - { name: API_TOKEN, value: ${TOKEN} }
         - name: LOG_LEVEL
@@ -225,6 +239,46 @@ describe("pod env values (#447)", { timeout: 20 * 60_000 }, () => {
     assert.ok(!t.includes(TOKEN), "the secret-looking literal is hidden in the list");
   });
 
+  it("lays the list out as one aligned grid (#541, dark)", T, async () => {
+    const { app } = s;
+    const layout = await app.js(`const list = document.querySelector('${LIST}');
+      const rows = [...list.querySelectorAll('[data-testid="env-row"]')];
+      const src = (n) => list.querySelector('[data-testid="env-row"][data-name="' + n + '"] [data-testid="env-source"]')?.textContent ?? '';
+      const group = [...list.querySelectorAll('[data-testid="env-group"]')].find((g) => g.textContent.includes('qa-app-config'));
+      const longName = list.querySelector('[data-name^="WORKER_MAX_MEMORY"] .name').getBoundingClientRect();
+      const copy = list.querySelector('button[aria-label="Copy GREETING"]');
+      return {
+        lefts: [...new Set([...list.querySelectorAll('[data-testid="env-value"]')].map((e) => Math.round(e.getBoundingClientRect().left)))],
+        values: rows.length,
+        groupSources: group ? group.querySelectorAll('[data-testid="env-source"]').length : -1,
+        cfgLevel: src('CFG_level'),
+        logLevel: src('LOG_LEVEL'),
+        podName: src('POD_NAME'),
+        overridden: list.querySelector('[data-testid="env-group"] [data-name="DB_HOST"]')?.textContent.includes('(overridden)') ?? false,
+        nameRatio: longName.width / list.querySelector('[data-testid="env-grid"]').getBoundingClientRect().width,
+        nameLines: Math.round(longName.height / parseFloat(getComputedStyle(list).lineHeight || '16')),
+        copyOpacity: copy ? getComputedStyle(copy).opacity : 'none',
+        width: window.innerWidth, height: window.innerHeight,
+      };`);
+    console.log(`layout: ${JSON.stringify(layout)}`);
+    assert.equal(layout.lefts.length, 1, `every value starts at the same x: ${layout.lefts}`);
+    assert.ok(layout.values > 15);
+    assert.equal(layout.groupSources, 0, "the unprefixed envFrom rows say no source");
+    assert.equal(layout.cfgLevel, "key level");
+    assert.equal(layout.logLevel, "from ConfigMap qa-cfg/level");
+    assert.equal(layout.podName, "field metadata.name");
+    assert.ok(layout.overridden, "the envFrom DB_HOST is overridden");
+    assert.ok(layout.nameRatio <= 0.41, `the long name stays in its column (${layout.nameRatio})`);
+    assert.equal(layout.copyOpacity, "0", "Copy is hidden until hover or focus");
+    // The keyboard focus shows it.
+    await app.js(`document.querySelector('${LIST} button[aria-label="Copy GREETING"]').focus()`);
+    assert.equal(await app.js(`return getComputedStyle(document.querySelector('${LIST} button[aria-label="Copy GREETING"]')).opacity`), "1");
+    await app.js(`document.querySelector('${LIST} [data-testid="env-group"]:last-of-type')?.scrollIntoView({ block: 'start' })`);
+    await app.shot("layout-groups-dark");
+    await app.js(`document.querySelector('${rowCss("GREETING")}')?.scrollIntoView({ block: 'start' })`);
+    await app.shot("layout-env-dark");
+  });
+
   it("reveals one Secret key and one literal, then hides them (dark)", T, async () => {
     const { app } = s;
     await clickIn(app, "DB_PASSWORD", "Reveal");
@@ -273,6 +327,10 @@ describe("pod env values (#447)", { timeout: 20 * 60_000 }, () => {
     await openEnv(app);
     await waitList(app, "GREETING");
     for (const n of ["S_api-key", "API_TOKEN"]) assert.equal(await valueOf(app, n), "••••", `${n} hidden again`);
+    await app.js(`document.querySelector('${LIST} [data-testid="env-group"]:last-of-type')?.scrollIntoView({ block: 'start' })`);
+    await app.shot("layout-groups-light");
+    await app.js(`document.querySelector('${rowCss("GREETING")}')?.scrollIntoView({ block: 'start' })`);
+    await app.shot("layout-env-light");
   });
 
   it("writes no Secret value to the logs", T, async () => {

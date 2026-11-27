@@ -104,7 +104,8 @@ test("a ConfigMap value that looks like a secret is masked and revealed by its r
   const fake = await openEnv(page);
   const row = envRow(page, "CFG_secret_token");
   await expect(row.getByTestId("env-value")).toHaveText("••••");
-  await expect(row).toContainText("from ConfigMap settings/secret_token");
+  // In an envFrom group with a prefix, only the key is said, not the source again (#541).
+  await expect(row.getByTestId("env-source")).toHaveText("key secret_token");
   await row.getByRole("button", { name: "Reveal CFG_secret_token" }).click();
   await expect(row.getByTestId("env-value")).toHaveText("cm-tok-777");
   expect(await fake.calls("cmdRevealPodEnv")).toEqual([
@@ -203,4 +204,45 @@ test("with envFrom, the title counts the variables the list shows (#525)", async
   // Closed again, the number stays.
   await summary.click();
   await expect(summary).toHaveText(`Environment (${n})`);
+});
+
+test("a compact list: no repeated source, aligned values, Copy on hover or focus (#541)", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openEnv(page);
+  const group = card(page).getByTestId("env-group").filter({ hasText: "all of ConfigMap app-config" });
+  // Without a prefix, the group's rows say nothing about their source.
+  await expect(group.getByTestId("env-row")).toHaveCount(3);
+  await expect(group.getByTestId("env-source")).toHaveCount(0);
+  await expect(group).not.toContainText("from ConfigMap");
+  // env rows keep theirs.
+  await expect(envRow(page, "DB_PASSWORD").getByTestId("env-source")).toHaveText("from Secret db-creds/password");
+  await expect(envRow(page, "POD_NAME").getByTestId("env-source")).toHaveText("field metadata.name");
+  await expect(envRow(page, "MODE").getByTestId("env-source")).toHaveCount(0);
+
+  // Every value starts at the same x, in and out of the groups, and a short
+  // source stays on its value's line.
+  const lefts = await card(page)
+    .getByTestId("env-value")
+    .evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().left)));
+  expect(lefts.length).toBeGreaterThan(8);
+  expect(new Set(lefts).size).toBe(1);
+  const tok = envRow(page, "CFG_secret_token");
+  const [v, s] = await Promise.all([tok.getByTestId("env-value").boundingBox(), tok.getByTestId("env-source").boundingBox()]);
+  expect(Math.abs(v!.y - s!.y)).toBeLessThan(4);
+  // The long name wraps inside its column instead of pushing the values.
+  const long = card(page).locator('[data-name^="WORKER_MAX_MEMORY"] .name');
+  const [nameBox, listBox] = await Promise.all([long.boundingBox(), card(page).getByTestId("env-grid").boundingBox()]);
+  expect(nameBox!.width).toBeLessThanOrEqual(listBox!.width * 0.4 + 1);
+  expect(nameBox!.height).toBeGreaterThan(20);
+
+  // Copy: hidden until the row is hovered or has the focus; Reveal always shown.
+  const copyMode = envRow(page, "MODE").getByRole("button", { name: "Copy MODE" });
+  await page.mouse.move(0, 0);
+  await expect(copyMode).toHaveCSS("opacity", "0");
+  await expect(envRow(page, "DB_PASSWORD").getByRole("button", { name: "Reveal DB_PASSWORD" })).toHaveCSS("opacity", "1");
+  await envRow(page, "MODE").hover();
+  await expect(copyMode).toHaveCSS("opacity", "1");
+  await page.mouse.move(0, 0);
+  await copyMode.focus();
+  await expect(copyMode).toHaveCSS("opacity", "1");
 });

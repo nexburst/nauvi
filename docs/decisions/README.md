@@ -17,3 +17,4 @@ Add a new file instead of rewriting an old one when a decision changes.
 | [0008](0008-rename-to-nauvi.md) | The project is called nauvi |
 | [0009](0009-context-modes.md) | Read-only and protected contexts: one gate every mutating command declares, port-forwards allowed |
 | [0010](0010-ask-ai-skill.md) | Ask AI writes a `nauvi` agent skill (kubectl + nauvi CLI) instead of passing MCP; `nauvi mcp` is opt-in |
+| [0011](0011-image-security-engine.md) | Image security reads the Trivy Operator's reports; a local scanner is the user's own, never downloaded; off by default |

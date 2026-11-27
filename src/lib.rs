@@ -41,6 +41,7 @@ pub mod heap;
 pub mod helm;
 pub mod human;
 pub mod image_ref;
+pub mod image_security;
 pub mod kubectl_download;
 pub mod liveness;
 #[cfg(feature = "mcp")]

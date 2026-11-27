@@ -1,0 +1,31 @@
+{
+  "apiVersion": "aquasecurity.github.io/v1alpha1",
+  "kind": "VulnerabilityReport",
+  "metadata": {
+    "name": "replicaset-web-5f6b7c-nginx",
+    "namespace": "shop",
+    "creationTimestamp": "2026-11-20T09:58:00Z",
+    "labels": {
+      "trivy-operator.container.name": "nginx",
+      "trivy-operator.resource.kind": "ReplicaSet",
+      "trivy-operator.resource.name": "web-5f6b7c",
+      "trivy-operator.resource.namespace": "shop"
+    }
+  },
+  "report": {
+    "artifact": { "repository": "library/nginx", "tag": "1.27", "digest": "sha256:1111" },
+    "os": { "family": "debian", "name": "12.8" },
+    "registry": { "server": "index.docker.io" },
+    "scanner": { "name": "Trivy", "vendor": "Aqua Security", "version": "0.58.1" },
+    "summary": { "criticalCount": 1, "highCount": 2, "mediumCount": 1, "lowCount": 1, "unknownCount": 1, "noneCount": 0 },
+    "updateTimestamp": "2026-11-20T10:00:00Z",
+    "vulnerabilities": [
+      { "vulnerabilityID": "CVE-2026-0001", "resource": "openssl", "installedVersion": "3.0.11-1", "fixedVersion": "3.0.15-1", "severity": "CRITICAL", "score": 9.8, "title": "openssl: a buffer overread", "primaryLink": "https://avd.aquasec.com/nvd/cve-2026-0001", "lastModifiedDate": "", "publishedDate": "" },
+      { "vulnerabilityID": "CVE-2026-0002", "resource": "openssl", "installedVersion": "3.0.11-1", "fixedVersion": "3.0.14-1", "severity": "HIGH", "score": 7.5, "title": "openssl: a timing side channel", "primaryLink": "https://avd.aquasec.com/nvd/cve-2026-0002", "lastModifiedDate": "", "publishedDate": "" },
+      { "vulnerabilityID": "CVE-2026-0003", "resource": "zlib1g", "installedVersion": "1:1.2.13", "fixedVersion": "", "severity": "HIGH", "score": 7.1, "title": "zlib: an integer overflow", "primaryLink": "https://avd.aquasec.com/nvd/cve-2026-0003", "lastModifiedDate": "", "publishedDate": "" },
+      { "vulnerabilityID": "CVE-2026-0004", "resource": "curl", "installedVersion": "7.88.1-10", "fixedVersion": "7.88.1-10+deb12u8", "severity": "MEDIUM", "score": 5.3, "title": "curl: a cookie leak", "primaryLink": "https://avd.aquasec.com/nvd/cve-2026-0004", "lastModifiedDate": "", "publishedDate": "" },
+      { "vulnerabilityID": "CVE-2026-0005", "resource": "curl", "installedVersion": "7.88.1-10", "fixedVersion": "", "severity": "LOW", "score": 3.1, "title": "curl: a header \u001b[31mspoof\u001b[0m", "primaryLink": "", "lastModifiedDate": "", "publishedDate": "" },
+      { "vulnerabilityID": "CVE-2026-0006", "resource": "libc6", "installedVersion": "2.36-9", "fixedVersion": "", "severity": "UNKNOWN", "title": "glibc: unclear", "primaryLink": "", "lastModifiedDate": "", "publishedDate": "" }
+    ]
+  }
+}
