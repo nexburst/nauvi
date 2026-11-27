@@ -68,8 +68,18 @@ const field = (label) => inDialog(`//label[starts-with(normalize-space(), ${xq(l
 async function click(app, locator) {
   const el = await app.waitFor(async () => (await app.driver.findElements(locator))[0], { message: String(locator) });
   await app.js("arguments[0].scrollIntoView({ block: 'center', inline: 'center' })", el);
-  await el.click();
+  try {
+    await el.click();
+  } catch (e) {
+    // WebKitWebDriver refuses some small icon buttons it can see; a click
+    // from the page does the same.
+    if (e.name !== "ElementNotInteractableError") throw e;
+    await app.js("arguments[0].click()", el);
+  }
 }
+/** Scroll the table back to its left edge (its header follows the rows). */
+const scrollTableLeft = (app) =>
+  app.js(`document.querySelector('[data-testid="resource-table"] .scroller').scrollLeft = 0`);
 const headers = async (app) => (await tableData(app)).headers.filter(Boolean);
 const rowsByName = async (app) => Object.fromEntries((await tableData(app)).rows.map((r) => [r.Name, r]));
 
@@ -291,6 +301,7 @@ describe("table columns", { timeout: 15 * 60_000 }, () => {
 
   it("a header's right-click menu hides it or opens the chooser; the chooser can be searched", T, async () => {
     const { app } = s;
+    await scrollTableLeft(app);
     const node = await app.find(By.xpath("//*[@role='columnheader'][normalize-space()='Node']"));
     await app.driver.actions().contextClick(node).perform();
     await app.find(By.xpath("//*[@role='menu']"));
