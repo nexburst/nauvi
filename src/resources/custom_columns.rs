@@ -8,7 +8,7 @@
 //! `.spec.containers[0].image`. No wildcards or filters.
 
 use super::jsonpath::{eval, Seg};
-use super::{ColumnDef, ColumnKind, Source};
+use super::{ColumnDef, ColumnKind, ResourceRef, Source};
 use crate::text::one_line;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -62,7 +62,13 @@ pub fn custom_key(id: &str) -> String {
 #[derive(Debug, Clone)]
 pub(super) enum Pick {
     Label(String),
-    Annotation(String),
+    /// On a Secret (`secret`), a value that holds a JSON object or array,
+    /// as tools that keep a copy of the whole Secret in an annotation do,
+    /// is shown as `{…}` (#571).
+    Annotation {
+        key: String,
+        secret: bool,
+    },
     Path(Vec<Seg>),
 }
 
@@ -70,7 +76,14 @@ impl Pick {
     pub(super) fn text(&self, v: &Value) -> String {
         let raw = match self {
             Pick::Label(k) => map_value(v, "labels", k),
-            Pick::Annotation(k) => map_value(v, "annotations", k),
+            Pick::Annotation { key, secret } => {
+                let raw = map_value(v, "annotations", key);
+                if *secret && holds_json(&raw) {
+                    "{…}".into()
+                } else {
+                    raw
+                }
+            }
             Pick::Path(segs) => eval(v, segs)
                 .into_iter()
                 .map(summary)
@@ -87,6 +100,13 @@ fn map_value(v: &Value, map: &str, key: &str) -> String {
         .and_then(|m| m.get(key))
         .map(summary)
         .unwrap_or_default()
+}
+
+/// Whether an annotation's value is a JSON object or array.
+fn holds_json(raw: &str) -> bool {
+    let t = raw.trim_start();
+    (t.starts_with('{') || t.starts_with('['))
+        && serde_json::from_str::<Value>(raw).is_ok_and(|v| v.is_object() || v.is_array())
 }
 
 /// A value as a cell, without ever serializing a subtree: a path such as
@@ -242,8 +262,56 @@ pub fn check_custom_column(c: &CustomColumn) -> Result<(), String> {
     }
 }
 
-/// The table columns of `custom`, in order, after the kind's own.
-pub fn custom_column_defs(custom: &[CustomColumn]) -> Result<Vec<ColumnDef>, String> {
+/// Annotations that hold a copy of the whole object, so on a Secret its
+/// data (#571): kubectl's last-applied configuration and kapp's original.
+const COPY_ANNOTATIONS: [&str; 2] = [
+    "kubectl.kubernetes.io/last-applied-configuration",
+    "kapp.k14s.io/original",
+];
+
+/// Said for a column that would show a Secret's data (#571).
+const SECRET_DATA_REFUSED: &str =
+    "A column on Secrets cannot show their data: open the Secret and press Reveal to see it.";
+
+/// Whether `resource` is core/v1 Secret, whose values only the Secret
+/// panel shows, after Reveal.
+fn is_secret(resource: &ResourceRef) -> bool {
+    resource.group.is_empty() && resource.kind == "Secret"
+}
+
+/// What is wrong with `c` as a column of `resource`'s table: what
+/// [`check_custom_column`] says, and on Secrets a column that reads their
+/// data, which the Secret panel shows only after Reveal (#571): a field
+/// path under `.data` or `.stringData`, or an annotation that holds a copy
+/// of the Secret. Compared without case, so `.Data` is refused too.
+fn check_custom_column_for(resource: &ResourceRef, c: &CustomColumn) -> Result<(), String> {
+    check_custom_column(c)?;
+    if !is_secret(resource) {
+        return Ok(());
+    }
+    let refused = match c.source {
+        CustomSource::Label => false,
+        CustomSource::Annotation => {
+            let k = c.value.trim();
+            COPY_ANNOTATIONS.iter().any(|a| a.eq_ignore_ascii_case(k))
+        }
+        CustomSource::Field => matches!(
+            field_path(&c.value)?.first(),
+            Some(Seg::Field(f)) if f.eq_ignore_ascii_case("data") || f.eq_ignore_ascii_case("stringData")
+        ),
+    };
+    if refused {
+        return Err(SECRET_DATA_REFUSED.into());
+    }
+    Ok(())
+}
+
+/// The table columns of `custom` for `resource`'s table, in order, after
+/// the kind's own.
+pub fn custom_column_defs(
+    resource: &ResourceRef,
+    custom: &[CustomColumn],
+) -> Result<Vec<ColumnDef>, String> {
     if custom.len() > MAX_CUSTOM_COLUMNS {
         return Err(format!(
             "A table can have at most {MAX_CUSTOM_COLUMNS} custom columns."
@@ -253,14 +321,18 @@ pub fn custom_column_defs(custom: &[CustomColumn]) -> Result<Vec<ColumnDef>, Str
     custom
         .iter()
         .map(|c| {
-            check_custom_column(c).map_err(|e| format!("Column \"{}\": {e}", c.label.trim()))?;
+            check_custom_column_for(resource, c)
+                .map_err(|e| format!("Column \"{}\": {e}", c.label.trim()))?;
             if ids.contains(&c.id.as_str()) {
                 return Err(format!("Two custom columns have the id \"{}\".", c.id));
             }
             ids.push(&c.id);
             let pick = match c.source {
                 CustomSource::Label => Pick::Label(c.value.trim().to_string()),
-                CustomSource::Annotation => Pick::Annotation(c.value.trim().to_string()),
+                CustomSource::Annotation => Pick::Annotation {
+                    key: c.value.trim().to_string(),
+                    secret: is_secret(resource),
+                },
                 CustomSource::Field => Pick::Path(field_path(&c.value)?),
             };
             Ok(ColumnDef {
@@ -281,6 +353,10 @@ mod tests {
     use super::*;
     use kube::api::DynamicObject;
     use serde_json::json;
+
+    fn pods() -> ResourceRef {
+        rref("", "Pod", "pods", true)
+    }
 
     fn col(id: &str, source: CustomSource, value: &str) -> CustomColumn {
         CustomColumn {
@@ -324,7 +400,7 @@ mod tests {
 
     #[test]
     fn columns_are_checked() {
-        assert!(custom_column_defs(&[col("a", CustomSource::Label, "app")]).is_ok());
+        assert!(custom_column_defs(&pods(), &[col("a", CustomSource::Label, "app")]).is_ok());
         let mut no_name = col("a", CustomSource::Label, "app");
         no_name.label = "  ".into();
         assert_eq!(
@@ -335,7 +411,8 @@ mod tests {
             .unwrap_err()
             .starts_with("Type the annotation key"));
         assert!(check_custom_column(&col("a", CustomSource::Label, "a b")).is_err());
-        let err = custom_column_defs(&[col("a", CustomSource::Field, "spec")]).unwrap_err();
+        let err =
+            custom_column_defs(&pods(), &[col("a", CustomSource::Field, "spec")]).unwrap_err();
         assert!(
             err.starts_with("Column \"Col a\": A field path starts"),
             "{err}"
@@ -343,14 +420,103 @@ mod tests {
         let many: Vec<_> = (0..11)
             .map(|i| col(&i.to_string(), CustomSource::Label, "app"))
             .collect();
-        assert!(custom_column_defs(&many)
+        assert!(custom_column_defs(&pods(), &many)
             .unwrap_err()
             .contains("at most 10"));
         let twice = [
             col("a", CustomSource::Label, "x"),
             col("a", CustomSource::Label, "y"),
         ];
-        assert!(custom_column_defs(&twice).is_err());
+        assert!(custom_column_defs(&pods(), &twice).is_err());
+    }
+
+    #[test]
+    fn columns_on_secrets_never_read_their_data() {
+        let secrets = rref("", "Secret", "secrets", true);
+        let refused = |source, value: &str| {
+            let err = custom_column_defs(&secrets, &[col("a", source, value)]).unwrap_err();
+            assert_eq!(
+                err,
+                format!("Column \"Col a\": {SECRET_DATA_REFUSED}"),
+                "{value}"
+            );
+        };
+        for path in [
+            ".data",
+            ".data.password",
+            " .data.password ",
+            ".data[0]",
+            ".Data.password",
+            ".DATA",
+            ".stringData",
+            ".stringData.token",
+            ".stringdata.token",
+        ] {
+            refused(CustomSource::Field, path);
+        }
+        for key in [
+            "kubectl.kubernetes.io/last-applied-configuration",
+            " kubectl.kubernetes.io/last-applied-configuration ",
+            "Kubectl.Kubernetes.IO/Last-Applied-Configuration",
+            "kapp.k14s.io/original",
+        ] {
+            refused(CustomSource::Annotation, key);
+        }
+        // Paths that cannot be parsed say so first, as on any kind: brackets
+        // with names, the root, `$`, a wildcard.
+        for path in [".", "$.data", ".['data']", ".[\"data\"]", ".*", "data"] {
+            let err =
+                custom_column_defs(&secrets, &[col("a", CustomSource::Field, path)]).unwrap_err();
+            assert!(!err.contains(SECRET_DATA_REFUSED), "{path}: {err}");
+        }
+        // The rest of a Secret, and the same paths on other kinds, are fine.
+        let ok = [
+            col("t", CustomSource::Field, ".type"),
+            col("m", CustomSource::Field, ".metadata"),
+            col("i", CustomSource::Field, ".immutable"),
+            col(
+                "o",
+                CustomSource::Field,
+                ".metadata.ownerReferences[0].name",
+            ),
+            col("n", CustomSource::Annotation, "note"),
+            col("j", CustomSource::Annotation, "copy"),
+            col(
+                "l",
+                CustomSource::Label,
+                "kubectl.kubernetes.io/last-applied-configuration",
+            ),
+        ];
+        let cols = custom_column_defs(&secrets, &ok).unwrap();
+        let config = rref("", "ConfigMap", "configmaps", true);
+        assert!(custom_column_defs(&config, &[col("d", CustomSource::Field, ".data.x")]).is_ok());
+        let crd = rref("example.com", "Secret", "secrets", true);
+        assert!(custom_column_defs(&crd, &[col("d", CustomSource::Field, ".data.x")]).is_ok());
+
+        // An annotation that holds a copy of the Secret is not shown either.
+        let copy = r#"{"apiVersion":"v1","kind":"Secret","data":{"password":"aHVudGVyMg=="}}"#;
+        let obj: DynamicObject = serde_json::from_value(json!({
+            "apiVersion": "v1", "kind": "Secret", "type": "Opaque",
+            "metadata": {
+                "name": "s", "namespace": "ns",
+                "annotations": {"note": "plain text", "copy": copy},
+                "ownerReferences": [{"name": "owner"}]
+            },
+            "data": {"password": "aHVudGVyMg=="}
+        }))
+        .unwrap();
+        let row = make_row(&secrets, &cols, &obj);
+        let n = row.cells.len();
+        assert_eq!(
+            &row.cells[n - ok.len()..],
+            ["Opaque", "{…}", "", "owner", "plain text", "{…}", ""]
+        );
+        assert!(row.cells.iter().all(|c| !c.contains("aHVudGVyMg")));
+        // On another kind, the same annotation shows as it is.
+        let cols =
+            custom_column_defs(&config, &[col("j", CustomSource::Annotation, "copy")]).unwrap();
+        let row = make_row(&config, &cols, &obj);
+        assert!(row.cells.last().unwrap().starts_with("{\"apiVersion\""));
     }
 
     #[test]
@@ -364,7 +530,7 @@ mod tests {
             col("none", CustomSource::Field, ".spec.nothing[3]"),
             col("obj", CustomSource::Field, ".spec.containers[0].ports"),
         ];
-        let cols = custom_column_defs(&custom).unwrap();
+        let cols = custom_column_defs(&pods(), &custom).unwrap();
         let obj: DynamicObject = serde_json::from_value(json!({
             "apiVersion": "v1", "kind": "Pod",
             "metadata": {
@@ -414,7 +580,7 @@ mod tests {
             col("s", CustomSource::Field, ".spec.containers"),
             col("f", CustomSource::Field, ".metadata.finalizers"),
         ];
-        let cols = custom_column_defs(&custom).unwrap();
+        let cols = custom_column_defs(&pods(), &custom).unwrap();
         let obj: DynamicObject = serde_json::from_value(json!({
             "apiVersion": "v1", "kind": "Pod",
             "metadata": {"name": "p", "namespace": "ns", "finalizers": ["a/b", "c/d"]},

@@ -215,3 +215,69 @@ test("a bad custom column in the settings says why instead of an empty table", a
   await openKind(page, "Pods");
   await expect(page.getByText(/Column "Broken": A field path starts with a dot/).first()).toBeVisible();
 });
+
+const SECRET_REFUSED = "A column on Secrets cannot show their data: open the Secret and press Reveal to see it.";
+
+test("a custom column on Secrets cannot show their data (#571)", async ({ page }) => {
+  const fake = await openApp(page);
+  await openKind(page, "Secrets");
+  await openChooser(page);
+  await chooser(page).getByRole("button", { name: "+ Add column…" }).click();
+  const name = chooser(page).getByRole("textbox", { name: "Name" });
+  const from = chooser(page).getByRole("combobox", { name: "From" });
+  const error = chooser(page).locator("#column-draft-error");
+  const add = chooser(page).getByRole("button", { name: "Add", exact: true });
+  await name.fill("Password");
+  await from.selectOption({ label: "Field path" });
+  const path = chooser(page).getByRole("textbox", { name: "Path" });
+  for (const p of [".data.password", ".Data", ".stringData.token"]) {
+    await path.fill(p);
+    await expect(error).toHaveText(SECRET_REFUSED);
+  }
+  await add.click();
+  await expect(path).toHaveAttribute("aria-invalid", "true");
+  // The last-applied annotation holds the whole Secret.
+  await from.selectOption({ label: "Annotation" });
+  const key = chooser(page).getByRole("textbox", { name: "Key" });
+  await key.fill("kubectl.kubernetes.io/last-applied-configuration");
+  await expect(error).toHaveText(SECRET_REFUSED);
+  await add.click();
+  // Nothing was added or saved.
+  await expect(chooser(page).getByRole("button", { name: "Edit column Password" })).toHaveCount(0);
+  expect((await fake.lastCall("cmdWatchStart")).custom).toEqual([]);
+
+  // The Secret's type is fine.
+  await from.selectOption({ label: "Field path" });
+  await name.fill("Kind of secret");
+  await path.fill(".type");
+  await expect(error).toHaveText("");
+  await add.click();
+  await page.keyboard.press("Escape");
+  await expect(header(page, "Kind of secret")).toBeVisible();
+
+  // The same path on a ConfigMap is fine too.
+  await openKind(page, "Config Maps");
+  await openChooser(page);
+  await chooser(page).getByRole("button", { name: "+ Add column…" }).click();
+  await name.fill("Value");
+  await from.selectOption({ label: "Field path" });
+  await path.fill(".data.x");
+  await expect(error).toHaveText("");
+  expect(fake.errors).toEqual([]);
+});
+
+test("a custom column on Secrets saved before #571 says why instead of their data", async ({ page }) => {
+  await openApp(page, (cluster) => {
+    cluster.settings.kinds["v1/secrets"] = {
+      sort_key: "",
+      sort_desc: false,
+      hidden: [],
+      shown: [],
+      widths: {},
+      order: [],
+      custom: [{ id: "c1", label: "Password", source: "field", value: ".data.password", context: "" }],
+    };
+  });
+  await openKind(page, "Secrets");
+  await expect(page.getByText(`Column "Password": ${SECRET_REFUSED}`).first()).toBeVisible();
+});
