@@ -61,6 +61,8 @@ export interface SettingsPatch {
   searches?: SearchHistory;
   /** Offer a kubectl matching the cluster in local terminals (#331). */
   kubectl_match?: boolean;
+  /** Show the Available tags button by images (#539). */
+  registry_tags?: boolean;
   /** The collapsed sidebar sections, the whole list (#383). */
   collapsed_sections?: string[];
   /** The sidebar sections with "More" open, the whole list (#481). */
@@ -101,6 +103,7 @@ export function defaultSettings(): Settings {
     forwards: {},
     searches: { recent: [], starred: [] },
     kubectl_match: false,
+    registry_tags: false,
     collapsed_sections: [],
     open_more_sections: [],
     ask_ai_cli: "",
@@ -180,6 +183,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
     next.idle_disconnect_minutes = clampIdleMinutes(patch.idle_disconnect_minutes);
   if (patch.searches != null) next.searches = normalizeHistory(patch.searches);
   if (patch.kubectl_match != null) next.kubectl_match = patch.kubectl_match;
+  if (patch.registry_tags != null) next.registry_tags = patch.registry_tags;
   if (patch.collapsed_sections != null)
     next.collapsed_sections = [...new Set(patch.collapsed_sections.filter(Boolean))];
   if (patch.open_more_sections != null)

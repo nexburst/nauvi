@@ -106,6 +106,7 @@ const READ_ONLY: &[(&str, &str)] = &[
     ("cmdUsageHistory", "reads"),
     ("cmdWatchStart", "watches"),
     ("cmdWatchStop", "stops a watch"),
+    ("cmdWorkloadImages", "reads"),
     ("cmdWorkloadUsageHistory", "reads"),
     ("cmdWorkloadsStart", "watches"),
     ("cmdWorkloadsStop", "stops a watch"),

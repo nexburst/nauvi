@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { ContainerDetail } from "../bindings";
+  import AvailableTags from "./AvailableTags.svelte";
   import ContainerEnvList from "./ContainerEnvList.svelte";
+  import { settings } from "../stores/settings.svelte";
   import { envTitle } from "../podEnv";
   import {
     envSourceText,
@@ -78,6 +80,9 @@
   <dl class="summary" data-testid="container-summary">
     <dt>Image</dt>
     <dd class="mono image" title={c.image_id ? `${c.image}\n${c.image_id}` : c.image}>{c.image}</dd>
+    {#if settings.current.registry_tags}
+      <dd class="tags-row"><AvailableTags image={c.image} imageId={c.image_id} label={c.name} /></dd>
+    {/if}
     {#if c.command.length > 0}
       <dt>Command</dt>
       {@render longValue("command", command)}
@@ -248,6 +253,9 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+  .tags-row {
+    grid-column: 2;
   }
   .note {
     grid-column: 2;

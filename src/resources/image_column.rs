@@ -4,7 +4,8 @@
 //!
 //! The cell is plain text: the first line is what the cell shows, each
 //! line after it one container's full reference (with the digest it runs,
-//! for a pod whose status has one):
+//! for a pod whose status has one). References are parsed by
+//! [`crate::registry_tags::ImageRef`]; one it refuses is shown as written.
 //!
 //! ```text
 //! mongo:7.0.1 +1
@@ -13,30 +14,38 @@
 //! ```
 
 use super::jsonpath::array_at;
-use crate::image_ref::{digest_of_image_id, ImageRef};
+use crate::registry_tags::{running_digest, ImageRef};
 use crate::text::one_line;
 use serde_json::Value;
 
 /// A reference longer than this is cut (they are a few hundred at most).
 const MAX_REF: usize = 300;
 
-fn cell(refs: Vec<ImageRef>) -> String {
-    let Some(first) = refs.first() else {
+/// One container's image as the cell shows it: `(short, full)`.
+fn shown(parsed: Result<ImageRef, String>, raw: &str) -> (String, String) {
+    match parsed {
+        Ok(r) => (r.short(), r.full()),
+        Err(_) => (raw.trim().to_string(), raw.trim().to_string()),
+    }
+}
+
+fn cell(refs: Vec<(String, String)>) -> String {
+    let Some((first, _)) = refs.first() else {
         return String::new();
     };
     // Cluster text: each line made safe to show, and kept to one line.
-    let mut lines = vec![one_line(&first.short(), MAX_REF)];
+    let mut lines = vec![one_line(first, MAX_REF)];
     if refs.len() > 1 {
         lines[0].push_str(&format!(" +{}", refs.len() - 1));
     }
-    lines.extend(refs.iter().map(|r| one_line(&r.full(), MAX_REF)));
+    lines.extend(refs.iter().map(|(_, full)| one_line(full, MAX_REF)));
     lines.join("\n")
 }
 
-fn images_at(v: &Value, pointer: &str) -> Vec<ImageRef> {
+fn images_at(v: &Value, pointer: &str) -> Vec<(String, String)> {
     array_at(v, pointer)
         .filter_map(|c| c.get("image").and_then(Value::as_str))
-        .map(ImageRef::parse)
+        .map(|image| shown(ImageRef::parse(image), image))
         .collect()
 }
 
@@ -46,17 +55,21 @@ pub(super) fn pod_images(v: &Value) -> String {
     let statuses: Vec<&Value> = array_at(v, "/status/containerStatuses").collect();
     let refs = array_at(v, "/spec/containers")
         .filter_map(|c| {
-            let mut r = ImageRef::parse(c.get("image").and_then(Value::as_str)?);
+            let image = c.get("image").and_then(Value::as_str)?;
             let name = c.get("name").and_then(Value::as_str);
-            let running = statuses
+            let image_id = statuses
                 .iter()
                 .find(|s| s.get("name").and_then(Value::as_str) == name)
-                .and_then(|s| s.get("imageID").and_then(Value::as_str))
-                .and_then(digest_of_image_id);
-            if let (true, Some(d)) = (r.digest.is_empty(), running) {
-                r.digest = d.to_string();
-            }
-            Some(r)
+                .and_then(|s| s.get("imageID").and_then(Value::as_str));
+            let parsed = ImageRef::parse(image).map(|mut r| {
+                if r.digest.is_empty() {
+                    if let Some(d) = image_id.and_then(|id| running_digest(&r, id)) {
+                        r.digest = d;
+                    }
+                }
+                r
+            });
+            Some(shown(parsed, image))
         })
         .collect();
     cell(refs)
@@ -112,7 +125,7 @@ mod tests {
         ]}}}});
         assert_eq!(
             template_images(&deploy),
-            "nginx:latest\ndocker.io/library/nginx"
+            "nginx:latest\ndocker.io/library/nginx:latest"
         );
         let cron = json!({"spec": {"jobTemplate": {"spec": {"template": {"spec": {
             "containers": [{"name": "a", "image": "alpine:3"}, {"name": "b", "image": "alpine:3"}]
@@ -121,6 +134,14 @@ mod tests {
             cronjob_images(&cron),
             "alpine:3 +1\ndocker.io/library/alpine:3\ndocker.io/library/alpine:3"
         );
+    }
+
+    #[test]
+    fn a_reference_that_does_not_parse_is_shown_as_written() {
+        let deploy = json!({"spec": {"template": {"spec": {"containers": [
+            {"name": "web", "image": "Not An Image"}
+        ]}}}});
+        assert_eq!(template_images(&deploy), "Not An Image\nNot An Image");
     }
 
     #[test]

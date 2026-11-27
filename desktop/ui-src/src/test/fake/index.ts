@@ -28,6 +28,7 @@ import { podEnvHandlers } from "./pod-env";
 import { portforwardHandlers } from "./portforward";
 import { prometheusHandlers } from "./prometheus";
 import { proxyHandlers } from "./proxy";
+import { registryTagsHandlers } from "./registry-tags";
 import { resourcesHandlers } from "./resources";
 import { settingsHandlers } from "./settings";
 import type { FakeState, Handlers } from "./state";
@@ -64,6 +65,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...portforwardHandlers(s),
     ...prometheusHandlers(s),
     ...proxyHandlers(s),
+    ...registryTagsHandlers(s),
     ...resourcesHandlers(s),
     ...settingsHandlers(s),
     ...updaterHandlers(s),
