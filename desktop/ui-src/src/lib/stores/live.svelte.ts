@@ -2,7 +2,7 @@ import { GiveUp, clearStalled, markStalled, reconnectStoppedMessage, retryDelay,
 import { Channel } from "@tauri-apps/api/core";
 import { api, onClusterSwitch, visibleCluster } from "../cluster";
 import type { WatchMessage } from "../bindings";
-import type { MetricsKind, MetricsSnapshot, ResourceKind } from "../bindings";
+import type { CustomColumn, MetricsKind, MetricsSnapshot, ResourceKind } from "../bindings";
 import { EMPTY_METRICS, HIDDEN_METRICS, isNode, isPod } from "../columns";
 import type { Metrics, Row } from "../columns";
 import { setStatus, showError, stamp } from "./app.svelte";
@@ -104,11 +104,16 @@ export class LiveTable {
     return [...namespaces];
   }
 
-  /** Watch `kind` in `namespaces` (empty: all namespaces), from scratch. */
-  start(kind: ResourceKind, namespaces: readonly string[]) {
+  /** The custom columns the rows carry cells for (#547), after the kind's own. */
+  #custom: CustomColumn[] = [];
+
+  /** Watch `kind` in `namespaces` (empty: all namespaces), from scratch,
+   *  with a cell for each of the `custom` columns. */
+  start(kind: ResourceKind, namespaces: readonly string[], custom: readonly CustomColumn[] = []) {
     this.stop();
     this.#attempts.clear();
     this.#kind = kind;
+    this.#custom = [...custom];
     this.store.clear();
     this.synced = false;
     for (const key of this.#keysFor(namespaces)) void this.#startWatch(key);
@@ -164,7 +169,7 @@ export class LiveTable {
     try {
       // Its own channel: messages arrive in order, only here (#115).
       const channel = new Channel<WatchMessage>((m) => this.#handle(w, m));
-      id = await api(visibleCluster()).cmdWatchStart(kind.resource, namespace, channel);
+      id = await api(visibleCluster()).cmdWatchStart(kind.resource, namespace, this.#custom, channel);
     } catch (e) {
       if (this.#watches.get(key) !== w) return;
       w.starting = false;

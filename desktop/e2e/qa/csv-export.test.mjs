@@ -214,7 +214,7 @@ message: '${FORMULA}'
     // Back to the defaults for the next tests.
     await name.click();
     await (await app.find(By.xpath("//button[starts-with(normalize-space(), 'Columns')]"))).click();
-    await (await app.find(By.xpath("//*[@role='dialog'][@aria-label='Columns']//button[normalize-space()='Default columns']"))).click();
+    await (await app.find(By.xpath("//*[@role='dialog'][@aria-label='Columns']//button[normalize-space()='Reset to default']"))).click();
     await (await app.find(By.xpath("//button[starts-with(normalize-space(), 'Columns')]"))).click();
   });
 

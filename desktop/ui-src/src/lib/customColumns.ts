@@ -84,8 +84,7 @@ function keyError(what: string, key: string): string {
   const k = key.trim();
   if (!k) return `Type the ${what} key, for example app.kubernetes.io/version.`;
   if ([...k].length > MAX_SOURCE) return `The ${what} key is too long: at most ${MAX_SOURCE} characters.`;
-  // eslint-disable-next-line no-control-regex
-  if (/[\s\u0000-\u001f\u007f]/.test(k)) return `A ${what} key has no spaces.`;
+  if (/[\s\p{Cc}]/u.test(k)) return `A ${what} key has no spaces.`;
   return "";
 }
 
@@ -130,9 +129,10 @@ export function customSourceText(c: Pick<CustomColumn, "source" | "value">): str
   return `${SOURCE_LABELS[c.source]}: ${c.value.trim()}`;
 }
 
-/** A string that changes whenever what the backend extracts does. */
+/** A string that changes whenever what the backend extracts does (not
+ *  when a column is only renamed). */
 export function customSignature(custom: readonly CustomColumn[]): string {
-  return JSON.stringify(custom.map((c) => [c.id, c.label.trim(), c.source, c.value.trim()]));
+  return JSON.stringify(custom.map((c) => [c.id, c.source, c.value.trim()]));
 }
 
 const kinds = new WeakMap<ResourceKind, Map<string, ResourceKind>>();
@@ -146,7 +146,7 @@ export function withCustom(kind: ResourceKind, custom: readonly CustomColumn[]):
   if (custom.length === 0) return kind;
   let byKind = kinds.get(kind);
   if (!byKind) kinds.set(kind, (byKind = new Map()));
-  const sig = customSignature(custom);
+  const sig = JSON.stringify(custom.map((c) => [c.id, c.label.trim()]));
   let out = byKind.get(sig);
   if (!out) {
     const defs: ColumnDef[] = custom.map((c) => ({

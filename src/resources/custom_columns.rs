@@ -137,9 +137,11 @@ fn field_path(path: &str) -> Result<Vec<Seg>, String> {
                 let inner: String = chars[i + 1..i + 1 + len].iter().collect();
                 match inner.trim().parse::<usize>() {
                     Ok(n) => segs.push(Seg::Index(n)),
-                    Err(_) => return Err(format!(
+                    Err(_) => {
+                        return Err(format!(
                         "Only numbers work in brackets, like [0]; \"[{inner}]\" is not supported."
-                    )),
+                    ))
+                    }
                 }
                 i += len + 2;
             }
