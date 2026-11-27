@@ -95,7 +95,10 @@ mod tests {
         // A file from before it has none: off.
         let old = parse(r#"{"version":1,"contexts":{"dev":{"view":"overview"}}}"#).unwrap();
         assert!(!old.image_security_enabled("dev"));
-        assert_eq!(old.contexts["dev"].image_security, ImageSecurityMode::Default);
+        assert_eq!(
+            old.contexts["dev"].image_security,
+            ImageSecurityMode::Default
+        );
     }
 
     #[test]
@@ -107,7 +110,8 @@ mod tests {
         };
         s.contexts.insert("on".into(), ctx(ImageSecurityMode::On));
         s.contexts.insert("off".into(), ctx(ImageSecurityMode::Off));
-        s.contexts.insert("dflt".into(), ctx(ImageSecurityMode::Default));
+        s.contexts
+            .insert("dflt".into(), ctx(ImageSecurityMode::Default));
         assert!(s.image_security_enabled("on"));
         assert!(!s.image_security_enabled("off"));
         assert!(!s.image_security_enabled("dflt"));

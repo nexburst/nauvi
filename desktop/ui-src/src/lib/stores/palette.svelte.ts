@@ -8,6 +8,7 @@ import { HELM_VIEW } from "../helm";
 import { HELM_CHARTS_VIEW } from "../helmCharts";
 import { WORKLOADS_VIEW } from "../workloads";
 import { APPLICATIONS_VIEW } from "../applications";
+import { IMAGE_SECURITY_VIEW } from "../imageSecurity";
 import { pushRecent, reasonsByItem, WINDOW_PREFIX } from "../palette";
 import { deleteDenied, deniedActions } from "../access";
 import { PORT_FORWARDS_VIEW } from "../forwards";
@@ -103,6 +104,13 @@ export function paletteItems(): PaletteItem[] {
       label: "Go to Port Forwards",
       terms: ["forward", "tunnel"],
       run: () => setView(PORT_FORWARDS_VIEW),
+    },
+    {
+      id: "cmd:image-security",
+      group: "Command",
+      label: "Go to Image security",
+      terms: ["vulnerabilities", "cve", "trivy", "scan"],
+      run: () => setView(IMAGE_SECURITY_VIEW),
     },
     { id: "cmd:refresh", group: "Command", label: "Refresh", terms: ["reload"], run: refresh },
     { id: "cmd:help", group: "Command", label: "Keyboard shortcuts", terms: ["help", "keys"], run: openHelp },

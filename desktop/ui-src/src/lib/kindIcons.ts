@@ -3,6 +3,7 @@
 // group, so a kind nauvi does not know still gets a fitting icon.
 
 import { APPLICATIONS_VIEW } from "./applications";
+import { IMAGE_SECURITY_VIEW } from "./imageSecurity";
 import type { Category, ResourceKind } from "./bindings";
 import { CATALOG_VIEW } from "./catalog";
 import { PORT_FORWARDS_VIEW } from "./forwards";
@@ -81,6 +82,7 @@ const VIEWS: Record<string, IconName> = {
   [HELM_CHARTS_VIEW]: "package",
   [PORT_FORWARDS_VIEW]: "forward",
   [CATALOG_VIEW]: "grid",
+  [IMAGE_SECURITY_VIEW]: "shield",
 };
 
 type KindLike = Pick<ResourceKind, "id" | "category" | "crd"> & { resource: { kind: string } };

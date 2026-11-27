@@ -4,6 +4,7 @@
 import type {
   ContextInfo,
   ContextSettings_Serialize,
+  ImageSecuritySettings_Serialize as ImageSecuritySettings,
   KindSettings_Serialize,
   LogDefaults_Serialize,
   RowHeight,
@@ -72,6 +73,8 @@ export interface SettingsPatch {
   welcomed?: boolean;
   /** How many more starts show the tips strip (#485). */
   tips_left?: number;
+  /** The whole image security section (#534). */
+  image_security?: ImageSecuritySettings;
 }
 
 /** What the app uses until the backend answers (and if it never does). */
@@ -108,6 +111,13 @@ export function defaultSettings(): Settings {
     // first run's settings come from the backend.
     welcomed: true,
     tips_left: 0,
+    image_security: {
+      enabled: false,
+      min_severity: "high",
+      only_fixable: false,
+      excluded_namespaces: [],
+      cache_ttl_hours: 24,
+    },
   };
 }
 
@@ -179,6 +189,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
   if (patch.ask_ai_command != null) next.ask_ai_command = patch.ask_ai_command.trim();
   if (patch.welcomed != null) next.welcomed = patch.welcomed;
   if (patch.tips_left != null) next.tips_left = Math.max(0, Math.min(TIPS_SESSIONS, patch.tips_left));
+  if (patch.image_security != null) next.image_security = patch.image_security;
   return next;
 }
 

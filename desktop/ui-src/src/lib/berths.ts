@@ -12,6 +12,7 @@ import { HELM_VIEW } from "./helm";
 import { HELM_CHARTS_VIEW } from "./helmCharts";
 import { WORKLOADS_VIEW } from "./workloads";
 import { WELCOME_VIEW } from "./welcome";
+import { IMAGE_SECURITY_VIEW } from "./imageSecurity";
 
 /** Keys 1 to 9: the Overview is always the first, so eight are the user's. */
 export const BERTHS_MAX = 8;
@@ -29,6 +30,7 @@ const VIEWS: Record<string, [label: string, code: string]> = {
   [PORT_FORWARDS_VIEW]: ["Port Forwards", "pf"],
   [CATALOG_VIEW]: ["Catalog", "cat"],
   [WELCOME_VIEW]: ["Welcome", "hi"],
+  [IMAGE_SECURITY_VIEW]: ["Image security", "sec"],
 };
 
 interface KindLike {

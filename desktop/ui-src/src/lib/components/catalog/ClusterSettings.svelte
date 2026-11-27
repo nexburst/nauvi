@@ -7,7 +7,8 @@
   import { contextSettings, updateContext } from "../../stores/settings.svelte";
   import { CONTEXT_MODES } from "../../contextMode";
   import { contextMode, setContextMode } from "../../stores/contextMode.svelte";
-  import type { ContextMode } from "../../bindings";
+  import type { ContextMode, ImageSecurityMode } from "../../bindings";
+  import { imageSecuritySettings } from "../../stores/imageSecurity.svelte";
   import ClusterProxy from "./ClusterProxy.svelte";
 
   /** One cluster's settings page (#78): its name and colour in nauvi,
@@ -196,6 +197,26 @@
       <p class="muted hint">
         Hides CPU and memory usage for this cluster (table columns, usage charts, the overview's usage) and stops asking
         its metrics API.
+      </p>
+    </fieldset>
+
+    <fieldset data-testid="cluster-image-security">
+      <legend>Image security</legend>
+      <label class="row">
+        <span>Image vulnerabilities</span>
+        <select
+          class="select"
+          aria-label="Image security for this cluster"
+          value={contextSettings(id).image_security ?? "default"}
+          onchange={(e) => save({ image_security: e.currentTarget.value as ImageSecurityMode })}
+        >
+          <option value="default">As in Settings ({imageSecuritySettings().enabled ? "on" : "off"})</option>
+          <option value="on">On</option>
+          <option value="off">Off</option>
+        </select>
+      </label>
+      <p class="muted hint">
+        On: the Image security view reads this cluster's Trivy Operator VulnerabilityReports while it is open.
       </p>
     </fieldset>
 

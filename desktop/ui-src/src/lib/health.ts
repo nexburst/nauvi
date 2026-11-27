@@ -11,6 +11,7 @@ import { PORT_FORWARDS_VIEW } from "./forwards";
 import { HELM_VIEW } from "./helm";
 import { HELM_CHARTS_VIEW } from "./helmCharts";
 import { WELCOME_VIEW } from "./welcome";
+import { IMAGE_SECURITY_VIEW } from "./imageSecurity";
 
 /** A view's connection status, as `app.status` holds it. */
 export interface Health {
@@ -26,6 +27,7 @@ export const WATCHLESS_VIEWS: readonly string[] = [
   HELM_CHARTS_VIEW,
   CATALOG_VIEW,
   WELCOME_VIEW,
+  IMAGE_SECURITY_VIEW,
 ];
 
 export function isWatchless(view: string): boolean {

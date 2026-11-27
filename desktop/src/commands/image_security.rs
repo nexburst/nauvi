@@ -100,7 +100,9 @@ async fn listing(
     let summary = image_vulns_in_namespaces(&client, &kinds, &namespaces, &VulnsArgs::default())
         .await
         .map_err(|e| nauvi::error_text(&e))?;
-    let read_at = jiff::Timestamp::now().as_second();
+    let read_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64);
     // Not kept if the window left the cluster meanwhile.
     if !cluster.is_closed() {
         *cluster.image_security.lock().unwrap() = Some(VulnsCache {
@@ -219,9 +221,14 @@ pub(crate) mod tests {
             read_at: 7,
             summary: empty_summary(),
         });
-        let got = listing(&cluster, &settings, vec!["b".into(), "a".into(), "a".into()], false)
-            .await
-            .unwrap();
+        let got = listing(
+            &cluster,
+            &settings,
+            vec!["b".into(), "a".into(), "a".into()],
+            false,
+        )
+        .await
+        .unwrap();
         assert_eq!(got.read_at, 7);
 
         // Off for this cluster although on for the app.

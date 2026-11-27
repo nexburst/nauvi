@@ -1,5 +1,6 @@
 <script lang="ts">
   import AgentSettings from "./AgentSettings.svelte";
+  import ImageSecuritySettings from "./ImageSecuritySettings.svelte";
   import { onMount } from "svelte";
   import { api, visibleCluster } from "../cluster";
   import { commands } from "../bindings";
@@ -143,6 +144,7 @@
     { id: "metrics", label: "Metrics" },
     { id: "helm", label: "Helm" },
     { id: "agents", label: "Agents (MCP)" },
+    { id: "image-security", label: "Image security" },
     { id: "about", label: "About nauvi" },
     { id: "all", label: "All settings" },
   ];
@@ -573,6 +575,8 @@
 
     <div hidden={!on("agents")}><AskAiSettings /></div>
     <div hidden={!on("agents")}><AgentSettings /></div>
+
+    <div hidden={!on("image-security")}><ImageSecuritySettings /></div>
 
     <div hidden={!on("about")}><AboutSection /></div>
         {#if matches === 0}<p class="muted none">No setting matches "{q.trim()}".</p>{/if}

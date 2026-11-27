@@ -111,7 +111,8 @@ pub(crate) struct ContextSettings {
     /// `nauvi mcp` matches the mode by (#338). Kept with the mode.
     pub(crate) mode_source: nauvi::context_mode::ModeSource,
     /// Image security for this cluster (#534): as the app's setting, on
-    /// or off.
+    /// or off. Optional in TypeScript: the UI reads none as the default.
+    #[specta(optional)]
     pub(crate) image_security: ImageSecurityMode,
 }
 
