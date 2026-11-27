@@ -10,8 +10,9 @@
 //!   its challenge names when that is the same host, a parent domain of it
 //!   (`registry.gitlab.com` -> `gitlab.com`), or `auth.docker.io` for
 //!   Docker Hub. Over HTTPS only (the client refuses anything else).
-//! - A credential helper is `docker-credential-<name>` on `PATH`, `<name>`
-//!   from the user's config and only `[A-Za-z0-9._-]`; the host goes to its
+//! - A credential helper is `docker-credential-<name>` in an absolute
+//!   `PATH` entry (relative ones are skipped, as for the local scanner),
+//!   `<name>` from the user's config and only `[A-Za-z0-9._-]`; the host goes to its
 //!   stdin, never into its arguments. It gets [`HELPER_TIMEOUT`] and its
 //!   output is capped.
 //! - Neither credentials nor tokens are ever logged or put in a message.
@@ -291,10 +292,23 @@ fn helper_server(registry: &str) -> String {
 /// when it has none (or fails, or answers with an identity token, which
 /// needs an OAuth exchange nauvi does not do).
 pub(crate) async fn from_helper(helper: &str, registry: &str) -> Option<Credentials> {
+    from_helper_in(helper, registry, std::env::var_os("PATH")).await
+}
+
+/// [`from_helper`] with the `PATH` given.
+async fn from_helper_in(
+    helper: &str,
+    registry: &str,
+    path: Option<std::ffi::OsString>,
+) -> Option<Credentials> {
     if !is_helper_name(helper) {
         return None;
     }
-    let mut child = tokio::process::Command::new(format!("docker-credential-{helper}"))
+    // Only from an absolute `PATH` entry, by its full path: a relative one
+    // (or `.`) would run whatever the app's current folder holds.
+    let program =
+        crate::image_security::local::find_on_path(&format!("docker-credential-{helper}"), path)?;
+    let mut child = tokio::process::Command::new(program)
         .arg("get")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -540,5 +554,36 @@ mod tests {
             None
         );
         assert_eq!(from_helper("../x", "ghcr.io").await, None);
+    }
+
+    /// A helper only from an absolute `PATH` entry, never through a
+    /// relative one, which names a folder by the app's current one (#573).
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_helper_in_a_relative_path_entry_is_not_run() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("nauvi-573-helper-{}", std::process::id()));
+        let bin = dir.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let helper = bin.join("docker-credential-nauvitest");
+        std::fs::write(
+            &helper,
+            "#!/bin/sh\nread host\necho '{\"Username\":\"me\",\"Secret\":\"pw\"}'\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let found = from_helper_in("nauvitest", "ghcr.io", Some(bin.clone().into())).await;
+        assert_eq!(found.map(|c| c.basic()), Some("Basic bWU6cHc=".into()));
+        // The same folder through a relative entry (`../../tmp/…/bin`).
+        let cwd = std::env::current_dir().unwrap();
+        let mut rel: std::path::PathBuf =
+            std::iter::repeat_n("..", cwd.components().count() - 1).collect();
+        rel.push(bin.strip_prefix("/").unwrap());
+        assert!(rel.is_relative() && rel.exists(), "{}", rel.display());
+        assert_eq!(
+            from_helper_in("nauvitest", "ghcr.io", Some(rel.into())).await,
+            None
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

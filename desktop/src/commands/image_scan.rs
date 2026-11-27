@@ -13,7 +13,10 @@
 //!   approval (not even `version`), and an approval is of the SHA-256 the
 //!   user was shown.
 //! - Only an image of the listing can be scanned: the reference and digest
-//!   come from the pods (untrusted), checked by `local::scan_target`.
+//!   come from the pods (untrusted), checked by `local::scan_target`, and
+//!   the registry's addresses by `local::check_target_resolves`. The
+//!   scanner's file and approval are checked once more right before it
+//!   runs (`still_approved`).
 //! - One scan at a time in the whole app, cancellable
 //!   ([`cmd_image_scan_cancel`]); the child is killed when the scan is
 //!   dropped. A scan of every image is the UI calling this one image after
@@ -526,6 +529,12 @@ pub(crate) async fn cmd_image_scan(
     let scan = match kept {
         Some(c) => c,
         None => {
+            // The registry's addresses (#572): best effort, the scanner
+            // resolves the name again.
+            local::check_target_resolves(&target).await?;
+            // The file once more, right before it runs (#573): the lookups
+            // above took a while.
+            let path = still_approved(&dirs, s.scanner, &status, &path).await?;
             let work = dirs.work()?;
             let opts = options_of(&s);
             let run = local::scan(s.scanner, &path, &status.version, &target, &opts, &work);
@@ -559,6 +568,28 @@ pub(crate) async fn cmd_image_scan(
     remember_scan(&cluster, &scan);
     let (triage, _) = triage_of(&cluster, &s, Some(&dirs)).await;
     Ok(triaged_detail_of_scan(row, &scan, &args_of(&s), &triage))
+}
+
+/// The scanner checked again (where it is, its file and its approval) right
+/// before it runs: the same file as `before` (at `path`), else why not.
+/// Reads only the file (hashed again when it changed): nothing runs.
+async fn still_approved(
+    dirs: &ScanDirs,
+    scanner: ScannerKind,
+    before: &ScannerStatus,
+    path: &Path,
+) -> Result<PathBuf, String> {
+    let (now, found) = scanner_status(dirs, scanner, false).await;
+    match found {
+        Some(p) if p == path && now.sha256 == before.sha256 && now.version == before.version => {
+            Ok(p)
+        }
+        Some(_) => Err(format!(
+            "{} changed while the scan was starting. Check Settings → Image security again.",
+            scanner.label()
+        )),
+        None => Err(now.message),
+    }
 }
 
 pub(crate) fn args_of(s: &crate::settings::ImageSecuritySettings) -> VulnsArgs {

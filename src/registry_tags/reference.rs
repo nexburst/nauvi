@@ -269,7 +269,13 @@ pub fn check_host(authority: &str, allow_loopback: bool) -> Result<(), String> {
             shown(authority)
         ))
     };
-    if let Ok(ip) = host.parse::<IpAddr>() {
+    // `127.1`, `0x7f.1`, `2130706433`: no IP literals to Rust, but the
+    // system resolver (and so a scanner) reads them as addresses.
+    let ip = host
+        .parse::<IpAddr>()
+        .ok()
+        .or_else(|| legacy_ipv4(&host).map(IpAddr::V4));
+    if let Some(ip) = ip {
         return match ip_refused(ip, allow_loopback) {
             Some(why) => refused(why),
             None => Ok(()),
@@ -288,8 +294,95 @@ pub fn check_host(authority: &str, allow_loopback: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Every address `authority`'s name resolves to (from `resolve`) checked
+/// with [`ip_refused`], after [`check_host`]: one refused address refuses
+/// the host, since a program that resolves the name again may pick that
+/// one. For a program nauvi starts (the local scanner, #572), which
+/// resolves the name itself: best effort, as its answer can differ (DNS
+/// rebinding). A name that does not resolve passes: the program then says
+/// it cannot reach it.
+pub async fn check_resolved<R, F>(
+    authority: &str,
+    allow_loopback: bool,
+    resolve: R,
+) -> Result<(), String>
+where
+    R: FnOnce(String) -> F,
+    F: std::future::Future<Output = std::io::Result<Vec<IpAddr>>>,
+{
+    check_host(authority, allow_loopback)?;
+    let (host, _) = split_host(authority)?;
+    if host.parse::<IpAddr>().is_ok() || legacy_ipv4(&host).is_some() {
+        return Ok(());
+    }
+    let Ok(addrs) = resolve(host).await else {
+        return Ok(());
+    };
+    match addrs
+        .into_iter()
+        .find_map(|a| ip_refused(a, allow_loopback))
+    {
+        Some(why) => Err(format!(
+            "nauvi does not contact {}: it resolves to {why}.",
+            shown(authority)
+        )),
+        None => Ok(()),
+    }
+}
+
+/// The system resolver, for [`check_resolved`].
+pub async fn system_resolve(host: String) -> std::io::Result<Vec<IpAddr>> {
+    Ok(tokio::net::lookup_host((host.as_str(), 0))
+        .await?
+        .map(|a| a.ip())
+        .collect())
+}
+
+/// The address `inet_aton` (and so `getaddrinfo`) reads in `host` where
+/// Rust reads none: one to four parts, each decimal, octal (`0177`) or hex
+/// (`0x7f`), the last one filling the bytes left (`127.1` is 127.0.0.1).
+/// `None` for anything else.
+fn legacy_ipv4(host: &str) -> Option<Ipv4Addr> {
+    let parts: Vec<&str> = host.split('.').collect();
+    if parts.len() > 4 {
+        return None;
+    }
+    let num = |p: &str| -> Option<u64> {
+        let (digits, radix) = match p.strip_prefix("0x").or_else(|| p.strip_prefix("0X")) {
+            Some(h) => (h, 16),
+            None if p.len() > 1 && p.starts_with('0') => (&p[1..], 8),
+            None => (p, 10),
+        };
+        if digits.is_empty() {
+            // `0x` alone is 0 to inet_aton; an empty part is no number.
+            return (radix == 16).then_some(0);
+        }
+        if digits.len() > 16 || !digits.chars().all(|c| c.is_digit(radix)) {
+            return None;
+        }
+        u64::from_str_radix(digits, radix).ok()
+    };
+    let nums: Vec<u64> = parts.iter().map(|p| num(p)).collect::<Option<_>>()?;
+    let (last, head) = nums.split_last()?;
+    if head.iter().any(|n| *n > 255) {
+        return None;
+    }
+    let rest_bits = 8 * (4 - head.len() as u32);
+    if *last >= 1u64 << rest_bits {
+        return None;
+    }
+    let v = head.iter().fold(0u64, |v, n| (v << 8) | n);
+    Some(Ipv4Addr::from(((v << rest_bits) | last) as u32))
+}
+
+/// AWS's instance metadata over IPv6 (Nitro): not link-local, so named.
+const AWS_METADATA_V6: Ipv6Addr = Ipv6Addr::new(0xfd00, 0xec2, 0, 0, 0, 0, 0, 0x254);
+
 /// Why nauvi does not connect to `ip` as a registry (`None`: it may).
 pub(crate) fn ip_refused(ip: IpAddr, allow_loopback: bool) -> Option<&'static str> {
+    if ip == IpAddr::V6(AWS_METADATA_V6) {
+        return Some("a cloud metadata endpoint");
+    }
     let ip = match ip {
         IpAddr::V6(v6) => embedded_v4(v6).map_or(ip, IpAddr::V4),
         v4 => v4,
@@ -483,6 +576,110 @@ mod tests {
         for junk in ["", "a..b", "a_b.com", "[::1", "x:0", "x:+1", "[nothost]:1"] {
             assert!(check_host(junk, false).is_err(), "{junk:?}");
         }
+    }
+
+    #[test]
+    fn short_and_numeric_ipv4_forms_are_checked_as_addresses() {
+        for bad in [
+            "127.1",
+            "127.1:2375",
+            "127.0.1",
+            "0x7f.1",
+            "0177.0.0.1",
+            "2130706433",
+            "0x7f000001",
+            "169.254.43518", // 169.254.169.254
+            "0",
+            "0.0",
+        ] {
+            assert!(check_host(bad, false).is_err(), "{bad} was allowed");
+        }
+        assert!(check_host("127.1", false).unwrap_err().contains("loopback"));
+        assert_eq!(legacy_ipv4("127.1"), Some(Ipv4Addr::new(127, 0, 0, 1)));
+        assert_eq!(legacy_ipv4("10.1.2"), Some(Ipv4Addr::new(10, 1, 0, 2)));
+        assert_eq!(legacy_ipv4("0xa.0x1"), Some(Ipv4Addr::new(10, 0, 0, 1)));
+        for not in [
+            "ghcr.io",
+            "1e100.net",
+            "08.1",
+            "1.2.3.4.5",
+            "256.1",
+            "1.2.3.256",
+            "1.16777216",
+            "4294967296",
+            "a.b",
+            "",
+        ] {
+            assert_eq!(legacy_ipv4(not), None, "{not}");
+        }
+        assert_eq!(check_host("10.1:5000", false), Ok(()));
+        assert_eq!(check_host("127.1", true), Ok(()));
+    }
+
+    #[test]
+    fn aws_ipv6_metadata_is_refused() {
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        for bad in ["fd00:ec2::254", "FD00:EC2:0::254"] {
+            let why = ip_refused(ip(bad), true).unwrap();
+            assert!(why.contains("metadata"), "{bad}: {why}");
+        }
+        assert!(check_host("[fd00:ec2::254]:80", true)
+            .unwrap_err()
+            .contains("a cloud metadata endpoint"));
+        // Its neighbours are ordinary unique-local addresses.
+        assert_eq!(ip_refused(ip("fd00:ec2::253"), false), None);
+        assert_eq!(ip_refused(ip("fd00::254"), false), None);
+    }
+
+    /// A fake resolver: no network in unit tests.
+    fn answers(
+        addrs: &'static [&'static str],
+    ) -> impl FnOnce(String) -> std::future::Ready<std::io::Result<Vec<IpAddr>>> {
+        move |_| std::future::ready(Ok(addrs.iter().map(|a| a.parse().unwrap()).collect()))
+    }
+
+    #[tokio::test]
+    async fn names_that_resolve_to_this_machine_or_metadata_are_refused() {
+        let e = check_resolved("127.0.0.1.nip.io:8080", false, answers(&["127.0.0.1"]))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            e,
+            "nauvi does not contact 127.0.0.1.nip.io:8080: it resolves to this machine (a \
+             loopback address)."
+        );
+        // One bad address among good ones is enough.
+        let e = check_resolved(
+            "evil.example.com",
+            false,
+            answers(&["140.82.112.3", "fd00:ec2::254"]),
+        )
+        .await
+        .unwrap_err();
+        assert!(e.contains("a cloud metadata endpoint"), "{e}");
+        let e = check_resolved("x.example.com", false, answers(&["169.254.169.254"]))
+            .await
+            .unwrap_err();
+        assert!(e.contains("link-local"), "{e}");
+        // Allowed.
+        check_resolved("ghcr.io", false, answers(&["140.82.112.3", "2001:db8::1"]))
+            .await
+            .unwrap();
+        check_resolved("localhost:5443", true, answers(&["127.0.0.1"]))
+            .await
+            .unwrap();
+        // A name that does not resolve: the scanner says so itself.
+        check_resolved("nowhere.example", false, |_| {
+            std::future::ready(Err(std::io::Error::other("no such host")))
+        })
+        .await
+        .unwrap();
+        // The host checks come first, and a literal is not resolved.
+        let never =
+            |_: String| -> std::future::Ready<std::io::Result<Vec<IpAddr>>> { panic!("resolved") };
+        assert!(check_resolved("127.1:2375", false, never).await.is_err());
+        check_resolved("10.0.0.5:5000", false, never).await.unwrap();
+        check_resolved("10.1:5000", false, never).await.unwrap();
     }
 
     #[test]

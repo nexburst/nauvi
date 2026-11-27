@@ -24,7 +24,9 @@ mod text;
 mod versions;
 
 pub use images::{workload_images, ContainerImage};
-pub use reference::{check_host, running_digest, ImageRef, DOCKER_HUB};
+pub use reference::{
+    check_host, check_resolved, running_digest, system_resolve, ImageRef, DOCKER_HUB,
+};
 pub use text::{report_text, short_digest, state_text};
 pub use versions::{group, Grouped, Version};
 
