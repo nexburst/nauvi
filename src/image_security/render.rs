@@ -362,6 +362,7 @@ mod tests {
             namespace: "shop".into(),
             namespaces_read: Vec::new(),
             images: Vec::new(),
+            forbidden_namespaces: Vec::new(),
             unscanned: 0,
             notes: Vec::new(),
         }

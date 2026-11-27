@@ -177,6 +177,7 @@ impl ClusterSession {
         std::mem::take(&mut *self.kinds.lock().unwrap());
         *self.usage.lock().unwrap() = nauvi::UsageHistory::new();
         *self.prometheus.lock().unwrap() = None;
+        *self.image_security.lock().unwrap() = None;
         self.access.clear();
         true
     }

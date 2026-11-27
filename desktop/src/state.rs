@@ -142,6 +142,8 @@ pub(crate) struct ClusterSession {
     pub(crate) access: nauvi::action_access::AccessCache,
     /// The API server's version, read once per session (#387).
     pub(crate) server_version: tokio::sync::OnceCell<String>,
+    /// The last image security listing (#534), read only when asked.
+    pub(crate) image_security: Mutex<Option<crate::commands::image_security::VulnsCache>>,
     /// When it was last used, and what the idle reaper reported (ADR 0007).
     idle: idle::IdleMark,
     /// Set once the window left the cluster (switched, disconnected, closed

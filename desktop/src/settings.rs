@@ -15,6 +15,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+pub(crate) mod image_security;
+pub(crate) use image_security::{ImageSecurityMode, ImageSecuritySettings};
+
 /// The format written now. Bump it and add a step to `migrate` when a field
 /// changes meaning or moves.
 pub(crate) const SETTINGS_VERSION: u32 = 1;
@@ -107,6 +110,9 @@ pub(crate) struct ContextSettings {
     /// The kubeconfig file and context the mode was set for, which
     /// `nauvi mcp` matches the mode by (#338). Kept with the mode.
     pub(crate) mode_source: nauvi::context_mode::ModeSource,
+    /// Image security for this cluster (#534): as the app's setting, on
+    /// or off.
+    pub(crate) image_security: ImageSecurityMode,
 }
 
 impl Settings {
@@ -118,6 +124,12 @@ impl Settings {
     /// Whether metrics are hidden for the context `id` (#327).
     pub(crate) fn metrics_hidden(&self, id: &str) -> bool {
         self.contexts.get(id).is_some_and(|c| c.hide_metrics)
+    }
+
+    /// Whether image security reads reports for the context `id` (#534).
+    pub(crate) fn image_security_enabled(&self, id: &str) -> bool {
+        let mode = self.contexts.get(id).map(|c| c.image_security);
+        mode.unwrap_or_default().enabled(&self.image_security)
     }
 }
 
@@ -222,6 +234,8 @@ pub(crate) struct Settings {
     /// on a first run, 0 once it is dismissed or used up (and for a file
     /// from before it).
     pub(crate) tips_left: u32,
+    /// Image security (#534): off by default.
+    pub(crate) image_security: ImageSecuritySettings,
 }
 
 /// The starts that show the tips strip on a first run (#485).
@@ -365,6 +379,7 @@ impl Default for Settings {
             ask_ai_command: String::new(),
             welcomed: true,
             tips_left: 0,
+            image_security: ImageSecuritySettings::default(),
         }
     }
 }
@@ -469,6 +484,9 @@ pub(crate) struct SettingsPatch {
     pub(crate) welcomed: Option<bool>,
     #[specta(optional)]
     pub(crate) tips_left: Option<u32>,
+    /// The whole image security section (#534).
+    #[specta(optional)]
+    pub(crate) image_security: Option<ImageSecuritySettings>,
 }
 
 impl Settings {
@@ -545,6 +563,9 @@ impl Settings {
         }
         if let Some(v) = patch.tips_left {
             self.tips_left = v.min(TIPS_SESSIONS);
+        }
+        if let Some(v) = patch.image_security {
+            self.image_security = v.normalized();
         }
         for (id, mut ctx) in patch.contexts.unwrap_or_default() {
             // The mode has its own command (#338).
@@ -996,6 +1017,7 @@ mod tests {
                     hide_metrics: true,
                     mode: Default::default(),
                     mode_source: Default::default(),
+                    image_security: ImageSecurityMode::On,
                 },
             )])),
             favourites: Some(vec!["kind".into(), "prod (work.yaml)".into()]),

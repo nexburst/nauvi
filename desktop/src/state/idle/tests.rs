@@ -103,6 +103,7 @@ fn an_untouched_background_cluster_is_disconnected_after_the_timeout() {
             actions: vec![],
             resource,
         });
+    *b.image_security.lock().unwrap() = Some(crate::commands::image_security::VulnsCache::empty());
     assert_eq!(state.live_sessions(), 1);
 
     at(&now, 9);
@@ -123,6 +124,7 @@ fn an_untouched_background_cluster_is_disconnected_after_the_timeout() {
     assert!(b.kinds.lock().unwrap().is_empty());
     assert!(b.usage.lock().unwrap().is_empty());
     assert!(b.prometheus.lock().unwrap().is_none());
+    assert!(b.image_security.lock().unwrap().is_none());
     // Still connected to the window: the next command connects again.
     assert!(!b.is_closed());
     assert!(Arc::ptr_eq(&b, &state.cluster(MAIN_WINDOW, "b")));
