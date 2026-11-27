@@ -19,6 +19,7 @@ import { helpHandlers } from "./help";
 import { helmHandlers } from "./helm";
 import { helmChartsHandlers } from "./helm-charts";
 import { imageConfigHandlers } from "./image-config";
+import { imageScanHandlers } from "./image-scan";
 import { imageSecurityHandlers } from "./image-security";
 import { kubectlHandlers } from "./kubectl";
 import { linksHandlers } from "./links";
@@ -58,6 +59,7 @@ export function allHandlers(s: FakeState): Handlers {
     ...helmHandlers(s),
     ...helmChartsHandlers(s),
     ...imageConfigHandlers(s),
+    ...imageScanHandlers(s),
     ...imageSecurityHandlers(s),
     ...kubectlHandlers(s),
     ...linksHandlers(s),

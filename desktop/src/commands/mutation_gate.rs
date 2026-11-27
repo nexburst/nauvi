@@ -66,6 +66,10 @@ const READ_ONLY: &[(&str, &str)] = &[
         "cmdImageConfigSummary",
         "reads ConfigAuditReports and ReplicaSet and Job metadata",
     ),
+    (
+        "cmdImageScan",
+        "reads the pods and nodes; the scanner runs on this computer",
+    ),
     ("cmdImageSecurityImage", "reads one VulnerabilityReport"),
     (
         "cmdImageSecuritySummary",

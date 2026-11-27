@@ -17,15 +17,26 @@
 //!   report only when it is shown).
 //! - [`report`]: one row per image, filters, and fixes grouped by package.
 //! - [`render`]: the text of the CLI (and later the MCP tool).
+//! - [`local`]: a Trivy or Grype the user installed (#536), run on an
+//!   approved path; [`trivy_json`], [`grype_json`] read its output,
+//!   [`cache`] keeps its results on disk by digest, and [`running`] lists
+//!   the running images to scan. [`go_buildinfo`] reads a scanner's
+//!   version from its file, before it is ever run.
 //!
 //! Results are never "problems": no pill, no notification.
 
+pub mod cache;
 pub mod config_audit;
+pub mod go_buildinfo;
+pub mod grype_json;
 pub mod images;
 pub mod kubescape;
+pub mod local;
 mod paged;
 pub mod render;
 pub mod report;
+pub mod running;
+pub mod trivy_json;
 pub mod trivy_operator;
 
 use serde::{Deserialize, Serialize};
@@ -168,14 +179,18 @@ pub enum ScanSource {
     /// Kubescape's VulnerabilityManifestSummaries (#538), read when the
     /// cluster has no Trivy Operator reports.
     Kubescape,
+    /// A Trivy or Grype the user installed, run on this computer (#536).
+    LocalScanner,
 }
 
 impl ScanSource {
-    /// The API group of its per-workload reports.
+    /// The API group of its per-workload reports (none for the local
+    /// scanner: it reads nothing from the cluster).
     pub fn group(self) -> &'static str {
         match self {
             ScanSource::TrivyOperator => trivy_operator::GROUP,
             ScanSource::Kubescape => kubescape::GROUP,
+            ScanSource::LocalScanner => "",
         }
     }
 
@@ -184,6 +199,7 @@ impl ScanSource {
         match self {
             ScanSource::TrivyOperator => trivy_operator::PLURAL,
             ScanSource::Kubescape => kubescape::PLURAL,
+            ScanSource::LocalScanner => "",
         }
     }
 
@@ -192,6 +208,7 @@ impl ScanSource {
         match self {
             ScanSource::TrivyOperator => "VulnerabilityReports",
             ScanSource::Kubescape => "VulnerabilityManifestSummaries",
+            ScanSource::LocalScanner => "local scans",
         }
     }
 
@@ -200,14 +217,16 @@ impl ScanSource {
         match self {
             ScanSource::TrivyOperator => "the Trivy Operator",
             ScanSource::Kubescape => "Kubescape",
+            ScanSource::LocalScanner => "the local scanner",
         }
     }
 
     /// Whether `kinds` (the app's discovery) has its reports.
     pub fn served_in(self, kinds: &[crate::resources::ResourceKind]) -> bool {
-        kinds
-            .iter()
-            .any(|k| k.resource.group == self.group() && k.resource.plural == self.plural())
+        self != ScanSource::LocalScanner
+            && kinds
+                .iter()
+                .any(|k| k.resource.group == self.group() && k.resource.plural == self.plural())
     }
 
     /// The source to read from `kinds`: the Trivy Operator when it is

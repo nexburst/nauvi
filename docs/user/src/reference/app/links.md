@@ -19,6 +19,13 @@ opening one if needed.
   as switching to it does.
 - A link to a context that is not in your kubeconfigs only shows a notice.
 
+## Links from the CLI and Ask AI
+
+`nauvi link deploy/web -n shop` prints the same link as Copy link
+([`nauvi link`](../cli/inspect.md#nauvi-link)). In an
+[Ask AI](ask-ai.md#links-to-objects) terminal, a click on a `nauvi://` link
+opens the object in that window; other terminals don't open them.
+
 ## Which installs handle links
 
 The Linux `.deb` and the install script's menu entry, the macOS app and the

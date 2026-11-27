@@ -1,0 +1,48 @@
+{
+  "matches": [
+    {
+      "vulnerability": {
+        "id": "CVE-2026-1001",
+        "dataSource": "https://nvd.nist.gov/vuln/detail/CVE-2026-1001",
+        "severity": "Critical",
+        "description": "openssl: a bad bug",
+        "urls": ["https://example.com/a"],
+        "cvss": [{ "metrics": { "baseScore": 9.8 } }, { "metrics": { "baseScore": 7.1 } }],
+        "fix": { "versions": ["3.0.15-1"], "state": "fixed" },
+        "epss": [{ "cve": "CVE-2026-1001", "epss": 0.5, "percentile": 0.9 }],
+        "risk": 42.1
+      },
+      "artifact": { "name": "openssl", "version": "3.0.11-1", "type": "deb" }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2026-1002",
+        "dataSource": "",
+        "severity": "High",
+        "fix": { "versions": [], "state": "not-fixed" }
+      },
+      "relatedVulnerabilities": [
+        { "id": "CVE-2026-1002", "description": "from the related one", "cvss": [{ "metrics": { "baseScore": 7.5 } }] }
+      ],
+      "artifact": { "name": "curl", "version": "7.88.1-10", "type": "deb" }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2026-1001",
+        "severity": "Critical",
+        "fix": { "versions": ["3.0.15-1"], "state": "fixed" }
+      },
+      "artifact": { "name": "openssl", "version": "3.0.11-1" }
+    },
+    {
+      "vulnerability": {
+        "id": "CVE-2026-1004",
+        "dataSource": "file:///etc/passwd",
+        "severity": "Negligible",
+        "fix": { "versions": ["1.2"], "state": "wont-fix" }
+      },
+      "artifact": { "name": "zlib1g", "version": "1.2.13" }
+    }
+  ],
+  "descriptor": { "name": "grype", "version": "0.84.0" }
+}

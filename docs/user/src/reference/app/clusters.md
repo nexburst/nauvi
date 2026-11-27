@@ -79,7 +79,9 @@ Each cluster's Settings page has:
 - the local terminal's working directory;
 - a proxy (**Network**, see [Use a proxy](../../how-to/proxy.md));
 - a read-only or protected mode (**Changes**, see [modes](modes.md));
-- **Hide metrics** (**Metrics**).
+- **Hide metrics** (**Metrics**);
+- **Image security**: As in Settings, On or Off
+  ([Image security](../../how-to/image-security.md)).
 
 ## Windows
 

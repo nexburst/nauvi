@@ -319,6 +319,29 @@ export const commands = {
 	 */
 	cmdImageConfigSummary: (cluster: string, namespaces: string[], refresh: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ImageConfigList>("cmd_image_config_summary", { cluster, namespaces, refresh }, options),
 	/**
+	 *  Scan one image of the listing of `namespaces` (by its reference and
+	 *  digest as listed) with the approved local scanner, unless a scan of it
+	 *  with the same scanner, database and platform is kept (`refresh` scans
+	 *  again). Returns its findings, filtered by the settings.
+	 */
+	cmdImageScan: (cluster: string, namespaces: string[], image: string, digest: string, refresh: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ImageDetail>("cmd_image_scan", { cluster, namespaces, image, digest, refresh }, options),
+	/**  Stop the scan that runs (the scanner is killed). Nothing when none runs. */
+	cmdImageScanCancel: (options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_image_scan_cancel", undefined, options),
+	/**
+	 *  Approve the binary at `path` with the SHA-256 the prompt showed
+	 *  (`sha256`, from [`ScannerStatus`]) for `scanner`: it must be the one
+	 *  found now, unchanged (the UI cannot approve another file). Returns the
+	 *  new status (a refused version is not kept).
+	 */
+	cmdImageScannerApprove: (scanner: ScannerKind, path: string, sha256: string, options?: InvokeOptions) => __TAURI_INVOKE<ScannerStatus>("cmd_image_scanner_approve", { scanner, path, sha256 }, options),
+	/**  Forget the approval of `scanner`. */
+	cmdImageScannerForget: (scanner: ScannerKind, options?: InvokeOptions) => __TAURI_INVOKE<ScannerStatus>("cmd_image_scanner_forget", { scanner }, options),
+	/**
+	 *  The scanner of Settings → Image security: where it is, whether it is
+	 *  approved, and its version once it is. Runs nothing before an approval.
+	 */
+	cmdImageScannerStatus: (scanner: ScannerKind, options?: InvokeOptions) => __TAURI_INVOKE<ScannerStatus>("cmd_image_scanner_status", { scanner }, options),
+	/**
 	 *  One image of the listing of `namespaces` (by its reference and digest
 	 *  as listed) with its newest full report, filtered by the settings'
 	 *  severity and "only fixable".
@@ -343,6 +366,13 @@ export const commands = {
 	 *  (no call to the cluster or kubectl).
 	 */
 	cmdKubectlMatch: (cluster: string, options?: InvokeOptions) => __TAURI_INVOKE<KubectlMatch>("cmd_kubectl_match", { cluster }, options),
+	/**
+	 *  A `nauvi://` link clicked in this window's Ask AI terminal (#548),
+	 *  checked as an opened link is: the object to open in this window, or a
+	 *  notice saying why not. Only Ask AI terminals pass their links here;
+	 *  other terminals ignore `nauvi://` links.
+	 */
+	cmdCheckLink: (link: string, options?: InvokeOptions) => __TAURI_INVOKE<LinkRequest>("cmd_check_link", { link }, options),
 	/**
 	 *  The link to an object of this window's context. Reads the kubeconfig
 	 *  files; no login.
@@ -626,9 +656,11 @@ export const commands = {
 	cmdDetailWatch: (cluster: string, resource: ResourceRef, namespace: string, name: string, onEvent: Channel<DetailState>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_detail_watch", { cluster, resource, namespace, name, onEvent }, options),
 	/**
 	 *  Start watching a kind (in `namespace`, if it is namespaced); its rows
-	 *  and states go to `on_event`. Returns the watch id for `cmd_watch_stop`.
+	 *  and states go to `on_event`. The rows carry a cell for each of the
+	 *  `custom` columns too, after the kind's own (#547). Returns the watch id
+	 *  for `cmd_watch_stop`.
 	 */
-	cmdWatchStart: (cluster: string, resource: ResourceRef, namespace: string | null, onEvent: Channel<WatchMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { cluster, resource, namespace, onEvent }, options),
+	cmdWatchStart: (cluster: string, resource: ResourceRef, namespace: string | null, custom: CustomColumn[], onEvent: Channel<WatchMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { cluster, resource, namespace, custom, onEvent }, options),
 	/**
 	 *  Stop a table watch or a detail watch, and give the memory its rows took
 	 *  back to the system once the task is gone (#397).
@@ -1127,7 +1159,19 @@ export type ColumnKind = "text" |
  *  (`Running`, `Scaling`, `Updating`, `Failed`, ... see
  *  `workload_status`), drawn by the UI with a shape and a colour.
  */
-"rollout";
+"rollout" | 
+/**
+ *  The images of a pod or a workload's pod template (#547): the first
+ *  line is what the cell shows (`mongo:7.0.1 +1`), each line after it a
+ *  full reference, for the tooltip (see `image_column`).
+ */
+"image" | 
+/**
+ *  Image vulnerabilities (#535): filled by the UI from the image
+ *  security listing it already holds, keyed by workload. Off by
+ *  default, and not offered while image security is off.
+ */
+"vulns";
 
 export type ConditionInfo = {
 	type: string,
@@ -1497,6 +1541,31 @@ export type ContextState = "connected" |
  *  user asks (set by the desktop app, #244).
  */
 "local_files";
+
+/**  A column the user added to a kind's table. */
+export type CustomColumn = {
+	/**  Unique within the kind; the column's key is [`custom_key`] of it. */
+	id: string,
+	/**  The header. */
+	label: string,
+	source: CustomSource,
+	/**  The label key, annotation key or field path. */
+	value: string,
+	/**
+	 *  The context it was added in, for a kind defined by a CRD (`""`:
+	 *  every context). The backend does not look at it.
+	 */
+	context: string,
+};
+
+/**  Where a custom column's value comes from. */
+export type CustomSource = 
+/**  `metadata.labels[value]`. */
+"label" | 
+/**  `metadata.annotations[value]`. */
+"annotation" | 
+/**  A field path (`.status.podIP`). */
+"field";
 
 /**  One change of a data save. */
 export type DataChange = {
@@ -2035,6 +2104,19 @@ export type ImageSecuritySettings_Deserialize = {
 	 *  (Refresh always reads them), within `CACHE_TTL_RANGE`.
 	 */
 	cache_ttl_hours?: number,
+	/**
+	 *  Where vulnerabilities come from (#536): the cluster's reports, a
+	 *  scanner on this computer, or both.
+	 */
+	source?: VulnSource,
+	/**  The local scanner. */
+	scanner?: ScannerKind,
+	/**  Trivy's `--db-repository`, empty for its default. */
+	db_repository?: string,
+	/**  Do not let the scanner update its database. */
+	skip_db_update?: boolean,
+	/**  A Trivy server (`--server`), empty to scan on this computer. */
+	server_url?: string,
 };
 
 /**  Settings → Image security. */
@@ -2055,6 +2137,19 @@ export type ImageSecuritySettings_Serialize = {
 	 *  (Refresh always reads them), within `CACHE_TTL_RANGE`.
 	 */
 	cache_ttl_hours: number,
+	/**
+	 *  Where vulnerabilities come from (#536): the cluster's reports, a
+	 *  scanner on this computer, or both.
+	 */
+	source: VulnSource,
+	/**  The local scanner. */
+	scanner: ScannerKind,
+	/**  Trivy's `--db-repository`, empty for its default. */
+	db_repository: string,
+	/**  Do not let the scanner update its database. */
+	skip_db_update: boolean,
+	/**  A Trivy server (`--server`), empty to scan on this computer. */
+	server_url: string,
 };
 
 /**
@@ -2138,6 +2233,17 @@ export type KindSettings_Deserialize = {
 	 *  Columns not in it fit their values.
 	 */
 	widths?: { [key in string]: number },
+	/**
+	 *  The column keys in the order the user put them in (#547). A column
+	 *  not in it stays after the one it follows in the kind's own order.
+	 *  Empty: the kind's order.
+	 */
+	order?: string[],
+	/**
+	 *  Columns the user added (#547), at most `MAX_CUSTOM_COLUMNS`, shown
+	 *  after the kind's own unless `order` says otherwise.
+	 */
+	custom?: CustomColumn[],
 };
 
 /**  What is remembered per kind (by kind id). */
@@ -2157,6 +2263,17 @@ export type KindSettings_Serialize = {
 	 *  Columns not in it fit their values.
 	 */
 	widths: { [key in string]: number },
+	/**
+	 *  The column keys in the order the user put them in (#547). A column
+	 *  not in it stays after the one it follows in the kind's own order.
+	 *  Empty: the kind's order.
+	 */
+	order: string[],
+	/**
+	 *  Columns the user added (#547), at most `MAX_CUSTOM_COLUMNS`, shown
+	 *  after the kind's own unless `order` says otherwise.
+	 */
+	custom: CustomColumn[],
 };
 
 /**
@@ -2199,7 +2316,13 @@ export type LinkRequest =
 /**  Show this object. */
 { type: "open"; link: ObjectLink } | 
 /**  The link could not be opened; say why. */
-{ type: "notice"; message: string };
+{ type: "notice"; message: string } | 
+/**
+ *  Show this object, or with an empty name its kind's table: asked by
+ *  the window's own Ask AI session with `nauvi show` (#548). The
+ *  window says "Opened by Ask AI".
+ */
+{ type: "askAi"; link: ObjectLink };
 
 /**
  *  A started local shell: its session id, and the context and namespace
@@ -2913,7 +3036,54 @@ export type ScanSource =
  *  Kubescape's VulnerabilityManifestSummaries (#538), read when the
  *  cluster has no Trivy Operator reports.
  */
-"kubescape";
+"kubescape" | 
+/**  A Trivy or Grype the user installed, run on this computer (#536). */
+"local_scanner";
+
+/**  Which scanner. */
+export type ScannerKind = "trivy" | "grype";
+
+/**  What Settings → Image security shows about the scanner. */
+export type ScannerState = 
+/**  Not on `PATH` and no `NAUVI_TRIVY`/`NAUVI_GRYPE`. */
+"not_installed" | 
+/**  Found, not approved yet. */
+"unapproved" | 
+/**  Another binary than the one approved (path or content). */
+"changed" | 
+/**  Approved and its version read. */
+"ready" | 
+/**  A version nauvi does not run (the approval was dropped). */
+"refused" | 
+/**  Approved, but `version` failed. */
+"broken";
+
+export type ScannerStatus = {
+	scanner: ScannerKind,
+	state: ScannerState,
+	/**  The binary found, empty when none. */
+	path: string,
+	/**  `NAUVI_TRIVY` when it named the path, else `PATH`. */
+	from: string,
+	/**  The path approved earlier, when it is another binary. */
+	approved_path: string,
+	/**  Read only once approved. */
+	version: string,
+	/**  When its database was built, empty when it has none. */
+	db: string,
+	/**  What to do, or what is wrong (empty when ready). */
+	message: string,
+	/**
+	 *  The file found, so the user sees what they approve:
+	 *  `48.2 MB, SHA-256 1a2b3c4d5e6f…` (empty when none was read).
+	 */
+	file: string,
+	/**
+	 *  The file's full SHA-256 (empty when none was read): the approval
+	 *  sends it back, so only the file shown can be approved.
+	 */
+	sha256: string,
+};
 
 /**
  *  The table filter's search history (#219): the last `MAX_RECENT`
@@ -3005,6 +3175,7 @@ export type SettingsPatch_Deserialize = {
 	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
+	ask_ai_open_views?: boolean | null,
 	welcomed?: boolean | null,
 	tips_left?: number | null,
 	/**  The whole image security section (#534). */
@@ -3045,6 +3216,7 @@ export type SettingsPatch_Serialize = {
 	open_more_sections?: string[] | null,
 	ask_ai_cli?: string | null,
 	ask_ai_command?: string | null,
+	ask_ai_open_views?: boolean | null,
 	welcomed?: boolean | null,
 	tips_left?: number | null,
 	/**  The whole image security section (#534). */
@@ -3154,6 +3326,12 @@ export type Settings_Deserialize = {
 	 *  into words, never run through a shell.
 	 */
 	ask_ai_command?: string,
+	/**
+	 *  "Let Ask AI open views" (#548): `nauvi show` in an Ask AI terminal
+	 *  opens a view in its window. Off by default; read when a session
+	 *  starts (it gets a token only then) and on every request.
+	 */
+	ask_ai_open_views?: boolean,
 	/**
 	 *  The welcome screen (#485) was left once. `false` only in the
 	 *  settings of a first run (no settings file yet): a file from before
@@ -3273,6 +3451,12 @@ export type Settings_Serialize = {
 	 *  into words, never run through a shell.
 	 */
 	ask_ai_command: string,
+	/**
+	 *  "Let Ask AI open views" (#548): `nauvi show` in an Ask AI terminal
+	 *  opens a view in its window. Off by default; read when a session
+	 *  starts (it gets a token only then) and on every request.
+	 */
+	ask_ai_open_views: boolean,
 	/**
 	 *  The welcome screen (#485) was left once. `false` only in the
 	 *  settings of a first run (no settings file yet): a file from before
@@ -3540,6 +3724,15 @@ export type UsageSample = {
 export type UsageSource = 
 /**  The history the app collects from metrics-server. */
 "metrics_server" | "prometheus";
+
+/**  Where vulnerabilities come from (#536). */
+export type VulnSource = 
+/**  The Trivy Operator's reports only. */
+"cluster" | 
+/**  A Trivy or Grype on this computer only. */
+"local" | 
+/**  The reports, and the local scanner for images they do not cover. */
+"cluster_then_local";
 
 /**  One vulnerability of a full report. */
 export type Vulnerability = {

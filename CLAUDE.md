@@ -314,6 +314,9 @@ with `claude --agent coordinator`), `dev` (one issue per worktree), `qa`
   - `src/shell_kubeconfig.rs`, `desktop/src/shell_env.rs`,
     `desktop/src/local_shell.rs`, `desktop/src/commands/local_shell.rs`
   - `src/helm/`, `desktop/src/commands/helm*.rs`
+  - `src/image_security/local.rs`, `desktop/src/commands/image_security.rs`,
+    `desktop/src/commands/image_scan.rs` and `image_scan/` (the local
+    scanner the app runs, #536)
   - `desktop/src/updater.rs`, `desktop/src/commands/updater.rs`
   - `install.sh`, `install.ps1` (served from `main`: every new user runs
     the version on `main`)

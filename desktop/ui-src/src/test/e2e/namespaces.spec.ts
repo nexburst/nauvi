@@ -13,8 +13,8 @@ test("two namespaces: one watch each, feeding one table", async ({ page }) => {
   await toggleNamespaces(page, "demo", "kube-system");
   // All namespaces -> demo -> demo + kube-system: the demo watch is kept.
   expect((await fake.calls("cmdWatchStart")).slice(1)).toEqual([
-    { resource: POD, namespace: "demo", onEvent: CHANNEL },
-    { resource: POD, namespace: "kube-system", onEvent: CHANNEL },
+    { resource: POD, namespace: "demo", custom: [], onEvent: CHANNEL },
+    { resource: POD, namespace: "kube-system", custom: [], onEvent: CHANNEL },
   ]);
   expect((await fake.activeWatches()).map((w) => w.namespace)).toEqual(["demo", "kube-system"]);
   await expect(rows(page)).toHaveCount(5);

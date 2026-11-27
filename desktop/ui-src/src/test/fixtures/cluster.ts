@@ -169,6 +169,8 @@ export interface FakeCluster {
   imageSecurity?: import("./image-security").FakeImageSecurity;
   /** Misconfigurations (#538): the ConfigAuditReports; `fixtures/image-config.ts` by default. */
   imageConfig?: import("./image-config").FakeImageConfig;
+  /** The local scanner (#536); `fixtures/image-scan.ts` by default. */
+  imageScan?: import("./image-scan").FakeImageScan;
 }
 
 /** What `cmd_ask_ai_setup` finds in the fake (#376). */
@@ -354,6 +356,29 @@ const POD_CONTAINERS: Record<string, string> = {
   crashed: "app=waiting:CrashLoopBackOff",
 };
 
+/** The Image cells (#547): what the cell shows, then each full reference. */
+const DIGEST = "sha256:" + "3f".repeat(32);
+const POD_IMAGES: Record<string, string> = {
+  "web-1": `web:1.4.2 +1\nghcr.io/shop/web:1.4.2@${DIGEST}\ndocker.io/envoyproxy/envoy:v1.31.0`,
+  "web-2": `web:1.4.2 +1\nghcr.io/shop/web:1.4.2@${DIGEST}\ndocker.io/envoyproxy/envoy:v1.31.0`,
+  "db-0": "mongo:7.0.1\ndocker.io/library/mongo:7.0.1",
+  crashed: "busybox:latest\ndocker.io/library/busybox",
+  "coredns-1": "coredns:v1.11.3\nregistry.k8s.io/coredns/coredns:v1.11.3",
+};
+
+/** The fake objects' labels and annotations, by name, for custom columns (#547). */
+export const FAKE_LABELS: Record<string, Record<string, string>> = {
+  "web-1": { app: "web", "app.kubernetes.io/version": "1.4.2" },
+  "web-2": { app: "web", "app.kubernetes.io/version": "1.4.2" },
+  "db-0": { app: "db", "app.kubernetes.io/version": "7.0.1" },
+  crashed: { app: "crashed" },
+  web: { app: "web" },
+};
+export const FAKE_ANNOTATIONS: Record<string, Record<string, string>> = {
+  "web-1": { "team.example.com/owner": "shop" },
+  web: { "deployment.kubernetes.io/revision": "3" },
+};
+
 export function defaultCluster(): FakeCluster {
   const kinds = [...DISCOVERED, WIDGETS];
   const row = (
@@ -383,6 +408,7 @@ export function defaultCluster(): FakeCluster {
         ip: status === "Pending" ? "" : `10.244.0.${name.length}`,
         // #379: web-1 has the init container and sidecar of its detail.
         containers: POD_CONTAINERS[name] ?? (status === "Running" ? "app=ready" : "app=unknown"),
+        image: POD_IMAGES[name] ?? "",
       },
       undefined,
       podProblem(status),
@@ -415,7 +441,13 @@ export function defaultCluster(): FakeCluster {
         pod("kube-system", "coredns-1", "Running"),
       ],
       "apps/v1/deployments": [
-        row("apps/v1/deployments", "demo", "web", { status: "Running", ready: "2/2", uptodate: "2", available: "2" }),
+        row("apps/v1/deployments", "demo", "web", {
+          status: "Running",
+          ready: "2/2",
+          uptodate: "2",
+          available: "2",
+          image: "web:1.4.2 +1\nghcr.io/shop/web:1.4.2\ndocker.io/envoyproxy/envoy:v1.31.0",
+        }),
         row("apps/v1/deployments", "demo", "api", { status: "Scaling", ready: "1/3", uptodate: "3", available: "1" }, undefined, "1 of 3 ready"),
       ],
       "v1/nodes": [

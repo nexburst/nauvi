@@ -26,7 +26,7 @@ test("the extra pod columns are off by default and listed unchecked", async ({ p
     await expect(chooser(page).getByRole("checkbox", { name: label, exact: true })).not.toBeChecked();
   }
   await expect(chooser(page).getByRole("checkbox", { name: "Node", exact: true })).toBeChecked();
-  await expect(chooser(page).getByRole("button", { name: "Default columns" })).toHaveCount(0);
+  await expect(chooser(page).getByRole("button", { name: "Reset to default" })).toHaveCount(0);
   expect(fake.errors).toEqual([]);
 });
 
@@ -52,13 +52,13 @@ test("turning the extra columns on shows them, and the choice survives a restart
   await expect(header(page, "QoS")).toBeVisible();
   await expect(header(page, "IP")).toBeVisible();
 
-  // Default columns: back to what a fresh install shows.
+  // Reset to default: back to what a fresh install shows.
   await page.getByRole("button", { name: "Columns", exact: true }).click();
   await chooser(page).getByRole("checkbox", { name: "Node", exact: true }).uncheck();
-  await chooser(page).getByRole("button", { name: "Default columns" }).click();
+  await chooser(page).getByRole("button", { name: "Reset to default" }).click();
   await expect(header(page, "Node")).toBeVisible();
   for (const label of EXTRA) await expect(header(page, label)).toHaveCount(0);
-  await expect(chooser(page).getByRole("button", { name: "Default columns" })).toHaveCount(0);
+  await expect(chooser(page).getByRole("button", { name: "Reset to default" })).toHaveCount(0);
 });
 
 test("the Controlled By link opens the owner's detail", async ({ page }) => {

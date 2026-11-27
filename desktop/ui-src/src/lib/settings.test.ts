@@ -31,10 +31,10 @@ describe("applyPatch", () => {
 
   it("replaces only the map entries given", () => {
     let s = applyPatch(defaultSettings(), {
-      kinds: { a: { sort_key: "name", sort_desc: false, hidden: [], shown: [], widths: {} }, b: { sort_key: "age", sort_desc: true, hidden: [], shown: [], widths: {} } },
+      kinds: { a: { sort_key: "name", sort_desc: false, hidden: [], shown: [], widths: {}, order: [], custom: [] }, b: { sort_key: "age", sort_desc: true, hidden: [], shown: [], widths: {}, order: [], custom: [] } },
     });
-    s = applyPatch(s, { kinds: { a: { sort_key: "status", sort_desc: false, hidden: ["node"], shown: [], widths: {} } } });
-    expect(s.kinds.a).toEqual({ sort_key: "status", sort_desc: false, hidden: ["node"], shown: [], widths: {} });
+    s = applyPatch(s, { kinds: { a: { sort_key: "status", sort_desc: false, hidden: ["node"], shown: [], widths: {}, order: [], custom: [] } } });
+    expect(s.kinds.a).toEqual({ sort_key: "status", sort_desc: false, hidden: ["node"], shown: [], widths: {}, order: [], custom: [] });
     expect(s.kinds.b.sort_key).toBe("age");
   });
 
@@ -72,7 +72,7 @@ describe("namespacesToRestore", () => {
 describe("sort", () => {
   it("round-trips through the kind settings", () => {
     const k = withSort(undefined, { key: "age", dir: "desc" });
-    expect(k).toEqual({ sort_key: "age", sort_desc: true, hidden: [], shown: [], widths: {} });
+    expect(k).toEqual({ sort_key: "age", sort_desc: true, hidden: [], shown: [], widths: {}, order: [], custom: [] });
     expect(sortOf(k)).toEqual({ key: "age", dir: "desc" });
     expect(sortOf(withSort(k, null))).toBeNull();
     expect(withSort({ ...k, hidden: ["x"] }, null).hidden).toEqual(["x"]);
@@ -116,8 +116,13 @@ describe("off-by-default columns (#378)", () => {
     expect(columnsChanged(old, cols)).toBe(true);
   });
 
-  it("Default columns is what a fresh install shows", () => {
+  it("Reset to default is what a fresh install shows", () => {
     expect(columnsChanged(DEFAULT_COLUMNS, cols)).toBe(false);
+    // The order and dragged widths count too (#547); an order that keeps
+    // the kind's own does not.
+    expect(columnsChanged({ ...DEFAULT_COLUMNS, order: ["qos", "node"] }, cols)).toBe(true);
+    expect(columnsChanged({ ...DEFAULT_COLUMNS, order: ["node", "qos"] }, cols)).toBe(false);
+    expect(columnsChanged({ ...DEFAULT_COLUMNS, widths: { node: 200 } }, cols)).toBe(true);
     expect(columnsChanged({ hidden: [], shown: ["qos"] }, cols)).toBe(true);
     expect(columnsChanged({ hidden: ["node"], shown: [] }, cols)).toBe(true);
     // A hidden key of a column the kind no longer has changes nothing.

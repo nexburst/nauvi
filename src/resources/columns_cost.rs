@@ -29,7 +29,8 @@ fn pod(i: usize) -> DynamicObject {
         "spec": {
             "nodeName": "worker-3",
             "initContainers": [{"name": "migrate"}],
-            "containers": [{"name": "app"}, {"name": "istio-proxy"}]
+            "containers": [{"name": "app", "image": "ghcr.io/shop/web:1.4.2"},
+                           {"name": "istio-proxy", "image": "docker.io/istio/proxyv2:1.22.0"}]
         },
         "status": {
             "phase": "Running", "qosClass": "Burstable",
@@ -37,8 +38,10 @@ fn pod(i: usize) -> DynamicObject {
             "initContainerStatuses": [{"name": "migrate", "ready": false,
                 "state": {"terminated": {"exitCode": 0, "reason": "Completed"}}}],
             "containerStatuses": [
-                {"name": "app", "ready": true, "restartCount": 0, "state": {"running": {}}},
-                {"name": "istio-proxy", "ready": true, "restartCount": 0, "state": {"running": {}}}
+                {"name": "app", "ready": true, "restartCount": 0, "state": {"running": {}},
+                 "imageID": format!("ghcr.io/shop/web@sha256:{}", "3f".repeat(32))},
+                {"name": "istio-proxy", "ready": true, "restartCount": 0, "state": {"running": {}},
+                 "imageID": format!("docker.io/istio/proxyv2@sha256:{}", "a1".repeat(32))}
             ]
         }
     }))
@@ -68,10 +71,15 @@ fn extra(r: &ResourceRef, with: &[ColumnDef], without: &[ColumnDef]) -> (usize, 
 #[test]
 fn optional_pod_columns_cost_at_5k_pods() {
     let r = rref("", "Pod", "pods", true);
-    let all = columns_for(&r, &[]);
+    // The Vulns column (#535) is filled by the UI: its cell is always empty.
+    let all: Vec<_> = columns_for(&r, &[])
+        .into_iter()
+        .filter(|c| c.key != "vulns")
+        .collect();
     let default: Vec<_> = all.iter().filter(|c| !c.default_hidden).cloned().collect();
-    assert_eq!(all.len() - default.len(), 5);
-    let no_containers: Vec<_> = all
+    assert_eq!(all.len() - default.len(), 6);
+    let no_image: Vec<_> = all.iter().filter(|c| c.key != "image").cloned().collect();
+    let no_containers: Vec<_> = no_image
         .iter()
         .filter(|c| c.key != "containers")
         .cloned()
@@ -92,7 +100,7 @@ fn optional_pod_columns_cost_at_5k_pods() {
     assert!(json < 500_000, "{json} B of JSON");
 
     // #379: Containers, for an init container and two containers.
-    let (heap, json) = extra(&r, &all, &no_containers);
+    let (heap, json) = extra(&r, &no_image, &no_containers);
     println!(
         "Containers column at {PODS} pods: +{heap} B of cells in the core ({} B a pod), \
          +{json} B of JSON to the page ({} B a pod)",
@@ -103,4 +111,17 @@ fn optional_pod_columns_cost_at_5k_pods() {
     // (`init:migrate=done app=ready istio-proxy=ready`).
     assert!(heap < 500_000, "{heap} B of cells");
     assert!(json < 300_000, "{json} B of JSON");
+
+    // #547: Image, two containers with the digests they run.
+    let (heap, json) = extra(&r, &all, &no_image);
+    println!(
+        "Image column at {PODS} pods: +{heap} B of cells in the core ({} B a pod), \
+         +{json} B of JSON to the page ({} B a pod)",
+        heap / PODS,
+        json / PODS
+    );
+    // Measured: 234 B a pod of cells (1.2 MB) and 215 B of JSON
+    // (`web:1.4.2 +1`, then both references with their digests).
+    assert!(heap < 1_500_000, "{heap} B of cells");
+    assert!(json < 1_300_000, "{json} B of JSON");
 }

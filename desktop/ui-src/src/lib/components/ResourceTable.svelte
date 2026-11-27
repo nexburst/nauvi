@@ -40,10 +40,16 @@
   import type { Sort } from "../view";
   import { activeFilter, ListFilter, shownHay } from "../stores/tableFilter.svelte";
   import { cutHit } from "../tableFilter";
-  import { sortOf, withSort } from "../settings";
+  import { ALWAYS_SHOWN, sortOf, toggleColumn, withSort } from "../settings";
+  import { orderColumns } from "../columnOrder";
+  import { customKey, customSourceText } from "../customColumns";
+  import { openColumnChooser } from "../stores/tableColumns.svelte";
   import { kindSettings, settings, updateKind, updateSettings } from "../stores/settings.svelte";
   import { registerTableExport } from "../stores/tableExport.svelte";
   import { tableCsv } from "../csv";
+  import { ensureFindings, findings, findingsIndex, findingsOn } from "../stores/imageFindings.svelte";
+  import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
+  import { FINDING_KINDS, promptLines, rowImages } from "../imageFindings";
 
   interface Props {
     kind: ResourceKind;
@@ -90,7 +96,9 @@
   // and the sort, both remembered per kind.
   const hidden = $derived(kindSettings(kind.id).hidden);
   const shownExtra = $derived(kindSettings(kind.id).shown ?? []);
-  const columns = $derived(shownColumns(columnsFor(kind), hidden, metrics, shownExtra));
+  // In the order the user put them in (#547).
+  const order = $derived(kindSettings(kind.id).order ?? []);
+  const columns = $derived(shownColumns(orderColumns(columnsFor(kind), order), hidden, metrics, shownExtra));
   // The checkbox, the columns, then the row's ⋮ menu (#382).
   const CHECK_PX = 32;
   const MORE_PX = 28;
@@ -118,7 +126,16 @@
     void columns;
     void visible;
     void metrics;
+    void findings.list;
     untrack(() => fit.changed());
+  });
+  // The Vulns column (#535) is filled from the image security listing:
+  // read (or taken from the cache) while the column is shown.
+  const wantsVulns = $derived(columns.some((c) => c.key === "vulns"));
+  $effect(() => {
+    if (!wantsVulns) return;
+    const namespaces = [...app.selectedNamespaces];
+    untrack(() => void ensureFindings(namespaces));
   });
   onDestroy(() => fit.stop());
   onMount(() => {
@@ -329,6 +346,32 @@
   // Right-click menu, built from the same registry as the detail panels.
   let menu = $state.raw<{ x: number; y: number; title: string; items: MenuItem[] } | null>(null);
 
+  /** A header's tooltip: its name, and where a custom column reads from. */
+  function headerTitle(col: (typeof columns)[number]): string {
+    const c = kindSettings(kind.id).custom?.find((c) => customKey(c.id) === col.key);
+    return c ? `${col.label} (${customSourceText(c)})` : col.label;
+  }
+
+  // A header's right-click menu (#547): the Columns chooser's choices,
+  // found without knowing its button.
+  function openHeaderMenu(e: MouseEvent, col: (typeof columns)[number]) {
+    e.preventDefault();
+    const fixed = ALWAYS_SHOWN.includes(col.key);
+    menu = {
+      x: e.clientX,
+      y: e.clientY,
+      title: col.label,
+      items: [
+        {
+          label: "Hide this column",
+          reason: fixed ? `${col.label} is always shown` : undefined,
+          run: () => updateKind(kind.id, toggleColumn(kindSettings(kind.id), col)),
+        },
+        { label: "Columns…", run: () => openColumnChooser(kind.id) },
+      ],
+    };
+  }
+
   function openMenu(e: MouseEvent, row: Row) {
     e.preventDefault();
     focusedKey = row.key;
@@ -529,6 +572,7 @@
       namespace: row.namespace,
       name: row.name,
       problem: row.problem ? `${row.problem}${restarts > 0 ? `, ${restarts} restarts` : ""}` : "",
+      findings: await promptFindings(row),
     });
     try {
       await navigator.clipboard.writeText(text);
@@ -536,6 +580,22 @@
     } catch {
       setNotice(false, "Could not copy to the clipboard.");
     }
+  }
+
+  /** The worst image findings of the row's workload (#535), from the
+   *  listing the app holds; none while image security is off. */
+  async function promptFindings(row: Row): Promise<string[]> {
+    if (!findingsOn()) return [];
+    const r = kind.resource;
+    const isPod = r.group === "" && r.kind === "Pod";
+    if (!isPod && !FINDING_KINDS.includes(r.kind)) return [];
+    await ensureFindings();
+    const index = findingsIndex();
+    if (!index) return [];
+    const ownerAt = kind.columns.findIndex((c) => c.kind === "owner");
+    const owner = isPod && ownerAt >= 0 ? (row.cells[ownerAt] ?? "") : "";
+    const images = rowImages(index, isPod, r.kind, row.namespace, row.name, owner) ?? [];
+    return promptLines(images, imageSecuritySettings(), Math.floor(Date.now() / 1000));
   }
 
   type Verb = "logs" | "shell" | "edit" | "restart" | "prompt";
@@ -742,8 +802,9 @@
           class="th"
           role="columnheader"
           aria-sort={sort?.key === col.key ? (sort.dir === "asc" ? "ascending" : "descending") : "none"}
-          title={col.label}
+          title={headerTitle(col)}
           onclick={() => toggleSort(col.key)}
+          oncontextmenu={(e) => openHeaderMenu(e, col)}
         >
           <span class="label">{col.label}</span>
           {#if sort?.key === col.key}<span class="arrow">{sort.dir === "asc" ? "▲" : "▼"}</span>{/if}
@@ -843,7 +904,9 @@
                 title={shown.cut
                   ? hit
                     ? `${text} (matches the filter)`
-                    : text
+                    : own?.startsWith(`${text}\n`)
+                      ? own
+                      : text
                   : spark && spark.length > 1
                     ? `${own || text}, trend since ${clockTime(metrics.since)}`
                     : own || undefined}

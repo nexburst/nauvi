@@ -7,7 +7,7 @@ Each cluster also has its own Settings page
 ## App settings
 
 The sections are Appearance, Editor and logs, Startup and updates, Clusters,
-Metrics, Helm, Agents (MCP) and About nauvi; **All settings** shows them all
+Metrics, Helm, Agents (MCP), Image security and About nauvi; **All settings** shows them all
 on one page. They hold:
 
 - **Theme**: System, Dark or Light. The log viewer and terminals stay dark in
@@ -22,16 +22,25 @@ on one page. They hold:
 - **Background clusters**: when an unused cluster disconnects
   ([Clusters](clusters.md#background-clusters)).
 - **Start at login** (off by default).
-- **Updates**: the check on start, and a button to check now
+- **Updates**: **Check for updates automatically** (on start, then about
+  every 12 hours), and a button to check now
   ([Update](../../how-to/update.md)).
+- **Container images**: **Show available tags** (off by default) adds an
+  **Available tags** button by each image in the pod and workload panels
+  ([Find a newer tag](../../how-to/image-tags.md)).
 - **Local terminal**: "Offer a kubectl that matches the cluster"
   ([The dock](dock.md#matching-kubectl)).
-- **AI**: the custom command for [Ask AI](ask-ai.md), and the `nauvi` skill
-  files it wrote, with **Remove**.
+- **AI**: the custom command for [Ask AI](ask-ai.md), **Let Ask AI open
+  views** (off by default, [details](ask-ai.md#let-ask-ai-open-views)), and
+  the `nauvi` skill files it wrote, with **Remove**.
 - **Agents (MCP)**: the `nauvi mcp` entries for agents without skills, and
   the agent guide ([MCP](../../how-to/mcp.md)).
 - **Prometheus**: install a small Prometheus ([Metrics](metrics.md)).
 - **Helm** repositories ([Helm](helm.md)).
+- **Image security**: show image vulnerabilities from the Trivy Operator
+  (off by default), the least severity to count, only those with a fix,
+  namespaces to leave out, and how long a reading is reused
+  ([Image security](../../how-to/image-security.md)).
 - **About**: the version and commit, and **Copy diagnostics**
   ([Diagnostics](diagnostics.md)).
 
@@ -41,7 +50,8 @@ Settings are saved in `settings.json` in the app's config directory
 ## What nauvi remembers
 
 - The last context and, per context, the view and namespaces.
-- Per kind, the table sort and the hidden columns.
+- Per kind, the table sort, which columns show and their order, and your
+  own columns ([Columns](tables.md#columns)).
 - The detail panel's width.
 - Saved port forwards.
 - The filter's recent and starred searches.

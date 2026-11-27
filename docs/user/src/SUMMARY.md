@@ -15,6 +15,8 @@
 - [Edit a Deployment's YAML safely](how-to/edit-yaml.md)
 - [Work with several clusters](how-to/several-clusters.md)
 - [Use a cluster you can only partly read](how-to/limited-access.md)
+- [See which images have known vulnerabilities](how-to/image-security.md)
+- [Find a newer tag for an image](how-to/image-tags.md)
 - [Ask AI about a broken pod](how-to/ask-ai.md)
 - [Use nauvi from an AI assistant (MCP)](how-to/mcp.md)
 - [Move from Lens](how-to/from-lens.md)

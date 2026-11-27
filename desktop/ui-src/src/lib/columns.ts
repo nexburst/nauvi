@@ -6,6 +6,8 @@ import { containersSummary, parseContainers, worstRank } from "./containerStates
 import { rolloutRank, rolloutTitle } from "./rolloutStatus";
 import { CELL_PAD, type Fit, type Measure } from "./columnFit";
 import type { IconName } from "./icons/icons";
+import { isCustomKey } from "./customColumns";
+import { vulnsColumn } from "./vulnsColumn";
 
 export type Row = ResourceRow;
 
@@ -48,6 +50,9 @@ export interface Column {
   title?(row: Row, zone: TimeZone, ctx: Ctx): string;
   /** Whether the column has anything to show; shown when missing. */
   shown?(metrics: Metrics): boolean;
+  /** Whether the column exists at all right now, in the table and in the
+   *  column chooser (Vulns only while image security is on, #535). */
+  available?(): boolean;
   /** Off until the user turns it on in the column chooser (#378). */
   defaultHidden: boolean;
   /** The cell links to the object it names (Controlled By, #378). */
@@ -65,7 +70,7 @@ export function shownColumns(
   shown: readonly string[] = [],
 ): Column[] {
   const picks = { hidden: [...hidden], shown: [...shown] };
-  return cols.filter((c) => columnOn(picks, c) && (c.shown?.(metrics) ?? true));
+  return cols.filter((c) => columnOn(picks, c) && (c.shown?.(metrics) ?? true) && (c.available?.() ?? true));
 }
 
 export const EMPTY_METRICS: Metrics = { pods: new Map(), nodes: new Map(), sparks: new Map(), since: 0 };
@@ -115,6 +120,10 @@ function fitFor(def: ColumnDef): Fit {
   if (def.kind === "owner") return { min: 180, max: 360, grow: 0, give: 1, middle: true };
   if (def.kind === "containers") return { min: 72, max: 260, grow: 0, give: 1 };
   if (def.kind === "rollout") return { min: 96, max: 220, grow: 0, give: 0 };
+  // `2C 5H`, the images in the tooltip (#535).
+  if (def.kind === "vulns") return { min: 72, max: 160, grow: 0, give: 0 };
+  // `mongo:7.0.1 +2`: a long tag is cut, the whole list is in the tooltip.
+  if (def.kind === "image") return { min: 120, max: 280, grow: 0, give: 1 };
   // "CrashLoopBackOff" behind its icon; a longer reason is cut, with the
   // whole text in the cell's title.
   if (def.kind === "status") return { min: 80, max: 240, grow: 0, give: 0 };
@@ -175,8 +184,20 @@ function numeric(text: string): number {
   return Number.isNaN(n) ? -1 : n;
 }
 
-function column(def: ColumnDef, index: number): Column {
-  const base = { key: def.key, label: headerLabel(def.label), fit: fitFor(def), defaultHidden: def.default_hidden };
+/**
+ * An Image cell (#547, `src/resources/image_column.rs`): its first line is
+ * what the cell shows (`mongo:7.0.1 +1`), each line after it one
+ * container's full reference.
+ */
+export function imageCell(cell: string): { shown: string; refs: string[] } {
+  const [shown = "", ...refs] = cell.split("\n");
+  return { shown, refs };
+}
+
+function column(def: ColumnDef, index: number, kind: ResourceKind): Column {
+  // A custom column's name is the user's, as typed (#547).
+  const label = isCustomKey(def.key) ? def.label : headerLabel(def.label);
+  const base = { key: def.key, label, fit: fitFor(def), defaultHidden: def.default_hidden };
   const cell = (r: Row) => r.cells[index] ?? "";
   switch (def.kind) {
     case "age":
@@ -285,6 +306,14 @@ function column(def: ColumnDef, index: number): Column {
         title: (r) => rolloutTitle(cell(r), r.problem),
         draw: "rollout",
       };
+    case "vulns":
+      return vulnsColumn(base, kind);
+    case "image": {
+      // The tooltip: what the cell shows, then each full reference (whole
+      // even when the cell is cut).
+      const shown = (r: Row) => imageCell(cell(r)).shown;
+      return { ...base, text: shown, sort: shown, title: (r) => cell(r) };
+    }
     default:
       return { ...base, text: cell, sort: cell };
   }
@@ -321,7 +350,7 @@ const cache = new WeakMap<ResourceKind, Column[]>();
 export function columnsFor(kind: ResourceKind): Column[] {
   let cols = cache.get(kind);
   if (!cols) {
-    cols = kind.columns.map(column);
+    cols = kind.columns.map((def, i) => column(def, i, kind));
     if (isNode(kind)) cols = forNodes(cols);
     cache.set(kind, cols);
   }

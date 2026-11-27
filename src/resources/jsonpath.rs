@@ -118,7 +118,7 @@ fn parse_bracket(inner: &str) -> Seg {
     }
 }
 
-fn eval<'a>(root: &'a Value, segs: &[Seg]) -> Vec<&'a Value> {
+pub(super) fn eval<'a>(root: &'a Value, segs: &[Seg]) -> Vec<&'a Value> {
     let mut cur = vec![root];
     for seg in segs {
         let mut next = Vec::new();

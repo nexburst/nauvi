@@ -3,7 +3,7 @@
 // the four under "More columns", unchecked; turned on, they show what the
 // cluster says (the owner ReplicaSet, the QoS class, the pod IP) and survive
 // a restart; the Controlled By cell opens the owner, a ReplicaSet or the node
-// of a static pod; "Default columns" goes back to the fresh-install set.
+// of a static pod; "Reset to default" goes back to the fresh-install set.
 //
 // Nominated Node is only set on a pod waiting for a preemption, which this
 // scenario does not cause on the shared cluster: its cells are checked empty.
@@ -54,7 +54,7 @@ spec:
 
 const chooserButton = By.xpath("//button[starts-with(normalize-space(), 'Columns')]");
 const choice = (label) => By.xpath(`//*[@role='dialog'][@aria-label='Columns']//label[normalize-space()='${label}']//input`);
-const defaultColumns = By.xpath("//*[@role='dialog'][@aria-label='Columns']//button[normalize-space()='Default columns']");
+const defaultColumns = By.xpath("//*[@role='dialog'][@aria-label='Columns']//button[normalize-space()='Reset to default']");
 
 const headers = async (app) => (await tableData(app)).headers.filter(Boolean);
 const SCROLLER = '[data-testid="resource-table"] .scroller';
@@ -105,7 +105,7 @@ describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
       assert.equal(await (await app.find(choice(label))).isSelected(), false, `${label} unchecked`);
     }
     assert.equal(await (await app.find(choice("Node"))).isSelected(), true);
-    // Nothing changed yet: no "Default columns".
+    // Nothing changed yet: no "Reset to default".
     assert.equal((await app.driver.findElements(defaultColumns)).length, 0);
     await app.shot("chooser-fresh-dark");
   });
@@ -175,12 +175,14 @@ describe("pods: off-by-default columns", { timeout: 15 * 60_000 }, () => {
     await closePanel(app);
   });
 
-  it("Default columns goes back to the usual set", T, async () => {
+  it("Reset to default goes back to the usual set", T, async () => {
     const { app } = s;
     await app.nav("Pods");
     await app.filter(ns);
     await (await app.find(chooserButton)).click();
-    await (await app.find(defaultColumns)).click();
+    const reset = await app.find(defaultColumns);
+    await app.js("arguments[0].scrollIntoView({ block: 'center' })", reset);
+    await reset.click();
     await app.waitFor(async () => !(await headers(app)).includes("QoS"), { message: "the extra columns gone" });
     assert.deepEqual(await headers(app), DEFAULT);
     await app.shot("default-columns");

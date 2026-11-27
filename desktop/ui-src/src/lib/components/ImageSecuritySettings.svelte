@@ -7,6 +7,8 @@
   import { contextLabel, openClusterSettings } from "../stores/catalog.svelte";
   import { closeSettings } from "../stores/keyboard.svelte";
   import { parseNamespaceList } from "../catalog";
+  import { scansText } from "../imageScan";
+  import ImageScannerSettings from "./ImageScannerSettings.svelte";
 
   /** Settings → Image security (#534, ADR 0011). Off by default; each
    *  cluster can turn it on or off for itself in its cluster settings. */
@@ -34,7 +36,9 @@
   </label>
   <p class="muted hint">
     Off unless you turn it on. nauvi then reads the VulnerabilityReports the Trivy Operator keeps in the cluster, with
-    your own access, only while the Image security view is open. It scans nothing and downloads nothing itself.
+    your own access, when something shows them: the Image security view, the Overview, a pod or workload panel or the
+    Vulns column. They share one read, kept until "Read the reports again after" below, with no watch. While it is off,
+    nothing is read. {scansText(s.source)}
   </p>
   {#if context}
     <div class="row">
@@ -101,6 +105,7 @@
     Until then the view shows what it read last; Refresh reads the reports again. Images whose reports are more than 7
     days old are marked as old scans.
   </p>
+  <ImageScannerSettings />
 </fieldset>
 
 <style>

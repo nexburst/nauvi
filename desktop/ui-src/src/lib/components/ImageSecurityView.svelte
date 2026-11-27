@@ -18,6 +18,8 @@
   import type { ImageSecurityTab } from "../imageConfig";
   import EmptyState from "./EmptyState.svelte";
   import ImageConfigList from "./ImageConfigList.svelte";
+  import ImageScanBar from "./ImageScanBar.svelte";
+  import { scansText, usesLocal } from "../imageScan";
   import VirtualList from "./VirtualList.svelte";
 
   /** Image security (#534, ADR 0011): one row per running image of the
@@ -33,13 +35,15 @@
   let now = $state(Math.floor(Date.now() / 1000));
   const tick = setInterval(() => (now = Math.floor(Date.now() / 1000)), 30_000);
 
-  // Read on open, again for each namespace change; Refresh reads the
-  // reports again instead of taking the cache.
+  // Read on open, again for each namespace, Source or Scanner change;
+  // Refresh reads the reports again instead of taking the cache.
   let lastNonce = -1;
   $effect(() => {
     if (!enabled || imageConfig.tab !== "images") return;
     const nonce = app.refreshNonce;
     const namespaces = [...app.selectedNamespaces];
+    void s.source;
+    void s.scanner;
     untrack(() => {
       const refresh = lastNonce !== -1 && nonce !== lastNonce;
       lastNonce = nonce;
@@ -88,7 +92,7 @@
     <div class="center">
       <EmptyState
         title="Image security is off for this cluster"
-        detail="When it is on, nauvi reads the scan reports the Trivy Operator (or Kubescape) keeps in the cluster for the namespaces you pick, only while this view is open. nauvi scans nothing and downloads nothing itself."
+        detail={`When it is on, nauvi reads ${s.source === "local" ? "the pods' images" : "the scan reports the Trivy Operator (or Kubescape) keeps in the cluster"} for the namespaces you pick when this view, the Overview, a pod or workload panel or the Vulns column is shown. ${scansText(s.source)}`}
         reason="off"
       >
         <button
@@ -123,7 +127,7 @@
       </EmptyState>
     </div>
   {:else if !summary}
-    <p class="muted loading">Reading the scan reports…</p>
+    <p class="muted loading">{s.source === "local" ? "Reading the pods' images…" : "Reading the scan reports…"}</p>
   {:else if empty}
     <div class="center" data-testid="image-security-state" data-state={summary.state}>
       <EmptyState title={empty.title} detail={empty.detail} reason={empty.reason}>
@@ -148,6 +152,9 @@
         >
       </div>
     </div>
+    {#if usesLocal(s.source)}
+      <ImageScanBar images={allRows.map((r) => r.row)} />
+    {/if}
     {#if notes.length > 0}
       <ul class="notes muted" data-testid="image-security-notes">
         {#each notes as note (note)}

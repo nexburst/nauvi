@@ -5,6 +5,7 @@ use crate::state::AppState;
 use tauri::Manager;
 use tauri_specta::Builder;
 
+mod ask_ai_show;
 mod autostart;
 mod catalog;
 mod close_guard;
@@ -47,8 +48,12 @@ fn main() {
         return;
     }
     // First, before any thread starts: it changes the process environment.
+    // Not for a `nauvi show` hand-over (#548), which only passes its
+    // arguments to the running app and exits.
     #[cfg(unix)]
-    shell_env::import_login_shell_env();
+    if !ask_ai_show::launched_as_request() {
+        shell_env::import_login_shell_env();
+    }
     // WebKitGTK's renderer without a GPU (#353); also before any thread.
     let renderer = webkit_env::apply();
 
@@ -82,6 +87,12 @@ fn main() {
         // A reload starts the window's session over (#205).
         .on_page_load(page_load::on_page_load)
         .setup(move |app| {
+            // A `nauvi show` hand-over (#548) that got this far found no
+            // running app to take it: exit before any window shows (the
+            // main window starts hidden), with an error for `nauvi show`.
+            if ask_ai_show::launched_as_request() {
+                std::process::exit(3);
+            }
             // The app log and the panic hook (#208), then the Help menu.
             logging::init(app.path().app_log_dir().ok());
             webkit_env::log(renderer);
