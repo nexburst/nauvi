@@ -27,7 +27,7 @@ import { after, before, describe, it } from "node:test";
 import { By, Key } from "selenium-webdriver";
 import { byTestId } from "../lib/app.mjs";
 import { deleteNamespace, kubectl, tempNamespace, waitPodReady } from "../lib/cluster.mjs";
-import { panelText, scrollPanelTo, setTheme } from "../lib/panels.mjs";
+import { panelText, setTheme } from "../lib/panels.mjs";
 import { createProfile } from "../lib/profile.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
 
@@ -189,6 +189,14 @@ const answer = (app, container) =>
     { timeout: 60_000, message: `the available tags of ${container}` },
   );
 
+/** Bring `container`'s box into the middle of the panel for the screenshot
+ *  (the panel's sticky header would cover a box scrolled to its top). */
+const showBox = (app, container) =>
+  app.js(
+    `document.querySelector('[data-testid="detail-panel"] [aria-label="Available tags of ' + arguments[0] + '"]')?.scrollIntoView({ block: "center" })`,
+    container,
+  );
+
 const registryRequests = () => served.requests.filter((r) => r.path.startsWith("/v2/") || r.path === "/token");
 
 describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
@@ -243,6 +251,7 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
   it("asks nothing before the click, then groups the newer tags and says the tag was pushed again", T, async () => {
     const { app } = s;
     await (await app.find(By.xpath("//*[@data-testid='settings']//button[normalize-space()='Close']"))).click();
+    await setTheme(app, "light");
     await app.find(By.css('[data-testid="detail-panel"] button[aria-label="Available tags of old"]'));
     assert.deepEqual(served.requests, [], "nothing is asked before the click");
     await clickTags(app, "old");
@@ -260,7 +269,7 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
       registryRequests().every((r) => r.auth !== BASIC),
       "the private registry's credentials are not sent for the Docker Hub stand-in",
     );
-    await scrollPanelTo(app, '[data-testid="available-tags"]');
+    await showBox(app, "old");
   });
 
   it("says a tag that was not pushed again still points to what runs, and caches the list", T, async () => {
@@ -279,7 +288,7 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
     await clickTags(app, "current");
     await answer(app, "current");
     assert.equal(registryRequests().filter((r) => r.path.endsWith("/tags/list")).length, after1, "served from the cache");
-    await scrollPanelTo(app, '[aria-label="Available tags of current"]');
+    await showBox(app, "current");
   });
 
   it("logs in to a private registry with the docker config, keeping the variant", T, async () => {
@@ -303,7 +312,7 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
     console.log(`nowhere: ${JSON.stringify(text)}`);
     assert.match(text, /Cannot reach 127\.0\.0\.1:1/);
     assert.match(text, /Try again/);
-    await scrollPanelTo(app, '[aria-label="Available tags of nowhere"]');
+    await showBox(app, "nowhere");
   });
 
   it("lists a workload's images with the button", T, async () => {
@@ -314,7 +323,7 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
     const text = await answer(app, "web");
     assert.match(text, /Newer minor · new features\n?1\.38/);
     assert.ok(!text.includes("was updated in the registry"), "no running imageID in a workload panel");
-    await scrollPanelTo(app, '[data-testid="workload-images"]');
+    await showBox(app, "web");
   });
 
   it("reads in the dark theme", T, async () => {
@@ -323,6 +332,6 @@ describe("available tags (#539)", { timeout: 15 * 60_000, skip: SKIP }, () => {
     await app.openDetail("Pods", ns, "qa-tags");
     await clickTags(app, "old");
     await answer(app, "old");
-    await scrollPanelTo(app, '[data-testid="available-tags"]');
+    await showBox(app, "old");
   });
 });
