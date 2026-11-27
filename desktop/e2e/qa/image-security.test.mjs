@@ -348,9 +348,9 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
 
   it("the Overview card in light", T, async () => {
     await setTheme(s.app, "light");
+    await openView(s.app);
     // openDetail filtered the tables to one name: the view shares the filter.
     await s.app.filter("");
-    await openView(s.app);
   });
 
   it("not scanned yet: a namespace without reports (light)", T, async () => {
