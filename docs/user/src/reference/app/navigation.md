@@ -84,7 +84,11 @@ names the keys that apply.
 | `L` | Open its logs |
 | `S` | Open a shell |
 | `E` or `Y` | Open its YAML editor |
-| `Shift+R` | Restart its workload (always asks first) |
+| `Shift+R` or `R` | Restart its workload (always asks first) |
+| `D` or `Enter` | Open its details |
+| `Shift+F` | Port-forward it |
+| `Shift+J` | Open its owner |
+| `O` | Open the pod's node |
 | `A` | Copy a prompt about it for your own coding agent |
 | `W` (in the detail panel) | Give the object the whole window, and give the table back |
 

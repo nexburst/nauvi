@@ -76,6 +76,11 @@ with the buttons next to it in the list. A table can have 10 of your own
 columns. They are saved per kind; for a custom resource, per cluster
 context. Hover a header to see where its column reads from.
 
+On Secrets, a column cannot read `.data` or `.stringData`, or the
+`kubectl.kubernetes.io/last-applied-configuration` annotation: their values
+only show in the Secret's panel, after **Reveal**. Another annotation on a
+Secret that holds JSON shows as `{…}`.
+
 ### Pods
 
 The optional columns are **Controlled By** (a link to the owner), **QoS**,

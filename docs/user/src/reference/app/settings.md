@@ -7,7 +7,7 @@ Each cluster also has its own Settings page
 ## App settings
 
 The sections are Appearance, Editor and logs, Startup and updates, Clusters,
-Metrics, Helm, Agents (MCP), Image security and About nauvi; **All settings** shows them all
+Metrics, Helm, Agents (MCP), Image security, Keyboard and About nauvi; **All settings** shows them all
 on one page. They hold:
 
 - **Theme**: System, Dark or Light. The log viewer and terminals stay dark in
@@ -54,6 +54,9 @@ on one page. They hold:
   - **Download CISA's list of known exploited vulnerabilities**, off by
     default, with **Download now**
     ([Known exploited vulnerabilities](../../how-to/image-security.md#known-exploited-vulnerabilities)).
+- **Keyboard**: **k9s keys** (off by default) adds the k9s keys that clash
+  with nauvi's own, such as `Ctrl+K` to kill a pod
+  ([Keyboard shortcuts](keyboard.md#k9s-keys)).
 - **About**: the version and commit, and **Copy diagnostics**
   ([Diagnostics](diagnostics.md)).
 
