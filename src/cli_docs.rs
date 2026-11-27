@@ -33,6 +33,7 @@ pub(crate) const GROUPS: &[Group] = &[
             "namespaces",
             "nodes",
             "watch",
+            "tags",
             "top",
             "vulns",
         ],

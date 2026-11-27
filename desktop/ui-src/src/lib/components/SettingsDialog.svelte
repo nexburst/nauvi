@@ -420,6 +420,23 @@
       </p>
     </fieldset>
 
+    <fieldset data-testid="registry-tags-settings" hidden={!on("clusters")}>
+      <legend>Container images</legend>
+      <label class="choice">
+        <input
+          type="checkbox"
+          checked={current.registry_tags}
+          onchange={(e) => updateSettings({ registry_tags: e.currentTarget.checked })}
+        />
+        Show available tags
+      </label>
+      <p class="muted hint">
+        Adds an Available tags button by each image in the pod and workload panels. A click asks the image's registry,
+        from this computer and over HTTPS only, which newer tags it has. Private registries use your docker login,
+        never the cluster's pull secrets. Nothing is asked until you click.
+      </p>
+    </fieldset>
+
     {#if context}
       <fieldset hidden={!on("clusters")}>
         <legend>This cluster</legend>

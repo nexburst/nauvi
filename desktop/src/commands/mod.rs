@@ -32,6 +32,7 @@ pub(crate) mod portforward;
 pub(crate) mod prometheus;
 pub(crate) mod proxy;
 pub(crate) mod raw_body;
+pub(crate) mod registry_tags;
 pub(crate) mod resources;
 pub(crate) mod settings;
 pub(crate) mod term_frame;
@@ -151,6 +152,8 @@ pub(crate) fn specta_builder() -> Builder<tauri::Wry> {
             prometheus::cmd_prometheus_status,
             proxy::cmd_get_cluster_proxy,
             proxy::cmd_set_cluster_proxy,
+            registry_tags::cmd_registry_tags,
+            registry_tags::cmd_workload_images,
             resources::cmd_apply_manifests,
             resources::cmd_apply_resource_yaml,
             resources::cmd_delete_resource,

@@ -135,6 +135,23 @@ pub enum Commands {
         #[arg(short, long)]
         follow: bool,
     },
+    /// Show the newer tags of an image in its registry: newer patch, minor
+    /// and major versions with the same variant (`7.0.1-jammy` ->
+    /// `7.0.2-jammy`). Reads the registry over HTTPS, anonymously or with
+    /// your docker credentials (`docker login`); it does not use the
+    /// cluster
+    Tags {
+        /// The image, e.g. `mongo:7.0.1` or `ghcr.io/org/app:v1.2.3`
+        image: String,
+        /// The `imageID` a pod reports for it
+        /// (`docker.io/library/mongo@sha256:…`): says whether the tag was
+        /// pushed again since
+        #[arg(long, value_name = "ID")]
+        image_id: Option<String>,
+        /// Print JSON instead of text
+        #[arg(long)]
+        json: bool,
+    },
     /// Show CPU/memory usage (like kubectl top)
     Top {
         /// What to show: pods or nodes

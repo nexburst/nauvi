@@ -51,6 +51,7 @@ export const GLOBAL_COMMANDS = [
   "cmdOpenWindow",
   "cmdPasteKubeconfig",
   "cmdPortforwardListAll",
+  "cmdRegistryTags",
   "cmdRemoveKubeconfigSource",
   "cmdSaveCsv",
   "cmdSaveLogs",
