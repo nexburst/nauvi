@@ -10,7 +10,10 @@ The first view of a cluster (key `1`). From top to bottom:
 - a headline that says how many pods need a look, with a status tile beside
   it;
 - pod counts as cards (crash-looping pods count as errors, not as running);
-  the Errors card turns red when there are any;
+  the Errors card turns red when there are any. With
+  [image security](../../how-to/image-security.md) on, an **Image fixes**
+  card after them counts the images that have a fix waiting; a click opens
+  the Image security view. It is not a problem count;
 - the problem pods, each a card with its reason ("Pending for 8d 14h",
   "CrashLoopBackOff · 12 restarts"), **Logs** (opens its logs in the dock;
   not on Pending pods) and **Describe** (opens it in the Pods view);

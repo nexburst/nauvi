@@ -27,6 +27,10 @@ nothing. A table keeps only its rows, not a copy of every full object.
 Metrics are the exception: metrics-server has no watch, so usage is polled
 while a view that shows it is open (or never, with **Hide metrics**).
 
+Image security reports are not watched either. While image security is on,
+they are listed when a view that shows them opens, and that listing is
+reused for a day by default ([Image security](../how-to/image-security.md#what-nauvi-reads-and-when)).
+
 ## Connecting on demand
 
 Nothing connects until you use it. Expanding a cluster in the tree connects
@@ -53,8 +57,11 @@ the app ([Use a proxy](../how-to/proxy.md)).
 
 ## What else goes on the network
 
-- The **update check**: once at start, to GitHub's release endpoint (turn it
-  off in Settings). Nothing is downloaded until you click Install.
+- The **update check**: at start and about every 12 hours, to GitHub's
+  release endpoint (turn it off in Settings). Nothing is downloaded until
+  you click Install.
+- **Available tags**, only if you turned it on and clicked: the image's
+  registry, over HTTPS ([Find a newer tag](../how-to/image-tags.md)).
 - The **matching kubectl** download from dl.k8s.io, only if you turned it on
   and clicked.
 - **Helm**: chart repositories you added, and the pinned metrics-server and

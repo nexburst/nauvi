@@ -8,6 +8,7 @@ kubeconfig files.
 | What | Linux | macOS | Windows |
 | --- | --- | --- | --- |
 | Config | `~/.config/com.nauvi.app/` | `~/Library/Application Support/com.nauvi.app/` | `%APPDATA%\com.nauvi.app\` |
+| Data | `~/.local/share/com.nauvi.app/` | `~/Library/Application Support/com.nauvi.app/` | `%LOCALAPPDATA%\com.nauvi.app\` |
 | Logs | `~/.local/share/com.nauvi.app/logs/` | `~/Library/Logs/com.nauvi.app/` | `%LOCALAPPDATA%\com.nauvi.app\logs\` |
 
 ## In the config folder
@@ -32,8 +33,11 @@ nauvi updates. **Settings → AI** lists and removes them
 
 ## In the data folder
 
-The matching kubectl, if you downloaded one
-([The dock and terminals](../reference/app/dock.md#matching-kubectl)).
+- The matching kubectl, if you downloaded one
+  ([The dock and terminals](../reference/app/dock.md#matching-kubectl)).
+- `ask-ai/`: the folder Ask AI runs your AI CLI in, readable only by you on
+  Linux and macOS. What the CLI leaves there is its own
+  ([Ask AI](../reference/app/ask-ai.md#where-it-runs)).
 
 ## Temporary files
 

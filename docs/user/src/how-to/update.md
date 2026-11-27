@@ -2,13 +2,16 @@
 
 ## How the app updates itself
 
-The desktop app checks for a newer release once when it starts. A newer
-version shows a banner with its release notes and **Install and restart**;
-nothing is downloaded until you click it. The update is verified against the
-signing key built into the app.
+The desktop app checks for a newer release when it starts, then about
+every 12 hours while it is open, and when your computer wakes up if the last
+check is more than 12 hours old. A newer version shows a banner with its
+release notes and **Install and restart**; nothing is downloaded until you
+click it. The update is verified against the signing key built into the app.
 
-- Turn the check off in Settings, or check by hand from Settings or the
-  command palette.
+- Turn **Check for updates automatically** off in Settings, or check by hand
+  from Settings or the command palette.
+- A failed automatic check shows nothing. A banner you close stays closed
+  until a newer version comes out.
 - The AppImage, the macOS app and the Windows installers update in place.
 - A `.deb` installed by hand updates in place only when the release has a
   signed `.deb` update; otherwise the banner links to the release page.

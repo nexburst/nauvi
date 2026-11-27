@@ -20,6 +20,7 @@ or protected in the app refuses the write tools, even with `--allow-writes`.
 | `logs` | Logs of a pod, or of `deploy/`, `sts/`, `ds/`, `job/`, `rs/` |
 | `events` | Events |
 | `top` | CPU and memory usage |
+| `image_vulnerabilities(namespace?, severity?, fixable?, image?, limit?)` | Which running images have known vulnerabilities |
 
 - **`problems`** lists only the unhealthy pods, workloads, Jobs, Nodes and
   PersistentVolumeClaims, newest problem first, one line each, with the
@@ -33,6 +34,15 @@ or protected in the app refuses the write tools, even with `--allow-writes`.
 - **`list`** gives pods a `LAST` column (`OOMKilled 27d`, `Error 2h`).
   `columns` picks columns and their order; `compact` drops NODE, and
   NAMESPACE when a namespace is given.
+- **`image_vulnerabilities`** reads the Trivy Operator's reports in the
+  cluster; it never starts a scanner. One row per image, worst first, with
+  counts by severity, how many have a fix, the report's age and the
+  workloads that run it: 50 images by default, at most 200. Give `image` (a
+  reference such as `nginx:1.27`, or a digest) for one image's fixes by
+  package and up to 50 of its vulnerabilities. `severity` keeps that
+  severity or worse; `fixable` only those with a fix. It works whether or
+  not image security is on in the app
+  ([Image security](../how-to/image-security.md)).
 - **`events`** with nothing to show notes that the cluster keeps events for
   about an hour by default (`--event-ttl`), and points to `problems` and
   `describe`.

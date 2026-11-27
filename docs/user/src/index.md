@@ -24,6 +24,8 @@ With nauvi you can:
 - look at **Helm** releases and charts, and install and upgrade with a dry run;
 - work with **several clusters** at once, each in its own colour, some of
   them read-only or protected;
+- see which running **images** have known vulnerabilities, from the Trivy
+  Operator's reports, and which newer tags their registries have;
 - **Ask AI**: open your own AI coding CLI about the object on screen, with
   the `nauvi` skill that teaches it how to look at a cluster.
 
