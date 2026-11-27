@@ -856,20 +856,15 @@ pub async fn image_detail_triaged(
         }
     };
     let mut row = row;
-    if !row.fixes_known {
-        // The full report says which have a fix.
-        let mut fixable = SeverityCounts::default();
-        for v in all.iter().filter(|v| !v.fixed_version.is_empty()) {
-            fixable.add(v.severity);
-        }
-        row.fixable = fixable;
-        row.fixes_known = true;
-    }
     let mut all = all;
     triage.mark_kev(&mut all);
-    if row.source == ScanSource::Kubescape && !triage.is_empty() {
-        let marks: Vec<_> = all.iter().map(super::triage::Mark::of).collect();
-        triage.apply_row(&mut row, &marks);
+    if row.source == ScanSource::Kubescape {
+        kubescape_row_of(&mut row, &all, triage);
+    } else if !row.fixes_known {
+        // The full report says which have a fix.
+        let (_, fixable) = counts_of(&all);
+        row.fixable = fixable;
+        row.fixes_known = true;
     }
     let vulnerabilities = filter_vulnerabilities(all, args);
     let fix_groups = fix_groups(&vulnerabilities);
@@ -881,6 +876,35 @@ pub async fn image_detail_triaged(
     };
     triage.apply_detail(&mut detail);
     Ok(detail)
+}
+
+/// All counts of `vulns`, and those with a fix.
+fn counts_of(vulns: &[Vulnerability]) -> (SeverityCounts, SeverityCounts) {
+    let (mut all, mut fixable) = (SeverityCounts::default(), SeverityCounts::default());
+    for v in vulns {
+        all.add(v.severity);
+        if !v.fixed_version.is_empty() {
+            fixable.add(v.severity);
+        }
+    }
+    (all, fixable)
+}
+
+/// A Kubescape row from its full manifest (#537): counts and fixes rebuilt
+/// from `all`, then the ignores and KEV applied. Always from the manifest,
+/// never from the row's counts, so a row that was already triaged (the
+/// kept listing's, after an earlier open) comes out the same.
+pub fn kubescape_row_of(row: &mut ImageVulns, all: &[Vulnerability], triage: &Triage) {
+    let (counts, fixable) = counts_of(all);
+    row.counts = counts;
+    row.fixable = fixable;
+    row.fixes_known = true;
+    row.ignored = SeverityCounts::default();
+    row.kev = 0;
+    if !triage.is_empty() {
+        let marks: Vec<_> = all.iter().map(super::triage::Mark::of).collect();
+        triage.apply_row(row, &marks);
+    }
 }
 
 /// `nauvi vulns`: the list, or one image with `image`, as text or JSON.
@@ -969,6 +993,51 @@ pub(crate) mod tests {
         assert_eq!(nginx.kev, 1);
         let redis = rows.iter().find(|r| r.image == "redis:7").unwrap();
         assert_eq!(redis.ignored.total(), 0);
+    }
+
+    /// #537: opening a Kubescape image twice (the kept row is already
+    /// triaged the second time) gives the same counts.
+    #[test]
+    fn a_kubescape_row_is_triaged_once() {
+        use crate::image_security::ignore::{IgnoreRule, IgnoreScope};
+        let v = |id: &str, sev, fixed: &str| Vulnerability {
+            id: id.into(),
+            package: "openssl".into(),
+            installed_version: "1".into(),
+            fixed_version: fixed.into(),
+            severity: sev,
+            score: 0.0,
+            title: String::new(),
+            link: String::new(),
+            exploit: Default::default(),
+        };
+        let all = vec![
+            v("CVE-2026-0001", Severity::Critical, "2"),
+            v("CVE-2026-0002", Severity::High, ""),
+            v("CVE-2026-0003", Severity::High, ""),
+        ];
+        let triage = Triage {
+            rules: vec![IgnoreRule {
+                id: "CVE-2026-0001".into(),
+                scope: IgnoreScope::Everywhere,
+                reason: "not reachable".into(),
+                ..Default::default()
+            }],
+            kev: ["CVE-2026-0002".to_string()].into(),
+            ..Default::default()
+        };
+        let mut row = fixture_rows().remove(0);
+        row.source = ScanSource::Kubescape;
+        row.fixes_known = false;
+        kubescape_row_of(&mut row, &all, &triage);
+        let first = row.clone();
+        assert_eq!(first.counts.critical, 0);
+        assert_eq!(first.counts.high, 2);
+        assert_eq!(first.ignored.critical, 1);
+        assert_eq!(first.fixable.total(), 0);
+        assert_eq!(first.kev, 1);
+        kubescape_row_of(&mut row, &all, &triage);
+        assert_eq!(row, first, "the same counts on the second open");
     }
 
     fn w(kind: &str, name: &str, container: &str) -> Workload {

@@ -84,7 +84,19 @@ export function imageSecurityHandlers(s: FakeState) {
       if (found.source === "local_scanner" && found.scanned) return localDetail(s, found);
       const detail = data(s).details[`${image}@${digest}`];
       if (!detail) return { image: found, vulnerabilities: [], fix_groups: [], ignored: [] };
-      return triageDetail(s, structuredClone(detail));
+      if (found.source !== "kubescape") return triageDetail(s, structuredClone(detail));
+      // Like the backend: the listing's row (already triaged after an
+      // earlier open) is rebuilt from the full report, then kept (#537).
+      const zero = () => ({ critical: 0, high: 0, medium: 0, low: 0, unknown: 0 });
+      const base = { ...structuredClone(found), counts: zero(), fixable: zero(), ignored: zero(), kev: 0, fixes_known: true };
+      for (const v of detail.vulnerabilities) {
+        base.counts[v.severity] += 1;
+        if (v.fixed_version) base.fixable[v.severity] += 1;
+      }
+      const out = triageDetail(s, { ...structuredClone(detail), image: base });
+      const d = data(s);
+      d.images = d.images.map((r) => (r.image === image && r.digest === digest ? structuredClone(out.image) : r));
+      return out;
     },
     cmdImageSecuritySummary: (namespaces, _refresh): ImageSecurityList => {
       if (!enabled(s)) throw OFF;

@@ -292,4 +292,10 @@ test("a Kubescape row takes its ignores once opened, and the listing says so", a
   await expect(panel(page).getByTestId("findings-verdict")).toHaveText("2 high. None has a fix yet. 1 ignored.");
   // The row (and the surfaces that share it) now say the same.
   await expect(row.getByTestId("image-verdict")).toHaveText("2 high. None has a fix yet. 1 ignored.");
+  // Opened again (the kept row is already triaged): the same counts.
+  await panel(page).getByRole("button", { name: "Close details" }).click();
+  await page.getByRole("button", { name: "Refresh" }).first().click();
+  await row.click();
+  await expect(panel(page).getByTestId("findings-verdict")).toHaveText("2 high. None has a fix yet. 1 ignored.");
+  await expect(row.getByTestId("image-verdict")).toHaveText("2 high. None has a fix yet. 1 ignored.");
 });
