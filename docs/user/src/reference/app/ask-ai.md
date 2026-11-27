@@ -28,6 +28,41 @@ is the CLI's first message.
   Windows the tab ends).
 - No MCP server is set up for the CLI.
 
+## Where it runs
+
+Ask AI starts the CLI in a folder of its own, `ask-ai` in the app's data
+folder ([where](../../explanations/storage.md#the-apps-folders)), not in
+your home folder. If the cluster's Settings set a working directory for the
+local terminal, it runs there instead. The session's first lines name the
+folder.
+
+On macOS, a program nauvi starts (the AI CLI, or a command you type in a
+local terminal) that reads Photos, Desktop, Documents or Downloads makes
+macOS ask whether **nauvi** may access that folder. nauvi itself never reads
+them. **Don't Allow** is safe: nauvi and Ask AI work without that access. If
+you set a working directory inside one of those folders, the prompt is
+expected. The local terminal starts in your home folder, like any terminal
+app, and macOS counts the commands you run there as nauvi's too.
+
+## Links to objects
+
+The AI follows each object it names with its [`nauvi://` link](links.md).
+Click one in the Ask AI terminal to open the object in the same window;
+hover it to see where it goes. Links printed in pod shells, logs or other
+terminals are not opened.
+
+## Let Ask AI open views
+
+With **Settings → AI → Let Ask AI open views** on (it is off by default), the
+AI can run `nauvi show` to open an object's panel or a table in the window
+of its Ask AI terminal, at most one every 3 seconds.
+
+- It only opens views: no action, no dialog. The panel says **Opened by Ask
+  AI**, and Back returns to where you were.
+- It applies to Ask AI sessions started after you turn it on.
+- Anywhere else, `nauvi show` prints the link
+  ([`nauvi show`](../cli/inspect.md#nauvi-show)).
+
 ## The nauvi skill
 
 The skill is a short guide for the model: `kubectl` first, and the `nauvi`

@@ -34,6 +34,11 @@ the selected namespace.
 - Read-only contexts refuse Ask AI, like any terminal; a protected context
   asks for its name first.
 - Settings → AI shows the skill files nauvi wrote, and removes them.
+- The CLI runs in a folder of its own, not your home folder. The session's
+  first lines name it.
+- The AI follows each object it names with a `nauvi://` link: click it to
+  open the object. With **Let Ask AI open views** on, it can open panels and
+  tables itself.
 
 [Ask AI](../reference/app/ask-ai.md) in the reference has the details. To use
 nauvi from an assistant outside the app, see

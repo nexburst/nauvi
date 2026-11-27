@@ -47,17 +47,27 @@ limits, the number of environment variables, and the mounts with what each
 volume is.
 
 - **Environment** lists each variable with its value and where it comes from:
-  a literal, a ConfigMap key (with its source), a pod field, or every key of
-  an `envFrom` ConfigMap (with its prefix). Nothing is read until you open
-  the list. **Environment (N)** counts the variables the container gets; with
-  `envFrom` it says, for example, `2 + 1 source` until you open the list,
-  which reads the source's keys.
+  a literal, a ConfigMap or Secret key (`from Secret db/password`), a pod
+  field, or a resource. Every key of an `envFrom` source is listed under one
+  title, "all of ConfigMap app-config"; a row there shows `key <key>` only
+  when a prefix renames it. Values line up in one column. Nothing is read
+  until you open the list. **Environment (N)** counts the variables the
+  container gets; with `envFrom` it says, for example, `2 + 1 source` until
+  you open the list, which reads the source's keys.
+- **Copy** shows on a row when you point at it or tab to it.
 - **Secret values are hidden.** Env values from Secrets, and literal values
   that look like secrets, show as `••••` until you click **Reveal** on that
   row; **Hide** and closing the list drop them again. Without permission to
   read the Secret, the row says so.
 - Values in command lines that look like secrets (`--token=`, `--password`,
   `…PASSWORD=`, passwords in URLs) are shown as `••••`.
+- With **Show available tags** on (Settings → Clusters), **Available tags**
+  under the image lists its newer tags, and says whether the tag was pushed
+  again in the registry
+  ([Find a newer tag](../../how-to/image-tags.md)).
+- With [image security](../../how-to/image-security.md) on, a **Vulns** line
+  gives the image's verdict ("2 critical and 5 high. All 7 have a fix."),
+  with **Details** for its fixes.
 - The panel has the pod's live logs (pick the container, or the previous
   instance of a crashed one) and an interactive terminal.
 - CPU and memory charts against requests and limits
@@ -84,6 +94,13 @@ tab shows it as stored.
 
 - Deployments, StatefulSets, DaemonSets, ReplicaSets and Jobs chart the summed
   CPU and memory of their pods.
+- With **Show available tags** on, their panels have an
+  **Images** section: the pod template's containers and images, each with an
+  **Available tags** button
+  ([Find a newer tag](../../how-to/image-tags.md)).
+- With [image security](../../how-to/image-security.md) on, a **Security**
+  tab shows the verdict for each image the workload runs, with **Show
+  fixes**. It is there only while the reports know the workload's images.
 - Nodes chart their usage against allocatable, and have Cordon, Drain and
   Shell in the header.
 

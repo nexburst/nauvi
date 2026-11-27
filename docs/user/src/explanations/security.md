@@ -47,10 +47,29 @@ See [Login commands](../reference/app/login-commands.md).
   Read-only contexts refuse Ask AI; protected ones ask for the name.
 - The skill file is written only in the CLI's own skills folder, never
   through a link, and a `SKILL.md` nauvi did not write is never changed.
+- Ask AI runs its CLI in a folder of its own, readable only by you on Linux
+  and macOS, not in your home folder.
+- **Let Ask AI open views** (off by default) lets the AI open panels and
+  tables with `nauvi show`, at most one every 3 seconds; it never runs an
+  action.
 
 ## Links
 
 A `nauvi://` link only opens a view. It never changes the cluster.
+
+## Container images
+
+- **Available tags** (off by default) asks an image's registry only when
+  you click, over HTTPS only. It refuses loopback, link-local and cloud
+  metadata addresses, also when a registry's name resolves to one, and
+  follows redirects only on the same host. It signs in with your own
+  `docker login`, never with the cluster's image pull secrets, and sends
+  those credentials only to the registry's own host or its parent domain (and auth.docker.io
+  for Docker Hub)
+  ([Find a newer tag](../how-to/image-tags.md)).
+- **Image security** (off by default) reads the Trivy Operator's reports with
+  your own access. nauvi scans nothing and downloads nothing for it
+  ([Image security](../how-to/image-security.md)).
 
 ## Downloads and updates
 

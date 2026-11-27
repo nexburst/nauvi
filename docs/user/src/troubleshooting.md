@@ -20,6 +20,15 @@ A `nauvi` binary downloaded with a browser carries a quarantine flag. Remove
 it: `xattr -d com.apple.quarantine ./nauvi`. The install script and Homebrew
 don't need this.
 
+## macOS asks to let nauvi access Photos, Desktop or Documents
+
+A program nauvi started read that folder: your AI CLI, or a command you typed
+in a local terminal. macOS asks on behalf of the app that started it. nauvi
+itself never reads these folders, so **Don't Allow** is safe. Ask AI runs
+its CLI in a folder of its own
+([Ask AI](reference/app/ask-ai.md#where-it-runs)), unless you set a working
+directory inside one of those folders.
+
 ## Windows protected your PC
 
 The builds are not signed yet, so SmartScreen may warn. Click **More info**,
@@ -109,6 +118,17 @@ The AppImage and builds from source do not register the scheme
 
 A `.deb` installed by hand, a copy run from the macOS disk image, or an app
 macOS runs from a temporary location can't. See [Update](how-to/update.md).
+
+## Image security shows nothing
+
+It needs the Trivy Operator in the cluster and permission to list its
+reports. Each case has its own message
+([Image security](how-to/image-security.md#when-nothing-is-listed)).
+
+## Available tags fails for a registry
+
+Private images need your own `docker login`; some registries do not work
+yet ([Which registries work](how-to/image-tags.md#which-registries-work)).
 
 ## Where are the logs?
 

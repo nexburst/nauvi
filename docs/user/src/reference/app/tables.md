@@ -43,15 +43,43 @@ in **Columns** to filter by it.
 - **Ages** are printed like `kubectl get` (`7d20h`, `3h12m`). Hover an Age
   cell, or open the detail panel, for the creation time (local time or UTC,
   per Settings).
-- The **Columns** button hides columns; its **More columns** has optional
-  columns that are off by default, and **Default columns** goes back to the
-  default set. The choice is remembered per kind.
+- The **Columns** button lists the table's columns in their order. Turn one
+  off or on with its checkbox. Drag a column by its handle, or press
+  **Alt+↑** or **Alt+↓** on it, to move it. Optional columns that are off
+  wait under **More columns**. With many columns, **Find a column** narrows
+  the list.
+- Right-click a column header to **Hide this column**, or choose
+  **Columns…** to open the same list.
+- **Reset to default** turns every usual column back on and the optional
+  ones off, puts them back in their order and lets them fit their values
+  again. Your own columns stay.
+- What you choose, and the order, is remembered per kind.
 - Click a column header to sort; the sort is remembered per kind.
+
+### Your own columns
+
+**Columns → + Add column…** adds a column from the objects the table already
+shows, with no extra requests to the cluster. Give it a name, and pick what
+it shows:
+
+- **Label**: a label key, for example `app.kubernetes.io/version`.
+- **Annotation**: an annotation key, for example
+  `deployment.kubernetes.io/revision`.
+- **Field path**: a path into the object, starting with a dot:
+  `.spec.priorityClassName`, `.status.podIP`, `.spec.containers[0].image`.
+  Only names and number indexes like `[0]` work; `[*]` and filters do not.
+
+If something is wrong, the form says what. A cell shows one line, at most
+200 characters. An object shows as `{…}` and a list of objects as
+`[3 items]`; point the path at a field inside them. Edit or remove a column
+with the buttons next to it in the list. A table can have 10 of your own
+columns. They are saved per kind; for a custom resource, per cluster
+context. Hover a header to see where its column reads from.
 
 ### Pods
 
 The optional columns are **Controlled By** (a link to the owner), **QoS**,
-**IP**, **Nominated Node** and **Containers**.
+**IP**, **Nominated Node**, **Containers** and **Image**.
 
 **Containers** has one square per container, init containers first:
 
@@ -65,6 +93,21 @@ The optional columns are **Controlled By** (a link to the owner), **QoS**,
 
 Hover a square for the container's name, state and reason. Sorting by the
 column puts pods with a broken container first.
+
+### Images and vulnerabilities
+
+**Image** is an optional column of Pods, Deployments, StatefulSets,
+DaemonSets, ReplicaSets, Jobs and CronJobs. It shows the first container's
+image and tag (`mongo:7.0.1`), with `+2` when there are more containers
+(init containers are not counted). Hover it for every container's full
+image, with its registry, and for a pod the digest it runs.
+
+**Vulns**, on the same tables except ReplicaSets, is offered only while
+[image security](../../how-to/image-security.md) is on for the cluster.
+`2C 5H` means 2 critical and 5 high vulnerabilities, at the severity you
+chose to count; **None** means none, and **Not scanned** that no report
+covers the image yet. Hover it for each image. It sorts by severity: one
+critical outweighs any number of high ones.
 
 ### Deployments, StatefulSets, DaemonSets
 
