@@ -120,6 +120,11 @@ export function defaultSettings(): Settings {
       only_fixable: false,
       excluded_namespaces: [],
       cache_ttl_hours: 24,
+      source: "cluster",
+      scanner: "trivy",
+      db_repository: "",
+      skip_db_update: false,
+      server_url: "",
     },
   };
 }

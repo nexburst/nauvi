@@ -33,7 +33,8 @@ fn load(path: &Path) -> File {
 
 fn save(path: &Path, f: &File) -> Result<(), String> {
     if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
+        std::fs::create_dir_all(dir)
+            .map_err(|e| format!("Cannot create {}: {e}", dir.display()))?;
     }
     write_private(path, &serde_json::to_vec_pretty(f).unwrap_or_default())
         .map_err(|e| format!("Could not save the approval in {}: {e}", path.display()))
@@ -49,7 +50,11 @@ pub(crate) fn approved(path: &Path, scanner: ScannerKind) -> Option<Fingerprint>
 }
 
 /// Approve `binary` for `scanner` (replacing an earlier one).
-pub(crate) fn approve(path: &Path, scanner: ScannerKind, binary: Fingerprint) -> Result<(), String> {
+pub(crate) fn approve(
+    path: &Path,
+    scanner: ScannerKind,
+    binary: Fingerprint,
+) -> Result<(), String> {
     let mut f = load(path);
     f.approved.retain(|e| e.scanner != scanner);
     f.approved.push(Entry { scanner, binary });

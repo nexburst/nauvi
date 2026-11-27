@@ -46,11 +46,16 @@ async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
     assert!(!ran.exists(), "the binary ran before it was approved");
 
     // Only the file found now can be approved.
-    let err = approve(&d, ScannerKind::Trivy, "/usr/bin/evil").await.unwrap_err();
+    let err = approve(&d, ScannerKind::Trivy, "/usr/bin/evil")
+        .await
+        .unwrap_err();
     assert!(err.contains("is not the trivy nauvi finds now"), "{err}");
     let s = approve(&d, ScannerKind::Trivy, &real).await.unwrap();
     assert_eq!(s.state, ScannerState::Ready, "{s:?}");
-    assert_eq!((s.version.as_str(), s.db.as_str()), ("0.58.1", "2026-11-25"));
+    assert_eq!(
+        (s.version.as_str(), s.db.as_str()),
+        ("0.58.1", "2026-11-25")
+    );
     assert!(ran.exists());
 
     // Changed (an update): asked again, and it does not run meanwhile.
@@ -59,7 +64,11 @@ async fn approve_once_ask_again_when_it_changes_refuse_bad_versions() {
     std::fs::remove_file(&ran).unwrap();
     let (s, path) = scanner_status(&d, ScannerKind::Trivy, false).await;
     assert_eq!(s.state, ScannerState::Changed, "{s:?}");
-    assert!(s.message.contains("changed since you approved it"), "{}", s.message);
+    assert!(
+        s.message.contains("changed since you approved it"),
+        "{}",
+        s.message
+    );
     assert!(path.is_none());
     assert!(!ran.exists());
 

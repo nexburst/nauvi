@@ -150,7 +150,9 @@ impl ScanCache {
     }
 
     fn file(&self, scanner: ScannerKind, digest: &str) -> Option<PathBuf> {
-        let hex = digest.strip_prefix("sha256:").filter(|_| is_digest(digest))?;
+        let hex = digest
+            .strip_prefix("sha256:")
+            .filter(|_| is_digest(digest))?;
         Some(self.dir.join(format!("{}-{hex}.json", scanner.binary())))
     }
 
@@ -279,10 +281,16 @@ mod tests {
         assert_eq!(got, scan);
         assert_eq!(got.vulnerabilities(), vulns);
         let (all, fix) = got.counts();
-        assert_eq!((all.critical, all.high, fix.critical, fix.high), (1, 1, 1, 0));
+        assert_eq!(
+            (all.critical, all.high, fix.critical, fix.high),
+            (1, 1, 1, 0)
+        );
         assert_eq!(got.scanner_text(), "Trivy 0.58.1");
         assert!(got.fresh_for("0.58.1", "2026-11-25", "linux/amd64"));
-        assert!(!got.fresh_for("0.58.1", "2026-11-26", "linux/amd64"), "a newer DB");
+        assert!(
+            !got.fresh_for("0.58.1", "2026-11-26", "linux/amd64"),
+            "a newer DB"
+        );
         assert!(!got.fresh_for("0.58.2", "2026-11-25", "linux/amd64"));
         assert!(!got.fresh_for("0.58.1", "2026-11-25", "linux/arm64"));
         // Another scanner, another digest: nothing.
@@ -296,7 +304,9 @@ mod tests {
             use std::os::unix::fs::PermissionsExt;
             let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
             assert_eq!(mode(&d.join("scans")), 0o700);
-            let file = d.join("scans").join(format!("trivy-{}.json", "a".repeat(64)));
+            let file = d
+                .join("scans")
+                .join(format!("trivy-{}.json", "a".repeat(64)));
             assert_eq!(mode(&file), 0o600);
         }
         let _ = std::fs::remove_dir_all(d);
@@ -306,7 +316,16 @@ mod tests {
     fn a_file_of_another_digest_is_not_taken() {
         let d = dir("swap");
         let cache = ScanCache::new(d.clone());
-        let scan = CachedScan::new(ScannerKind::Grype, "0.84.0", "", "", &digest('c'), "r", 1, &[]);
+        let scan = CachedScan::new(
+            ScannerKind::Grype,
+            "0.84.0",
+            "",
+            "",
+            &digest('c'),
+            "r",
+            1,
+            &[],
+        );
         cache.put(&scan).unwrap();
         // Renamed to another digest's name: refused.
         std::fs::rename(
@@ -323,8 +342,16 @@ mod tests {
         let d = dir("prune");
         let cache = ScanCache::new(d.clone());
         for (i, c) in ['1', '2', '3', '4'].into_iter().enumerate() {
-            let scan =
-                CachedScan::new(ScannerKind::Trivy, "1", "", "", &digest(c), "r", i as i64, &[]);
+            let scan = CachedScan::new(
+                ScannerKind::Trivy,
+                "1",
+                "",
+                "",
+                &digest(c),
+                "r",
+                i as i64,
+                &[],
+            );
             cache.put(&scan).unwrap();
             std::thread::sleep(std::time::Duration::from_millis(20));
         }

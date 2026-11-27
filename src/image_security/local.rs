@@ -205,11 +205,7 @@ pub fn fingerprint(path: &Path) -> std::io::Result<Fingerprint> {
         }
         hash.update(&buf[..n]);
     }
-    let sha256 = hash
-        .finalize()
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let sha256 = hash.finalize().iter().map(|b| format!("{b:02x}")).collect();
     Ok(Fingerprint {
         path: path.display().to_string(),
         size: meta.len(),
@@ -244,7 +240,7 @@ pub fn refused_version(kind: ScannerKind, version: &str) -> Option<String> {
             crate::text::single_line(version)
         ));
     };
-    if kind == ScannerKind::Trivy && v >= (0, 69, 4) && v <= (0, 69, 6) {
+    if kind == ScannerKind::Trivy && ((0, 69, 4)..=(0, 69, 6)).contains(&v) {
         return Some(format!(
             "Trivy {}.{}.{} is one of the malicious releases (0.69.4 to 0.69.6, CVE-2026-33634): \
              nauvi does not run it. Install another version, and rotate the credentials it could \
@@ -449,9 +445,7 @@ pub fn scan_args(
     let mut args: Vec<String> = Vec::new();
     match kind {
         ScannerKind::Trivy => {
-            args.extend(
-                ["image", "--format=json", "--quiet", "--scanners=vuln"].map(String::from),
-            );
+            args.extend(["image", "--format=json", "--quiet", "--scanners=vuln"].map(String::from));
             // The version notice phones home; 0.54 added the switch.
             if parse_version(version).is_some_and(|v| v >= (0, 54, 0)) {
                 args.push("--skip-version-check".into());
@@ -516,7 +510,10 @@ pub enum RunError {
     /// The program is not there (any more).
     NotFound,
     /// It exited unsuccessfully: its status and the end of its stderr.
-    Failed { status: String, stderr: String },
+    Failed {
+        status: String,
+        stderr: String,
+    },
     /// Its stdout passed the cap.
     TooLarge(usize),
     TimedOut(Duration),
@@ -536,7 +533,10 @@ impl RunError {
                 }
             }
             RunError::TooLarge(n) => {
-                format!("it printed more than {} MB, so it was stopped", n / (1024 * 1024))
+                format!(
+                    "it printed more than {} MB, so it was stopped",
+                    n / (1024 * 1024)
+                )
             }
             RunError::TimedOut(d) => format!("it did not finish within {} s", d.as_secs()),
             RunError::Io(e) => e.to_string(),
@@ -544,7 +544,10 @@ impl RunError {
     }
 }
 
-async fn read_capped<R: AsyncRead + Unpin>(mut r: R, limit: usize) -> std::io::Result<Option<Vec<u8>>> {
+async fn read_capped<R: AsyncRead + Unpin>(
+    mut r: R,
+    limit: usize,
+) -> std::io::Result<Option<Vec<u8>>> {
     let mut buf = Vec::new();
     let mut chunk = vec![0u8; 64 * 1024];
     loop {
@@ -576,10 +579,34 @@ async fn read_tail<R: AsyncRead + Unpin>(mut r: R, limit: usize) -> Vec<u8> {
     buf
 }
 
+/// Kills the scanner's process group (on Unix: the child and whatever it
+/// started) when dropped while armed: a cancelled, timed out or too
+/// chatty scan. Dropped before the child is reaped, so the group id is
+/// still the child's.
+struct Group {
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pid: Option<u32>,
+    armed: bool,
+}
+
+impl Drop for Group {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        if self.armed {
+            if let Some(pgid) = self.pid.and_then(|p| libc::pid_t::try_from(p).ok()) {
+                // SAFETY: plain syscall on the child's own group (started
+                // with `process_group(0)`, not reaped yet).
+                unsafe { libc::killpg(pgid, libc::SIGKILL) };
+            }
+        }
+    }
+}
+
 /// Run `program` with `args` (no shell, stdin closed) in `work_dir`, with
 /// `env` added. Its stdout is capped at `limit`, its stderr's tail at
-/// [`MAX_STDERR`]. The child is killed on timeout, on a too large output,
-/// and when the returned future is dropped.
+/// [`MAX_STDERR`]. The child (and on Unix its process group) is killed on
+/// timeout, on a too large output, and when the returned future is
+/// dropped.
 pub async fn run_capped(
     program: &Path,
     args: &[String],
@@ -598,14 +625,26 @@ pub async fn run_capped(
     for (k, v) in env {
         cmd.env(k, v);
     }
+    #[cfg(unix)]
+    cmd.process_group(0);
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     let run = async {
         let mut child = cmd.spawn().map_err(|e| match e.kind() {
             std::io::ErrorKind::NotFound => RunError::NotFound,
             _ => RunError::Io(e),
         })?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            RunError::Io(std::io::Error::other("no stdout pipe"))
-        })?;
+        let mut group = Group {
+            pid: child.id(),
+            armed: true,
+        };
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| RunError::Io(std::io::Error::other("no stdout pipe")))?;
         let stderr = child.stderr.take();
         let err_task = tokio::spawn(async move {
             match stderr {
@@ -615,12 +654,14 @@ pub async fn run_capped(
         });
         let out = read_capped(stdout, limit).await.map_err(RunError::Io)?;
         let Some(stdout) = out else {
+            drop(group);
             let _ = child.start_kill();
             let _ = child.wait().await;
             err_task.abort();
             return Err(RunError::TooLarge(limit));
         };
         let status = child.wait().await.map_err(RunError::Io)?;
+        group.armed = false;
         let stderr = String::from_utf8_lossy(&err_task.await.unwrap_or_default()).into_owned();
         if !status.success() {
             return Err(RunError::Failed {
@@ -657,7 +698,10 @@ fn last_error_line(stderr: &str) -> String {
         }
     }
     let text = crate::text::single_line(text.trim_start_matches([':', ' ', '\t']));
-    let text = text.strip_prefix("Fatal error ").unwrap_or(&text).to_string();
+    let text = text
+        .strip_prefix("Fatal error ")
+        .unwrap_or(&text)
+        .to_string();
     text.chars().take(600).collect()
 }
 
@@ -668,7 +712,11 @@ fn last_error_line(stderr: &str) -> String {
 pub fn failure_text(kind: ScannerKind, e: &RunError, target: &ScanTarget) -> String {
     let name = kind.label();
     let RunError::Failed { stderr, .. } = e else {
-        return format!("{name} could not scan {}: {}.", target.reference, e.message());
+        return format!(
+            "{name} could not scan {}: {}.",
+            target.reference,
+            e.message()
+        );
     };
     let last = e.message();
     let lower = stderr.to_ascii_lowercase();

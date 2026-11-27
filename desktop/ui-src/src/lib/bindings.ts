@@ -312,6 +312,28 @@ export const commands = {
 	 */
 	cmdLogUiError: (source: string, message: string, stack: string, options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_log_ui_error", { source, message, stack }, options),
 	/**
+	 *  Scan one image of the listing of `namespaces` (by its reference and
+	 *  digest as listed) with the approved local scanner, unless a scan of it
+	 *  with the same scanner, database and platform is kept (`refresh` scans
+	 *  again). Returns its findings, filtered by the settings.
+	 */
+	cmdImageScan: (cluster: string, namespaces: string[], image: string, digest: string, refresh: boolean, options?: InvokeOptions) => __TAURI_INVOKE<ImageDetail>("cmd_image_scan", { cluster, namespaces, image, digest, refresh }, options),
+	/**  Stop the scan that runs (the scanner is killed). Nothing when none runs. */
+	cmdImageScanCancel: (options?: InvokeOptions) => __TAURI_INVOKE<void>("cmd_image_scan_cancel", undefined, options),
+	/**
+	 *  Approve the binary at `path` for `scanner`: it must be the one found
+	 *  now (the UI cannot approve another file). Returns the new status (a
+	 *  refused version is not kept).
+	 */
+	cmdImageScannerApprove: (scanner: ScannerKind, path: string, options?: InvokeOptions) => __TAURI_INVOKE<ScannerStatus>("cmd_image_scanner_approve", { scanner, path }, options),
+	/**  Forget the approval of `scanner`. */
+	cmdImageScannerForget: (scanner: ScannerKind, options?: InvokeOptions) => __TAURI_INVOKE<ScannerStatus>("cmd_image_scanner_forget", { scanner }, options),
+	/**
+	 *  The scanner of Settings → Image security: where it is, whether it is
+	 *  approved, and its version once it is. Runs nothing before an approval.
+	 */
+	cmdImageScannerStatus: (scanner: ScannerKind, options?: InvokeOptions) => __TAURI_INVOKE<ScannerStatus>("cmd_image_scanner_status", { scanner }, options),
+	/**
 	 *  One image of the listing of `namespaces` (by its reference and digest
 	 *  as listed) with its newest full report, filtered by the settings'
 	 *  severity and "only fixable".
@@ -1967,6 +1989,19 @@ export type ImageSecuritySettings_Deserialize = {
 	 *  (Refresh always reads them), within `CACHE_TTL_RANGE`.
 	 */
 	cache_ttl_hours?: number,
+	/**
+	 *  Where vulnerabilities come from (#536): the cluster's reports, a
+	 *  scanner on this computer, or both.
+	 */
+	source?: VulnSource,
+	/**  The local scanner. */
+	scanner?: ScannerKind,
+	/**  Trivy's `--db-repository`, empty for its default. */
+	db_repository?: string,
+	/**  Do not let the scanner update its database. */
+	skip_db_update?: boolean,
+	/**  A Trivy server (`--server`), empty to scan on this computer. */
+	server_url?: string,
 };
 
 /**  Settings → Image security. */
@@ -1987,6 +2022,19 @@ export type ImageSecuritySettings_Serialize = {
 	 *  (Refresh always reads them), within `CACHE_TTL_RANGE`.
 	 */
 	cache_ttl_hours: number,
+	/**
+	 *  Where vulnerabilities come from (#536): the cluster's reports, a
+	 *  scanner on this computer, or both.
+	 */
+	source: VulnSource,
+	/**  The local scanner. */
+	scanner: ScannerKind,
+	/**  Trivy's `--db-repository`, empty for its default. */
+	db_repository: string,
+	/**  Do not let the scanner update its database. */
+	skip_db_update: boolean,
+	/**  A Trivy server (`--server`), empty to scan on this computer. */
+	server_url: string,
 };
 
 /**
@@ -2832,7 +2880,44 @@ export type SavedSearch_Serialize = {
 /**  Where vulnerability data comes from (ADR 0011). */
 export type ScanSource = 
 /**  The Trivy Operator's VulnerabilityReports in the cluster. */
-"trivy_operator";
+"trivy_operator" | 
+/**  A Trivy or Grype the user installed, run on this computer (#536). */
+"local_scanner";
+
+/**  Which scanner. */
+export type ScannerKind = "trivy" | "grype";
+
+/**  What Settings → Image security shows about the scanner. */
+export type ScannerState = 
+/**  Not on `PATH` and no `NAUVI_TRIVY`/`NAUVI_GRYPE`. */
+"not_installed" | 
+/**  Found, not approved yet. */
+"unapproved" | 
+/**  Another binary than the one approved (path or content). */
+"changed" | 
+/**  Approved and its version read. */
+"ready" | 
+/**  A version nauvi does not run (the approval was dropped). */
+"refused" | 
+/**  Approved, but `version` failed. */
+"broken";
+
+export type ScannerStatus = {
+	scanner: ScannerKind,
+	state: ScannerState,
+	/**  The binary found, empty when none. */
+	path: string,
+	/**  `NAUVI_TRIVY` when it named the path, else `PATH`. */
+	from: string,
+	/**  The path approved earlier, when it is another binary. */
+	approved_path: string,
+	/**  Read only once approved. */
+	version: string,
+	/**  When its database was built, empty when it has none. */
+	db: string,
+	/**  What to do, or what is wrong (empty when ready). */
+	message: string,
+};
 
 /**
  *  The table filter's search history (#219): the last `MAX_RECENT`
@@ -3459,6 +3544,15 @@ export type UsageSample = {
 export type UsageSource = 
 /**  The history the app collects from metrics-server. */
 "metrics_server" | "prometheus";
+
+/**  Where vulnerabilities come from (#536). */
+export type VulnSource = 
+/**  The Trivy Operator's reports only. */
+"cluster" | 
+/**  A Trivy or Grype on this computer only. */
+"local" | 
+/**  The reports, and the local scanner for images they do not cover. */
+"cluster_then_local";
 
 /**  One vulnerability of a full report. */
 export type Vulnerability = {

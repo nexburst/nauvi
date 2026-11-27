@@ -330,9 +330,15 @@ pub(crate) mod tests {
             s.image_security.enabled = true;
             s.contexts.entry(id).or_default().image_security = ImageSecurityMode::Off;
         });
-        let err = listing(&cluster, &settings, None, vec!["a".into(), "b".into()], false)
-            .await
-            .unwrap_err();
+        let err = listing(
+            &cluster,
+            &settings,
+            None,
+            vec!["a".into(), "b".into()],
+            false,
+        )
+        .await
+        .unwrap_err();
         assert_eq!(err, OFF);
         let _ = std::fs::remove_dir_all(dir);
     }

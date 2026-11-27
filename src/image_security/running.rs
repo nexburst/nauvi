@@ -188,7 +188,12 @@ pub async fn platform_of(client: &Client, row: &ImageVulns) -> String {
     let by_node: BTreeMap<String, String> = list
         .items
         .iter()
-        .map(|n| (n.metadata.name.clone().unwrap_or_default(), node_platform(n)))
+        .map(|n| {
+            (
+                n.metadata.name.clone().unwrap_or_default(),
+                node_platform(n),
+            )
+        })
         .filter(|(_, p)| !p.is_empty())
         .collect();
     let distinct: BTreeSet<&String> = by_node.values().collect();
@@ -288,7 +293,11 @@ mod tests {
             state: VulnsState::NoReports,
             namespace: String::new(),
             namespaces_read: vec![],
-            images: vec![row("a:1", &d1, false), row("b:1", &d2, true), row("c:1", "", false)],
+            images: vec![
+                row("a:1", &d1, false),
+                row("b:1", &d2, true),
+                row("c:1", "", false),
+            ],
             forbidden_namespaces: vec![],
             all_namespaces_allowed: false,
             unscanned: 2,
@@ -306,7 +315,14 @@ mod tests {
         // The operator's row is left alone; a row without a digest too.
         let b = summary.images.iter().find(|r| r.image == "b:1").unwrap();
         assert_eq!(b.source, ScanSource::TrivyOperator);
-        assert!(!summary.images.iter().find(|r| r.image == "c:1").unwrap().scanned);
+        assert!(
+            !summary
+                .images
+                .iter()
+                .find(|r| r.image == "c:1")
+                .unwrap()
+                .scanned
+        );
         assert_eq!(summary.unscanned, 1);
         assert_eq!(summary.state, VulnsState::Ok);
         assert_eq!(summary.images[0].image, "a:1", "worst first");

@@ -127,7 +127,8 @@ fn with_known<T>(f: impl FnOnce(&mut Known) -> T) -> T {
 }
 
 async fn fingerprint_of(path: &Path) -> Result<Fingerprint, String> {
-    let meta = std::fs::metadata(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
+    let meta =
+        std::fs::metadata(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))?;
     let modified = meta
         .modified()
         .ok()
@@ -422,7 +423,11 @@ pub(crate) async fn cmd_image_scan(
             };
             // The scan may have updated the database.
             let (after, _) = scanner_status(&dirs, s.scanner, true).await;
-            let db = if after.db.is_empty() { status.db.clone() } else { after.db };
+            let db = if after.db.is_empty() {
+                status.db.clone()
+            } else {
+                after.db
+            };
             let scan = CachedScan::new(
                 s.scanner,
                 &status.version,
@@ -464,10 +469,12 @@ pub(crate) fn kept_detail(
     row: ImageVulns,
     args: &VulnsArgs,
 ) -> Result<ImageDetail, String> {
-    let scan = dirs
-        .results()
-        .get(scanner, &row.digest)
-        .ok_or_else(|| format!("The scan of {} is no longer kept; scan it again.", row.image))?;
+    let scan = dirs.results().get(scanner, &row.digest).ok_or_else(|| {
+        format!(
+            "The scan of {} is no longer kept; scan it again.",
+            row.image
+        )
+    })?;
     Ok(detail_of_scan(row, &scan, args))
 }
 

@@ -155,9 +155,11 @@ mod tests {
         assert!(parse_scan(br#"{"SchemaVersion":2,"Results":null}"#)
             .unwrap()
             .is_empty());
-        assert!(parse_scan(br#"{"Results":[{"Target":"x","Vulnerabilities":null}]}"#)
-            .unwrap()
-            .is_empty());
+        assert!(
+            parse_scan(br#"{"Results":[{"Target":"x","Vulnerabilities":null}]}"#)
+                .unwrap()
+                .is_empty()
+        );
         assert!(parse_scan(b"{}").unwrap().is_empty());
         assert!(parse_scan(b"not json").is_err());
     }

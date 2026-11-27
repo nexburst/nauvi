@@ -29,8 +29,12 @@ fn a_reference_is_rebuilt_from_its_parts_by_digest() {
     // The digest that runs wins over one pinned in the reference.
     let pinned = scan_target(&format!("ghcr.io/org/app:1@{}", d('b')), &d('c'), "").unwrap();
     assert_eq!(pinned.reference, format!("ghcr.io/org/app@{}", d('c')));
-    let port = scan_target("registry.example.com:5000/team/app", &d('a'), "linux/arm64/v8")
-        .unwrap();
+    let port = scan_target(
+        "registry.example.com:5000/team/app",
+        &d('a'),
+        "linux/arm64/v8",
+    )
+    .unwrap();
     assert_eq!(
         port.reference,
         format!("registry.example.com:5000/team/app@{}", d('a'))
@@ -90,7 +94,14 @@ fn only_a_real_digest_and_platform() {
     ] {
         assert!(scan_target("nginx", bad, "").is_err(), "{bad:?}");
     }
-    for bad in ["linux", "linux/amd64/v8/x", "linux/AMD64", "--x/y", "linux/amd 64", "linux/$(id)"] {
+    for bad in [
+        "linux",
+        "linux/amd64/v8/x",
+        "linux/AMD64",
+        "--x/y",
+        "linux/amd 64",
+        "linux/$(id)",
+    ] {
         assert!(scan_target("nginx", &d('a'), bad).is_err(), "{bad:?}");
     }
 }
@@ -206,7 +217,10 @@ fn the_binary_comes_from_the_variable_or_an_absolute_path_entry() {
     assert_eq!(found, trivy.canonicalize().unwrap());
     // Not on PATH: a plain message, and nothing is fetched.
     let err = find_in(ScannerKind::Grype, None, Some(path)).unwrap_err();
-    assert!(err.contains("grype is not installed or not on PATH"), "{err}");
+    assert!(
+        err.contains("grype is not installed or not on PATH"),
+        "{err}"
+    );
     assert!(err.contains("never downloads"));
     assert!(err.contains("NAUVI_GRYPE"));
     // A relative PATH entry is never searched.
@@ -246,7 +260,13 @@ fn nauvi_never_downloads_a_scanner() {
         include_str!("../grype_json.rs"),
     ];
     for src in sources {
-        for word in ["reqwest", "hyper::", "TcpStream", "kubectl_download", "registry_tags::http"] {
+        for word in [
+            "reqwest",
+            "hyper::",
+            "TcpStream",
+            "kubectl_download",
+            "registry_tags::http",
+        ] {
             assert!(!src.contains(word), "{word} in the local scanner");
         }
     }
@@ -279,19 +299,41 @@ fn failures_in_plain_words() {
         &failed("2026-11-26T10:00:00Z\tFATAL\tFatal error\timage scan error: unable to inspect: Get \"https://ghcr.io/v2/\": dial tcp: lookup ghcr.io: no such host\n"),
         &t,
     );
-    assert!(net.starts_with("This computer cannot reach the registry ghcr.io."), "{net}");
+    assert!(
+        net.starts_with("This computer cannot reach the registry ghcr.io."),
+        "{net}"
+    );
     assert!(net.contains("no such host"));
     assert!(!net.contains("FATAL"), "{net}");
-    let auth = failure_text(ScannerKind::Grype, &failed("GET https://ghcr.io/...: UNAUTHORIZED: authentication required"), &t);
+    let auth = failure_text(
+        ScannerKind::Grype,
+        &failed("GET https://ghcr.io/...: UNAUTHORIZED: authentication required"),
+        &t,
+    );
     assert!(auth.contains("did not let Grype pull"), "{auth}");
     assert!(auth.contains("docker login ghcr.io"));
-    let gone = failure_text(ScannerKind::Trivy, &failed("ERROR MANIFEST_UNKNOWN: manifest unknown"), &t);
+    let gone = failure_text(
+        ScannerKind::Trivy,
+        &failed("ERROR MANIFEST_UNKNOWN: manifest unknown"),
+        &t,
+    );
     assert!(gone.contains("has no image"), "{gone}");
-    let db = failure_text(ScannerKind::Trivy, &failed("FATAL --skip-db-update cannot be specified on the first run"), &t);
+    let db = failure_text(
+        ScannerKind::Trivy,
+        &failed("FATAL --skip-db-update cannot be specified on the first run"),
+        &t,
+    );
     assert!(db.contains("no vulnerability database yet"), "{db}");
     let other = failure_text(ScannerKind::Trivy, &failed("FATAL something odd"), &t);
-    assert_eq!(other, format!("Trivy could not scan {}: something odd", t.reference));
-    let slow = failure_text(ScannerKind::Trivy, &RunError::TimedOut(Duration::from_secs(5)), &t);
+    assert_eq!(
+        other,
+        format!("Trivy could not scan {}: something odd", t.reference)
+    );
+    let slow = failure_text(
+        ScannerKind::Trivy,
+        &RunError::TimedOut(Duration::from_secs(5)),
+        &t,
+    );
     assert!(slow.contains("did not finish within 5 s"));
 }
 
@@ -313,20 +355,37 @@ async fn a_scan_runs_the_binary_without_a_shell_in_its_own_folder() {
         ),
     );
     let t = scan_target("nginx:1.27", &d('a'), "linux/amd64").unwrap();
-    let v = scan(ScannerKind::Trivy, &fake, "0.58.1", &t, &ScanOptions::default(), &work)
-        .await
-        .unwrap();
+    let v = scan(
+        ScannerKind::Trivy,
+        &fake,
+        "0.58.1",
+        &t,
+        &ScanOptions::default(),
+        &work,
+    )
+    .await
+    .unwrap();
     assert_eq!(v.len(), 3);
     let got = std::fs::read_to_string(&argv).unwrap();
     let lines: Vec<&str> = got.lines().collect();
     assert_eq!(lines[lines.len() - 2..], ["--", t.reference.as_str()]);
     let cwd = std::fs::read_to_string(format!("{}.cwd", argv.display())).unwrap();
-    assert_eq!(Path::new(cwd.trim()).canonicalize().unwrap(), work.canonicalize().unwrap());
+    assert_eq!(
+        Path::new(cwd.trim()).canonicalize().unwrap(),
+        work.canonicalize().unwrap()
+    );
     // A refused version never runs.
     std::fs::remove_file(&argv).unwrap();
-    let err = scan(ScannerKind::Trivy, &fake, "0.69.5", &t, &ScanOptions::default(), &work)
-        .await
-        .unwrap_err();
+    let err = scan(
+        ScannerKind::Trivy,
+        &fake,
+        "0.69.5",
+        &t,
+        &ScanOptions::default(),
+        &work,
+    )
+    .await
+    .unwrap_err();
     assert!(format!("{err}").contains("malicious"));
     assert!(!argv.exists());
     let _ = std::fs::remove_dir_all(dir);
@@ -348,10 +407,17 @@ async fn output_is_capped_and_a_dropped_scan_is_killed() {
     assert!(matches!(err, RunError::TimedOut(_)));
     // Cancelled: the future is dropped, and the child with it.
     let pidfile = dir.join("pid");
-    let child = script(&dir, "child", &format!("echo $$ > {}\nexec sleep 30", pidfile.display()));
+    let child = script(
+        &dir,
+        "child",
+        &format!("echo $$ > {}\nexec sleep 30", pidfile.display()),
+    );
     let run = run_capped(&child, &[], &dir, &[], 1024, Duration::from_secs(60));
     let _ = tokio::time::timeout(Duration::from_millis(500), run).await;
-    let pid = std::fs::read_to_string(&pidfile).unwrap().trim().to_string();
+    let pid = std::fs::read_to_string(&pidfile)
+        .unwrap()
+        .trim()
+        .to_string();
     let mut gone = false;
     for _ in 0..50 {
         let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap_or_default();
@@ -381,7 +447,9 @@ async fn versions_are_read_from_the_scanner() {
         "trivy",
         r#"echo '{"Version":"0.58.1","VulnerabilityDB":{"UpdatedAt":"2026-11-25T06:00:00Z"}}'"#,
     );
-    let v = scanner_version(ScannerKind::Trivy, &trivy, &dir).await.unwrap();
+    let v = scanner_version(ScannerKind::Trivy, &trivy, &dir)
+        .await
+        .unwrap();
     assert_eq!(v.version, "0.58.1");
     assert_eq!(v.db, "2026-11-25T06:00:00Z");
     let grype = script(
@@ -389,10 +457,20 @@ async fn versions_are_read_from_the_scanner() {
         "grype",
         r#"if [ "$1" = db ]; then echo '{"built":"2026-11-24T00:00:00Z"}'; else echo '{"version":"0.84.0"}'; fi"#,
     );
-    let v = scanner_version(ScannerKind::Grype, &grype, &dir).await.unwrap();
-    assert_eq!((v.version.as_str(), v.db.as_str()), ("0.84.0", "2026-11-24T00:00:00Z"));
+    let v = scanner_version(ScannerKind::Grype, &grype, &dir)
+        .await
+        .unwrap();
+    assert_eq!(
+        (v.version.as_str(), v.db.as_str()),
+        ("0.84.0", "2026-11-24T00:00:00Z")
+    );
     let broken = script(&dir, "broken", "echo nope >&2; exit 3");
-    let err = scanner_version(ScannerKind::Trivy, &broken, &dir).await.unwrap_err();
-    assert!(format!("{err}").contains("trivy version failed: nope"), "{err}");
+    let err = scanner_version(ScannerKind::Trivy, &broken, &dir)
+        .await
+        .unwrap_err();
+    assert!(
+        format!("{err}").contains("trivy version failed: nope"),
+        "{err}"
+    );
     let _ = std::fs::remove_dir_all(dir);
 }
