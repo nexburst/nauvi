@@ -197,6 +197,7 @@
       ? customColumnError(
           draft,
           columns.filter((c) => !draft || c.key !== customKey(draft.id ?? "")).map((c) => c.label),
+          kind.resource,
         )
       : "",
   );

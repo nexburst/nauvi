@@ -8,6 +8,7 @@ import {
   fieldPathError,
   isCustomKey,
   newCustomId,
+  SECRET_DATA_REFUSED,
   sourceError,
   withCustom,
 } from "./customColumns";
@@ -61,6 +62,29 @@ describe("field paths (#547)", () => {
     expect(sourceError("label", "app.kubernetes.io/version")).toBe("");
     expect(sourceError("annotation", "")).toMatch(/^Type the annotation key/);
     expect(sourceError("label", "a b")).toBe("A label key has no spaces.");
+  });
+});
+
+describe("custom columns on Secrets (#571)", () => {
+  const secret = { group: "", kind: "Secret" };
+  it("never read their data", () => {
+    for (const path of [".data", ".data.password", " .data.x ", ".data[0]", ".Data.x", ".stringData", ".stringdata.t"])
+      expect(sourceError("field", path, secret), path).toBe(SECRET_DATA_REFUSED);
+    for (const key of ["kubectl.kubernetes.io/last-applied-configuration", "Kapp.k14s.io/Original"])
+      expect(sourceError("annotation", key, secret), key).toBe(SECRET_DATA_REFUSED);
+    // A wrong path says what is wrong with it first.
+    expect(sourceError("field", ".['data']", secret)).toMatch(/^A field name must follow the first dot/);
+    expect(sourceError("field", ".metadata['data']", secret)).toMatch(/Only numbers work in brackets/);
+    expect(sourceError("field", "data", secret)).toMatch(/starts with a dot/);
+    // The rest of a Secret, and other kinds, are fine.
+    for (const path of [".type", ".dataset", ".data-x", ".metadata.name", ".immutable"])
+      expect(sourceError("field", path, secret), path).toBe("");
+    expect(sourceError("label", "kubectl.kubernetes.io/last-applied-configuration", secret)).toBe("");
+    expect(sourceError("field", ".data.x", { group: "", kind: "ConfigMap" })).toBe("");
+    expect(sourceError("field", ".data.x", { group: "example.com", kind: "Secret" })).toBe("");
+    expect(customColumnError({ label: "Password", source: "field", value: ".data.password" }, ["Name"], secret)).toBe(
+      SECRET_DATA_REFUSED,
+    );
   });
 });
 

@@ -4,7 +4,7 @@
 // (`src/resources/custom_columns.rs`, whose checks these repeat so the
 // chooser can say what is wrong as you type).
 
-import type { ColumnDef, CustomColumn, CustomSource, ResourceKind } from "./bindings";
+import type { ColumnDef, CustomColumn, CustomSource, ResourceKind, ResourceRef } from "./bindings";
 
 /** At most this many per kind (`MAX_CUSTOM_COLUMNS`). */
 export const MAX_CUSTOM = 10;
@@ -88,21 +88,50 @@ function keyError(what: string, key: string): string {
   return "";
 }
 
-/** What is wrong with the value of a column from `source` ("" if nothing). */
-export function sourceError(source: CustomSource, value: string): string {
-  if (source === "field") return fieldPathError(value);
-  return keyError(source, value);
+/** Said for a column that would show a Secret's data (#571). */
+export const SECRET_DATA_REFUSED =
+  "A column on Secrets cannot show their data: open the Secret and press Reveal to see it.";
+
+/** Annotations that hold a copy of the whole object (`COPY_ANNOTATIONS`). */
+const COPY_ANNOTATIONS = ["kubectl.kubernetes.io/last-applied-configuration", "kapp.k14s.io/original"];
+
+/** Whether a valid column would read a Secret's data, which the Secret
+ *  panel shows only after Reveal (#571; `check_custom_column_for`): a field
+ *  path under `.data` or `.stringData`, or an annotation that holds a copy
+ *  of the Secret, compared without case. */
+function readsSecretData(resource: Pick<ResourceRef, "group" | "kind">, source: CustomSource, value: string): boolean {
+  if (resource.group !== "" || resource.kind !== "Secret") return false;
+  const v = value.trim().toLowerCase();
+  if (source === "annotation") return COPY_ANNOTATIONS.includes(v);
+  if (source === "field") return /^\.(data|stringdata)(?![A-Za-z0-9_-])/.test(v);
+  return false;
+}
+
+/** What is wrong with the value of a column from `source` ("" if nothing),
+ *  in the table of `resource` if given. */
+export function sourceError(
+  source: CustomSource,
+  value: string,
+  resource?: Pick<ResourceRef, "group" | "kind">,
+): string {
+  const err = source === "field" ? fieldPathError(value) : keyError(source, value);
+  if (err) return err;
+  return resource && readsSecretData(resource, source, value) ? SECRET_DATA_REFUSED : "";
 }
 
 /** What is wrong with a column the user is adding or editing, among the
- *  kind's `others` ("" if nothing). */
-export function customColumnError(c: Pick<CustomColumn, "label" | "source" | "value">, others: readonly string[]): string {
+ *  kind's `others`, in the table of `resource` if given ("" if nothing). */
+export function customColumnError(
+  c: Pick<CustomColumn, "label" | "source" | "value">,
+  others: readonly string[],
+  resource?: Pick<ResourceRef, "group" | "kind">,
+): string {
   const label = c.label.trim();
   if (!label) return "Give the column a name.";
   if ([...label].length > MAX_CUSTOM_LABEL) return `The name is too long: at most ${MAX_CUSTOM_LABEL} characters.`;
   if (others.some((o) => o.trim().toLowerCase() === label.toLowerCase()))
     return `The table already has a column named "${label}".`;
-  return sourceError(c.source, c.value);
+  return sourceError(c.source, c.value, resource);
 }
 
 /** A new id, unique among `existing` ones. */

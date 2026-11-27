@@ -84,7 +84,7 @@ pub(crate) async fn cmd_watch_start(
     custom: Vec<CustomColumn>,
     on_event: Channel<WatchMessage>,
 ) -> Result<String, String> {
-    let extra = resources::custom_column_defs(&custom)?;
+    let extra = resources::custom_column_defs(&resource, &custom)?;
     let (client, prober) = cluster.watch_client().await?;
     let mut kind = kind_of(&cluster, &client, &resource).await?;
     kind.columns.extend(extra);

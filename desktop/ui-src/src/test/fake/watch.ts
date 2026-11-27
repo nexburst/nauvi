@@ -35,7 +35,7 @@ export function watchHandlers(s: FakeState) {
       const kind = kindOf(s, resource);
       // Like the backend: a column it cannot read is refused (#547).
       for (const c of custom) {
-        const err = sourceError(c.source, c.value);
+        const err = sourceError(c.source, c.value, resource);
         if (err) throw `Column "${c.label}": ${err}`;
       }
       const id = `watch-${++s.watchSeq}`;
