@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { openApp } from "./helpers";
+import { openApp, openKind, row } from "./helpers";
 import type { FakeCluster } from "../fixtures/cluster";
 import { FAKE_SHA256 } from "../fixtures/image-scan";
 
@@ -14,6 +14,7 @@ const imageRows = (page: Page) => view(page).getByTestId("image-row");
 const imageRow = (page: Page, image: string) => view(page).locator(`[data-testid="image-row"][data-key^="${image}@"]`);
 const panel = (page: Page) => page.getByTestId("image-findings");
 const palette = (page: Page) => page.getByRole("dialog", { name: "Command palette" });
+const openChooser = (page: Page) => page.getByRole("button", { name: /^Columns/ }).click();
 
 // Init functions run in the page as source text: no captured variables.
 const localOn = (cluster: FakeCluster) => {
@@ -237,4 +238,53 @@ test("cluster first, then this computer: reports stay, the rest can be scanned",
   await expect(imageRow(page, "ghcr.io/team-a/worker:3")).toContainText("Trivy 0.58.1 on this computer");
   await expect(imageRow(page, "nginx:1.27")).toContainText("through Trivy Operator");
   await expect(bar).toContainText("Every running image here was scanned.");
+});
+
+test("a local scan shows in the Vulns column, the Security tab and the prompt; another source reads again", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const fake = await openApp(page, localApproved);
+  // The Vulns column first, before anything is scanned.
+  await openKind(page, "Deployments");
+  await openChooser(page);
+  await page.getByRole("dialog", { name: "Columns" }).getByRole("checkbox", { name: "Vulns", exact: true }).check();
+  await page.keyboard.press("Escape");
+  await expect(row(page, "web").getByRole("gridcell", { name: "Not scanned", exact: true })).toBeVisible();
+
+  await goToImageSecurity(page);
+  await imageRow(page, "nginx:1.27").click();
+  await panel(page).getByTestId("image-scan-one").click();
+  await expect(imageRow(page, "nginx:1.27")).toContainText("1 critical and 1 high. 1 of 2 has a fix.");
+  const reads = (await fake.calls("cmdImageSecuritySummary")).length;
+
+  // Back to the table: the scan is there, without another read.
+  await openKind(page, "Deployments");
+  await expect(row(page, "web").getByRole("gridcell", { name: "1C 1H", exact: true })).toBeVisible();
+  await row(page, "web").click();
+  await page.getByTestId("detail-panel").getByRole("tab", { name: "Security" }).click();
+  const tab = page.getByTestId("workload-security");
+  await expect(tab.getByTestId("workload-security-verdict")).toHaveText("1 critical and 1 high. 1 of 2 has a fix.");
+  await expect(tab.locator(".lead")).toContainText("From local scans.");
+  expect((await fake.calls("cmdImageSecuritySummary")).length).toBe(reads);
+
+  // Copy as prompt names local scans, and no MCP tool that cannot see them.
+  await page.getByRole("grid").focus();
+  await page.keyboard.press("a");
+  await expect(page.getByRole("status")).toContainText("Copied a prompt about");
+  const prompt = await page.evaluate(() => navigator.clipboard.readText());
+  expect(prompt).toContain("Known image vulnerabilities (local scans;");
+  expect(prompt).not.toContain("image_vulnerabilities");
+
+  // Another source: the surfaces read the listing again.
+  const { dialog, section } = await openSettingsSection(page);
+  const hint = dialog.getByTestId("image-security-settings");
+  await expect(hint).toContainText("nauvi scans an image only when you ask");
+  await section.getByRole("combobox", { name: "Where vulnerabilities come from" }).selectOption("cluster");
+  await expect(hint).toContainText("nauvi scans nothing and downloads nothing itself.");
+  await expect.poll(async () => (await fake.calls("cmdImageSecuritySummary")).length).toBeGreaterThan(reads);
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(row(page, "web").getByRole("gridcell", { name: "2C 5H", exact: true })).toBeVisible();
+  expect(fake.errors).toEqual([]);
 });

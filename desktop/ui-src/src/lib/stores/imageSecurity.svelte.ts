@@ -91,7 +91,10 @@ export function patchImage(detail: ImageDetail) {
   if (!list) return;
   const key = rowKey(detail.image);
   const images = list.summary.images.map((r) => (rowKey(r) === key ? detail.image : r));
-  imageSecurity.list = { ...list, summary: { ...list.summary, images, unscanned: images.filter((r) => !r.scanned).length } };
+  const patched = { ...list, summary: { ...list.summary, images, unscanned: images.filter((r) => !r.scanned).length } };
+  imageSecurity.list = patched;
+  // The Vulns column, Security tab, cards and Overview show it too.
+  shareFindings(patched, listedFor);
   if (imageSecurity.selected === key) {
     detailSeq++;
     imageSecurity.detail = detail;

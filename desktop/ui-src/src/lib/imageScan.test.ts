@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ImageVulns, ScannerStatus } from "./bindings";
-import { dbDate, notScannableText, progressText, scannable, scannerStateText, toScan, unscannable, unscannableText, usesLocal } from "./imageScan";
+import { dbDate, notScannableText, progressText, scannable, scannerStateText, scansText, toScan, unscannable, unscannableText, usesLocal } from "./imageScan";
 
 const D = `sha256:${"a".repeat(64)}`;
 
@@ -69,5 +69,17 @@ describe("image scan words", () => {
     expect(usesLocal("cluster")).toBe(false);
     expect(usesLocal("cluster_then_local")).toBe(true);
     expect(usesLocal(undefined)).toBe(false);
+  });
+});
+
+describe("scansText", () => {
+  it("says nauvi scans nothing with the cluster's reports", () => {
+    expect(scansText("cluster")).toBe("nauvi scans nothing and downloads nothing itself.");
+    expect(scansText(undefined)).toContain("scans nothing");
+  });
+  it("says when a local scanner scans", () => {
+    expect(scansText("local")).toContain("scans an image only when you ask");
+    expect(scansText("cluster_then_local")).toContain("the reports do not cover");
+    expect(scansText("local")).not.toContain("scans nothing");
   });
 });

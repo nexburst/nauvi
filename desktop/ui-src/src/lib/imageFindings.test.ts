@@ -269,6 +269,15 @@ describe("the prompt and the Overview", () => {
     expect(sourcesText([local, img({ image: "c:1", scanned: false })])).toBe("local scans");
   });
 
+  it("points to the MCP tool only for the operator's reports (#536)", () => {
+    const op = index.byWorkload.get("demo/Deployment/web")!;
+    expect(promptLines(op, S, NOW).at(-1)).toContain("image_vulnerabilities");
+    const local = op.map((w) => ({ ...w, row: { ...w.row, source: "local_scanner" as const } }));
+    const lines = promptLines(local, S, NOW);
+    expect(lines[0]).toContain("local scans");
+    expect(lines.at(-1)).not.toContain("image_vulnerabilities");
+  });
+
   it("counts images with a fix waiting, never red", () => {
     const f = overviewFindings(images, S);
     expect(f).toMatchObject({ waiting: 1, findings: 1, images: 3, unscanned: 1, tone: "critical" });

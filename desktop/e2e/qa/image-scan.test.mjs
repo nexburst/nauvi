@@ -9,6 +9,7 @@
 //   digest can be scanned (a `kind load`ed image may have none in CI): the
 //   scenario finds them by their key (`image@digest`), and a row without
 //   one says why
+// - the Vulns column and the container card show the scan right away
 // - the panel: what to update; Cancel kills a slow scan; an unreachable
 //   registry says so plainly
 // - a changed binary is asked about again; a file swapped after the
@@ -28,7 +29,7 @@ import { deleteNamespace, kubectl, tempNamespace } from "../lib/cluster.mjs";
 import { setTheme } from "../lib/panels.mjs";
 import { createProfile } from "../lib/profile.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
-import { pickNamespaces } from "../lib/table.mjs";
+import { pickNamespaces, tableData } from "../lib/table.mjs";
 import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 180_000 };
@@ -272,6 +273,50 @@ describe("image scan with a local trivy", { timeout: 15 * 60_000 }, () => {
     assert.match(text, /Updating openssl to 3\.0\.15-1 fixes 1 critical\./);
     assert.match(text, /Trivy 0\.58\.1 on this computer/);
     assert.match(text, /Scan again/);
+  });
+
+  // The surfaces outside the view (#535) show a local scan too, from the
+  // listing the scan patched: no "Not scanned" left behind.
+  const podOf = (key) => (key.startsWith("nginx:") ? "web" : "tool");
+
+  it("the Vulns column shows the local scan (dark)", T, async () => {
+    const { app } = s;
+    await app.nav("Pods");
+    const button = await app.find(By.xpath("//button[starts-with(normalize-space(), 'Columns')]"));
+    await button.click();
+    const columns = "//*[@role='dialog'][@aria-label='Columns']";
+    const [choice] = await app.driver.findElements(By.xpath(`${columns}//label[normalize-space()='Vulns']//input`));
+    assert.ok(choice, "the Vulns column is offered");
+    if (!(await choice.isSelected())) await app.js("arguments[0].click()", choice);
+    await app.driver.actions().sendKeys(Key.ESCAPE).perform();
+    const pods = scannable.map(podOf);
+    const by = await app.waitFor(
+      async () => {
+        const t = await tableData(app);
+        const got = Object.fromEntries((t?.rows ?? []).map((r) => [r.Name, r.Vulns]));
+        return pods.every((p) => got[p] === "1C 2H") ? got : null;
+      },
+      { timeout: 30_000, message: "the scanned pods' Vulns cells" },
+    );
+    for (const p of unscannable.map(podOf)) assert.equal(by[p], "Not scanned", JSON.stringify(by));
+  });
+
+  it("a container card shows the local scan (light)", T, async () => {
+    const { app } = s;
+    await setTheme(app, "light");
+    await app.openDetail("Pods", ns, podOf(scannable[0]));
+    const line = await app.waitFor(
+      async () => {
+        const t = await app.js(`return document.querySelector('[data-testid="container-vulns"]')?.innerText ?? ""`);
+        return /1 critical and 2 high/.test(t) ? t : null;
+      },
+      { timeout: 30_000, message: "the container's Vulns line" },
+    );
+    assert.match(line, /2 of 3 have a fix/);
+    // Back to the view, with the scanned image's panel, for the next steps.
+    await app.palette("image security", "Go to Image security");
+    await (await app.find(By.css(`[data-testid="image-row"][data-key="${scannable[0]}"]`))).click();
+    await app.find(byTestId("image-scan-one"));
   });
 
   it("Cancel stops a slow scan and its process (light)", T, async () => {

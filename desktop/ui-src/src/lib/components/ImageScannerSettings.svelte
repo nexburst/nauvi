@@ -4,6 +4,7 @@
   import { SCANNERS, SOURCES, scannerLabel, scannerStateText, usesLocal } from "../imageScan";
   import { imageSecuritySettings } from "../stores/imageSecurity.svelte";
   import { approveScanner, forgetScanner, imageScan, loadScannerStatus } from "../stores/imageScan.svelte";
+  import { resetFindings } from "../stores/imageFindings.svelte";
   import { updateSettings } from "../stores/settings.svelte";
 
   /** Settings → Image security → Source (#536, ADR 0011): the Trivy
@@ -28,6 +29,8 @@
 
   async function setSource(source: VulnSource) {
     await save({ source });
+    // The surfaces read the listing again, from the new source.
+    resetFindings();
     if (usesLocal(source)) void loadScannerStatus();
   }
 
@@ -46,6 +49,7 @@
 
   async function setScanner(scanner: ScannerKind) {
     await save({ scanner });
+    resetFindings();
     void loadScannerStatus(scanner);
   }
 </script>

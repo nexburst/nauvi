@@ -21,6 +21,13 @@ export const scannerLabel = (k: ScannerKind) => (k === "grype" ? "Grype" : "Triv
 /** Whether the source runs the local scanner. */
 export const usesLocal = (source: VulnSource | undefined) => source === "local" || source === "cluster_then_local";
 
+/** What nauvi itself scans, for the hints about the source. */
+export function scansText(source: VulnSource | undefined): string {
+  if (!usesLocal(source)) return "nauvi scans nothing and downloads nothing itself.";
+  const rest = source === "cluster_then_local" ? "an image the reports do not cover" : "an image";
+  return `nauvi scans ${rest} only when you ask, with the Trivy or Grype on this computer, and never downloads a scanner or a database.`;
+}
+
 /** The line Settings shows about the scanner. */
 export function scannerStateText(s: ScannerStatus): string {
   const name = scannerLabel(s.scanner);

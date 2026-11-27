@@ -7,6 +7,7 @@
   import { contextLabel, openClusterSettings } from "../stores/catalog.svelte";
   import { closeSettings } from "../stores/keyboard.svelte";
   import { parseNamespaceList } from "../catalog";
+  import { scansText } from "../imageScan";
   import ImageScannerSettings from "./ImageScannerSettings.svelte";
 
   /** Settings → Image security (#534, ADR 0011). Off by default; each
@@ -37,7 +38,7 @@
     Off unless you turn it on. nauvi then reads the VulnerabilityReports the Trivy Operator keeps in the cluster, with
     your own access, when something shows them: the Image security view, the Overview, a pod or workload panel or the
     Vulns column. They share one read, kept until "Read the reports again after" below, with no watch. While it is off,
-    nothing is read. It scans nothing and downloads nothing itself.
+    nothing is read. {scansText(s.source)}
   </p>
   {#if context}
     <div class="row">

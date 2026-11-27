@@ -16,7 +16,7 @@
   import { settings } from "../stores/settings.svelte";
   import EmptyState from "./EmptyState.svelte";
   import ImageScanBar from "./ImageScanBar.svelte";
-  import { usesLocal } from "../imageScan";
+  import { scansText, usesLocal } from "../imageScan";
   import VirtualList from "./VirtualList.svelte";
 
   /** Image security (#534, ADR 0011): one row per running image of the
@@ -72,7 +72,7 @@
     <div class="center">
       <EmptyState
         title="Image security is off for this cluster"
-        detail="When it is on, nauvi reads the Trivy Operator's VulnerabilityReports for the namespaces you pick when this view, the Overview, a pod or workload panel or the Vulns column is shown. nauvi scans nothing and downloads nothing itself."
+        detail={`When it is on, nauvi reads ${s.source === "local" ? "the pods' images" : "the Trivy Operator's VulnerabilityReports"} for the namespaces you pick when this view, the Overview, a pod or workload panel or the Vulns column is shown. ${scansText(s.source)}`}
         reason="off"
       >
         <button
