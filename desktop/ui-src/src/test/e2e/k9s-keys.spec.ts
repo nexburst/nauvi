@@ -300,3 +300,84 @@ test("? lists the new keys, and the k9s ones while they are on", async ({ page }
   await expect(help(page)).toContainText("Logs of the pod's previous run");
   await expect(help(page).locator("kbd").first()).toHaveText("Ctrl+P");
 });
+
+// #580: the follow-ups of #579.
+
+test(": opens the palette from the table, not from a button outside it", async ({ page }) => {
+  await openApp(page);
+  await openKind(page, "Pods");
+  const pods = page.getByRole("navigation").getByRole("button", { name: "Pods", exact: true });
+  await pods.focus();
+  await page.keyboard.press(":");
+  await expect(palette(page)).toHaveCount(0);
+  // Ctrl+K opens the palette from anywhere.
+  await page.keyboard.press("Control+k");
+  await expect(palette(page)).toBeVisible();
+  await page.keyboard.press("Control+k");
+  await expect(palette(page)).toHaveCount(0);
+  await grid(page).focus();
+  await page.keyboard.press(":");
+  await expect(palette(page).getByRole("combobox")).toHaveValue(":");
+});
+
+test("no global key acts behind a protected cluster's confirmation", async ({ page }) => {
+  const fake = await openApp(page, protectedDev);
+  await openKind(page, "Pods");
+  await row(page, "web-1").click();
+  const aside = page.locator("aside");
+  await aside.getByLabel("Pod port").fill("8080");
+  await aside.getByLabel("Local port").fill("18080");
+  await aside.getByRole("button", { name: "Forward", exact: true }).click();
+  // A port-forward asks with no action dialog behind the prompt.
+  await expect(protectedConfirm(page)).toBeVisible();
+  await expect(dialog(page)).toHaveCount(0);
+  await page.keyboard.press("Tab");
+  const cancel = protectedConfirm(page).getByRole("button", { name: "Cancel" });
+  await expect(cancel).toBeFocused();
+  for (const key of ["?", ":", "Control+k", "Control+,"]) await page.keyboard.press(key);
+  await expect(help(page)).toHaveCount(0);
+  await expect(palette(page)).toHaveCount(0);
+  await expect(page.getByRole("dialog", { name: "Settings" })).toHaveCount(0);
+  await expect(cancel).toBeFocused();
+  expect(await fake.calls("cmdPortforwardStart")).toEqual([]);
+  await page.keyboard.press("Escape");
+  await expect(protectedConfirm(page)).toHaveCount(0);
+});
+
+test("at 1280x800 no key in ? runs into its description", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openApp(page, withK9sKeys);
+  await openKind(page, "Pods");
+  await grid(page).focus();
+  await page.keyboard.press("?");
+  await expect(help(page)).toContainText("New local terminal");
+  const overlaps = await help(page).evaluate((el) => {
+    const out: string[] = [];
+    for (const dt of el.querySelectorAll("dt")) {
+      const dd = dt.nextElementSibling as HTMLElement;
+      const left = dd.getBoundingClientRect().left;
+      for (const k of dt.querySelectorAll("kbd, .or")) {
+        if (k.getBoundingClientRect().right > left + 0.5) out.push(`${k.textContent} / ${dd.textContent}`);
+      }
+    }
+    return out;
+  });
+  expect(overlaps).toEqual([]);
+});
+
+test("at 1280x800 the force delete's Type … to confirm is one line", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openApp(page, withK9sKeys);
+  await openKind(page, "Pods");
+  await grid(page).focus();
+  await page.keyboard.press("j");
+  await page.keyboard.press("Control+k");
+  await expect(dialog(page)).toHaveAccessibleName("Force delete Pod");
+  const label = dialog(page).locator("label.field > span").first();
+  await expect(label).toHaveText("Type crashed to confirm");
+  const box = await label.boundingBox();
+  const input = await dialog(page).getByRole("textbox").boundingBox();
+  // One line of 13px text, above the field.
+  expect(box!.height).toBeLessThan(24);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(input!.y);
+});

@@ -136,7 +136,7 @@
 
         {#if req.action.type_to_confirm}
           <label class="field">
-            Type <span class="mono">{req.targets[0].name}</span> to confirm
+            <span>Type <span class="mono">{req.targets[0].name}</span> to confirm</span>
             <input
               class="input mono"
               bind:value={req.typed}
