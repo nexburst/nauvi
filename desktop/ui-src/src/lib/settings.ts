@@ -17,6 +17,7 @@ import { clampIdleMinutes, DEFAULT_IDLE_MINUTES } from "./idle";
 import { normalizeHistory } from "./searchHistory";
 import type { SearchHistory } from "./searchHistory";
 import type { Sort } from "./view";
+import { orderChanged } from "./columnOrder";
 import { clampTerminalFont, clampZoom, DEFAULT_TERMINAL_FONT, DEFAULT_ZOOM } from "./zoom";
 
 // The backend fills in missing fields, so what it sends always has them all.
@@ -149,7 +150,15 @@ export const EMPTY_CONTEXT: ContextSettings = {
   mode: "normal",
   mode_source: { file: "", given: "", context: "" },
 };
-export const EMPTY_KIND: KindSettings = { sort_key: "", sort_desc: false, hidden: [], shown: [], widths: {} };
+export const EMPTY_KIND: KindSettings = {
+  sort_key: "",
+  sort_desc: false,
+  hidden: [],
+  shown: [],
+  widths: {},
+  order: [],
+  custom: [],
+};
 
 /** What is wrong with a Prometheus Service typed in Settings ("" if nothing):
  *  empty (detect), `off`, or `namespace/service[:port]`. */
@@ -262,13 +271,27 @@ export function toggleColumn(
   return { shown: shown.includes(col.key) ? shown.filter((k) => k !== col.key) : [...shown, col.key] };
 }
 
-/** "Default columns" in the chooser: what the kind shows on a fresh install
- *  (every column but the off-by-default ones). */
-export const DEFAULT_COLUMNS: Pick<KindSettings, "hidden" | "shown"> = { hidden: [], shown: [] };
+/** "Reset to default" in the chooser: what the kind shows on a fresh install
+ *  (every column but the off-by-default ones, in the kind's order, fitted
+ *  to their values). Custom columns stay, shown (#547). */
+export const DEFAULT_COLUMNS: Pick<KindSettings, "hidden" | "shown" | "order" | "widths"> = {
+  hidden: [],
+  shown: [],
+  order: [],
+  widths: {},
+};
 
-/** Whether the user changed which columns of the kind show. */
-export function columnsChanged(kind: Pick<KindSettings, "hidden" | "shown">, cols: readonly ColumnChoice[]): boolean {
-  return cols.some((c) => columnOn(kind, c) === c.defaultHidden);
+/** Whether the user changed which columns of the kind show, their order
+ *  or their widths. `cols` in the kind's own order. */
+export function columnsChanged(
+  kind: Pick<KindSettings, "hidden" | "shown"> & Partial<Pick<KindSettings, "order" | "widths">>,
+  cols: readonly ColumnChoice[],
+): boolean {
+  return (
+    cols.some((c) => columnOn(kind, c) === c.defaultHidden) ||
+    orderChanged(cols, kind.order ?? []) ||
+    Object.keys(kind.widths ?? {}).length > 0
+  );
 }
 
 /** The panel width, kept within what fits the window. */

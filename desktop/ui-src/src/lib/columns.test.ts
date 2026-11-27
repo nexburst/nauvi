@@ -11,6 +11,7 @@ import {
   shownColumns,
   statusIcon,
   cellWidth,
+  imageCell,
 } from "./columns";
 import type { Ctx, Metrics } from "./columns";
 
@@ -301,5 +302,27 @@ describe("headerLabel", () => {
     expect(headerLabel("NAME")).toBe("Name");
     expect(headerLabel("LAST SEEN")).toBe("Last seen");
     expect(headerLabel("ready")).toBe("Ready");
+  });
+});
+
+describe("the Image column (#547)", () => {
+  const cell = "web:1.4.2 +1\nghcr.io/shop/web:1.4.2@sha256:3f\ndocker.io/envoyproxy/envoy:v1.31.0";
+  it("shows the first image and lists every reference in its tooltip", () => {
+    expect(imageCell(cell)).toEqual({
+      shown: "web:1.4.2 +1",
+      refs: ["ghcr.io/shop/web:1.4.2@sha256:3f", "docker.io/envoyproxy/envoy:v1.31.0"],
+    });
+    expect(imageCell("")).toEqual({ shown: "", refs: [] });
+    const [, image] = columnsFor(
+      kindWith([
+        ["name", "text"],
+        ["image", "image"],
+      ]),
+    );
+    const r = row(["web-1", cell]);
+    const ctx: Ctx = { metrics: EMPTY_METRICS, now: 0 };
+    expect(image.text(r, ctx)).toBe("web:1.4.2 +1");
+    expect(image.sort(r, ctx)).toBe("web:1.4.2 +1");
+    expect(image.title?.(r, "local", ctx)).toBe(cell);
   });
 });

@@ -619,9 +619,11 @@ export const commands = {
 	cmdDetailWatch: (cluster: string, resource: ResourceRef, namespace: string, name: string, onEvent: Channel<DetailState>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_detail_watch", { cluster, resource, namespace, name, onEvent }, options),
 	/**
 	 *  Start watching a kind (in `namespace`, if it is namespaced); its rows
-	 *  and states go to `on_event`. Returns the watch id for `cmd_watch_stop`.
+	 *  and states go to `on_event`. The rows carry a cell for each of the
+	 *  `custom` columns too, after the kind's own (#547). Returns the watch id
+	 *  for `cmd_watch_stop`.
 	 */
-	cmdWatchStart: (cluster: string, resource: ResourceRef, namespace: string | null, onEvent: Channel<WatchMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { cluster, resource, namespace, onEvent }, options),
+	cmdWatchStart: (cluster: string, resource: ResourceRef, namespace: string | null, custom: CustomColumn[], onEvent: Channel<WatchMessage>, options?: InvokeOptions) => __TAURI_INVOKE<string>("cmd_watch_start", { cluster, resource, namespace, custom, onEvent }, options),
 	/**
 	 *  Stop a table watch or a detail watch, and give the memory its rows took
 	 *  back to the system once the task is gone (#397).
@@ -1120,7 +1122,13 @@ export type ColumnKind = "text" |
  *  (`Running`, `Scaling`, `Updating`, `Failed`, ... see
  *  `workload_status`), drawn by the UI with a shape and a colour.
  */
-"rollout";
+"rollout" | 
+/**
+ *  The images of a pod or a workload's pod template (#547): the first
+ *  line is what the cell shows (`mongo:7.0.1 +1`), each line after it a
+ *  full reference, for the tooltip (see `image_column`).
+ */
+"image";
 
 export type ConditionInfo = {
 	type: string,
@@ -1436,6 +1444,31 @@ export type ContextState = "connected" |
  *  user asks (set by the desktop app, #244).
  */
 "local_files";
+
+/**  A column the user added to a kind's table. */
+export type CustomColumn = {
+	/**  Unique within the kind; the column's key is [`custom_key`] of it. */
+	id: string,
+	/**  The header. */
+	label: string,
+	source: CustomSource,
+	/**  The label key, annotation key or field path. */
+	value: string,
+	/**
+	 *  The context it was added in, for a kind defined by a CRD (`""`:
+	 *  every context). The backend does not look at it.
+	 */
+	context: string,
+};
+
+/**  Where a custom column's value comes from. */
+export type CustomSource = 
+/**  `metadata.labels[value]`. */
+"label" | 
+/**  `metadata.annotations[value]`. */
+"annotation" | 
+/**  A field path (`.status.podIP`). */
+"field";
 
 /**  One change of a data save. */
 export type DataChange = {
@@ -2062,6 +2095,17 @@ export type KindSettings_Deserialize = {
 	 *  Columns not in it fit their values.
 	 */
 	widths?: { [key in string]: number },
+	/**
+	 *  The column keys in the order the user put them in (#547). A column
+	 *  not in it stays after the one it follows in the kind's own order.
+	 *  Empty: the kind's order.
+	 */
+	order?: string[],
+	/**
+	 *  Columns the user added (#547), at most `MAX_CUSTOM_COLUMNS`, shown
+	 *  after the kind's own unless `order` says otherwise.
+	 */
+	custom?: CustomColumn[],
 };
 
 /**  What is remembered per kind (by kind id). */
@@ -2081,6 +2125,17 @@ export type KindSettings_Serialize = {
 	 *  Columns not in it fit their values.
 	 */
 	widths: { [key in string]: number },
+	/**
+	 *  The column keys in the order the user put them in (#547). A column
+	 *  not in it stays after the one it follows in the kind's own order.
+	 *  Empty: the kind's order.
+	 */
+	order: string[],
+	/**
+	 *  Columns the user added (#547), at most `MAX_CUSTOM_COLUMNS`, shown
+	 *  after the kind's own unless `order` says otherwise.
+	 */
+	custom: CustomColumn[],
 };
 
 /**

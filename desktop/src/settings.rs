@@ -6,6 +6,7 @@
 //! and an unreadable file is set aside as `settings.json.corrupt`. Writes are
 //! atomic (temp file + rename) and debounced.
 
+use nauvi::resources::{check_custom_column, CustomColumn, MAX_CUSTOM_COLUMNS};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use specta::Type;
@@ -149,6 +150,29 @@ pub(crate) struct KindSettings {
     /// Widths in px the user dragged columns to, by column key (#482).
     /// Columns not in it fit their values.
     pub(crate) widths: BTreeMap<String, u32>,
+    /// The column keys in the order the user put them in (#547). A column
+    /// not in it stays after the one it follows in the kind's own order.
+    /// Empty: the kind's order.
+    pub(crate) order: Vec<String>,
+    /// Columns the user added (#547), at most `MAX_CUSTOM_COLUMNS`, shown
+    /// after the kind's own unless `order` says otherwise.
+    pub(crate) custom: Vec<CustomColumn>,
+}
+
+impl KindSettings {
+    /// `self` with what a patch may not set dropped: repeated order keys,
+    /// custom columns that are not valid or are past the limit (#547).
+    fn cleaned(mut self) -> Self {
+        self.order = unique_ids(self.order);
+        let mut ids: Vec<String> = Vec::new();
+        self.custom.retain(|c| {
+            let keep = check_custom_column(c).is_ok() && !ids.contains(&c.id);
+            ids.push(c.id.clone());
+            keep
+        });
+        self.custom.truncate(MAX_CUSTOM_COLUMNS);
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -586,7 +610,13 @@ impl Settings {
             ctx.mode_source = old.mode_source;
             self.contexts.insert(id, ctx);
         }
-        self.kinds.extend(patch.kinds.unwrap_or_default());
+        self.kinds.extend(
+            patch
+                .kinds
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(id, k)| (id, k.cleaned())),
+        );
     }
 }
 
@@ -1064,6 +1094,45 @@ mod tests {
         assert_eq!(s.kinds["b"].sort_key, "age");
         assert_eq!(s.last_context, "prod");
         assert_eq!(s.theme, Theme::System);
+    }
+
+    #[test]
+    fn kind_columns_order_and_custom_columns_are_kept_clean() {
+        use nauvi::resources::CustomSource;
+        let col = |id: &str, value: &str| CustomColumn {
+            id: id.into(),
+            label: format!("Col {id}"),
+            source: CustomSource::Field,
+            value: value.into(),
+            context: String::new(),
+        };
+        // From before #547: no order, no custom columns.
+        let old = parse(r#"{"kinds":{"v1/pods":{"hidden":["node"]}}}"#).unwrap();
+        assert!(old.kinds["v1/pods"].order.is_empty() && old.kinds["v1/pods"].custom.is_empty());
+        let mut custom: Vec<_> = (0..12)
+            .map(|i| col(&i.to_string(), ".status.podIP"))
+            .collect();
+        custom.insert(1, col("bad", "status"));
+        custom.insert(2, col("0", ".spec.nodeName"));
+        let mut s = Settings::default();
+        s.apply(SettingsPatch {
+            kinds: Some(BTreeMap::from([(
+                "v1/pods".into(),
+                KindSettings {
+                    order: vec!["age".into(), "name".into(), "age".into(), "".into()],
+                    custom,
+                    ..Default::default()
+                },
+            )])),
+            ..Default::default()
+        });
+        let k = &s.kinds["v1/pods"];
+        assert_eq!(k.order, ["age", "name"]);
+        let ids: Vec<_> = k.custom.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+        // They survive a restart.
+        let text = serde_json::to_string(&s).unwrap();
+        assert_eq!(parse(&text).unwrap().kinds["v1/pods"], *k);
     }
 
     #[test]

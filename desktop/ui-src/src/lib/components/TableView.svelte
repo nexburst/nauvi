@@ -12,6 +12,8 @@
   import { isNode, isPod } from "../columns";
   import MetricsHiddenNote from "./MetricsHiddenNote.svelte";
   import MetricsMissingNote from "./MetricsMissingNote.svelte";
+  import { customSignature, withCustom } from "../customColumns";
+  import { tableCustom } from "../stores/tableColumns.svelte";
 
   let { kind }: { kind: ResourceKind } = $props();
 
@@ -23,11 +25,19 @@
     untrack(() => live.setMetricsHidden(hidden));
   });
 
-  // Start the watches on mount and on Refresh. The view itself is switched
-  // by remounting this component.
+  // The kind's columns and the custom ones (#547), whose cells the backend
+  // adds to the rows it watches.
+  const custom = $derived(tableCustom(kind));
+  const extracted = $derived(customSignature(custom));
+  const shownKind = $derived(withCustom(kind, custom));
+
+  // Start the watches on mount, on Refresh, and when a custom column is
+  // added, removed or reads another value. The view itself is switched by
+  // remounting this component.
   $effect(() => {
     void app.refreshNonce;
-    untrack(() => live.start(kind, app.selectedNamespaces));
+    void extracted;
+    untrack(() => live.start(withCustom(kind, custom), app.selectedNamespaces, custom));
   });
 
   // A namespace picked or dropped starts or stops just its own watch.
@@ -66,7 +76,7 @@
   <MetricsMissingNote />
 {/if}
 <ResourceTable
-  {kind}
+  kind={shownKind}
   store={live.store}
   metrics={live.metrics}
   now={live.now}
