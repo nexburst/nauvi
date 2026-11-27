@@ -12,10 +12,11 @@
   let { target }: { target: ImageVulns } = $props();
 
   const s = $derived(imageSecuritySettings());
-  const v = $derived(verdict(target, s));
+  const detail = $derived(imageSecurity.detail);
+  // Kubescape's summaries do not say which have a fix; the full report does.
+  const v = $derived(verdict(detail?.image ?? target, s));
   const now = Math.floor(Date.now() / 1000);
   const src = $derived(sourceText(target, now));
-  const detail = $derived(imageSecurity.detail);
   const groups = $derived(detail ? splitGroups(detail.fix_groups) : { fixable: [], noFix: [] });
   const noFixCount = $derived(groups.noFix.reduce((n, g) => n + g.ids.length, 0));
   const links = $derived(new Map((detail?.vulnerabilities ?? []).filter((x) => x.link).map((x) => [x.id, x.link])));
@@ -79,8 +80,13 @@
       <ImageScanAction {target} />
     {:else if !target.scanned}
       <p class="muted">
-        No VulnerabilityReport covers this image yet. The Trivy Operator scans new workloads within minutes; if it
-        stays like this, check that the operator watches this namespace.
+        {#if target.source === "kubescape"}
+          Kubescape has not scanned this image yet. It scans new workloads within minutes; if it stays like this, check
+          that its vulnerability scanning is on for this namespace.
+        {:else}
+          No VulnerabilityReport covers this image yet. The Trivy Operator scans new workloads within minutes; if it
+          stays like this, check that the operator watches this namespace.
+        {/if}
       </p>
     {/if}
 

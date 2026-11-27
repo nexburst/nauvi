@@ -14,7 +14,10 @@
   import { agoText, headline, headlineDetail, imageRows, sourceText, stateMessage, viewNotes, workloadsText } from "../imageSecurity";
   import { rowHeightPx } from "../preferences";
   import { settings } from "../stores/settings.svelte";
+  import { imageConfig } from "../stores/imageConfig.svelte";
+  import type { ImageSecurityTab } from "../imageConfig";
   import EmptyState from "./EmptyState.svelte";
+  import ImageConfigList from "./ImageConfigList.svelte";
   import ImageScanBar from "./ImageScanBar.svelte";
   import { scansText, usesLocal } from "../imageScan";
   import VirtualList from "./VirtualList.svelte";
@@ -36,7 +39,7 @@
   // Refresh reads the reports again instead of taking the cache.
   let lastNonce = -1;
   $effect(() => {
-    if (!enabled) return;
+    if (!enabled || imageConfig.tab !== "images") return;
     const nonce = app.refreshNonce;
     const namespaces = [...app.selectedNamespaces];
     void s.source;
@@ -61,8 +64,23 @@
   const getKey = $derived((i: number) => rows[i]?.key ?? i);
 
   $effect(() => {
+    if (imageConfig.tab !== "images") return;
     app.count = summary && !empty ? `${rows.length} of ${allRows.length} images` : "";
   });
+
+  /** Vulnerabilities of the images, or the workloads' configuration (#538). */
+  function showTab(tab: ImageSecurityTab) {
+    if (tab === imageConfig.tab) return;
+    selectImage(null);
+    // The listing is read again when the tab opens (from the cache).
+    resetImageSecurity();
+    lastNonce = -1;
+    imageConfig.tab = tab;
+  }
+  const TABS: { id: ImageSecurityTab; label: string }[] = [
+    { id: "images", label: "Vulnerabilities" },
+    { id: "config", label: "Configuration" },
+  ];
 
   function again() {
     void loadImageSecurity([...app.selectedNamespaces], true);
@@ -74,7 +92,7 @@
     <div class="center">
       <EmptyState
         title="Image security is off for this cluster"
-        detail={`When it is on, nauvi reads ${s.source === "local" ? "the pods' images" : "the Trivy Operator's VulnerabilityReports"} for the namespaces you pick when this view, the Overview, a pod or workload panel or the Vulns column is shown. ${scansText(s.source)}`}
+        detail={`When it is on, nauvi reads ${s.source === "local" ? "the pods' images" : "the scan reports the Trivy Operator (or Kubescape) keeps in the cluster"} for the namespaces you pick when this view, the Overview, a pod or workload panel or the Vulns column is shown. ${scansText(s.source)}`}
         reason="off"
       >
         <button
@@ -86,6 +104,22 @@
         <button type="button" class="btn" onclick={openSettings}>Settings…</button>
       </EmptyState>
     </div>
+  {:else}
+  <div class="tabs" role="tablist" aria-label="Image security">
+    {#each TABS as t (t.id)}
+      <button
+        type="button"
+        role="tab"
+        class="tab"
+        class:active={imageConfig.tab === t.id}
+        aria-selected={imageConfig.tab === t.id}
+        data-testid={`image-security-tab-${t.id}`}
+        onclick={() => showTab(t.id)}>{t.label}</button
+      >
+    {/each}
+  </div>
+  {#if imageConfig.tab === "config"}
+    <ImageConfigList />
   {:else if imageSecurity.error}
     <div class="center">
       <EmptyState title="Could not read the image scans" detail={imageSecurity.error} reason="error">
@@ -93,7 +127,7 @@
       </EmptyState>
     </div>
   {:else if !summary}
-    <p class="muted loading">{s.source === "local" ? "Reading the pods' images…" : "Reading the Trivy Operator's reports…"}</p>
+    <p class="muted loading">{s.source === "local" ? "Reading the pods' images…" : "Reading the scan reports…"}</p>
   {:else if empty}
     <div class="center" data-testid="image-security-state" data-state={summary.state}>
       <EmptyState title={empty.title} detail={empty.detail} reason={empty.reason}>
@@ -180,9 +214,35 @@
       {/if}
     </div>
   {/if}
+  {/if}
 </div>
 
 <style>
+  .tabs {
+    display: flex;
+    gap: 4px;
+    padding-top: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    padding: 6px 10px;
+    margin-bottom: -1px;
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .tab:hover {
+    color: var(--text);
+  }
+  .tab.active {
+    color: var(--text);
+    border-bottom-color: var(--accent);
+    font-weight: 500;
+  }
   .view {
     flex: 1;
     min-height: 0;

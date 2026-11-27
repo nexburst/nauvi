@@ -13,6 +13,7 @@ function row(over: Partial<ImageVulns> = {}): ImageVulns {
     scanned: false,
     counts: { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
     fixable: { critical: 0, high: 0, medium: 0, low: 0, unknown: 0 },
+    fixes_known: true,
     workloads: [],
     report_namespace: "",
     report_name: "",

@@ -121,6 +121,7 @@ pub fn apply_scan(row: &mut ImageVulns, scan: &CachedScan) {
     row.scanned = true;
     row.counts = counts;
     row.fixable = fixable;
+    row.fixes_known = true;
     row.scanner = scan.scanner_text();
     row.scanned_at = scan.scanned_at;
     row.report_namespace.clear();
@@ -244,6 +245,7 @@ mod tests {
             scanned,
             counts: SeverityCounts::default(),
             fixable: SeverityCounts::default(),
+            fixes_known: true,
             workloads: vec![Workload {
                 kind: "Deployment".into(),
                 namespace: "a".into(),

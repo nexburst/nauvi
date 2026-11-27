@@ -132,7 +132,7 @@ from typing in the wrong place.
 | The overview leads with what is wrong, not with gauges. | has |
 | Usage against requests and limits, in the table. | has (CPU and memory columns with sparklines); percent of request and limit coloured at 70 and 90: **gap** |
 | Never install a metrics stack silently; read an existing Prometheus (Lens installs one only when the user turns it on in its settings). | has; installing metrics-server is offered, with a dry run first |
-| Hygiene findings (Popeye): missing limits and probes, `latest` tags, unused ConfigMaps. | **gap** |
+| Hygiene findings (Popeye): missing limits and probes, `latest` tags, unused ConfigMaps. | partly: the Trivy Operator's ConfigAuditReports per workload, with what to change (Image security → Configuration, #538); unused objects: **gap** |
 | Events and rollouts on one timeline per workload, past the one-hour TTL. | **gap** |
 | Helm: history, values and manifest diff, rollback. | rollback: has; diffs between revisions: not checked |
 

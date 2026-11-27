@@ -63,14 +63,25 @@ const MAX_CHECKED_NAMESPACES: usize = 50;
 /// cluster, else namespace by namespace (the namespaces they may list, or
 /// the context's own namespace).
 pub async fn access(client: &Client, namespace: Option<&str>) -> Access {
+    access_to(client, GROUP, PLURAL, namespace).await
+}
+
+/// [`access`] for any namespaced resource of `group` (the other report
+/// kinds: ConfigAuditReports, Kubescape's summaries).
+pub async fn access_to(
+    client: &Client,
+    group: &str,
+    plural: &str,
+    namespace: Option<&str>,
+) -> Access {
     if let Some(ns) = namespace {
-        return if can_list(client, GROUP, PLURAL, Some(ns)).await {
+        return if can_list(client, group, plural, Some(ns)).await {
             Access::Scope
         } else {
             Access::Denied
         };
     }
-    if can_list(client, GROUP, PLURAL, None).await {
+    if can_list(client, group, plural, None).await {
         return Access::Scope;
     }
     let mut candidates: Vec<String> = match crate::list_namespaces_if_allowed(client).await {
@@ -83,7 +94,7 @@ pub async fn access(client: &Client, namespace: Option<&str>) -> Access {
     }
     let mut allowed = Vec::new();
     for ns in candidates.into_iter().take(MAX_CHECKED_NAMESPACES) {
-        if can_list(client, GROUP, PLURAL, Some(&ns)).await {
+        if can_list(client, group, plural, Some(&ns)).await {
             allowed.push(ns);
         }
     }
@@ -258,11 +269,11 @@ pub struct FullReport {
 /// Cluster text on one line, without control, bidi or zero-width
 /// characters: every string a report gives goes through it, so the JSON
 /// output and the app get clean text too, not only the table.
-fn clean(s: &str) -> String {
+pub(crate) fn clean(s: &str) -> String {
     crate::text::single_line(s)
 }
 
-fn secs(ts: &str) -> i64 {
+pub(crate) fn secs(ts: &str) -> i64 {
     ts.parse::<jiff::Timestamp>()
         .map(|t| t.as_second())
         .unwrap_or(0)
@@ -549,8 +560,11 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(s.state, crate::image_security::VulnsState::NoOperator);
-        // One discovery request each, nothing else.
-        assert_eq!(seen.lock().unwrap().len(), 2);
+        // One discovery request for `served`, then the listing's two (the
+        // Trivy Operator's group, then Kubescape's), nothing else.
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 3, "{seen:?}");
+        assert!(seen[2].starts_with("/apis/spdx.softwarecomposition.kubescape.io/v1beta1"));
     }
 
     #[tokio::test]

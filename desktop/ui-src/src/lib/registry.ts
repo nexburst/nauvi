@@ -19,6 +19,8 @@ import { WORKLOADS_VIEW } from "./workloads";
 import { IMAGE_SECURITY_VIEW } from "./imageSecurity";
 import ImageFindings from "./components/ImageFindings.svelte";
 import ImageSecurityView from "./components/ImageSecurityView.svelte";
+import ConfigFindings from "./components/ConfigFindings.svelte";
+import { imageConfig, selectedConfig } from "./stores/imageConfig.svelte";
 import { imageSecurity, selectedImage } from "./stores/imageSecurity.svelte";
 import { isNoKubeconfig, WELCOME_VIEW } from "./welcome";
 import { startTips, tips } from "./stores/welcome.svelte";
@@ -157,6 +159,12 @@ export const SIDE_PANELS: Slot[] = [
     when: () => app.view === IMAGE_SECURITY_VIEW && !!selectedImage(),
     key: () => imageSecurity.selected,
     props: () => ({ target: selectedImage()! }),
+  }),
+  // One workload's failed configuration checks (#538).
+  slot(ConfigFindings, {
+    when: () => app.view === IMAGE_SECURITY_VIEW && imageConfig.tab === "config" && !!selectedConfig(),
+    key: () => imageConfig.selected,
+    props: () => ({ target: selectedConfig()! }),
   }),
 ];
 
