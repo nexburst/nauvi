@@ -72,6 +72,8 @@ export interface SettingsPatch {
   ask_ai_cli?: string;
   /** Ask AI's custom command (#376). */
   ask_ai_command?: string;
+  /** "Let Ask AI open views": `nauvi show` opens views (#548). */
+  ask_ai_open_views?: boolean;
   /** The welcome screen was left once (#485). */
   welcomed?: boolean;
   /** How many more starts show the tips strip (#485). */
@@ -111,6 +113,7 @@ export function defaultSettings(): Settings {
     open_more_sections: [],
     ask_ai_cli: "",
     ask_ai_command: "",
+    ask_ai_open_views: false,
     // What a settings file from before the welcome screen gets (#485); a
     // first run's settings come from the backend.
     welcomed: true,
@@ -200,6 +203,7 @@ export function applyPatch(settings: Settings, patch: SettingsPatch): Settings {
     next.open_more_sections = [...new Set(patch.open_more_sections.filter(Boolean))];
   if (patch.ask_ai_cli != null) next.ask_ai_cli = patch.ask_ai_cli.trim();
   if (patch.ask_ai_command != null) next.ask_ai_command = patch.ask_ai_command.trim();
+  if (patch.ask_ai_open_views != null) next.ask_ai_open_views = patch.ask_ai_open_views;
   if (patch.welcomed != null) next.welcomed = patch.welcomed;
   if (patch.tips_left != null) next.tips_left = Math.max(0, Math.min(TIPS_SESSIONS, patch.tips_left));
   if (patch.image_security != null) next.image_security = patch.image_security;

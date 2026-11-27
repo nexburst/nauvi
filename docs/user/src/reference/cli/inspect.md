@@ -153,3 +153,31 @@ nauvi vulns [OPTIONS] [<IMAGE>]
 | `--severity <SEVERITY>` | Only images (and vulnerabilities) of this severity or worse. One of `unknown`, `low`, `medium`, `high`, `critical` |
 | `--fixable` | Only vulnerabilities that have a fixed version |
 | `-o, --output <OUTPUT>` | Output format. One of `table`, `json`. Default: `table` |
+
+## `nauvi link`
+
+Print an object's nauvi:// link, the same as the app's Copy link. In the app's Ask AI terminal, clicking it opens the object.
+
+```text
+nauvi link [OPTIONS] <TARGET> [<NAME>]
+```
+
+| Argument | What it does |
+| --- | --- |
+| `<TARGET>` | `<kind>/<name>`, or the kind followed by the name |
+| `<NAME>` | The object's name, when the kind is given on its own |
+| `-n, --namespace <NAMESPACE>` | Namespace (default: the context's namespace) |
+
+## `nauvi show`
+
+Open an object, or a kind's table, in the nauvi app: only from its Ask AI terminal, with Settings, AI, "Let Ask AI open views" on. Elsewhere it prints the link.
+
+```text
+nauvi show [OPTIONS] <TARGET> [<NAME>]
+```
+
+| Argument | What it does |
+| --- | --- |
+| `<TARGET>` | `<kind>/<name>` for one object, or a kind for its table |
+| `<NAME>` | The object's name, when the kind is given on its own |
+| `-n, --namespace <NAMESPACE>` | Namespace (default for an object: the context's namespace; for a table: the namespaces the app shows) |

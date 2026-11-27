@@ -288,3 +288,88 @@ fn cli_top_pods_in_a_namespace_works_for_a_limited_user() {
         "{stdout}"
     );
 }
+
+/// `nauvi` on the test cluster without the Ask AI terminal's environment.
+fn links_cmd(args: &[&str]) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_nauvi"));
+    cmd.args(["--context", &context()]).args(args);
+    for var in [
+        "NAUVI_LINK_CONTEXT",
+        "NAUVI_LINK_KUBE_CONTEXT",
+        "NAUVI_ASK_AI_SESSION",
+        "NAUVI_APP",
+    ] {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
+#[test]
+#[ignore]
+fn cli_link_prints_the_objects_link() {
+    let ctx = context();
+    let run = |cmd: &mut Command| {
+        let out = cmd.output().unwrap();
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8(out.stdout).unwrap()
+    };
+    assert_eq!(
+        run(&mut links_cmd(&["link", "deploy/web", "-n", "demo"])),
+        format!("nauvi://{ctx}/apps/v1/Deployment/demo/web\n")
+    );
+    // The kind and the name apart; a core kind.
+    assert_eq!(
+        run(&mut links_cmd(&["link", "pod", "crashed", "-n", "demo"])),
+        format!("nauvi://{ctx}/core/v1/Pod/demo/crashed\n")
+    );
+    // In an Ask AI terminal: the catalog id of its context, while the
+    // kubeconfig still selects that context.
+    let mut cmd = links_cmd(&["link", "deploy/web", "-n", "demo"]);
+    cmd.env("NAUVI_LINK_KUBE_CONTEXT", &ctx)
+        .env("NAUVI_LINK_CONTEXT", "catalog-id");
+    assert_eq!(
+        run(&mut cmd),
+        "nauvi://catalog-id/apps/v1/Deployment/demo/web\n"
+    );
+    // ... and not for another context.
+    let mut cmd = links_cmd(&["link", "deploy/web", "-n", "demo"]);
+    cmd.env("NAUVI_LINK_KUBE_CONTEXT", "other")
+        .env("NAUVI_LINK_CONTEXT", "catalog-id");
+    assert_eq!(
+        run(&mut cmd),
+        format!("nauvi://{ctx}/apps/v1/Deployment/demo/web\n")
+    );
+
+    // A kind alone is not an object.
+    let out = links_cmd(&["link", "pods", "-n", "demo"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("link needs <kind>/<name>"), "{err}");
+}
+
+#[test]
+#[ignore]
+fn cli_show_outside_ask_ai_prints_the_link_and_exits_2() {
+    let ctx = context();
+    let link = format!("nauvi://{ctx}/apps/v1/Deployment/demo/web");
+    let out = links_cmd(&["show", "deploy/web", "-n", "demo"])
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("Let Ask AI open views"), "{text}");
+    assert!(text.lines().any(|l| l == link), "{text}");
+    // A token, but no app to take it.
+    let mut cmd = links_cmd(&["show", "deploy/web", "-n", "demo"]);
+    cmd.env("NAUVI_ASK_AI_SESSION", "0".repeat(64))
+        .env("NAUVI_APP", "/nonexistent/nauvi-desktop");
+    let out = cmd.output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("Could not reach the nauvi app"), "{text}");
+    assert!(text.lines().any(|l| l == link), "{text}");
+}

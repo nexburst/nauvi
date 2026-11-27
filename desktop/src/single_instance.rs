@@ -4,7 +4,10 @@
 //!
 //! The second launch's context is ignored: it only focuses the app that is
 //! already running. Its one argument that counts is a `nauvi://` link
-//! (#299, `links.rs`), which the running app opens.
+//! (#299, `links.rs`), which the running app opens, or a `nauvi show`
+//! request (#548, `ask_ai_show.rs`), which opens a view only for the Ask AI
+//! session whose token is in the file it names (never in the arguments,
+//! which the process list shows), and never focuses or opens a window.
 //!
 //! On Linux the running app owns a D-Bus name on the session bus. The name
 //! includes the config directory, so apps with their own settings (another
@@ -22,6 +25,12 @@ pub(crate) fn plugin(identifier: &str) -> TauriPlugin<Wry> {
     // A second launch with a nauvi:// link (#299) goes to the window
     // the link is for; any other second launch focuses the app.
     let builder = tauri_plugin_single_instance::Builder::new().callback(|app, args, _cwd| {
+        // `nauvi show` (#548): only for the Ask AI session whose token its
+        // file holds (`ask_ai_show.rs`), never also a plain link or a focus.
+        if let Some((file, request)) = crate::ask_ai_show::request_in(&args) {
+            crate::ask_ai_show::handle(app, file, request);
+            return;
+        }
         if !crate::links::open_from_args(app, &args) {
             focus(app);
         }

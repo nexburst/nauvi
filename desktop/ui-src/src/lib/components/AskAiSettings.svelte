@@ -109,6 +109,21 @@
   {#if setup?.custom_error}
     <p class="hint error" data-testid="ask-ai-command-error">{setup.custom_error}</p>
   {/if}
+  <label class="choice">
+    <input
+      type="checkbox"
+      data-testid="ask-ai-open-views"
+      checked={current.ask_ai_open_views ?? false}
+      onchange={(e) => updateSettings({ ask_ai_open_views: e.currentTarget.checked })}
+    />
+    Let Ask AI open views
+  </label>
+  <p class="muted hint">
+    The AI can then run <code>nauvi show</code> to open an object's panel or a table in the window of its Ask AI terminal,
+    at most one every 3 seconds. It only opens views: no action, no dialog, and Back returns to where you were. It works
+    in Ask AI sessions started after you turn it on. Links the AI prints (<code>nauvi://</code>) open with a click either
+    way.
+  </p>
   <p class="muted hint">
     A program on PATH or a full path, then its arguments. It runs as it is, never through a shell. It gets the prompt,
     after the nauvi guidance, in the file named by <code>NAUVI_PROMPT_FILE</code>. Ask AI writes the nauvi skill
@@ -147,6 +162,12 @@
   .hint {
     margin: 0;
     font-size: 12px;
+  }
+  .choice {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
   }
   .hint.error {
     color: var(--red);

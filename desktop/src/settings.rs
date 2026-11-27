@@ -256,6 +256,10 @@ pub(crate) struct Settings {
     /// Ask AI's custom command, the program and its arguments (#376). Split
     /// into words, never run through a shell.
     pub(crate) ask_ai_command: String,
+    /// "Let Ask AI open views" (#548): `nauvi show` in an Ask AI terminal
+    /// opens a view in its window. Off by default; read when a session
+    /// starts (it gets a token only then) and on every request.
+    pub(crate) ask_ai_open_views: bool,
     /// The welcome screen (#485) was left once. `false` only in the
     /// settings of a first run (no settings file yet): a file from before
     /// it, or one that had to be reset, counts as welcomed.
@@ -408,6 +412,7 @@ impl Default for Settings {
             open_more_sections: Vec::new(),
             ask_ai_cli: String::new(),
             ask_ai_command: String::new(),
+            ask_ai_open_views: false,
             welcomed: true,
             tips_left: 0,
             image_security: ImageSecuritySettings::default(),
@@ -514,6 +519,8 @@ pub(crate) struct SettingsPatch {
     #[specta(optional)]
     pub(crate) ask_ai_command: Option<String>,
     #[specta(optional)]
+    pub(crate) ask_ai_open_views: Option<bool>,
+    #[specta(optional)]
     pub(crate) welcomed: Option<bool>,
     #[specta(optional)]
     pub(crate) tips_left: Option<u32>,
@@ -593,6 +600,9 @@ impl Settings {
         }
         if let Some(v) = patch.ask_ai_command {
             self.ask_ai_command = v.trim().to_string();
+        }
+        if let Some(v) = patch.ask_ai_open_views {
+            self.ask_ai_open_views = v;
         }
         if let Some(v) = patch.welcomed {
             self.welcomed = v;

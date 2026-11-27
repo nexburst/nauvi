@@ -119,7 +119,9 @@
   import { HIGHLIGHT_LIMIT } from "../terminalSearch";
   import { registerTerminalSearch } from "../stores/keyboard.svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
-  import { webLink } from "../terminalLinks";
+  import { appLink, describeAppLink, webLink } from "../terminalLinks";
+  import { appLinkProvider } from "../terminalAppLinks";
+  import { openAppLink } from "../stores/links.svelte";
   import { INTERRUPT, TermWriter, termChannel } from "../termOutput";
 
   /** Bytes written before they are acknowledged in one call (#115). */
@@ -139,6 +141,11 @@
 
   // Picked once: a tab's target never changes.
   let backend: Backend | null = null;
+  /** The link policy (#548): only an Ask AI terminal opens nauvi:// links.
+   *  Pod shells, the local shell and debug terminals print what the cluster
+   *  or the user's programs write, which must not steer the app. */
+  // svelte-ignore state_referenced_locally
+  const appLinks = target.kind === "askAi";
 
   let host: HTMLDivElement;
   let term: Terminal | null = null;
@@ -201,19 +208,27 @@
       // xterm already drops other schemes (`allowNonHttpProtocols` is off);
       // `webLink` checks again. The tooltip shows where a link goes, since
       // its text can say anything.
+      // An Ask AI terminal (#548) also opens nauvi:// links, in this window:
+      // the only scheme besides http(s) it lets through.
       linkHandler: {
+        allowNonHttpProtocols: appLinks,
         activate: (_event, uri) => {
+          const link = appLinks ? appLink(uri) : null;
+          if (link) return void openAppLink(link);
           const url = webLink(uri);
           if (url) openUrl(url).catch(() => {});
         },
         hover: (_event, uri) => {
-          host.title = webLink(uri) ?? "";
+          const link = appLinks ? appLink(uri) : null;
+          host.title = link ? describeAppLink(link) : (webLink(uri) ?? "");
         },
         leave: () => {
           host.title = "";
         },
       },
     });
+    // nauvi:// links printed as plain text, in Ask AI terminals only.
+    if (appLinks) t.registerLinkProvider(appLinkProvider(t, (uri) => void openAppLink(uri), (text) => (host.title = text)));
     const f = new FitAddon();
     t.loadAddon(f);
     const s = new SearchAddon({ highlightLimit: HIGHLIGHT_LIMIT });
