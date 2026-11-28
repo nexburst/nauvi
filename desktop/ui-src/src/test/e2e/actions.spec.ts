@@ -14,16 +14,24 @@ async function contextMenu(page: Page, name: string) {
 test("the context menu offers the actions of each kind", async ({ page }) => {
   await openApp(page);
   const cases: [string, string, string, string[]][] = [
-    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Edit YAML", "Copy link", "Copy as prompt", "Port forward…", "Attach", "Debug…", "Evict", "Delete", "Force delete…"]],
-    ["Deployments", "web", "demo/web", ["Logs", "Edit YAML", "Copy link", "Copy as prompt", "Scale…", "Rollout restart", "Port forward…", "Delete"]],
-    ["Nodes", "node-1", "node-1", ["Edit YAML", "Copy link", "Copy as prompt", "Shell", "Cordon", "Uncordon", "Drain…", "Delete"]],
-    ["Secrets", "db-creds", "demo/db-creds", ["Edit YAML", "Copy link", "Copy as prompt", "Delete"]],
+    // Grouped (#607): what opens a tab · what changes it · for your AI · destructive.
+    ["Pods", "web-1", "demo/web-1", ["Logs", "Shell", "Attach", "Debug…", "|", "Edit YAML", "Port forward…", "|", "Copy prompt for your AI", "Copy link", "|", "Evict", "Delete", "Force delete…"]],
+    ["Deployments", "web", "demo/web", ["Logs", "|", "Edit YAML", "Scale…", "Rollout restart", "Port forward…", "|", "Copy prompt for your AI", "Copy link", "|", "Delete"]],
+    ["Nodes", "node-1", "node-1", ["Shell", "|", "Edit YAML", "Cordon", "Uncordon", "|", "Copy prompt for your AI", "Copy link", "|", "Drain…", "Delete"]],
+    ["Secrets", "db-creds", "demo/db-creds", ["Edit YAML", "|", "Copy prompt for your AI", "Copy link", "|", "Delete"]],
   ];
   for (const [kind, name, title, items] of cases) {
     await openKind(page, kind);
     const m = await contextMenu(page, name);
     await expect(m.locator(".title")).toHaveText(title);
-    await expect(m.getByRole("menuitem")).toHaveText(items);
+    await expect(m.getByRole("menuitem")).toHaveText(items.filter((i) => i !== "|"));
+    // A rule between the groups.
+    const drawn = await m.evaluate((el) =>
+      [...el.querySelectorAll('[role="menuitem"], [role="separator"]')].map((e) =>
+        e.getAttribute("role") === "separator" ? "|" : (e.textContent ?? "").trim(),
+      ),
+    );
+    expect(drawn).toEqual(items);
     await page.keyboard.press("Escape");
     await expect(menu(page)).toHaveCount(0);
   }

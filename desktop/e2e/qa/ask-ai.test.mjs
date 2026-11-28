@@ -257,6 +257,9 @@ describe("Ask AI with a fake claude on PATH", { timeout: 15 * 60_000 }, () => {
     await setTheme(app, "light");
     await (await app.find(byTestId("ask-ai-header"))).click();
     await waitDialog(app);
+    // The caveats are one line; the rest is under Details (#607).
+    assert.match(await dialogText(app), /Runs Claude Code in a local terminal with this cluster's kubeconfig/);
+    await (await app.find(By.css('[data-testid="ask-ai-shell-note"] summary'))).click();
     const text = await dialogText(app);
     assert.match(text, new RegExp(`Ask AI about the cluster\\s+on\\s+${CONTEXT}`));
     assert.match(text, /Claude Code/);

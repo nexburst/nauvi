@@ -70,7 +70,7 @@ export async function closeMenu(app) {
 export function actionBarLabels(app) {
   return app.js(
     `return Array.from(document.querySelectorAll('[data-testid="detail-panel"] [role="toolbar"][aria-label="Actions"] button'),
-       (b) => b.textContent.trim());`,
+       (b) => b.getAttribute("aria-label") || b.textContent.trim());`,
   );
 }
 
