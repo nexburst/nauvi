@@ -229,7 +229,8 @@ export function handleKey(e: KeyboardEvent) {
   const command = hit.binding.command;
   // The palette and the help overlay sit on top: they take only their own keys.
   if (keyboard.palette) {
-    if (command === "palette") done(e, closePalette);
+    // Esc too, should the focus have left the palette's input (#591).
+    if (command === "palette" || command === "escape") done(e, closePalette);
     return;
   }
   if (keyboard.help) {
