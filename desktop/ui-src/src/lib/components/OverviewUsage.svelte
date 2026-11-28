@@ -51,6 +51,9 @@
 
   const chart = $derived(clusterChart(view, local));
   const lines = $derived([{ name: "used", samples: chart.samples }]);
+  /** One chart at a time, so the side column fits the screen (#605); the
+   *  other stays in the page, hidden. */
+  let shown = $state<"cpu" | "memory">("cpu");
 </script>
 
 {#if chart.samples.length > 0 || capacity.metrics}
@@ -63,8 +66,21 @@
       <!-- Two points draw no trend: wait for a third (#605). -->
       <p class="muted small note" data-testid="overview-usage-collecting">Collecting usage, first points in about a minute.</p>
     {:else}
-      <div class="charts">
+      <div class="switch" role="group" aria-label="Chart">
+        {#each [["cpu", "CPU"], ["memory", "Memory"]] as [r, label] (r)}
+          <button
+            type="button"
+            class="row-act"
+            aria-pressed={shown === r}
+            data-testid="usage-show-{r}"
+            onclick={() => (shown = r as "cpu" | "memory")}>{label}</button
+          >
+        {/each}
+      </div>
+      <div hidden={shown !== "cpu"}>
         <UsageChart title="CPU" resource="cpu" {lines} refs={clusterRefs(capacity, "cpu")} format={formatCpu} />
+      </div>
+      <div hidden={shown !== "memory"}>
         <UsageChart
           title="Memory"
           resource="memory"
@@ -88,9 +104,13 @@
   .note {
     margin: 0 0 6px;
   }
-  .charts {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 16px;
+  .switch {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 6px;
+  }
+  .switch [aria-pressed="true"] {
+    color: var(--text);
+    background: var(--bg-hover);
   }
 </style>

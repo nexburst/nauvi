@@ -5,7 +5,7 @@ import { PROBLEMS_STATUS } from "./workloads";
 /** The Overview's budgets (#605): it fits one screen however big the cluster. */
 export const GROUPS_SHOWN = 5;
 export const WARNINGS_SHOWN = 5;
-export const NAMESPACES_SHOWN = 10;
+export const NAMESPACES_SHOWN = 5;
 
 /** One bar of the capacity section. */
 export interface CapacityBar {
