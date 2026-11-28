@@ -9,7 +9,7 @@ use crate::resources::{not_ready_reason, pod_status_of, printed_pod_status, Work
 use crate::{parse_cpu_quantity, parse_memory_quantity};
 use k8s_openapi::api::core::v1::{Container, Event, Node, Pod};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::BuildHasher;
 
 /// A pod pending longer than this is listed as a problem.
@@ -512,15 +512,27 @@ pub fn attach_group_events<'a>(
     }
 }
 
-/// The `n` newest warning events, newest first, without the events of pods
-/// in a Problem group (they belong to that group, #605). An event about a
-/// pod in `pods` (by `namespace/name`) names the pod's owning workload.
+/// The `n` newest warning events, newest first, without the events of the
+/// pods listed in a shown Problem group with an owner (`groups`, as sent):
+/// they show in that group (#605). The events of a group past the first
+/// [`MAX_GROUPS`], or of a pod past a group's first [`MAX_GROUP_PODS`], stay
+/// here. An event about a pod in `pods` (by `namespace/name`) names the
+/// pod's owning workload.
 pub fn warning_events<'a, S: BuildHasher>(
     events: impl IntoIterator<Item = &'a EventInfo>,
     pods: &HashMap<String, PodSummary, S>,
-    now: i64,
+    groups: &[ProblemGroup],
     n: usize,
 ) -> Vec<EventInfo> {
+    let in_group: HashSet<(&str, &str)> = groups
+        .iter()
+        .filter(|g| !g.owner_kind.is_empty())
+        .flat_map(|g| {
+            g.pods
+                .iter()
+                .map(|p| (p.namespace.as_str(), p.name.as_str()))
+        })
+        .collect();
     let mut out = Vec::new();
     for e in events {
         let pod = if e.object_kind == "Pod" {
@@ -529,7 +541,8 @@ pub fn warning_events<'a, S: BuildHasher>(
             None
         };
         match pod {
-            Some(p) if !p.owner_kind.is_empty() && problem(p, now).is_some() => {}
+            Some(_)
+                if in_group.contains(&(e.object_namespace.as_str(), e.object_name.as_str())) => {}
             Some(p) => out.push(EventInfo {
                 owner_kind: p.owner_kind.clone(),
                 owner_name: p.owner_name.clone(),
@@ -901,7 +914,8 @@ mod tests {
             event("4", "Pod", "gone"),
             event("5", "Deployment", "web"),
         ];
-        let shown = warning_events(&events, &pods, NOW, 10);
+        let c = pod_counts(None, pods.values(), NOW);
+        let shown = warning_events(&events, &pods, &c.groups, 10);
         let keys: Vec<(&str, &str)> = shown
             .iter()
             .map(|e| (e.key.as_str(), e.owner_name.as_str()))
@@ -918,7 +932,7 @@ mod tests {
         );
 
         // ... and shows in the group; the lone pod's group has none.
-        let mut c = pod_counts(None, pods.values(), NOW);
+        let mut c = c;
         attach_group_events(&mut c.groups, &events);
         let of = |owner: &str| -> Vec<&str> {
             let g = c.groups.iter().find(|g| g.owner_name == owner).unwrap();
@@ -926,6 +940,70 @@ mod tests {
         };
         assert_eq!(of("web"), vec!["demo/1"]);
         assert!(of("").is_empty());
+    }
+
+    #[test]
+    fn events_of_groups_or_pods_not_shown_stay_in_warnings() {
+        let owned = |app: &str, name: &str| {
+            let mut p = crash_looping(name);
+            merge_pod(
+                &mut p,
+                json!({ "metadata": {
+                    "labels": { "pod-template-hash": "h" },
+                    "ownerReferences": [{ "apiVersion": "apps/v1", "kind": "ReplicaSet", "name": format!("{app}-h"), "uid": "u", "controller": true }]
+                }}),
+            );
+            pod_summary(&p)
+        };
+        // One Deployment with more pods than a group lists, and six more
+        // Deployments than groups are sent.
+        let mut all: Vec<PodSummary> = (0..MAX_GROUP_PODS + 1)
+            .map(|i| owned("big", &format!("big-{i:02}")))
+            .collect();
+        all.extend((0..6).map(|i| owned(&format!("app{i}"), &format!("app{i}-x"))));
+        let pods: HashMap<String, PodSummary> = all
+            .into_iter()
+            .map(|s| (format!("{}/{}", s.namespace, s.name), s))
+            .collect();
+        let c = pod_counts(None, pods.values(), NOW);
+        assert_eq!((c.groups.len(), c.groups_total), (MAX_GROUPS, 7));
+        let events: Vec<EventInfo> = pods
+            .values()
+            .map(|p| EventInfo {
+                key: format!("{}/{}", p.namespace, p.name),
+                kind: "Warning".into(),
+                reason: "BackOff".into(),
+                message: String::new(),
+                object: format!("Pod/{}", p.name),
+                object_api_version: "v1".into(),
+                object_kind: "Pod".into(),
+                object_namespace: p.namespace.clone(),
+                object_name: p.name.clone(),
+                time: NOW,
+                count: 1,
+                owner_kind: String::new(),
+                owner_name: String::new(),
+            })
+            .collect();
+        let listed: HashSet<String> = c
+            .groups
+            .iter()
+            .flat_map(|g| g.pods.iter().map(|p| format!("{}/{}", p.namespace, p.name)))
+            .collect();
+        let mut kept: Vec<String> = warning_events(&events, &pods, &c.groups, 100)
+            .into_iter()
+            .map(|e| e.key)
+            .collect();
+        kept.sort();
+        let mut want: Vec<String> = pods
+            .keys()
+            .filter(|k| !listed.contains(*k))
+            .cloned()
+            .collect();
+        want.sort();
+        // The 51st pod of big and the two Deployments past the five groups.
+        assert_eq!(want.len(), 3);
+        assert_eq!(kept, want);
     }
 
     #[test]

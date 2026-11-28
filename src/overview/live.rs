@@ -476,7 +476,7 @@ impl Live {
             items: summary::warning_events(
                 self.events.items.values(),
                 &self.pods.items,
-                now,
+                pods.as_ref().map_or(&[], |p| p.groups.as_slice()),
                 EVENTS_SHOWN,
             ),
         });

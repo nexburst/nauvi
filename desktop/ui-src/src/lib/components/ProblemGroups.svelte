@@ -10,6 +10,7 @@
   import { eventTimes } from "../format";
   import { reasonWords } from "../eventText";
   import { stripPodIds } from "../warningGroups";
+  import { problemLine } from "../problemPill";
   import type { Blip } from "../sonar";
   import Icon from "../icons/Icon.svelte";
   import CalmWater from "./CalmWater.svelte";
@@ -129,7 +130,7 @@
                   <button type="button" class="link pod" aria-label={`${p.namespace}/${p.name}`} onclick={() => openPod(p)}
                     >{p.name}</button
                   >
-                  <span class="muted">{p.reason}{p.restarts > 0 ? ` · ${p.restarts} restarts` : ""}</span>
+                  <span class="muted">{problemLine(p)}</span>
                   {#if p.status !== "Pending"}
                     <button type="button" class="row-act" aria-label={`Logs of ${p.namespace}/${p.name}`} onclick={() => podLogs(p)}>
                       <Icon name="logs" size={14} />Logs
