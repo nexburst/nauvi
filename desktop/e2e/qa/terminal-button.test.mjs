@@ -5,8 +5,10 @@
 // - with the dock hidden, one click on Terminal opens a local terminal at
 //   the app's context; after Ctrl+` hides the dock, a click shows it again
 //   with a second terminal
+// - Ctrl+T (#604) opens a local terminal from a table and its filter, and
+//   inside a terminal goes to the shell (readline transposes "ab")
 // - the help overlay lists Ctrl+` and Ctrl+Shift+` first, Ctrl+J and
-//   Ctrl+Shift+J after them
+//   Ctrl+Shift+J (and Ctrl+T) after them
 // - the palette shows the shortcuts of its commands
 
 import assert from "node:assert/strict";
@@ -14,7 +16,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
-import { Key } from "selenium-webdriver";
+import { By, Key } from "selenium-webdriver";
 import { CONTEXT, byTestId } from "../lib/app.mjs";
 import { dockTabs, pressCtrl } from "../lib/dock.mjs";
 import { appSession, waitLive } from "../lib/qa.mjs";
@@ -67,7 +69,7 @@ describe("Terminal button and terminal keys", { timeout: 10 * 60_000 }, () => {
       assert.ok(layout.boxes[i].left >= layout.boxes[i - 1].right - 1, `${layout.boxes[i].cls} does not overlap`);
     }
     const title = await (await app.find(byTestId("terminal-header"))).getAttribute("title");
-    assert.match(title, /\(Ctrl\+Shift\+` or Ctrl\+Shift\+J\)$/);
+    assert.match(title, /\(Ctrl\+Shift\+` or Ctrl\+Shift\+J or Ctrl\+T\)$/);
     await bothThemes(app, "header");
   });
 
@@ -99,6 +101,35 @@ describe("Terminal button and terminal keys", { timeout: 10 * 60_000 }, () => {
     await app.shot("second-terminal");
   });
 
+  it("Ctrl+T opens a local terminal from a table and the filter; in a terminal it is the shell's (#604)", T, async () => {
+    const { app } = s;
+    // Inside the terminal Ctrl+T transposes the last two characters (readline).
+    const term = terminal(app);
+    await term.waitForPrompt();
+    await term.type("echo QAab", { enter: false });
+    await pressCtrl(app, "t");
+    await term.type("");
+    const screen = await term.waitFor(/^QAba$/m, { message: "the shell to transpose ab" });
+    console.log(`after Ctrl+T in the shell:\n${screen.split("\n").filter((l) => l.includes("QA")).join("\n")}`);
+    assert.equal((await dockTabs(app)).length, 2, "no new terminal from inside one");
+
+    // A table, with the focus on its grid.
+    await app.nav("Pods");
+    await app.find(By.css('[role="grid"]'));
+    await app.js(`document.querySelector('[role="grid"]').focus()`);
+    await pressCtrl(app, "t");
+    await app.waitFor(async () => (await dockTabs(app)).length === 3, { message: "a third terminal tab from the table" });
+    await terminal(app).waitFor(`kubectl uses context ${CONTEXT}`);
+    await app.shot("ctrl-t-table");
+
+    // The table's filter, a text input.
+    await app.js(`document.querySelector('input[aria-label="Filter"]').focus()`);
+    await pressCtrl(app, "t");
+    await app.waitFor(async () => (await dockTabs(app)).length === 4, { message: "a fourth terminal tab from the filter" });
+    console.log(`tabs: ${JSON.stringify(await dockTabs(app))}`);
+    await bothThemes(app, "ctrl-t-filter");
+  });
+
   it("the help lists Ctrl+` and Ctrl+Shift+` first", T, async () => {
     const { app } = s;
     await app.js("document.activeElement?.blur()");
@@ -115,7 +146,7 @@ describe("Terminal button and terminal keys", { timeout: 10 * 60_000 }, () => {
     const shell = await keysOf("New local terminal");
     console.log(`dock: ${JSON.stringify(dock)}, new terminal: ${JSON.stringify(shell)}`);
     assert.deepEqual(dock, ["Ctrl+`", "Ctrl+J"]);
-    assert.deepEqual(shell, ["Ctrl+Shift+`", "Ctrl+Shift+J"]);
+    assert.deepEqual(shell, ["Ctrl+Shift+`", "Ctrl+Shift+J", "Ctrl+T"]);
     await app.js(
       `[...document.querySelectorAll('[role="dialog"][aria-label="Keyboard shortcuts"] dd')]
          .find((d) => d.textContent.trim().startsWith("New local terminal"))?.scrollIntoView({ block: "center" })`,

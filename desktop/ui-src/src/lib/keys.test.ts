@@ -130,6 +130,31 @@ describe("bindingFor", () => {
     expect(command(press("j", { ctrlKey: true }), true)).toBeNull();
   });
 
+  it("opens a local terminal with ⌘T on macOS and Ctrl+T elsewhere (#604)", () => {
+    expect(command(press("t", { ctrlKey: true }))).toBe("newLocalShell");
+    expect(command(press("t", { metaKey: true }), true)).toBe("newLocalShell");
+    expect(command(press("t", { metaKey: true }))).toBeNull();
+    expect(command(press("t", { ctrlKey: true }), true)).toBeNull();
+    expect(command(press("T", { ctrlKey: true, shiftKey: true }))).toBeNull();
+    expect(command(press("t", { ctrlKey: true, altKey: true }))).toBeNull();
+    expect(command(press("t"))).toBeNull();
+    // Cyrillic: the T key types "е", so by the physical key.
+    expect(command(press("е", { ctrlKey: true, code: "KeyT" }))).toBe("newLocalShell");
+    // Dvorak: the key at T types "y"; the printed T is what counts.
+    expect(command(press("y", { ctrlKey: true, code: "KeyT" }))).toBeNull();
+    // From text inputs too, like the other keys of the binding.
+    expect(bindingFor(press("t", { ctrlKey: true }), false)!.binding.inInputs).toBe(true);
+  });
+
+  it("leaves Ctrl+T to the shell inside a terminal (transpose), but not ⌘T on macOS", () => {
+    const hit = (e: KeyEventLike, mac: boolean) => {
+      const h = bindingFor(e, mac)!;
+      return leftToTerminal(h.binding, h.index, mac);
+    };
+    expect(hit(press("t", { ctrlKey: true }), false)).toBe(true);
+    expect(hit(press("t", { metaKey: true }), true)).toBe(false);
+  });
+
   it("leaves Ctrl+J to the shell inside a terminal, except ⌘J on macOS", () => {
     const hit = (e: KeyEventLike, mac: boolean) => {
       const h = bindingFor(e, mac)!;
@@ -198,8 +223,8 @@ describe("formatBinding", () => {
     expect(formatBinding(of("toggleDock"), false)).toEqual(["Ctrl+`", "Ctrl+J"]);
     // The VS Code keys first on macOS too (#592).
     expect(formatBinding(of("toggleDock"), true)).toEqual(["⌃`", "⌘J"]);
-    expect(formatBinding(of("newLocalShell"), false)).toEqual(["Ctrl+Shift+`", "Ctrl+Shift+J"]);
-    expect(formatBinding(of("newLocalShell"), true)).toEqual(["⌃⇧`", "⇧⌘J"]);
+    expect(formatBinding(of("newLocalShell"), false)).toEqual(["Ctrl+Shift+`", "Ctrl+Shift+J", "Ctrl+T"]);
+    expect(formatBinding(of("newLocalShell"), true)).toEqual(["⌃⇧`", "⇧⌘J", "⌘T"]);
     expect(shortcutHint("toggleDock", true)).toBe("⌃` or ⌘J");
     expect(formatBinding(of("refresh"), false)).toEqual(["F5", "Ctrl+R"]);
     expect(shortcutHint("refresh", true)).toBe("F5 or ⌘R");

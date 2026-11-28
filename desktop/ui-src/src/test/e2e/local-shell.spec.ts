@@ -84,6 +84,56 @@ test("Ctrl+Shift+` opens a shell in the selected namespace; changing it later le
   expect(fake.errors).toEqual([]);
 });
 
+test("Ctrl+T opens a local terminal from the Overview, a table and the filter; in a terminal it is the shell's (#604)", async ({
+  page,
+}) => {
+  const fake = await openApp(page);
+  // The Overview, with no dock yet.
+  await expect(dock(page)).toHaveCount(0);
+  await page.keyboard.press("Control+t");
+  await expect(tabs(page)).toHaveCount(1);
+  await expect.poll(() => fake.calls("cmdLocalShellStart")).toHaveLength(1);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+
+  // Inside the terminal Ctrl+T transposes characters: the key goes to the shell.
+  await page.keyboard.press("Control+t");
+  await expect
+    .poll(async () => (await fake.calls("cmdLocalShellInput")).map((c) => c.data).join(""))
+    .toBe("\x14");
+  await expect(tabs(page)).toHaveCount(1);
+
+  // A table, with the dock hidden: the key shows it again with a second terminal.
+  await openKind(page, "Pods");
+  await page.getByRole("grid").focus();
+  await page.keyboard.press("Control+Backquote");
+  await expect(dock(page)).toHaveClass(/collapsed/);
+  await page.getByRole("grid").focus();
+  await page.keyboard.press("Control+t");
+  await expect(tabs(page)).toHaveCount(2);
+  await expect(dock(page)).not.toHaveClass(/collapsed/);
+
+  // The table's filter, a text input.
+  await page.getByRole("searchbox", { name: "Filter" }).focus();
+  await page.keyboard.press("Control+t");
+  await expect(tabs(page)).toHaveCount(3);
+  await expect.poll(() => fake.calls("cmdLocalShellStart")).toHaveLength(3);
+  expect(fake.errors).toEqual([]);
+});
+
+test("on macOS ⌘T opens a local terminal from inside a terminal too (#604)", async ({ page }) => {
+  await page.addInitScript(() => Object.defineProperty(navigator, "platform", { get: () => "MacIntel" }));
+  const fake = await openApp(page);
+  await page.keyboard.press("Meta+t");
+  await expect(tabs(page)).toHaveCount(1);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  // ⌘T never reaches a shell, so there it opens another one.
+  await page.keyboard.press("Meta+t");
+  await expect(tabs(page)).toHaveCount(2);
+  await expect.poll(() => fake.calls("cmdLocalShellStart")).toHaveLength(2);
+  expect(await fake.calls("cmdLocalShellInput")).toHaveLength(0);
+  expect(fake.errors).toEqual([]);
+});
+
 test("a failed start shows the error in the terminal", async ({ page }) => {
   const fake = await openApp(page);
   await fake.failNext("cmdLocalShellStart", 'context "kind-dev" is not in the kubeconfig');

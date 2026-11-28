@@ -253,6 +253,9 @@ export const KEYMAP: Binding[] = [
     keys: [
       { key: "~", code: "Backquote", ctrl: true, shift: true, name: "`" },
       { key: "j", mod: true, shift: true, terminal: false },
+      // "New tab" in terminal apps (#604). Ctrl+T transposes characters in
+      // bash and zsh, so inside a terminal it stays the shell's outside macOS.
+      { key: "t", mod: true, code: "KeyT", terminal: false },
     ],
     label: "New local terminal (kubectl on this machine, at the app's context and namespace)",
     group: "General",
