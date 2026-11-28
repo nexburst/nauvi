@@ -2959,6 +2959,7 @@ dependencies = [
  "futures",
  "getrandom 0.3.4",
  "kube",
+ "libc",
  "nauvi",
  "objc2",
  "portable-pty",

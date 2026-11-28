@@ -318,6 +318,8 @@ with `claude --agent coordinator`), `dev` (one issue per worktree), `qa`
     `desktop/src/commands/image_scan.rs` and `image_scan/` (the local
     scanner the app runs, #536)
   - `desktop/src/updater.rs`, `desktop/src/commands/updater.rs`
+  - `desktop/src/single_instance.rs` and `single_instance/` (the hand-over
+    of links and `nauvi show` from a second launch, #555)
   - `install.sh`, `install.ps1` (served from `main`: every new user runs
     the version on `main`)
 

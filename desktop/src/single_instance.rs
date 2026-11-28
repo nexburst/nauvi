@@ -12,8 +12,12 @@
 //! On Linux the running app owns a D-Bus name on the session bus. The name
 //! includes the config directory, so apps with their own settings (another
 //! `HOME` or `XDG_CONFIG_HOME`, like the QA profiles) don't see each other.
-//! Without a session bus the plugin starts the app normally. Windows (a named
-//! mutex) and macOS (a socket in /tmp) key on the identifier alone.
+//! Without a session bus the plugin starts the app normally. Windows keys a
+//! named mutex on the identifier alone. macOS uses `socket.rs` instead of
+//! the plugin (#555): a socket in a directory only this user can write.
+
+#[cfg(all(unix, any(target_os = "macos", test)))]
+mod socket;
 
 use crate::state::MAIN_WINDOW;
 use tauri::plugin::TauriPlugin;
@@ -21,25 +25,36 @@ use tauri::{AppHandle, Manager, Wry};
 
 /// The plugin; register it before the other plugins, so a second launch
 /// exits before anything else starts.
+#[cfg(target_os = "macos")]
 pub(crate) fn plugin(identifier: &str) -> TauriPlugin<Wry> {
-    // A second launch with a nauvi:// link (#299) goes to the window
-    // the link is for; any other second launch focuses the app.
-    let builder = tauri_plugin_single_instance::Builder::new().callback(|app, args, _cwd| {
-        // `nauvi show` (#548): only for the Ask AI session whose token its
-        // file holds (`ask_ai_show.rs`), never also a plain link or a focus.
-        if let Some((file, request)) = crate::ask_ai_show::request_in(&args) {
-            crate::ask_ai_show::handle(app, file, request);
-            return;
-        }
-        if !crate::links::open_from_args(app, &args) {
-            focus(app);
-        }
-    });
+    socket::plugin(identifier, |app, args, _cwd| on_launch(app, &args))
+}
+
+/// The plugin; register it before the other plugins, so a second launch
+/// exits before anything else starts.
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn plugin(identifier: &str) -> TauriPlugin<Wry> {
+    let builder = tauri_plugin_single_instance::Builder::new()
+        .callback(|app, args, _cwd| on_launch(app, &args));
     #[cfg(target_os = "linux")]
     let builder = builder.dbus_id(dbus_id(identifier, &linux_config_dir()));
     #[cfg(not(target_os = "linux"))]
     let _ = identifier;
     builder.build()
+}
+
+/// A second launch with a nauvi:// link (#299) goes to the window the link
+/// is for; any other second launch focuses the app.
+fn on_launch(app: &AppHandle, args: &[String]) {
+    // `nauvi show` (#548): only for the Ask AI session whose token its file
+    // holds (`ask_ai_show.rs`), never also a plain link or a focus.
+    if let Some((file, request)) = crate::ask_ai_show::request_in(args) {
+        crate::ask_ai_show::handle(app, file, request);
+        return;
+    }
+    if !crate::links::open_from_args(app, args) {
+        focus(app);
+    }
 }
 
 /// Bring the running app to the front: the main window, else the first
