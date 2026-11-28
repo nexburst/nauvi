@@ -104,13 +104,24 @@ describe("command palette Tab", { timeout: 10 * 60_000 }, () => {
     assert.equal(moved.focused, true, "the input keeps the focus");
     assert.notEqual(moved.active, first, "Tab moved the highlight");
     await bothThemes(app, "tab-moved");
+    // What the webview names Shift+Tab, and whether the focus ever goes
+    // outside the palette (even if it comes back at once).
+    await app.js(`window.__qaKeys = []; window.__qaLeft = 0;
+      window.addEventListener("keydown", (e) => window.__qaKeys.push([e.key, e.code, e.shiftKey]), true);
+      document.addEventListener("focusin", (e) => {
+        if (!e.target.closest?.('[data-testid="command-palette"]')) window.__qaLeft++;
+      }, true);`);
     for (let i = 0; i < 3; i++) await shiftTab(app);
+    const seen = await app.js("return { keys: window.__qaKeys, left: window.__qaLeft }");
+    console.log(`Shift+Tab events: ${JSON.stringify(seen)}`);
     const back = await state(app);
+    assert.equal(seen.left, 0, "the focus never went outside the palette");
     assert.equal(back.focused, true, "Shift+Tab keeps the focus in the input");
     assert.equal(back.active, first, "Shift+Tab moves back");
     // Many Tabs: still inside.
     for (let i = 0; i < 30; i++) await press(app, Key.TAB);
     assert.equal((await state(app)).focused, true, "30 Tabs later the input still has the focus");
+    assert.equal(await app.js("return window.__qaLeft"), 0, "no Tab took the focus outside the palette");
     await press(app, Key.ESCAPE);
     await app.waitFor(async () => !(await paletteOpen(app)), { message: "Esc to close the palette" });
     await app.shot("closed");

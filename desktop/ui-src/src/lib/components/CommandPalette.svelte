@@ -105,7 +105,8 @@
 
   function onkeydown(e: KeyboardEvent) {
     const n = results.length;
-    switch (e.key) {
+    // WebKitGTK may name Shift+Tab by its keysym (ISO_Left_Tab): the physical key decides.
+    switch (e.code === "Tab" ? "Tab" : e.key) {
       case "Tab":
         tab(e.shiftKey);
         break;
