@@ -490,6 +490,21 @@
     header {
       grid-template-columns: auto minmax(120px, 1fr) auto;
     }
+    /* Room for Ask AI's count (#608) beside the tools, with a real
+       cluster's wider pill and context name: the tools sit closer, and
+       Terminal is its icon (its name stays, for assistive tools, and its
+       tooltip). */
+    .tail {
+      gap: 8px;
+    }
+    .tail :global([data-testid="terminal-header"] span) {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
   }
   /* At the start of its column, so the tools on the right never move it. */
   .goto {
