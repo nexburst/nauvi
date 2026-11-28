@@ -2964,6 +2964,11 @@ export type ProblemGroup = {
 	restarts: number,
 	/**  Its Problem pods, worst first, at most 50. */
 	pods: ProblemPod[],
+	/**
+	 *  The newest warning events of those pods, at most 5; they are not in
+	 *  the Warnings. Empty for a pod without an owner (its events are).
+	 */
+	events: EventInfo[],
 };
 
 /**

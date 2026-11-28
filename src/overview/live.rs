@@ -452,10 +452,13 @@ impl Live {
     }
 
     fn summarize(&self, now: i64) -> Overview {
-        let pods = self
+        let mut pods = self
             .pods
             .visible()
             .then(|| summary::pod_counts(self.pods.scope.clone(), self.pods.items.values(), now));
+        if let Some(p) = pods.as_mut().filter(|_| self.events.visible()) {
+            summary::attach_group_events(&mut p.groups, self.events.items.values());
+        }
         let nodes = self
             .nodes
             .visible()

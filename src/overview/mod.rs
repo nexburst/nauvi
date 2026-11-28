@@ -96,6 +96,9 @@ pub struct ProblemGroup {
     pub restarts: i32,
     /// Its Problem pods, worst first, at most 50.
     pub pods: Vec<ProblemPod>,
+    /// The newest warning events of those pods, at most 5; they are not in
+    /// the Warnings. Empty for a pod without an owner (its events are).
+    pub events: Vec<EventInfo>,
 }
 
 /// Pod counts, across the cluster or in one namespace. A pod counts once:

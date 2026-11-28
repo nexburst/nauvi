@@ -21,6 +21,8 @@ pub const MAX_PROBLEMS: usize = 50;
 pub const MAX_GROUPS: usize = 5;
 /// At most this many pods are listed in one Problem group.
 pub const MAX_GROUP_PODS: usize = 50;
+/// At most this many warning events are attached to one Problem group.
+pub const MAX_GROUP_EVENTS: usize = 5;
 
 /// How a pod counts in the overview.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -396,8 +398,11 @@ fn problem_pod(p: &PodSummary, reason: &str) -> ProblemPod {
     }
 }
 
-fn is_error(p: &PodSummary) -> bool {
-    matches!(p.state, PodState::WaitingError | PodState::Failed)
+/// An error (red), not pending or not ready (amber): the reason is the
+/// pod's STATUS, as for a waiting error, a failed pod or a running one
+/// whose container failed ("Error", #263).
+fn is_error(p: &PodSummary, reason: &str) -> bool {
+    reason == p.status
 }
 
 /// What the pods of one workload share to be one group: the reason, with
@@ -418,7 +423,10 @@ type OwnerPods<'a> = HashMap<(&'a str, &'a str, &'a str), usize>;
 /// owner is its own. Errors come before the rest, then the groups with the
 /// most pods, the most restarts. The first [`MAX_GROUPS`], and how many
 /// there are.
-fn problem_groups(problems: &[(&PodSummary, String)], by_owner: &OwnerPods) -> (Vec<ProblemGroup>, usize) {
+fn problem_groups(
+    problems: &[(&PodSummary, String)],
+    by_owner: &OwnerPods,
+) -> (Vec<ProblemGroup>, usize) {
     let mut groups: Vec<ProblemGroup> = Vec::new();
     let mut index: HashMap<String, usize> = HashMap::new();
     for (p, reason) in problems {
@@ -442,11 +450,12 @@ fn problem_groups(problems: &[(&PodSummary, String)], by_owner: &OwnerPods) -> (
                 owner_kind: if alone { String::new() } else { kind.into() },
                 owner_name: if alone { String::new() } else { name.into() },
                 reason: reason.clone(),
-                error: is_error(p),
+                error: is_error(p, reason),
                 count: 0,
                 owner_pods,
                 restarts: 0,
                 pods: Vec::new(),
+                events: Vec::new(),
             });
             groups.len() - 1
         });
@@ -469,6 +478,35 @@ fn problem_groups(problems: &[(&PodSummary, String)], by_owner: &OwnerPods) -> (
     let total = groups.len();
     groups.truncate(MAX_GROUPS);
     (groups, total)
+}
+
+/// Give each Problem group with an owner the newest [`MAX_GROUP_EVENTS`]
+/// warning events of its pods: [`warning_events`] leaves them out.
+pub fn attach_group_events<'a>(
+    groups: &mut [ProblemGroup],
+    events: impl IntoIterator<Item = &'a EventInfo>,
+) {
+    let mut of: HashMap<(&str, &str), usize> = HashMap::new();
+    for (i, g) in groups.iter().enumerate() {
+        if g.owner_kind.is_empty() {
+            continue;
+        }
+        for p in &g.pods {
+            of.insert((p.namespace.as_str(), p.name.as_str()), i);
+        }
+    }
+    let mut found: Vec<Vec<&EventInfo>> = vec![Vec::new(); groups.len()];
+    for e in events {
+        if e.object_kind != "Pod" {
+            continue;
+        }
+        if let Some(&i) = of.get(&(e.object_namespace.as_str(), e.object_name.as_str())) {
+            found[i].push(e);
+        }
+    }
+    for (g, events) in groups.iter_mut().zip(found) {
+        g.events = newest_events(events, MAX_GROUP_EVENTS);
+    }
 }
 
 /// The `n` newest warning events, newest first, without the events of pods
@@ -747,7 +785,11 @@ mod tests {
             of_web(stuck("web-p2", 7200)),
             // A pod without an owner is a group of its own.
             crash_looping("crashed"),
-            pod("evicted", "Failed", json!({ "status": { "reason": "Evicted" } })),
+            pod(
+                "evicted",
+                "Failed",
+                json!({ "status": { "reason": "Evicted" } }),
+            ),
         ]
         .iter()
         .map(pod_summary)
@@ -759,7 +801,13 @@ mod tests {
 
         let c = pod_counts(None, &pods, NOW);
         assert_eq!(c.problems_total, 7);
-        assert_eq!((c.problems[0].name.as_str(), c.problems[0].owner_name.as_str()), ("crashed", ""));
+        assert_eq!(
+            (
+                c.problems[0].name.as_str(),
+                c.problems[0].owner_name.as_str()
+            ),
+            ("crashed", "")
+        );
         assert_eq!(c.problems[1].owner_name, "web");
         assert_eq!(c.groups_total, 4);
         let groups: Vec<(&str, &str, &str, usize, usize, i32)> = c
@@ -787,7 +835,8 @@ mod tests {
             ]
         );
         assert!(c.groups[0].error && !c.groups[3].error);
-        let names = |i: usize| -> Vec<&str> { c.groups[i].pods.iter().map(|p| p.name.as_str()).collect() };
+        let names =
+            |i: usize| -> Vec<&str> { c.groups[i].pods.iter().map(|p| p.name.as_str()).collect() };
         assert_eq!(names(0), vec!["web-a", "web-b", "web-c"]);
         assert_eq!(names(1), vec!["crashed"]);
         assert_eq!(names(3), vec!["web-p2", "web-p1"]);
@@ -853,6 +902,16 @@ mod tests {
                 ("demo/2", "web")
             ]
         );
+
+        // ... and shows in the group; the lone pod's group has none.
+        let mut c = pod_counts(None, pods.values(), NOW);
+        attach_group_events(&mut c.groups, &events);
+        let of = |owner: &str| -> Vec<&str> {
+            let g = c.groups.iter().find(|g| g.owner_name == owner).unwrap();
+            g.events.iter().map(|e| e.key.as_str()).collect()
+        };
+        assert_eq!(of("web"), vec!["demo/1"]);
+        assert!(of("").is_empty());
     }
 
     #[test]

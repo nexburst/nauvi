@@ -15,25 +15,34 @@
   import { onDestroy, untrack } from "svelte";
   import { Channel } from "@tauri-apps/api/core";
   import { api, visibleCluster } from "../cluster";
-  import type { EventInfo, Overview_Serialize, OverviewMessage_Serialize, WatchState } from "../bindings";
+  import type { Overview_Serialize, OverviewMessage_Serialize, ResourceKind, WatchState } from "../bindings";
   import {
     app,
     currentContextName,
     kinds,
-    openObject,
+    openWithStatus,
     primaryNamespace,
     setStatus,
+    setView,
     showError,
     stamp,
   } from "../stores/app.svelte";
   import { clusterError } from "../clusterError";
-  import { eventTimes } from "../format";
-  import { eventHeadline, reasonWords } from "../eventText";
-  import { capacityBars, deckHeadline, eventKind, overviewCount, podCards } from "../overview";
+  import {
+    NAMESPACES_SHOWN,
+    WARNINGS_SHOWN,
+    capacityBars,
+    deckHeadline,
+    deckKicker,
+    overviewCount,
+    podCards,
+  } from "../overview";
+  import { PROBLEMS_STATUS } from "../workloads";
   import { blips as toBlips, type Blip } from "../sonar";
   import { observeOverview, scope } from "../stores/watch.svelte";
-  import CalmWater from "./CalmWater.svelte";
   import OutOfReach from "./OutOfReach.svelte";
+  import ProblemGroups from "./ProblemGroups.svelte";
+  import WarningGroups from "./WarningGroups.svelte";
   import { troubleTitle } from "../health";
   import { NODE_KIND_ID, POD_KIND_ID, overviewBadges } from "../problems";
   import { reportProblems, staleProblems } from "../stores/problems.svelte";
@@ -43,7 +52,6 @@
   import ImageFindingsCard from "./ImageFindingsCard.svelte";
   import { metricsHidden } from "../stores/metricsHidden.svelte";
   import { settingsSaved } from "../stores/settings.svelte";
-  import { openDockTab } from "../stores/dock.svelte";
   import Icon from "../icons/Icon.svelte";
   import type { IconName } from "../icons/icons";
 
@@ -218,7 +226,10 @@
   });
 
   const podKind = $derived(kinds.all.find((k) => k.id === "v1/pods"));
-  const head = $derived(deckHeadline(overview?.pods ?? null));
+  const nodeKind = $derived(kinds.all.find((k) => k.id === "v1/nodes"));
+  const namespaceKind = $derived(kinds.all.find((k) => k.id === "v1/namespaces"));
+  const context = $derived(currentContextName());
+  const head = $derived(deckHeadline(overview?.pods ?? null, context));
   /**
    * What the sonar shows; a change sweeps it once. At most one sweep per
    * SWEEP_EVERY_MS, so a busy cluster never keeps the beam turning.
@@ -246,20 +257,17 @@
   };
   const CAPACITY_ICONS: Record<string, IconName> = { CPU: "cpu", Memory: "memory", Pods: "pod" };
 
-  function showLogs(namespace: string, name: string) {
-    if (podKind) openDockTab({ type: "podLogs", pod: { resource: podKind.resource, namespace, name } });
-  }
-
-  function openEvent(e: EventInfo) {
-    const kind = eventKind(e, kinds.all);
-    if (kind) openObject(kind, kind.resource.namespaced ? e.object_namespace : "", e.object_name);
+  /** A card opens its table, filtered to what it counts ("" for all). */
+  function openCard(kind: ResourceKind | undefined, status = "") {
+    if (!kind) return;
+    if (status) openWithStatus(kind, status);
+    else setView(kind.id);
   }
 </script>
 
 <div class="overview">
   {#if overview}
     {@const pods = overview.pods}
-    {@const calmBody = (pods?.problems.length ?? 0) === 0 && (overview.events?.items.length ?? 0) === 0}
     {#if overview.notes.length > 0}
       <ul class="notes muted">
         {#each overview.notes as note (note)}
@@ -272,255 +280,188 @@
         <Icon name={head.calm ? "ok" : "warning"} size={22} />
       </span>
       <div class="summary">
-        <span class="kicker">Watch report{pods?.namespace ? ` · ${pods.namespace}` : ""}</span>
+        <span class="kicker" data-testid="deck-kicker">{deckKicker(context, pods?.namespace ?? null)}</span>
         <h2 class="headline" data-testid="deck-headline">{head.text}</h2>
       </div>
     </div>
+    {@const cards = pods ? podCards(pods) : []}
+    {@const quiet = cards.filter((c) => c.quiet)}
     <div class="cards">
       {#if overview.namespaces !== null}
-        <div class="card">
+        <button type="button" class="card" title="Open Namespaces" onclick={() => openCard(namespaceKind)}>
           <span class="label">Namespaces</span>
-          <div class="card-foot"><span class="num">{overview.namespaces}</span><Icon name="namespace" size={18} /></div>
-        </div>
+          <span class="card-foot"><span class="num">{overview.namespaces}</span><Icon name="namespace" size={18} /></span>
+        </button>
       {/if}
       {#if overview.nodes}
         {@const short = overview.nodes.ready < overview.nodes.total}
-        <div class="card" class:alert={short}>
+        <button
+          type="button"
+          class="card"
+          class:alert={short}
+          title={short ? "Open the nodes that are not ready" : "Open Nodes"}
+          onclick={() => openCard(nodeKind, short ? PROBLEMS_STATUS : "")}
+        >
           <span class="label">Nodes ready</span>
-          <div class="card-foot"><span class="num">{overview.nodes.ready}/{overview.nodes.total}</span><Icon name="node" size={18} /></div>
-        </div>
+          <span class="card-foot"><span class="num">{overview.nodes.ready}/{overview.nodes.total}</span><Icon name="node" size={18} /></span>
+        </button>
       {/if}
       {#if pods}
-        {@const scope = pods.namespace ? ` in ${pods.namespace}` : ""}
-        <div class="card" class:wide={scope !== ""} title="Pods{scope}">
-          <span class="label">Pods{scope}</span>
-          <div class="card-foot"><span class="num">{pods.total}</span><Icon name="pod" size={18} /></div>
-        </div>
-        {#each podCards(pods) as c (c.label)}
+        {@const where = pods.namespace ? ` in ${pods.namespace}` : ""}
+        <button type="button" class="card" class:wide={where !== ""} title="Pods{where}" onclick={() => openCard(podKind)}>
+          <span class="label">Pods{where}</span>
+          <span class="card-foot"><span class="num">{pods.total}</span><Icon name="pod" size={18} /></span>
+        </button>
+        {#each cards.filter((c) => !c.quiet) as c (c.label)}
           {@const look = STATUS_LOOK[c.label]}
-          <div
+          <button
+            type="button"
             class="card tone-{look?.tone ?? 'muted'}"
             class:alert={c.alert}
             class:zero={c.value === 0}
             title={c.title}
+            onclick={() => openCard(podKind, c.status)}
           >
             <span class="label">{c.label}</span>
-            <div class="card-foot"><span class="num">{c.value}</span><Icon name={look?.icon ?? "pod"} size={18} /></div>
-          </div>
+            <span class="card-foot"><span class="num">{c.value}</span><Icon name={look?.icon ?? "pod"} size={18} /></span>
+          </button>
         {/each}
       {/if}
       <!-- Image security (#535): only while it is on. -->
       <ImageFindingsCard />
     </div>
+    {#if quiet.length > 0}
+      <p class="quiet muted" data-testid="quiet-counts">{quiet.map((c) => `${c.label} ${c.value}`).join(" · ")}</p>
+    {/if}
 
-    <!-- Wide: what needs you and the capacity on the left, the namespaces
-         beside them. On a calm watch the capacity comes first. -->
-    <div class="body" class:calm={calmBody}>
+    <!-- Wide: what needs you on the left; capacity, then the namespaces, on
+         the right, so both show without scrolling (#605). -->
+    <div class="body">
       <div class="sections">
-        <section aria-label="Problem pods">
+        <section aria-label="Problem groups">
           <div class="sec-head">
-            <h3>
-              Problem pods{pods && pods.problems_total > pods.problems.length
-                ? ` (${pods.problems.length} of ${pods.problems_total})`
-                : ""}
-            </h3>
-            {#if pods && pods.problems_total > 0}<span class="count" aria-hidden="true">{pods.problems_total}</span>{/if}
+            <h3>Problem groups</h3>
+            {#if pods && pods.groups_total > 0}<span class="count" data-testid="problem-groups-count">{pods.groups_total}</span>{/if}
           </div>
           {#if pods}
-            <div class="stack">
-              {#each pods.problems as p (p.namespace + "/" + p.name)}
-                {@const error = p.reason === p.status}
-                <div class="problem" class:error>
-                  <div class="tile" aria-hidden="true"><Icon name={error ? "error" : "pending"} size={18} /></div>
-                  <div class="what">
-                    {#if podKind}
-                      <button
-                        type="button"
-                        class="name link"
-                        onclick={() => podKind && openObject(podKind, p.namespace, p.name)}
-                      ><span class="ns">{p.namespace}/</span>{p.name}</button>
-                    {:else}
-                      <span class="name"><span class="ns">{p.namespace}/</span>{p.name}</span>
-                    {/if}
-                    <div class="meta">
-                      <span class="reason" class:error>{p.reason}</span>
-                      {#if p.restarts > 0}<span>{p.restarts} restarts</span>{/if}
-                    </div>
-                  </div>
-                  {#if podKind}
-                    <div class="actions">
-                      {#if p.status !== "Pending"}
-                        <button
-                          type="button"
-                          class="btn act"
-                          aria-label={`Logs of ${p.namespace}/${p.name}`}
-                          onclick={() => showLogs(p.namespace, p.name)}
-                        >
-                          <Icon name="logs" size={14} />Logs
-                        </button>
-                      {/if}
-                      <button
-                        type="button"
-                        class="btn act"
-                        aria-label={`Describe ${p.namespace}/${p.name}`}
-                        onclick={() => podKind && openObject(podKind, p.namespace, p.name)}
-                      >
-                        <Icon name="describe" size={14} />Describe
-                      </button>
-                    </div>
-                  {/if}
-                </div>
-              {:else}
-                <div class="empty"><CalmWater mark="buoy"><p class="none">None.</p></CalmWater></div>
-              {/each}
-              {#each recovered as r (r.key)}
-                <div class="cleared" aria-live="polite">
-                  <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-                    <circle cx="8" cy="8" r="6.5" />
-                    <path d="M5 8.2l2 2 4-4.2" pathLength="10" />
-                  </svg>
-                  <span class="who">{r.key}</span>
-                  <span class="what">cleared</span>
-                </div>
-              {/each}
-            </div>
+            <ProblemGroups {pods} {recovered} {now} />
           {:else}
             <p class="muted denied">Not allowed.</p>
           {/if}
         </section>
-        <section aria-label="Warnings">
+        <section aria-label="Warning groups">
           <div class="sec-head">
-            <h3>Warnings{overview.events?.namespace ? ` in ${overview.events.namespace}` : ""}</h3>
-            {#if (overview.events?.items.length ?? 0) > 0}
-              <span class="count warn" aria-hidden="true">{overview.events?.items.length}</span>
-            {/if}
+            <h3>Warning groups{overview.events?.namespace ? ` in ${overview.events.namespace}` : ""}</h3>
           </div>
-          <div class="stack">
-            {#each overview.events?.items ?? [] as e (e.key)}
-              {@const linked = eventKind(e, kinds.all)}
-              {@const headline = eventHeadline(e.reason, e.message)}
-              <div class="event">
-                <div class="tile" aria-hidden="true"><Icon name="warning" size={18} /></div>
-                <div class="what">
-                  <div class="e-head">
-                    <span class="reason" title={e.reason}>{reasonWords(e.reason, e.message)}</span>
-                    {#if linked}
-                      <button type="button" class="link object" onclick={() => openEvent(e)}>{e.object}</button>
-                    {:else}
-                      <span class="object muted">{e.object}</span>
-                    {/if}
-                    <span class="age">{eventTimes(e.count, e.time, now)}</span>
-                  </div>
-                  <!-- A summary of the long, alike messages (the scheduler's,
-                       back-off) over the full message (#484). -->
-                  <p class="message" class:summary={headline !== e.message}>{headline}</p>
-                  {#if headline !== e.message}<p class="full">{e.message}</p>{/if}
-                </div>
-              </div>
-            {:else}
-              {#if overview.events}
-                <div class="empty"><CalmWater mark="lighthouse"><p class="none">No warnings.</p></CalmWater></div>
-              {:else}
-                <p class="muted denied">Not allowed.</p>
-              {/if}
-            {/each}
-          </div>
+          {#if overview.events}
+            <WarningGroups events={overview.events.items} {now} limit={WARNINGS_SHOWN} />
+          {:else}
+            <p class="muted denied">Not allowed.</p>
+          {/if}
         </section>
       </div>
-      <section class="side" aria-label="Pods by namespace">
-        <div class="sec-head"><h3>Pods by namespace</h3></div>
-        {#if pods}
-          {@const most = Math.max(1, ...pods.by_namespace.map(([, n]) => n))}
-          <div class="panel">
-            <table>
-              <thead><tr><th>Namespace</th><th class="n">Pods</th><th class="share"><span class="sr">Share</span></th></tr></thead>
-              <tbody>
-                {#each pods.by_namespace as [ns, n] (ns)}
-                  <tr>
-                    <td>{ns}</td><td class="n">{n}</td><td class="share"
-                      ><span class="share-bar" style:width="{Math.max(4, (n / most) * 100)}%"></span></td
+      <div class="side">
+        {#if overview.capacity}
+          <section class="capacity" aria-label="Capacity">
+            <div class="sec-head"><h3>Capacity</h3></div>
+            <div class="panel pad">
+              <!-- One row per resource: the figure above its bar, the limits
+                   and usage under it. -->
+              <div class="bars">
+                {#each capacityBars(overview.capacity) as bar (bar.label)}
+                  <div class="bar-row">
+                    <div class="bar-top">
+                      <span class="bar-label"><Icon name={CAPACITY_ICONS[bar.label] ?? "gauge"} size={15} />{bar.label}</span>
+                      <span class="bar-text">{bar.text}</span>
+                    </div>
+                    <div
+                      class="bar"
+                      role="meter"
+                      aria-label={bar.label}
+                      aria-valuenow={bar.percent}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
                     >
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-        {:else}
-          <p class="muted denied">Not allowed.</p>
-        {/if}
-      </section>
-      {#if overview.capacity}
-        <section class="capacity" aria-label="Capacity">
-          <div class="sec-head"><h3>Capacity</h3></div>
-          <div class="panel pad">
-            <!-- One row per resource: the figure above its bar, the limits
-                 and usage under it. -->
-            <div class="bars">
-              {#each capacityBars(overview.capacity) as bar (bar.label)}
-                <div class="bar-row">
-                  <div class="bar-top">
-                    <span class="bar-label"><Icon name={CAPACITY_ICONS[bar.label] ?? "gauge"} size={15} />{bar.label}</span>
-                    <span class="bar-text">{bar.text}</span>
-                  </div>
-                  <div
-                    class="bar"
-                    role="meter"
-                    aria-label={bar.label}
-                    aria-valuenow={bar.percent}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                  >
-                    <div class="fill" class:high={bar.high} style:width="{bar.percent}%"></div>
-                    {#if bar.limitPercent !== null}
-                      <div
-                        class="limit"
-                        class:over={bar.overcommitted}
-                        class:partial={bar.partial}
-                        style:left="{bar.limitPercent}%"
-                        title={bar.limits}
-                        data-testid="limit-{bar.label}"
-                      ></div>
+                      <div class="fill" class:high={bar.high} style:width="{bar.percent}%"></div>
+                      {#if bar.limitPercent !== null}
+                        <div
+                          class="limit"
+                          class:over={bar.overcommitted}
+                          class:partial={bar.partial}
+                          style:left="{bar.limitPercent}%"
+                          title={bar.limits}
+                          data-testid="limit-{bar.label}"
+                        ></div>
+                      {/if}
+                    </div>
+                    {#if bar.limits || (!hideMetrics && bar.usage)}
+                      <div class="bar-foot">
+                        <span
+                          class="bar-limits"
+                          class:over={bar.overcommitted}
+                          title={bar.overcommitted ? "The limits add up to more than the nodes can allocate" : ""}
+                        >
+                          {bar.limits}
+                        </span>
+                        <span class="bar-usage">{hideMetrics ? "" : bar.usage}</span>
+                      </div>
                     {/if}
                   </div>
-                  {#if bar.limits || (!hideMetrics && bar.usage)}
-                    <div class="bar-foot">
-                      <span
-                        class="bar-limits"
-                        class:over={bar.overcommitted}
-                        title={bar.overcommitted ? "The limits add up to more than the nodes can allocate" : ""}
-                      >
-                        {bar.limits}
-                      </span>
-                      <span class="bar-usage">{hideMetrics ? "" : bar.usage}</span>
-                    </div>
-                  {/if}
-                </div>
-              {/each}
+                {/each}
+              </div>
+              {#if hideMetrics}
+                <MetricsHiddenNote inline />
+              {:else}
+                <OverviewUsage capacity={overview.capacity} context={currentContextName()} />
+              {/if}
+              {#if !hideMetrics && !overview.capacity.metrics}
+                <p class="muted small">No usage: the metrics API (metrics-server) is not available.</p>
+                <MetricsOffer
+                  addon="metrics-server"
+                  label="Install metrics-server…"
+                  text="Install it with helm: a dry run first, nothing changes until you confirm."
+                />
+              {/if}
             </div>
-            {#if hideMetrics}
-              <MetricsHiddenNote inline />
-            {:else}
-              <OverviewUsage capacity={overview.capacity} context={currentContextName()} />
+          </section>
+        {/if}
+        <section class="namespaces" aria-label="Pods by namespace">
+          <div class="sec-head"><h3>Pods by namespace</h3></div>
+          {#if pods}
+            {@const most = Math.max(1, ...pods.by_namespace.map(([, n]) => n))}
+            {@const rest = pods.by_namespace.slice(NAMESPACES_SHOWN)}
+            <div class="panel">
+              <table>
+                <thead><tr><th>Namespace</th><th class="n">Pods</th><th class="share"><span class="sr">Share</span></th></tr></thead>
+                <tbody>
+                  {#each pods.by_namespace.slice(0, NAMESPACES_SHOWN) as [ns, n] (ns)}
+                    <tr>
+                      <td>{ns}</td><td class="n">{n}</td><td class="share"
+                        ><span class="share-bar" style:width="{Math.max(4, (n / most) * 100)}%"></span></td
+                      >
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+            {#if rest.length > 0}
+              <p class="muted small more" data-testid="namespaces-more">
+                {rest.length} more namespace{rest.length === 1 ? "" : "s"}, {rest.reduce((s, [, n]) => s + n, 0)} pods
+              </p>
             {/if}
-            {#if !hideMetrics && !overview.capacity.metrics}
-              <p class="muted small">No usage: the metrics API (metrics-server) is not available.</p>
-              <MetricsOffer
-                addon="metrics-server"
-                label="Install metrics-server…"
-                text="Install it with helm: a dry run first, nothing changes until you confirm."
-              />
-            {/if}
-          </div>
+          {:else}
+            <p class="muted denied">Not allowed.</p>
+          {/if}
         </section>
-      {/if}
+      </div>
     </div>
   {:else if app.status.ok !== false}
-    <!-- The first sounding: the rings breathe until the first update. -->
+    <!-- The first summary: the mark breathes until it arrives. -->
     <div class="deck waiting">
       <span class="status-mark calm" aria-hidden="true"><Icon name="refresh" size={22} /></span>
       <div class="summary">
-        <span class="kicker">Watch report</span>
-        <h2 class="headline">Taking the first sounding…</h2>
+        <span class="kicker">{deckKicker(context, null)}</span>
+        <h2 class="headline">Loading the first summary…</h2>
       </div>
     </div>
   {:else}
@@ -533,11 +474,11 @@
   .overview {
     flex: 1;
     overflow: auto;
-    padding: 22px 24px 32px;
+    padding: 20px 24px 28px;
     container: overview / inline-size;
   }
   .notes {
-    margin: 0 0 18px;
+    margin: 0 0 16px;
     padding: 10px 14px 10px 30px;
     font-size: var(--text-sm);
     background: var(--bg-card);
@@ -545,12 +486,12 @@
     border-radius: var(--radius-card);
   }
 
-  /* The deck: one headline, what the watch found. */
+  /* The deck: one headline, how the cluster is. */
   .deck {
     display: flex;
     align-items: center;
     gap: 14px;
-    margin-bottom: 20px;
+    margin-bottom: 16px;
   }
   .status-mark {
     --tone: var(--amber);
@@ -594,22 +535,33 @@
     line-height: 1.15;
   }
 
-  /* Stat cards: what is there, at a glance. A colour only where it means
-     something: the icon says the state, red numbers need you. */
+  /* Stat cards: what is there, at a glance; each opens its table. A colour
+     only where it means something: the icon says the state, red numbers
+     need you. */
   .cards {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
     gap: 8px;
-    margin-bottom: 30px;
   }
   .card {
     --tone: var(--text-muted);
+    display: block;
     min-width: 0;
-    padding: 10px 12px 11px;
+    height: 60px;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-card);
+    transition: border-color 140ms ease;
+  }
+  .card:hover {
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   }
   /* "Pods in <namespace>" needs more room than one column. */
   .card.wide {
@@ -629,7 +581,7 @@
     align-items: center;
     justify-content: space-between;
     gap: 6px;
-    margin-top: 4px;
+    margin-top: 2px;
     color: var(--tone);
   }
   .card.zero .card-foot {
@@ -648,7 +600,7 @@
     text-overflow: ellipsis;
   }
   .num {
-    font-size: 24px;
+    font-size: 22px;
     color: var(--text);
     font-weight: var(--weight-semibold);
     font-variant-numeric: tabular-nums;
@@ -667,35 +619,32 @@
   .card.alert .label {
     color: var(--red);
   }
+  /* Failed 0 · Succeeded 0: one muted line, not two empty cards. */
+  .quiet {
+    margin: 6px 0 0;
+    font-size: var(--text-sm);
+  }
 
-  /* The body: sections with a heading at a real size, their items as cards. */
+  /* The body: what needs you, then capacity and the namespaces. */
   .body {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "attention" "side" "capacity";
-    gap: 30px;
+    gap: 24px;
+    margin-top: 22px;
   }
-  .sections {
+  .sections,
+  .side {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 30px;
-    grid-area: attention;
+    gap: 24px;
     align-content: start;
-    min-width: 0;
-  }
-  .side {
-    grid-area: side;
-    min-width: 0;
-  }
-  .capacity {
-    grid-area: capacity;
     min-width: 0;
   }
   .sec-head {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
   }
   h3 {
     margin: 0;
@@ -715,221 +664,27 @@
     color: var(--red);
     background: color-mix(in srgb, var(--red) 14%, transparent);
   }
-  .count.warn {
-    color: var(--amber);
-    background: color-mix(in srgb, var(--amber) 16%, transparent);
-  }
-  .stack {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .panel,
-  .problem,
-  .event,
-  .empty {
+  .panel {
+    overflow: hidden;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-card);
   }
-  .panel {
-    overflow: hidden;
-  }
   .panel.pad {
-    padding: 14px 16px 16px;
-  }
-  .empty {
-    padding: 4px 16px;
-  }
-  .none {
-    margin: 0;
+    padding: 12px 14px 14px;
   }
   .denied {
     margin: 0;
     font-size: var(--text-base);
   }
 
-  /* A problem pod or a warning: its state as a tinted tile, what it is,
-     and what to do about it on the card. */
-  .problem,
-  .event {
-    --tone: var(--amber);
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 12px;
-  }
-  .problem.error {
-    --tone: var(--red);
-  }
-  .event {
-    grid-template-columns: auto minmax(0, 1fr);
-    align-items: start;
-  }
-  .tile {
-    display: grid;
-    place-items: center;
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-    color: var(--tone);
-    background: color-mix(in srgb, var(--tone) 13%, transparent);
-  }
-  .what {
-    min-width: 0;
-  }
-  .name {
-    display: block;
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--text-md);
-    font-weight: var(--weight-semibold);
-    color: var(--text);
-    text-align: left;
-  }
-  .name .ns {
-    font-weight: 400;
-    color: var(--text-muted);
-  }
-  button.name:hover {
-    color: var(--accent);
-  }
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 10px;
-    margin-top: 2px;
-    font-size: var(--text-sm);
-    color: var(--text-muted);
-  }
-  .meta .reason {
-    font-weight: var(--weight-semibold);
-    color: var(--amber);
-  }
-  .meta .reason.error {
-    color: var(--red);
-  }
-  .actions {
-    display: flex;
-    gap: 6px;
-  }
-  .act {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    color: var(--text);
-    background: var(--bg);
-  }
-  .act:hover {
-    border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-    color: var(--accent);
-  }
-  .e-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 2px 10px;
-    font-size: var(--text-base);
-  }
-  .e-head .reason {
-    font-weight: var(--weight-semibold);
-  }
-  .age {
-    margin-left: auto;
-    font-size: var(--text-sm);
-    color: var(--text-muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .message {
-    margin: 3px 0 0;
-    font-size: var(--text-base);
-    line-height: 1.45;
-    color: var(--text-muted);
-    overflow-wrap: anywhere;
-  }
-  .message.summary {
-    color: var(--text);
-    font-weight: var(--weight-medium);
-  }
-  .full {
-    margin: 2px 0 0;
-    font-size: var(--text-sm);
-    line-height: 1.4;
-    color: var(--text-muted);
-    overflow-wrap: anywhere;
-  }
-  .link {
-    background: transparent;
-    border: none;
-    color: var(--accent);
-    padding: 0;
-    font: inherit;
-    cursor: pointer;
-  }
-  .link.object:hover {
-    text-decoration: underline;
-  }
-  button.name {
-    font-weight: var(--weight-semibold);
-    font-size: var(--text-md);
-  }
-
-  /* A problem that just cleared: a teal tick drawn once, then the line goes. */
-  .cleared {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    padding: 6px 12px;
-    font-size: var(--text-base);
-    color: var(--accent);
-    animation: cleared 2600ms var(--ease-out) both;
-  }
-  .cleared svg {
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 1.6;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .cleared path {
-    stroke-dasharray: 10;
-    animation: tick 500ms var(--ease-out) 150ms both;
-  }
-  .cleared .what {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-  }
-  @keyframes tick {
-    from {
-      stroke-dashoffset: 10;
-    }
-  }
-  @keyframes cleared {
-    0% {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-    12%,
-    75% {
-      opacity: 1;
-      transform: none;
-    }
-    100% {
-      opacity: 0;
-    }
-  }
-
   /* Pods by namespace: a short table in a card, each count with its share. */
-  .side table {
+  .namespaces table {
     font-size: var(--text-base);
   }
-  .side th {
-    padding: 9px 14px;
+  .namespaces th {
+    padding: 7px 14px;
     font-family: var(--font-ui);
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
@@ -937,19 +692,22 @@
     letter-spacing: 0;
     background: color-mix(in srgb, var(--bg-hover) 45%, transparent);
   }
-  .side td {
-    padding: 7px 14px;
+  .namespaces td {
+    padding: 5px 14px;
   }
-  .side tbody tr:last-child td {
+  .namespaces tbody tr:last-child td {
     border-bottom: none;
   }
-  .side .n {
+  .namespaces .n {
     text-align: right;
     width: 64px;
   }
-  .side .share {
+  .namespaces .share {
     width: 34%;
     padding-left: 4px;
+  }
+  .more {
+    margin: 6px 0 0;
   }
   .share-bar {
     display: block;
@@ -967,10 +725,13 @@
   }
 
   /* Capacity: requests against what the nodes can allocate. */
+  .capacity {
+    --chart-h: 120px;
+  }
   .bars {
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 12px;
     font-size: var(--text-base);
   }
   .bar-top,
@@ -982,10 +743,10 @@
     gap: 2px 16px;
   }
   .bar-top {
-    margin-bottom: 7px;
+    margin-bottom: 6px;
   }
   .bar-foot {
-    margin-top: 6px;
+    margin-top: 5px;
     font-size: var(--text-sm);
     color: var(--text-muted);
   }
@@ -1055,29 +816,8 @@
 
   @container overview (min-width: 1000px) {
     .body {
-      grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
-      grid-template-areas: "attention side" "capacity side";
-      grid-template-rows: auto 1fr;
-      gap: 30px 24px;
-    }
-    .body.calm {
-      grid-template-areas: "capacity side" "attention side";
-    }
-    /* Nothing to attend to: the two calm notes side by side. */
-    .body.calm .sections {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-    .capacity {
-      --chart-h: 180px;
-    }
-  }
-  /* Narrow: the actions go under what they act on. */
-  @container overview (max-width: 560px) {
-    .problem {
-      grid-template-columns: auto minmax(0, 1fr);
-    }
-    .actions {
-      grid-column: 2;
+      grid-template-columns: minmax(0, 2.2fr) minmax(300px, 1fr);
+      gap: 24px;
     }
   }
 </style>

@@ -12,6 +12,8 @@
 
   /** Prometheus answers for the last hour; asking again this often keeps it current. */
   const POLL_MS = 60_000;
+  /** The charts show from this many samples on. */
+  const MIN_SAMPLES = 3;
 
   let view = $state.raw<OverviewUsageView | null>(null);
   let local = $state.raw<readonly UsageSample[]>([]);
@@ -57,16 +59,21 @@
     {#if chart.note}
       <p class="muted small note" data-testid="overview-usage-note">{chart.note}</p>
     {/if}
-    <div class="charts">
-      <UsageChart title="CPU" resource="cpu" {lines} refs={clusterRefs(capacity, "cpu")} format={formatCpu} />
-      <UsageChart
-        title="Memory"
-        resource="memory"
-        {lines}
-        refs={clusterRefs(capacity, "memory")}
-        format={formatMemory}
-      />
-    </div>
+    {#if chart.samples.length < MIN_SAMPLES}
+      <!-- Two points draw no trend: wait for a third (#605). -->
+      <p class="muted small note" data-testid="overview-usage-collecting">Collecting usage, first points in about a minute.</p>
+    {:else}
+      <div class="charts">
+        <UsageChart title="CPU" resource="cpu" {lines} refs={clusterRefs(capacity, "cpu")} format={formatCpu} />
+        <UsageChart
+          title="Memory"
+          resource="memory"
+          {lines}
+          refs={clusterRefs(capacity, "memory")}
+          format={formatMemory}
+        />
+      </div>
+    {/if}
   </section>
 {/if}
 

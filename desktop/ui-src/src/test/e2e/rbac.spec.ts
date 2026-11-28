@@ -23,6 +23,8 @@ const limited = (cluster: import("../fixtures/cluster").FakeCluster) => {
       by_namespace: [["team-a", 1]],
       problems: [],
       problems_total: 0,
+      groups: [],
+      groups_total: 0,
     },
     capacity: null,
     events: { namespace: "team-a", items: [] },

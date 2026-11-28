@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
-import type { Capacity, EventInfo, PodCounts, ResourceKind } from "./bindings";
-import { capacityBars, deckHeadline, eventKind, overviewCount, percent, podCards, rawPercent } from "./overview";
+import type { Capacity, EventInfo, PodCounts, ProblemGroup, ResourceKind } from "./bindings";
+import {
+  capacityBars,
+  deckHeadline,
+  deckKicker,
+  eventKind,
+  groupCounts,
+  overviewCount,
+  percent,
+  podCards,
+  rawPercent,
+  seeAllProblems,
+} from "./overview";
 
 const capacity: Capacity = {
   cpu_requests_millicores: 1200,
@@ -42,6 +53,8 @@ const event = (apiVersion: string, k: string, name = "web"): EventInfo => ({
   object_name: name,
   time: 0,
   count: 1,
+  owner_kind: "",
+  owner_name: "",
 });
 
 describe("percent", () => {
@@ -111,15 +124,20 @@ describe("podCards", () => {
       by_namespace: [],
       problems: [],
       problems_total: 0,
+      groups: [],
+      groups_total: 0,
     };
     const cards = podCards(counts);
-    expect(cards.map((c) => [c.label, c.value, c.alert])).toEqual([
-      ["Running", 3, false],
-      ["Pending", 1, false],
-      ["Errors", 1, true],
-      ["Failed", 0, false],
-      ["Succeeded", 0, false],
+    expect(cards.map((c) => [c.label, c.value, c.alert, c.status, c.quiet])).toEqual([
+      ["Running", 3, false, "Running", false],
+      ["Pending", 1, false, "Pending", false],
+      // Errors open the Pods that need attention.
+      ["Errors", 1, true, "needs attention", false],
+      // Failed 0 and Succeeded 0 are a muted line, not cards.
+      ["Failed", 0, false, "Failed", true],
+      ["Succeeded", 0, false, "Succeeded", true],
     ]);
+    expect(podCards({ ...counts, failed: 2 })[3]).toMatchObject({ alert: true, quiet: false });
     expect(overviewCount(counts, { total: 2 })).toBe("5 pods, 2 nodes");
     expect(overviewCount(counts, null)).toBe("5 pods");
   });
@@ -142,10 +160,52 @@ describe("eventKind", () => {
 
 describe("deckHeadline", () => {
   const pods = (problems_total: number) => ({ problems_total }) as unknown as PodCounts;
-  it("says how the watch goes", () => {
-    expect(deckHeadline(pods(0))).toEqual({ text: "All quiet on the water", calm: true });
-    expect(deckHeadline(pods(1)).text).toBe("1 pod needs a look");
-    expect(deckHeadline(pods(3))).toEqual({ text: "3 pods need a look", calm: false });
-    expect(deckHeadline(null).calm).toBe(true);
+  it("says how the cluster is, in plain words", () => {
+    expect(deckHeadline(pods(0), "kind-dev")).toEqual({ text: "No problems in kind-dev", calm: true });
+    expect(deckHeadline(pods(0), "").text).toBe("No problems");
+    expect(deckHeadline(pods(1), "kind-dev").text).toBe("1 pod needs a look");
+    expect(deckHeadline(pods(3), "kind-dev")).toEqual({ text: "3 pods need a look", calm: false });
+    expect(deckHeadline(null, "kind-dev").calm).toBe(true);
+  });
+
+  it("names the context and what it covers above it", () => {
+    expect(deckKicker("kind-dev", null)).toBe("kind-dev · all namespaces");
+    expect(deckKicker("kind-dev", "team-a")).toBe("kind-dev · namespace team-a");
+  });
+});
+
+describe("Problem groups", () => {
+  const group = (over: Partial<ProblemGroup>): ProblemGroup => ({
+    key: "k",
+    namespace: "demo",
+    owner_kind: "Deployment",
+    owner_name: "web",
+    reason: "CrashLoopBackOff",
+    error: true,
+    count: 18,
+    owner_pods: 20,
+    restarts: 340,
+    pods: [],
+    events: [],
+    ...over,
+  });
+
+  it("count the pods of the workload and their restarts", () => {
+    expect(groupCounts(group({}))).toBe("18 of 20 pods · 340 restarts");
+    expect(groupCounts(group({ count: 1, owner_pods: 1, restarts: 1 }))).toBe("1 of 1 pod · 1 restart");
+    expect(groupCounts(group({ restarts: 0 }))).toBe("18 of 20 pods");
+    // A pod without an owner: only its restarts.
+    expect(groupCounts(group({ owner_kind: "", owner_name: "", count: 1, owner_pods: 1, restarts: 12 }))).toBe("12 restarts");
+    expect(groupCounts(group({ owner_kind: "", owner_name: "", count: 1, owner_pods: 1, restarts: 0 }))).toBe("");
+  });
+
+  it("link to all problem pods only when the rows do not hold them all", () => {
+    const counts = (groups: ProblemGroup[], problems_total: number, groups_total = groups.length) =>
+      ({ groups, groups_total, problems_total }) as unknown as PodCounts;
+    expect(seeAllProblems(counts([group({ count: 2 })], 2))).toBe("");
+    const five = Array.from({ length: 5 }, (_, i) => group({ key: `${i}`, count: 10 }));
+    expect(seeAllProblems(counts(five, 166, 11))).toBe("See all 166 problem pods →");
+    // All in the rows, but a group's pods beyond what was counted.
+    expect(seeAllProblems(counts([group({ count: 3 })], 4))).toBe("See all 4 problem pods →");
   });
 });
