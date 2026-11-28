@@ -4,13 +4,14 @@
   import { app } from "../stores/app.svelte";
 
   /** The header's Ask AI (#376), about the cluster or the one namespace
-   *  selected. Only shown when an AI CLI was found or a command is set. */
+   *  selected. Only shown when an AI CLI was found or a command is set.
+   *  Accented (`.ai-action`, #607): the one action of its kind up there. */
   const one = $derived(app.selectedNamespaces.length === 1 ? app.selectedNamespaces[0] : "");
 </script>
 
 {#if askAiAvailable() && app.contexts.length > 0}
   <button
-    class="ask-ai"
+    class="ask-ai ai-action"
     type="button"
     data-testid="ask-ai-header"
     title={one
@@ -24,22 +25,15 @@
 {/if}
 
 <style>
+  /* Colours: `.ai-action` (app.css). */
   .ask-ai {
     display: flex;
     align-items: center;
     gap: 5px;
-    background: transparent;
-    border: 1px solid var(--border);
-    color: var(--text-muted);
     padding: 3px 8px;
     border-radius: 7px;
     font-size: 12px;
     cursor: pointer;
     white-space: nowrap;
-  }
-  .ask-ai:hover {
-    color: var(--text);
-    border-color: var(--border-strong);
-    background: var(--bg-hover);
   }
 </style>

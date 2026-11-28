@@ -44,6 +44,9 @@
   import OutOfReach from "./OutOfReach.svelte";
   import ProblemGroups from "./ProblemGroups.svelte";
   import WarningGroups from "./WarningGroups.svelte";
+  import AskAiRowButton from "./AskAiRowButton.svelte";
+  import { problemScope, warningScope } from "../askAi";
+  import { warningReason, warningSubject } from "../warningGroups";
   import { troubleTitle } from "../health";
   import { NODE_KIND_ID, POD_KIND_ID, overviewBadges } from "../problems";
   import { reportProblems, staleProblems } from "../stores/problems.svelte";
@@ -337,7 +340,11 @@
             {#if pods && pods.groups_total > 0}<span class="count" data-testid="problem-groups-count">{pods.groups_total}</span>{/if}
           </div>
           {#if pods}
-            <ProblemGroups {pods} {recovered} {now} />
+            <ProblemGroups {pods} {recovered} {now}>
+              {#snippet actions(g)}
+                <AskAiRowButton scope={problemScope(g)} about={`${g.namespace}/${g.owner_name || g.pods[0]?.name || ""}`} />
+              {/snippet}
+            </ProblemGroups>
           {:else}
             <p class="muted denied">Not allowed.</p>
           {/if}
@@ -347,7 +354,11 @@
             <h3>Warning groups{overview.events?.namespace ? ` in ${overview.events.namespace}` : ""}</h3>
           </div>
           {#if overview.events}
-            <WarningGroups events={overview.events.items} {now} limit={WARNINGS_SHOWN} />
+            <WarningGroups events={overview.events.items} {now} limit={WARNINGS_SHOWN}>
+              {#snippet actions(g)}
+                <AskAiRowButton scope={warningScope(g)} about={`${warningReason(g)} on ${warningSubject(g)}`} />
+              {/snippet}
+            </WarningGroups>
           {:else}
             <p class="muted denied">Not allowed.</p>
           {/if}

@@ -197,10 +197,10 @@ test("the keyboard's row shows its quick actions too (#507)", async ({ page }) =
   await expect(rows(page).getByTestId("row-quick")).toHaveCount(0);
 });
 
-test("every row menu offers Edit YAML after the dock entries, with the keys (#494)", async ({ page }) => {
+test("every row menu offers Edit YAML after what opens a tab, with the keys (#494, #607)", async ({ page }) => {
   await openApp(page);
   for (const [kind, name, first] of [
-    ["Pods", "web-1", ["Logs", "Shell", "Edit YAML"]],
+    ["Pods", "web-1", ["Logs", "Shell", "Attach", "Debug…", "Edit YAML"]],
     ["Deployments", "web", ["Logs", "Edit YAML"]],
     ["Config Maps", "settings", ["Edit YAML"]],
   ] as const) {

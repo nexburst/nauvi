@@ -51,6 +51,25 @@
   function focus(node: HTMLElement) {
     node.focus();
   }
+
+  /** The prompt shows at least 8 lines, and grows with its text up to 12
+   *  (#607); past that it scrolls. */
+  const PROMPT_ROWS = 8;
+  const PROMPT_MAX_ROWS = 12;
+  function grow(node: HTMLTextAreaElement, _text: string) {
+    const fit = () => {
+      const style = getComputedStyle(node);
+      const line = parseFloat(style.lineHeight) || 18;
+      const pad = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+      const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+      node.style.height = "auto";
+      const min = PROMPT_ROWS * line + pad + border;
+      const max = PROMPT_MAX_ROWS * line + pad + border;
+      node.style.height = `${Math.min(max, Math.max(min, node.scrollHeight + border))}px`;
+    };
+    fit();
+    return { update: fit };
+  }
 </script>
 
 <svelte:window {onkeydown} />
@@ -121,12 +140,13 @@
           <span class="label">Prompt <span class="muted">(you can edit it; it is sent when the CLI starts)</span></span>
           <textarea
             class="input prompt"
-            rows="6"
+            rows={PROMPT_ROWS}
             aria-label="Prompt"
             data-testid="ask-ai-prompt"
             bind:value={prompt}
             oninput={() => (edited = true)}
             use:focus
+            use:grow={prompt}
           ></textarea>
         </label>
         {#if note.text}
@@ -141,21 +161,30 @@
             >
           </p>
         {/if}
-        <p class="note small" data-testid="ask-ai-shell-note">
-          The CLI gets a shell with this cluster's kubeconfig, and no MCP server. What it runs there (<code
-            >kubectl</code
-          >, <code>nauvi</code>, <code>helm</code>…) is allowed or refused by your CLI's own approval prompts, not by nauvi,
-          as in a local terminal: the skill is not read-only.
-        </p>
-        <p class="muted small">
-          Your CLI and its provider decide what leaves this machine, as in any terminal. When the CLI exits, the tab is
-          your shell.
-        </p>
+        <!-- One line; the rest one click away (#607). -->
+        <details class="caveats" data-testid="ask-ai-shell-note">
+          <summary
+            ><span data-testid="ask-ai-caveat"
+              >Runs {chosen?.label ?? "your CLI"} in a local terminal with this cluster's kubeconfig; your CLI asks before
+              it runs commands.</span
+            > <span class="details">Details</span></summary
+          >
+          <p>
+            The CLI gets a shell with this cluster's kubeconfig, and no MCP server. What it runs there (<code
+              >kubectl</code
+            >, <code>nauvi</code>, <code>helm</code>…) is allowed or refused by your CLI's own approval prompts, not by
+            nauvi, as in a local terminal: the skill is not read-only.
+          </p>
+          <p>
+            Your CLI and its provider decide what leaves this machine, as in any terminal. When the CLI exits, the tab is
+            your shell.
+          </p>
+        </details>
         <div class="buttons">
           <button type="button" class="btn" onclick={closeAskAi}>Cancel</button>
           <button
             type="button"
-            class="btn primary"
+            class="btn start"
             disabled={!canStart}
             data-testid="ask-ai-start"
             title="Start (Ctrl+Enter)"
@@ -178,7 +207,7 @@
     z-index: 110;
   }
   .dialog {
-    width: min(560px, calc(100vw - 32px));
+    width: min(600px, calc(100vw - 32px));
     max-height: calc(100vh - 48px);
     overflow: auto;
     background: var(--bg-raised);
@@ -244,9 +273,53 @@
     font-family: inherit;
     font-size: 12.5px;
     line-height: 1.4;
+    /* The text as it is sent: Inter's contextual alternates draw the "x"
+       of a name like "y5x94" as "×". */
+    font-feature-settings: "calt" 0;
   }
   .note {
     color: var(--text-muted);
+  }
+  /* What the CLI can do, in one line; the rest under Details. */
+  .caveats {
+    margin: 0 0 8px;
+    font-size: var(--text-sm);
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+  .caveats summary {
+    cursor: pointer;
+    list-style: none;
+  }
+  .caveats summary::-webkit-details-marker {
+    display: none;
+  }
+  .caveats .details {
+    color: var(--accent);
+    text-decoration: underline;
+    white-space: nowrap;
+  }
+  .caveats[open] .details {
+    display: none;
+  }
+  .caveats p {
+    margin: 6px 0 0;
+    font-size: var(--text-sm);
+  }
+  /* The one filled button: Start. */
+  .btn.start {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+    font-weight: var(--weight-semibold);
+  }
+  .btn.start:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 88%, var(--text));
+    color: var(--on-accent);
+  }
+  .btn.start:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
   .warn {
     padding: 6px 8px;
@@ -255,9 +328,6 @@
   }
   .muted {
     color: var(--text-muted);
-  }
-  .small {
-    font-size: 12px;
   }
   .install {
     margin: 0 0 8px;

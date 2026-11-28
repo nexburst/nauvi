@@ -142,7 +142,8 @@ test("the row menu opens from the keyboard and its items are reachable with arro
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Shift+F10");
   await expect(menu(page).locator(".title")).toHaveText("demo/crashed");
-  // Logs and Shell (dock tabs) come first, Edit YAML, then Copy link, Copy as prompt and the actions.
+  // What opens a tab comes first (Logs, Shell, Attach, Debug), then Edit YAML and the other
+  // changes, Copy prompt for your AI and Copy link, and the destructive actions last (#607).
   await expect(menu(page).getByRole("menuitem", { name: "Logs", exact: true })).toBeFocused();
   for (let i = 0; i < 10; i++) await page.keyboard.press("ArrowDown");
   await expect(menu(page).getByRole("menuitem", { name: "Force delete…" })).toBeFocused();
