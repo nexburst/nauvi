@@ -146,6 +146,12 @@ describe("workloads overview", { timeout: 15 * 60_000 }, () => {
         seeAll: el.querySelector('[data-testid="see-all-workloads"]')?.textContent.trim() ?? "",
         h3: [getComputedStyle(h3).textTransform, getComputedStyle(h3).fontSize],
         headline: getComputedStyle(el.querySelector('[data-testid="deck-headline"]')).fontSize,
+        // The namespace gives way; the workload's name is never cut.
+        cut: all('[data-testid="problem-workload"] .nm').filter((n) => {
+          const text = document.createRange();
+          text.selectNodeContents(n);
+          return text.getBoundingClientRect().width > n.getBoundingClientRect().width + 1;
+        }).length,
       };`);
     console.log(`#606 many problems: ${JSON.stringify(m)}`);
     console.log(`#606 Workloads overview scrollHeight with 8 broken Deployments at 1280x800: ${m.scroll}px (client ${m.client}px)`);
@@ -155,6 +161,7 @@ describe("workloads overview", { timeout: 15 * 60_000 }, () => {
     assert.equal(m.seeAll, "See all 8 →");
     assert.deepEqual(m.h3, ["none", "15px"]);
     assert.equal(m.headline, "26px");
+    assert.equal(m.cut, 0, "a workload name is cut");
     assert.ok(m.warnings.length <= 5, `${m.warnings.length} warning groups`);
     // No warning about a listed problem's pods (`<deployment>-<hash>-<id>`).
     for (const name of m.names.map((n) => n.split("/")[1])) {

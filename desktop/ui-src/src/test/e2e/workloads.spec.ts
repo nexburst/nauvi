@@ -167,18 +167,18 @@ test("with 41 failing Deployments the Workloads overview fits one screen; See al
       const name = `payments-worker-${i}`;
       const cells = [...api.cells];
       cells[ready] = `0/${(i % 7) + 2}`;
-      deployments.push({ ...api, name, namespace: "payments", cells, status: "Pending", problem: "not ready" });
+      deployments.push({ ...api, name, namespace: "payments-production-eu-west-1-blue", cells, status: "Pending", problem: "not ready" });
       // Two crash-looping pods each, with the kubelet's pod UIDs.
       for (const pod of ["a", "b"]) {
         events.push({
-          key: `payments/${name}-${pod}`,
+          key: `payments-production-eu-west-1-blue/${name}-${pod}`,
           kind: "Warning",
           reason: "BackOff",
-          message: `Back-off restarting failed container app in pod ${name}-${pod}_payments(${uid})`,
+          message: `Back-off restarting failed container app in pod ${name}-${pod}_payments-production-eu-west-1-blue(${uid})`,
           object: `Pod/${name}-${pod}`,
           object_api_version: "v1",
           object_kind: "Pod",
-          object_namespace: "payments",
+          object_namespace: "payments-production-eu-west-1-blue",
           object_name: `${name}-${pod}`,
           time: Math.floor(Date.now() / 1000) - 60 * i,
           count: 212 - i,
@@ -222,8 +222,16 @@ test("with 41 failing Deployments the Workloads overview fits one screen; See al
       headSize: css(".sec-head h3").fontSize,
       headline: css('[data-testid="deck-headline"]').fontSize,
       warningBorder: css('[data-testid="warning-group"]').borderLeftWidth,
+      // A long namespace gives way; the workload's name is never cut.
+      // (scrollWidth does not see an ellipsis on a flex item: measure the text.)
+      cutNames: Array.from(el.querySelectorAll('[data-testid="problem-workload"] .nm')).filter((n) => {
+        const text = document.createRange();
+        text.selectNodeContents(n);
+        return text.getBoundingClientRect().width > n.getBoundingClientRect().width + 1;
+      }).length,
     };
   });
+  expect(sizes.cutNames).toBe(0);
   console.log(`#606 Workloads overview scrollHeight with 41 failing Deployments at 1280x800: ${sizes.scroll}px`);
   expect(sizes.scroll).toBeLessThanOrEqual(sizes.client);
   for (const r of sizes.problems) expect(r).toBe(32);

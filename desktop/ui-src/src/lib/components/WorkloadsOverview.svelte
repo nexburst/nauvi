@@ -359,8 +359,7 @@
   }
   @container workloads (min-width: 900px) {
     .sections {
-      /* The warnings' lines say more (reason · subject · how often). */
-      grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     }
   }
   .link {

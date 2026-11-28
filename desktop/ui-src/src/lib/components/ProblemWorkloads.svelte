@@ -50,10 +50,13 @@
       {@const name = `${p.namespace}/${p.name}`}
       <li class="problem" class:error={toneOf(p.status) === "bad"} data-testid="problem-workload">
         <span class="kind">{p.kind}</span>
+        <!-- A long namespace gives way before the name. -->
         {#if kindOf(p)}
-          <button type="button" class="link name" title={`Open ${p.kind} ${name}`} onclick={() => open(p)}>{name}</button>
+          <button type="button" class="link name" title={`Open ${p.kind} ${name}`} aria-label={name} onclick={() => open(p)}
+            ><span class="ns">{p.namespace}</span><span class="nm">/{p.name}</span></button
+          >
         {:else}
-          <span class="name">{name}</span>
+          <span class="name" title={name}><span class="ns">{p.namespace}</span><span class="nm">/{p.name}</span></span>
         {/if}
         <span class="reason" title={p.reason}>{p.reason}</span>
         <div class="actions">{@render actions?.(p)}</div>
@@ -108,11 +111,27 @@
     color: var(--text-muted);
   }
   .name {
+    display: flex;
+    min-width: 0;
+    font-weight: var(--weight-semibold);
+    color: var(--text);
+  }
+  .ns,
+  .nm {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-weight: var(--weight-semibold);
-    color: var(--text);
+  }
+  /* The name keeps its width (up to the whole column); the namespace gets
+     what is left. */
+  .ns {
+    flex: 0 1 auto;
+    font-weight: var(--weight-regular, 400);
+    color: var(--text-muted);
+  }
+  .nm {
+    flex: 0 0 auto;
+    max-width: 100%;
   }
   .link {
     padding: 0;
