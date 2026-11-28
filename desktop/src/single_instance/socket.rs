@@ -57,7 +57,7 @@ pub(super) fn check_dir(meta: &std::fs::Metadata, uid: u32) -> Result<(), String
         return Err("is not a directory".into());
     }
     if meta.uid() != uid {
-        return Err(format!("belongs to user {}, not {uid}", meta.uid()));
+        return Err("belongs to another user".into());
     }
     if meta.mode() & 0o077 != 0 {
         return Err(format!(
@@ -73,7 +73,7 @@ pub(super) fn check_socket(meta: &std::fs::Metadata, uid: u32) -> Result<(), Str
         return Err("is not a socket".into());
     }
     if meta.uid() != uid {
-        return Err(format!("belongs to user {}, not {uid}", meta.uid()));
+        return Err("belongs to another user".into());
     }
     Ok(())
 }
@@ -142,9 +142,7 @@ fn claim(socket: &Path) -> Start {
 fn send(mut stream: &UnixStream, uid: u32, message: &[u8]) -> io::Result<()> {
     let peer = peer_uid(stream)?;
     if peer != uid {
-        return Err(io::Error::other(format!(
-            "the socket is served by user {peer}, not {uid}"
-        )));
+        return Err(io::Error::other("the socket is served by another user"));
     }
     stream.write_all(message)?;
     stream.shutdown(std::net::Shutdown::Write)
@@ -155,8 +153,8 @@ fn send(mut stream: &UnixStream, uid: u32, message: &[u8]) -> io::Result<()> {
 pub(super) fn receive(mut stream: UnixStream, uid: u32) -> Option<(String, Vec<String>)> {
     match peer_uid(&stream) {
         Ok(peer) if peer == uid => {}
-        Ok(peer) => {
-            tracing::warn!("single-instance: refused a connection from user {peer}");
+        Ok(_) => {
+            tracing::warn!("single-instance: refused a connection from another user");
             return None;
         }
         Err(e) => {
@@ -367,7 +365,7 @@ mod tests {
         let meta = std::fs::symlink_metadata(&dir).unwrap();
         assert!(check_dir(&meta, uid + 1)
             .unwrap_err()
-            .contains("belongs to user"));
+            .contains("belongs to another user"));
         // A symlink to a private directory: refused.
         let link = base.join("link.si");
         std::os::unix::fs::symlink(&dir, &link).unwrap();
@@ -398,7 +396,7 @@ mod tests {
         assert!(check_socket(&meta, uid).is_ok());
         assert!(check_socket(&meta, uid + 1)
             .unwrap_err()
-            .contains("belongs to user"));
+            .contains("belongs to another user"));
         let _ = std::fs::remove_dir_all(&base);
     }
 
