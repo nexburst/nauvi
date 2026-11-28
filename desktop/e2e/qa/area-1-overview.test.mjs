@@ -85,7 +85,9 @@ describe("area 1: status, Overview, Refresh, sidebar", { timeout: 10 * 60_000 },
           Number(got.cards["Namespaces"]) === want.namespaces &&
           got.cards["Nodes ready"] === want.nodes &&
           Number(got.cards["Pods"]) === want.pods &&
-          JSON.stringify(Object.entries(got.byNs).sort()) === JSON.stringify(Object.entries(want.byNs).sort())
+          // The busiest five namespaces (#605), each as kubectl counts it.
+          Object.keys(got.byNs).length === Math.min(5, Object.keys(want.byNs).length) &&
+          Object.entries(got.byNs).every(([ns, n]) => want.byNs[ns] === n)
         );
       },
       { timeout: 60_000, interval: 2000, message: "the Overview to match kubectl" },
