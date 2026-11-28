@@ -27,6 +27,8 @@ import { actionDialogText, noticeText, openKind, waitActionDialogClosed } from "
 
 const T = { timeout: 180_000 };
 const PODS = ["qa-k9s-a", "qa-k9s-b", "qa-k9s-c"];
+/** Two more pods for the filter's keys (#590): the others are deleted by then. */
+const FILTER_PODS = ["qa-flt-1", "qa-flt-2"];
 let ns = "";
 
 const podYaml = (name) => `apiVersion: v1
@@ -265,5 +267,73 @@ describe("k9s keys and keyboard confirm dialogs", { timeout: 15 * 60_000 }, () =
       { message: "the other way" },
     );
     console.log(`name sort: ${before} -> ${first} -> ${await sort()}`);
+  });
+
+  it("#590: /, type, Enter or Esc or ↓ go back to the rows, the filter kept; no rows never traps the focus", T, async () => {
+    const { app } = s;
+    for (const p of FILTER_PODS) kubectl(["-n", ns, "apply", "-f", "-"], podYaml(p));
+    for (const p of FILTER_PODS) waitPodReady(ns, p);
+    await podsTable(app);
+    await app.waitFor(async () => (await count(app, '[data-testid="resource-row"]')) >= 3, { message: "the filter pods" });
+    const filterValue = () => app.js(`return document.getElementById("table-filter").value`);
+    const role = () => app.js(`return document.activeElement?.getAttribute("role") ?? document.activeElement?.tagName`);
+    const focusedRow = () =>
+      app.js(`const id = document.querySelector('[role="grid"]').getAttribute("aria-activedescendant");
+        return id ? document.getElementById(id)?.querySelectorAll('[role="gridcell"]')[1]?.textContent.trim() : "";`);
+    const names = async () => (await app.rows()).map((r) => r[0]);
+
+    // Enter: the first matching row, and j / d at once.
+    await press(app, "/");
+    await app.waitFor(async () => (await focused(app)).startsWith("input"), { message: "the filter focused" });
+    await press(app, "qa-flt", Key.ENTER);
+    await app.waitFor(async () => (await role()) === "grid", { message: "the grid focused after Enter" });
+    assert.equal(await filterValue(), "qa-flt");
+    await app.waitFor(async () => (await names()).length === 2, { message: "two rows" });
+    // In the table's order (Shift+N above may have turned it round).
+    const order = await names();
+    assert.deepEqual([...order].sort(), FILTER_PODS);
+    assert.equal(await focusedRow(), order[0], "the first matching row");
+    await press(app, "j");
+    await app.waitFor(async () => (await focusedRow()) === order[1], { message: "j moves" });
+    await bothThemes(app, "filter-enter");
+    await press(app, "d");
+    await app.waitFor(
+      async () => (await app.js(`return document.querySelector('[data-testid="detail-panel"] .title')?.textContent ?? ""`)).includes(order[1]),
+      { message: "d opens the row" },
+    );
+
+    // Esc (suggestions closed): back to the rows, the filter neither
+    // cleared (a search box's Esc) nor the panel closed.
+    await press(app, "/");
+    await app.waitFor(async () => (await focused(app)).startsWith("input"), { message: "the filter focused" });
+    await press(app, Key.ESCAPE);
+    await app.waitFor(async () => (await role()) === "grid", { message: "the grid focused after Esc" });
+    assert.equal(await filterValue(), "qa-flt", "Esc kept the filter");
+    assert.equal(await count(app, '[data-testid="detail-panel"]'), 1, "the panel stays");
+    assert.equal(await focusedRow(), order[0]);
+    await press(app, Key.ESCAPE);
+    await app.waitFor(async () => (await count(app, '[data-testid="detail-panel"]')) === 0, { message: "panel closed" });
+
+    // ↓ (suggestions closed): the first row.
+    await press(app, "/");
+    await app.waitFor(async () => (await focused(app)).startsWith("input"), { message: "the filter focused" });
+    await press(app, Key.ARROW_DOWN);
+    await app.waitFor(async () => (await role()) === "grid", { message: "the grid focused after ↓" });
+    assert.equal(await focusedRow(), order[0]);
+
+    // No rows match: Enter still lets go of the box.
+    await press(app, "/");
+    await app.waitFor(async () => (await focused(app)).startsWith("input"), { message: "the filter focused" });
+    await press(app, "zzz");
+    await app.waitFor(async () => (await count(app, '[data-testid="resource-row"]')) === 0, { message: "no rows" });
+    await press(app, Key.ESCAPE);
+    if ((await focused(app)).startsWith("input")) await press(app, Key.ESCAPE);
+    await app.waitFor(async () => !(await focused(app)).startsWith("input"), { message: "the box let go" });
+    console.log(`no rows, focus on: ${await role()}`);
+    assert.equal(await filterValue(), "qa-fltzzz");
+    await bothThemes(app, "filter-no-rows");
+    await press(app, "/");
+    await app.waitFor(async () => (await focused(app)).startsWith("input"), { message: "/ again" });
+    await app.filter("");
   });
 });

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { app } from "../stores/app.svelte";
-  import { keyboard } from "../stores/keyboard.svelte";
+  import { activeTable, keyboard } from "../stores/keyboard.svelte";
   import {
     currentSearch,
     filterError,
@@ -18,7 +18,9 @@
   /**
    * The toolbar's filter (#219): the text box shared by every list, match
    * case and regex toggles, a star for the search in the box, and the
-   * recent and starred searches offered under it (ArrowDown, or typing).
+   * recent and starred searches offered under it (typing, ArrowUp or
+   * Alt+ArrowDown). Enter, Esc and ArrowDown go back to the rows with the
+   * filter kept (#590, k9s's `/filter` then Enter).
    */
 
   let input: HTMLInputElement | undefined = $state();
@@ -54,10 +56,29 @@
     input?.focus();
   }
 
+  /**
+   * Leave the box for the table: its first matching row gets the keyboard
+   * focus, so `j`/`k`/`d`/`l` work at once. No rows, or a list without a
+   * focusable grid: the box still lets go of the focus, never traps it.
+   */
+  function toRows() {
+    rememberSearch();
+    close();
+    const table = activeTable();
+    if (table) {
+      table.move("first");
+      table.focus();
+    }
+    if (document.activeElement === input) input?.blur();
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       if (!shown) {
+        // ArrowDown goes to the rows; ArrowUp (or Alt+ArrowDown, as in a
+        // combo box) shows the saved searches.
+        if (e.key === "ArrowDown" && !e.altKey) return toRows();
         open = true;
         active = e.key === "ArrowDown" ? 0 : items.length - 1;
         return;
@@ -67,14 +88,14 @@
     } else if (e.key === "Enter") {
       e.preventDefault();
       if (shown && active >= 0 && items[active]) pick(items[active].search);
-      else {
-        rememberSearch();
-        close();
-      }
-    } else if (e.key === "Escape" && shown) {
+      else toRows();
+    } else if (e.key === "Escape") {
+      // Open: only close the suggestions. Closed: back to the rows with the
+      // filter kept (not cleared, as a search box does on Esc).
       e.preventDefault();
       e.stopPropagation();
-      close();
+      if (shown) close();
+      else toRows();
     }
   }
 
