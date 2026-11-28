@@ -21,7 +21,7 @@ test("with the dock hidden, one click on Terminal opens a local terminal at the 
   const fake = await openApp(page);
   await expect(dock(page)).toHaveCount(0);
   await expect(terminalButton(page)).toHaveText("Terminal");
-  await expect(terminalButton(page)).toHaveAttribute("title", /\(Ctrl\+Shift\+` or Ctrl\+Shift\+J\)$/);
+  await expect(terminalButton(page)).toHaveAttribute("title", /\(Ctrl\+Shift\+` or Ctrl\+Shift\+J or Ctrl\+T\)$/);
   await terminalButton(page).click();
   await expect(dock(page).getByRole("tab")).toHaveText(["kind-dev · default"]);
   await expect.poll(() => fake.calls("cmdLocalShellStart")).toHaveLength(1);
@@ -39,11 +39,11 @@ test("with the dock hidden, one click on Terminal opens a local terminal at the 
 test("on macOS the help, the + and Terminal tooltips and the palette show ⌃` and ⌃⇧` first", async ({ page }) => {
   await asMac(page);
   await openApp(page);
-  await expect(terminalButton(page)).toHaveAttribute("title", /\(⌃⇧` or ⇧⌘J\)$/);
+  await expect(terminalButton(page)).toHaveAttribute("title", /\(⌃⇧` or ⇧⌘J or ⌘T\)$/);
   await terminalButton(page).click();
   await expect(dock(page).getByRole("button", { name: "New local terminal" })).toHaveAttribute(
     "title",
-    "New local terminal (⌃⇧` or ⇧⌘J)",
+    "New local terminal (⌃⇧` or ⇧⌘J or ⌘T)",
   );
 
   // The new terminal takes the focus: once it has, leave it for the app's keys.
@@ -53,7 +53,7 @@ test("on macOS the help, the + and Terminal tooltips and the palette show ⌃` a
   const keysOf = (label: RegExp) =>
     help(page).locator("dd", { hasText: label }).locator("xpath=preceding-sibling::dt[1]").locator("kbd");
   await expect(keysOf(/^Show or hide the dock/)).toHaveText(["⌃`", "⌘J"]);
-  await expect(keysOf(/^New local terminal/)).toHaveText(["⌃⇧`", "⇧⌘J"]);
+  await expect(keysOf(/^New local terminal/)).toHaveText(["⌃⇧`", "⇧⌘J", "⌘T"]);
 });
 
 test("palette entries with a shortcut show it", async ({ page }) => {
