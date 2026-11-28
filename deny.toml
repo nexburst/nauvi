@@ -20,7 +20,6 @@ yanked = "deny"
 # (cargo-deny has no expiry field: the date is in the reason).
 ignore = [
   { id = "RUSTSEC-2024-0449", reason = "unsafe-libyaml (unmaintained, no known vulnerability) comes in through serde_yaml, which kube-client depends on as well, so replacing our own serde_yaml would not remove it. Review by 2027-05-01 or when kube drops serde_yaml." },
-  { id = "RUSTSEC-2026-0543", reason = "chrono (unmaintained, no known vulnerability) comes in only through rmcp (our MCP server, the `mcp` feature), which depends on it unconditionally and enables schemars' chrono04 feature; rmcp 3.10.0 is the latest release and has no feature to drop it. Our own code uses jiff (#302). Tracked in #357; review by 2027-02-01 or when rmcp drops chrono." },
 ]
 
 [licenses]
