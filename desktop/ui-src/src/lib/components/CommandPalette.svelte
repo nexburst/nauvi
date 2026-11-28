@@ -271,8 +271,9 @@
   }
   .end {
     margin-left: auto;
+    align-self: center;
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
     flex-shrink: 0;
   }
@@ -284,7 +285,7 @@
     border-radius: 3px;
     padding: 0 5px;
     /* No taller than the label: rows with a key keep the same height. */
-    line-height: 1.25;
+    line-height: 1.2;
     white-space: nowrap;
   }
   .none {

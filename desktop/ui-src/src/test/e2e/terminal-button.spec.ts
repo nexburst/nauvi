@@ -46,6 +46,8 @@ test("on macOS the help, the + and Terminal tooltips and the palette show ⌃` a
     "New local terminal (⌃⇧` or ⇧⌘J)",
   );
 
+  // The new terminal takes the focus: once it has, leave it for the app's keys.
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("?");
   const keysOf = (label: RegExp) =>
@@ -74,6 +76,7 @@ test("palette entries with a shortcut show it", async ({ page }) => {
   // With a dock tab, Hide the dock shows Ctrl+`.
   await terminalButton(page).click();
   await expect(dock(page).getByRole("tab")).toHaveCount(1);
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press("Control+k");
   await page.keyboard.type("hide the dock");
