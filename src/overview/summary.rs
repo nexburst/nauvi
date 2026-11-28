@@ -406,10 +406,13 @@ fn is_error(p: &PodSummary, reason: &str) -> bool {
 }
 
 /// What the pods of one workload share to be one group: the reason, with
-/// "Pending for 1h" and "Pending for 2h" alike.
-fn group_reason(reason: &str) -> &str {
+/// "Pending for 1h" and "Pending for 2h" alike, and a restarting pod's
+/// "Error" and "CrashLoopBackOff" alike (a crash loop flips between them).
+fn group_reason<'a>(p: &PodSummary, reason: &'a str) -> &'a str {
     if reason.starts_with("Pending for ") {
         "Pending"
+    } else if reason == "Error" && p.restarts > 0 {
+        "CrashLoopBackOff"
     } else {
         reason
     }
@@ -436,7 +439,7 @@ fn problem_groups(
         } else {
             (p.owner_kind.as_str(), p.owner_name.as_str())
         };
-        let key = format!("{}/{kind}/{name}/{}", p.namespace, group_reason(reason));
+        let key = format!("{}/{kind}/{name}/{}", p.namespace, group_reason(p, reason));
         let i = *index.entry(key.clone()).or_insert_with(|| {
             let owner_pods = if alone {
                 1
@@ -779,6 +782,17 @@ mod tests {
             of_web(crash_looping("web-a")),
             of_web(crash_looping("web-b")),
             of_web(crash_looping("web-c")),
+            // Between two back-offs a crash-looping pod reads Error: the same group.
+            of_web(pod(
+                "web-d",
+                "Running",
+                json!({ "status": {
+                    "conditions": [{ "type": "Ready", "status": "False" }],
+                    "containerStatuses": [{
+                    "name": "c", "image": "busybox", "imageID": "", "ready": false, "restartCount": 7,
+                    "state": { "terminated": { "reason": "Error", "exitCode": 1 } }
+                }]}}),
+            )),
             of_web(pod("web-ok", "Running", json!({}))),
             // Pending for different times: still one group.
             of_web(stuck("web-p1", 3600)),
@@ -800,7 +814,7 @@ mod tests {
         );
 
         let c = pod_counts(None, &pods, NOW);
-        assert_eq!(c.problems_total, 7);
+        assert_eq!(c.problems_total, 8);
         assert_eq!(
             (
                 c.problems[0].name.as_str(),
@@ -828,16 +842,16 @@ mod tests {
         assert_eq!(
             groups,
             vec![
-                ("Deployment", "web", "CrashLoopBackOff", 3, 6, 21),
+                ("Deployment", "web", "CrashLoopBackOff", 4, 7, 28),
                 ("", "", "CrashLoopBackOff", 1, 1, 7),
                 ("", "", "Evicted", 1, 1, 0),
-                ("Deployment", "web", "Pending for 2h", 2, 6, 0),
+                ("Deployment", "web", "Pending for 2h", 2, 7, 0),
             ]
         );
         assert!(c.groups[0].error && !c.groups[3].error);
         let names =
             |i: usize| -> Vec<&str> { c.groups[i].pods.iter().map(|p| p.name.as_str()).collect() };
-        assert_eq!(names(0), vec!["web-a", "web-b", "web-c"]);
+        assert_eq!(names(0), vec!["web-a", "web-b", "web-c", "web-d"]);
         assert_eq!(names(1), vec!["crashed"]);
         assert_eq!(names(3), vec!["web-p2", "web-p1"]);
     }
