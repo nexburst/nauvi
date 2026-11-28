@@ -318,13 +318,15 @@
     name: row.name,
     issue: row.problem ? { type: "row", reason: row.problem } : undefined,
   });
+  /** The selected rows the table still shows: what Ask AI names. */
+  const askRows = $derived(visible.filter((e) => selected.has(e.key)));
   /** The bulk bar's Ask AI: refused past the list's size. */
   const bulkAskRefused = $derived(
-    selected.size > AI_CONTEXT_MAX ? `Ask AI takes at most ${AI_CONTEXT_MAX} objects. Select fewer.` : "",
+    askRows.length > AI_CONTEXT_MAX ? `Ask AI takes at most ${AI_CONTEXT_MAX} objects. Select fewer.` : "",
   );
   function askAboutSelected() {
     if (bulkAskRefused || !stillOwnCluster()) return;
-    openAskAiAbout(visible.filter((e) => selected.has(e.key)).map((e) => aiObject(e.row)));
+    openAskAiAbout(askRows.map((e) => aiObject(e.row)));
   }
   /** Alt+click (Option+click) on a name adds the row to the list. */
   function addRow(row: Row) {
@@ -419,7 +421,7 @@
         ...(askAiOffered()
           ? [
               {
-                label: `Ask AI about these ${selected.size}…`,
+                label: `Ask AI about these ${askRows.length}…`,
                 icon: "sparkles" as const,
                 group: "ai",
                 reason: bulkAskRefused || undefined,
@@ -889,9 +891,9 @@
           class="btn bulk-ask ai-action"
           class:denied={!!bulkAskRefused}
           aria-disabled={bulkAskRefused ? "true" : undefined}
-          title={bulkAskRefused || `Ask your AI CLI about these ${selected.size} together, with the nauvi skill`}
+          title={bulkAskRefused || `Ask your AI CLI about these ${askRows.length} together, with the nauvi skill`}
           data-testid="bulk-ask-ai"
-          onclick={askAboutSelected}><Icon name="sparkles" size={14} />Ask AI about these {selected.size}</button
+          onclick={askAboutSelected}><Icon name="sparkles" size={14} />Ask AI about these {askRows.length}</button
         >
       {/if}
       {#if deleteAction}

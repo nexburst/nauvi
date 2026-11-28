@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from "../icons/Icon.svelte";
-  import { askAiAvailable, openAskAi } from "../stores/askAi.svelte";
+  import { askAiAvailable, askAiOffered, openAskAi } from "../stores/askAi.svelte";
   import { aiContextList, aiContextPanel } from "../stores/aiContext.svelte";
   import { app } from "../stores/app.svelte";
   import { objectsText } from "../askAi";
@@ -12,7 +12,9 @@
    *  With an AI context list (#608) it is a split button: "Ask AI | 3", the
    *  count opens the list. No chip of its own: the header has no room. */
   const one = $derived(app.selectedNamespaces.length === 1 ? app.selectedNamespaces[0] : "");
-  const count = $derived(aiContextList().length);
+  /** The list's count, while the rows offer Ask AI (an AI CLI, a context
+   *  that is not read-only). */
+  const count = $derived(askAiOffered() ? aiContextList().length : 0);
 
   /** One pulse per change of the count (none while it is 0). */
   let pulses = $state(0);

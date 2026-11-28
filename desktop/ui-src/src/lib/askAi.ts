@@ -135,8 +135,15 @@ export function issueText(i: AskAiIssue, it = "it"): string {
   }
   if (i.type === "workload" || i.type === "row") return `${it} shows ${reason}.`;
   const times = i.times > 1 ? `, ${i.times} times` : "";
-  const who = i.objects > 1 ? `${i.objects} of its ${oneLine(i.objectKind).toLowerCase()}s have` : `${it} has`;
+  const who = i.objects > 1 ? `${i.objects} of its ${kindPlural(i.objectKind)} have` : `${it} has`;
   return `${who} warning events with reason ${reason}${times}.`;
+}
+
+/** An event's object kind in the plural ("pods"). Anyone who can create
+ *  events writes it, so only a kind's shape (a word, at most 40
+ *  characters) goes in; anything else is "objects". */
+export function kindPlural(kind: string): string {
+  return /^[A-Za-z][A-Za-z0-9]{0,39}$/.test(kind) ? `${kind.toLowerCase()}s` : "objects";
 }
 
 /** "1 object", "3 objects". */
@@ -153,9 +160,13 @@ const LINE_MAX = 160;
  *  `promptReason`, as for one object. */
 export function objectLine(o: AiObject): string {
   const subject = `${oneLine(o.kind)} ${o.namespace ? `${oneLine(o.namespace)}/` : ""}${oneLine(o.name)}`;
-  const why = o.issue ? issueShort(o.issue) : "";
-  // The name gives way, so a quoted reason always keeps its quotes.
-  const cut = subject.slice(0, Math.max(40, LINE_MAX - (why ? why.length + 3 : 0)));
+  let why = o.issue ? issueShort(o.issue) : "";
+  // The reason alone (at most 82) when its counts make it long, so the
+  // name keeps at least 40 characters.
+  if (o.issue && why.length > LINE_MAX - 43) why = promptReason(o.issue.reason);
+  // The name gives way, so a quoted reason always keeps its quotes, and
+  // the line is never longer than LINE_MAX.
+  const cut = subject.slice(0, LINE_MAX - (why ? why.length + 3 : 0));
   return why ? `${cut} (${why})` : cut;
 }
 
@@ -168,7 +179,7 @@ export function issueShort(i: AskAiIssue): string {
     return of > 1 ? `${reason}, ${i.count} of ${of} pods` : reason;
   }
   if (i.type === "warning")
-    return i.objects > 1 ? `${reason}, ${i.objects} ${oneLine(i.objectKind).toLowerCase()}s` : reason;
+    return i.objects > 1 ? `${reason}, ${i.objects} ${kindPlural(i.objectKind)}` : reason;
   return reason;
 }
 
