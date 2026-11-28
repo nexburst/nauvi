@@ -177,7 +177,7 @@ test("a Problem group's Ask AI asks about the workload, its reason and its pods,
   });
   const group = page.getByRole("region", { name: "Problem groups" }).locator(".problem").first();
   // Next to Logs and Describe.
-  await expect(group.locator(".actions").getByRole("button")).toHaveText(["Logs", "Describe", "Ask AI"]);
+  await expect(group.locator(".actions").getByRole("button")).toHaveText(["Logs", "Describe", "Ask AI", ""]);
   for (const theme of ["dark", "light"] as const) {
     await setTheme(page, theme);
     expect(await contrast(group.getByTestId("ask-ai-row"))).toBeGreaterThanOrEqual(4.5);
@@ -244,7 +244,9 @@ test("every table's row menu has Ask AI about this…, next to Copy prompt for y
     const items = await menu(page).getByRole("menuitem").allTextContents();
     const at = items.indexOf("Ask AI about this…");
     expect(at, `${kind}: ${items.join(", ")}`).toBeGreaterThan(0);
-    expect(items[at + 1]).toBe("Copy prompt for your AI");
+    // "Add to Ask AI" sits next to it (#608).
+    expect(items[at + 1]).toBe("Add to Ask AI");
+    expect(items[at + 2]).toBe("Copy prompt for your AI");
     // With the header button's icon.
     await expect(menu(page).getByRole("menuitem", { name: "Ask AI about this…" }).locator("svg")).toHaveAttribute(
       "data-icon",

@@ -258,7 +258,8 @@ describe("Ask AI where problems are, with a fake claude on PATH (#607)", { timeo
       },
       { timeout: 240_000, interval: 2000, message: "crashy as one group of 3 pods" },
     );
-    assert.deepEqual(row.actions, ["Logs", "Describe", "Ask AI"], "Ask AI after Logs and Describe");
+    // "" is Add to Ask AI (#608), an icon.
+    assert.deepEqual(row.actions, ["Logs", "Describe", "Ask AI", ""], "Ask AI after Logs and Describe");
     await shotBoth(app, "problem-group");
 
     await clickRowAskAi(app, "Problem groups", "problem", "crashy");
@@ -301,7 +302,7 @@ describe("Ask AI where problems are, with a fake claude on PATH (#607)", { timeo
   it("a Warning group's Ask AI asks about the object and the reason", T, async () => {
     const { app } = s;
     const row = await groupRow(app, WARNINGS, '[data-testid="warning-group"]', "claim");
-    assert.deepEqual(row.actions, ["Ask AI"]);
+    assert.deepEqual(row.actions, ["Ask AI", ""]);
     await shotBoth(app, "warning-group");
     await clickRowAskAi(app, "Warning groups", "event", "claim");
     await waitDialog(app);
@@ -337,6 +338,7 @@ describe("Ask AI where problems are, with a fake claude on PATH (#607)", { timeo
       "Port forward…",
       "|",
       "Ask AI about this…",
+      "Add to Ask AI",
       "Copy prompt for your AI",
       "Copy link",
       "|",
@@ -370,7 +372,7 @@ describe("Ask AI where problems are, with a fake claude on PATH (#607)", { timeo
     const { app } = s;
     await (await app.find(By.css('nav button[aria-label="Workloads overview"]'))).click();
     const row = await groupRow(app, '[data-testid="workloads-overview"]', '[data-testid="problem-workload"]', "crashy");
-    assert.deepEqual(row.actions, ["Ask AI"]);
+    assert.deepEqual(row.actions, ["Ask AI", ""]);
     await shotBoth(app, "workloads-overview");
     await clickRowAskAi(app, "Problem workloads", "problem", "crashy");
     await waitDialog(app);
