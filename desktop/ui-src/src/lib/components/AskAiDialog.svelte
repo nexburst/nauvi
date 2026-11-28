@@ -273,6 +273,9 @@
     font-family: inherit;
     font-size: 12.5px;
     line-height: 1.4;
+    /* The text as it is sent: Inter's contextual alternates draw the "x"
+       of a name like "y5x94" as "×". */
+    font-feature-settings: "calt" 0;
   }
   .note {
     color: var(--text-muted);
