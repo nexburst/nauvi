@@ -144,7 +144,8 @@ test("searches are remembered, offered in every list, starred and removed", asyn
   await page.reload();
   await expect(page.getByRole("navigation").getByRole("button", { name: "Pods", exact: true })).toBeVisible();
   await openKind(page, "Pods");
-  await filter(page).press("ArrowDown");
+  // ArrowUp shows them; ArrowDown would go to the rows (#590).
+  await filter(page).press("ArrowUp");
   await expect(suggestions(page).getByRole("option")).toHaveText([/web/]);
   expect(fake.errors).toEqual([]);
 });

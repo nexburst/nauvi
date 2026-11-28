@@ -133,7 +133,12 @@ export const KEYMAP: Binding[] = [
   },
   { command: "keepBerth", keys: [{ key: "p" }], label: "Keep this view in a berth, or let it go", group: "General" },
   { command: "widen", keys: [{ key: "w" }], label: "Give the object the whole sheet, or the table back", group: "Detail panel" },
-  { command: "focusFilter", keys: [{ key: "/" }], label: "Focus the table filter", group: "Table" },
+  {
+    command: "focusFilter",
+    keys: [{ key: "/" }],
+    label: "Focus the table filter (then Enter, Esc or ↓: back to the rows)",
+    group: "Table",
+  },
   {
     command: "rowDown",
     keys: [{ key: "ArrowDown" }, { key: "j" }],
