@@ -208,8 +208,15 @@ describe("Overview: Problem groups and Warning groups (#605)", { timeout: 20 * 6
     await app.shot("see-all-warnings");
 
     await app.nav("Overview");
-    await app.js(
-      `Array.from(document.querySelectorAll(".overview .card")).find((c) => c.querySelector(".label")?.textContent.trim() === "Errors")?.click()`,
+    // The Overview may still be drawing: click once the card is there.
+    await app.waitFor(
+      () =>
+        app.js(
+          `const c = Array.from(document.querySelectorAll(".overview .card")).find((c) => c.querySelector(".label")?.textContent.trim() === "Errors");
+           c?.click();
+           return !!c;`,
+        ),
+      { message: "the Errors card" },
     );
     await app.waitFor(async () => (await activeView(app)) === "Pods", {
       message: "the Pods view from Errors",
