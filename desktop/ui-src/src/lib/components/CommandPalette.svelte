@@ -282,7 +282,9 @@
     color: var(--text-muted);
     border: 1px solid var(--border);
     border-radius: 3px;
-    padding: 1px 5px;
+    padding: 0 5px;
+    /* No taller than the label: rows with a key keep the same height. */
+    line-height: 1.25;
     white-space: nowrap;
   }
   .none {

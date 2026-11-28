@@ -63,6 +63,11 @@ test("palette entries with a shortcut show it", async ({ page }) => {
   await expect(option(page, "Keyboard shortcuts").getByTestId("palette-keys")).toHaveText("?");
   await expect(option(page, "Settings…").getByTestId("palette-keys")).toHaveText("Ctrl+,");
   await expect(option(page, "Go to Overview").getByTestId("palette-keys")).toHaveText("1");
+  // A key does not make its row taller.
+  const heights = await palette(page)
+    .getByRole("option")
+    .evaluateAll((os) => os.map((o) => Math.round(o.getBoundingClientRect().height)));
+  expect(new Set(heights).size).toBe(1);
   await expect(option(page, "Check for updates").getByTestId("palette-keys")).toHaveCount(0);
   await page.keyboard.press("Escape");
 
