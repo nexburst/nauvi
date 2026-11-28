@@ -17,7 +17,7 @@ list. On macOS, `Ctrl` in the shortcuts below is `⌘` where marked.
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` (`⌘` on macOS) | Zoom in, zoom out, reset the zoom |
 | `Alt+←` / `Alt+→` (`⌘[` / `⌘]`) | Back and forward |
 | `` Ctrl+` `` (on macOS too, with the Control key), or `Ctrl+J` (`⌘J`) | Hide or show the dock |
-| ``Ctrl+Shift+` `` (on macOS too), or `Ctrl+Shift+J` (`⇧⌘J`) | New local terminal (also **Terminal** in the top bar) |
+| `Ctrl+T` (`⌘T`), ``Ctrl+Shift+` `` (on macOS too), or `Ctrl+Shift+J` (`⇧⌘J`) | New local terminal (also **Terminal** in the top bar) |
 
 `` Ctrl+` `` is the key left of `1` (or next to the left Shift), so it also
 works on layouts where the backtick is a dead key.
@@ -36,8 +36,9 @@ works on layouts where the backtick is a dead key.
 | `/` | Focus the filter |
 | `:` | Go to a kind, as in k9s's command mode: `:` then `pods` or `deploy` |
 | `Z` | Only the rows that need attention |
-| `L`, `S`, `E` / `Y`, `Shift+R` or `R`, `A` | Logs, shell, Edit YAML, restart, copy as prompt ([verbs](navigation.md#verbs-on-the-focused-row)) |
+| `L`, `S`, `E` / `Y`, `Shift+R` or `R`, `A` | Logs, shell, Edit YAML, restart, copy prompt for your AI ([verbs](navigation.md#verbs-on-the-focused-row)) |
 | `S` on a workload that scales (Deployments, StatefulSets, ReplicaSets) | Scale |
+| `Alt`+click (`Option`+click) a row's name | Add the object to the [Ask AI list](ask-ai.md#the-ask-ai-list) |
 | `Shift+F` | Port-forward the row |
 | `Shift+J` | Jump to the row's owner (ReplicaSet, Deployment, Job, CronJob…) |
 | `O` | Open the pod's node |
@@ -123,8 +124,10 @@ other text field.
 | `Ctrl+Shift+F` (`⌘F`) | Search the terminal's output; `Enter` / `Shift+Enter` next / previous, `Esc` closes |
 
 Inside a terminal, keys go to the shell: plain `Ctrl+F`, `F5` and `Ctrl+R`
-reach the shell, and on Linux and Windows so does `Ctrl+J` (use `` Ctrl+` ``
-to toggle the dock there).
+reach the shell, and on Linux and Windows so do `Ctrl+J` (use `` Ctrl+` ``
+to toggle the dock there) and `Ctrl+T` (the shell's transpose; use
+``Ctrl+Shift+` `` for a new terminal there). On macOS, `⌘T` opens another
+terminal even from inside one.
 
 ## In the detail panel
 

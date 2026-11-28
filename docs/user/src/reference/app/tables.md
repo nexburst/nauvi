@@ -157,8 +157,20 @@ Hover a row (or focus it) to show its **Logs**, **Shell** and **Edit YAML**
 buttons at its end. Every row also ends in a **⋮** button with all of the
 row's actions: the same menu as a right-click, or `Shift+F10` on the focused
 row. The menu shows each action's key (Logs `L`, Shell `S`, Edit YAML `E`,
-Copy as prompt `A`, Rollout restart `⇧R`, Delete `Del`). Select several rows (`Space`) to act on all of them from the selection bar. See
-[Actions](actions.md).
+Copy prompt for your AI `A`, Rollout restart `⇧R`, Delete `Del`).
+
+The menu's actions come in groups, split by thin lines:
+
+1. Logs, Shell, Attach, Debug…;
+2. Edit YAML and the other actions that change nothing for good;
+3. the AI group: **Ask AI about this…**, **Add to Ask AI**, **Copy prompt
+   for your AI**, and **Copy link**;
+4. the destructive ones last, in red: Evict, Drain…, Delete, Force delete….
+
+Select several rows (`Space`) to act on all of them from the selection bar;
+with an AI CLI installed it has **Ask AI about these N**. `Alt`+click
+(`Option`+click on macOS) a row's name to add it to the
+[Ask AI list](ask-ai.md#the-ask-ai-list). See [Actions](actions.md).
 
 ## Empty tables
 

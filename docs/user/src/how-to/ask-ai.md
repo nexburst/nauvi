@@ -24,13 +24,27 @@ The skill teaches the model to start with `nauvi problems`, read the pod's
 commands in its own shell, so **your CLI's approval prompts decide what
 runs**: read each command before you allow it.
 
+On the Overview the pod's Problem group has an **Ask AI** button too, which
+asks about its whole workload. Every table's row menu has **Ask AI about
+this…**.
+
 Ask AI also works for the whole cluster (the header's **Ask AI** button) or
 the selected namespace.
 
+## Ask about several objects
+
+To ask about a few objects together, collect them in the **Ask AI list**:
+click **+** on a Problem group, choose **Add to Ask AI** in a row menu or a
+detail panel, or `Alt`+click (`Option`+click) a row's name. The header's
+button then reads **Ask AI | 3**: click the count, check the list, and
+click **Ask AI about these 3**. Starting it empties the list. See
+[The Ask AI list](../reference/app/ask-ai.md#the-ask-ai-list).
+
 ## What to know
 
-- The prompt holds only names, no cluster data. What leaves your machine is
-  up to your CLI and its provider; nauvi sends nothing itself.
+- The prompt holds only names, reasons and counts, no logs or YAML. What
+  leaves your machine is up to your CLI and its provider; nauvi sends
+  nothing itself.
 - Read-only contexts refuse Ask AI, like any terminal; a protected context
   asks for its name first.
 - Settings → AI shows the skill files nauvi wrote, and removes them.

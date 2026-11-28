@@ -34,9 +34,9 @@ views.
 
 ## Local terminal
 
-**Terminal** in the top bar (next to Ask AI), `` Ctrl+Shift+` `` (the same on
-macOS) or `Ctrl+Shift+J` (`⇧⌘J` on macOS), the dock's **+**, or "New local
-terminal" in the palette opens your own shell (`$SHELL -l`; on
+**Terminal** in the top bar (next to Ask AI), `Ctrl+T` (`⌘T` on macOS),
+`` Ctrl+Shift+` `` (the same on macOS) or `Ctrl+Shift+J` (`⇧⌘J` on macOS),
+the dock's **+**, or "New local terminal" in the palette opens your own shell (`$SHELL -l`; on
 Windows `pwsh`, `powershell` or `cmd`) in your home directory, with `kubectl`
 and `helm` already pointed at the app's context and namespace. The tab shows
 `<context> · <namespace>`; changing the app's namespace later does not change

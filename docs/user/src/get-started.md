@@ -67,8 +67,9 @@ To use another context, click the context selector in the header, or press
 
 ## 3. Find the failing pod
 
-The Overview lists the problem pods as cards: click one to open it, or
-click **Logs** on it to read its logs. Or go to the Pods table: click
+The Overview lists the problem pods in **Problem groups**: the failing pods
+of one workload with one reason are one row. Click **Logs** to read the
+workload's logs, **Describe** to open it, or the chevron to see its pods. Or go to the Pods table: click
 **Pods** in the sidebar on the left, or press `G`, type `po` and press
 Enter. The table updates by itself as
 pods change. Press `Z`, or click the warning mark in the toolbar, to keep
