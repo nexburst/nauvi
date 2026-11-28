@@ -1,0 +1,578 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>See which images have known vulnerabilities - nauvi docs</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-1ddc3ebc.svg">
+        <link rel="shortcut icon" href="../favicon-984ac6d1.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-e96d0476.css">
+        <link rel="stylesheet" href="../css/chrome-d279d366.css">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-02a96b06.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+        <link rel="stylesheet" href="../theme/tokens-669b227f.css">
+        <link rel="stylesheet" href="../theme/nauvi-c8cd207b.css">
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-799f29a1.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-d6ea6561.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">nauvi docs</h1>
+
+                    <div class="right-buttons">
+                        <a href="https://github.com/nexburst/nauvi" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/nexburst/nauvi/edit/main/docs/user/src/how-to/image-security.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h1 id="see-which-images-have-known-vulnerabilities"><a class="header" href="#see-which-images-have-known-vulnerabilities">See which images have known vulnerabilities</a></h1>
+<p>This page shows which images running in your cluster have known
+vulnerabilities, which package updates fix them, and which workload
+settings to change.</p>
+<p>nauvi gets the scans from one of these places:</p>
+<ul>
+<li>the <a href="https://aquasecurity.github.io/trivy-operator/">Trivy Operator</a>, if
+it runs in the cluster: nauvi reads the VulnerabilityReports it keeps
+there, with your own access;</li>
+<li><a href="https://kubescape.io/">Kubescape</a>, if the cluster has no Trivy Operator
+but runs Kubescape with vulnerability scanning;</li>
+<li>a Trivy or Grype you installed on this computer, if you turn that on
+(<a href="#scan-with-your-own-trivy-or-grype">Scan with your own Trivy or Grype</a>).</li>
+</ul>
+<p>nauvi never downloads a scanner or a vulnerability database. The only thing
+nauvi itself downloads for image security is CISA’s list of known exploited
+vulnerabilities, and only if you turn that on
+(<a href="#known-exploited-vulnerabilities">Known exploited vulnerabilities</a>). A
+scanner you installed pulls the image, and downloads and updates its own
+database unless you turn on <strong>Do not let the scanner update its database</strong>
+(<a href="#scan-with-your-own-trivy-or-grype">Scan with your own Trivy or Grype</a>).</p>
+<h2 id="in-the-app"><a class="header" href="#in-the-app">In the app</a></h2>
+<p>Image security is off until you turn it on.</p>
+<ol>
+<li>Open <strong>Settings → Image security</strong> and turn on <strong>Show image
+vulnerabilities from the Trivy Operator</strong>. To turn it on for one cluster
+only, open that cluster’s Settings and set <strong>Image security</strong> to <strong>On</strong>
+(or <strong>Off</strong>, to leave one cluster out).</li>
+<li>Open <strong>Image security</strong> under <strong>Workloads</strong> in the sidebar, or “Go to
+Image security” in the palette (<code>Ctrl+K</code>).</li>
+</ol>
+<p>The view has two tabs: <strong>Vulnerabilities</strong> (the images) and
+<strong>Configuration</strong> (the workloads’ settings, see
+<a href="#the-configuration-tab">The Configuration tab</a>).</p>
+<p>The <strong>Vulnerabilities</strong> tab has one row per image, the same image in many
+pods counted once:</p>
+<ul>
+<li>a verdict in words: “1 critical and 3 high. 3 of 4 have a fix.”, or “No
+known vulnerabilities.”. A known exploited vulnerability comes first (“1
+known to be exploited in the wild. …”), and ignored ones come last (“…
+2 ignored.”);</li>
+<li>the workloads that run it;</li>
+<li>where the scan comes from and how old it is (“Trivy 0.69.3 through Trivy
+Operator, 1 day ago”, “Kubescape scan, 2 hours ago” or “Trivy 0.58.1 on
+this computer, 5 minutes ago”). A report more than 7 days old is marked
+<strong>old scan</strong>: the operator may have stopped scanning that image.</li>
+</ul>
+<p>The headline counts the images that have a fix waiting (“2 images have fixes
+waiting”). Red means a critical vulnerability with a fix, or a vulnerability
+known to be exploited in the wild; amber means a critical or high one is
+counted, with or without a fix.
+The view follows the namespace picker and the filter.</p>
+<p>Click a row for its panel:</p>
+<ul>
+<li><strong>Known to be exploited in the wild</strong>: in red, the vulnerabilities on
+CISA’s list, or that Grype marks as exploited
+(<a href="#known-exploited-vulnerabilities">Known exploited vulnerabilities</a>);</li>
+<li><strong>Most likely to be exploited (EPSS, from the scanner)</strong>: only when the
+scanner gives an EPSS score, which Grype does;</li>
+<li><strong>What to do</strong>: the fixes by package (“Updating openssl to 3.0.15-1 fixes
+2 (1 critical).”);</li>
+<li><strong>No fix yet</strong>: folded, since there is nothing to do about them now;</li>
+<li><strong>Ignored (2): not counted</strong>: folded, with each reason
+(<a href="#ignore-a-vulnerability">Ignore a vulnerability</a>);</li>
+<li><strong>Ignore a vulnerability…</strong>;</li>
+<li>the scanner, the image digest, the workloads and the report. Vulnerability
+IDs open in your browser.</li>
+</ul>
+<h3 id="where-else-findings-show"><a class="header" href="#where-else-findings-show">Where else findings show</a></h3>
+<p>While image security is on, the same findings show where you already look:</p>
+<ul>
+<li>a <strong>Vulns</strong> column for Pods, Deployments, StatefulSets, DaemonSets, Jobs
+and CronJobs, off by default: turn it on in <strong>Columns</strong>.
+<code>2C 5H</code> means 2 critical and 5 high, at the severity you chose; <code>KEV 2H</code>
+means one of them is known to be exploited. Hover it for each image;</li>
+<li>a <strong>Security</strong> tab in the detail panel of a Deployment, StatefulSet,
+DaemonSet, ReplicaSet, Job or CronJob, with each image’s verdict
+and <strong>Show fixes</strong>;</li>
+<li>a <strong>Vulns</strong> line on each container card in the pod panel, with
+<strong>Details</strong>;</li>
+<li>an <strong>Image fixes</strong> card on the Overview: how many images have a fix
+waiting. A click opens the Image security view;</li>
+<li><strong>Copy as prompt</strong> (<code>A</code>) on a workload adds its worst images and their
+counts.</li>
+</ul>
+<p>A vulnerability is not an outage: it never counts as a problem pod or a
+problem workload.</p>
+<h3 id="settings"><a class="header" href="#settings">Settings</a></h3>
+<p><strong>Settings → Image security</strong> also has:</p>
+<ul>
+<li><strong>Source</strong>: where the scans come from
+(<a href="#scan-with-your-own-trivy-or-grype">Scan with your own Trivy or Grype</a>);</li>
+<li><strong>Count</strong>: the least severity to count (<strong>High and critical</strong> by default);</li>
+<li><strong>Only vulnerabilities that have a fix</strong>;</li>
+<li><strong>Leave out namespaces</strong>, for example <code>kube-system, monitoring</code>;</li>
+<li><strong>Read the reports again after</strong>: how long a reading is reused (1 day by
+default, from 1 hour to 7 days);</li>
+<li><strong>Ignores</strong>: an <strong>Ignore file</strong> and your own ignores
+(<a href="#ignore-a-vulnerability">Ignore a vulnerability</a>);</li>
+<li><strong>Download CISA’s list of known exploited vulnerabilities</strong>, off by
+default (<a href="#known-exploited-vulnerabilities">Known exploited vulnerabilities</a>).</li>
+</ul>
+<p>Changing what to count or leave out reads nothing again. Adding or removing
+an ignore reads the reports again.</p>
+<h3 id="when-nothing-is-listed"><a class="header" href="#when-nothing-is-listed">When nothing is listed</a></h3>
+<p>Each case has its own message:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Message</th><th>What to do</th></tr>
+</thead>
+<tbody>
+<tr><td>Image security is off for this cluster</td><td>Click <strong>Turn on for this cluster</strong>, or turn it on in Settings</td></tr>
+<tr><td>This cluster has no Trivy Operator reports</td><td>The cluster serves neither the Trivy Operator’s VulnerabilityReports nor Kubescape’s summaries: install one of them there, or <a href="#scan-with-your-own-trivy-or-grype">scan with your own Trivy or Grype</a></td></tr>
+<tr><td>Not scanned yet</td><td>The operator (or Kubescape) has no reports here yet. It scans new workloads within minutes; check that it watches these namespaces</td></tr>
+<tr><td>You are not allowed to list vulnerabilityreports in namespace X</td><td>Ask for <code>list</code> on <code>vulnerabilityreports.aquasecurity.github.io</code> (for Kubescape, <code>vulnerabilitymanifestsummaries.spdx.softwarecomposition.kubescape.io</code>), or pick a namespace you may read</td></tr>
+</tbody>
+</table>
+</div>
+<p>Images no report covers yet are listed as not scanned.</p>
+<h2 id="the-configuration-tab"><a class="header" href="#the-configuration-tab">The Configuration tab</a></h2>
+<p>The <strong>Configuration</strong> tab lists each workload with the checks it fails,
+worst first. The checks come from the Trivy Operator’s ConfigAuditReports:
+it checks each workload’s settings, such as limits, probes and security
+context. A row says “Fails 3 checks: 1 critical and 2 high.” or “Passes every
+check.”, and the headline counts the workloads with settings to change.</p>
+<p>Click a workload to see <strong>What to change</strong>: each failed check’s title, how to
+fix it, the container it is about, and the operator’s message.
+Lower-severity checks are folded. A Deployment is shown by its own name, not
+its ReplicaSet’s, and a CronJob by its name, not its Job’s.</p>
+<p>The <strong>Count</strong> and <strong>Leave out namespaces</strong> settings apply to the checks too.
+The tab reads the reports only while it is open, like the vulnerabilities.</p>
+<p>The checks come from the cluster only. With <strong>Source</strong> set to <strong>A scanner on
+this computer</strong>, nauvi reads nothing from the cluster, and the tab says
+“Configuration checks come from the cluster” with a <strong>Settings…</strong> button. To
+see the checks, set <strong>Source</strong> to <strong>Trivy Operator reports in the cluster</strong>
+or <strong>Cluster reports, then this computer for the rest</strong>.</p>
+<p>When nothing is listed:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Message</th><th>What to do</th></tr>
+</thead>
+<tbody>
+<tr><td>This cluster has no configuration audits</td><td>The cluster does not serve ConfigAuditReports: install the Trivy Operator there</td></tr>
+<tr><td>Not checked yet</td><td>The operator has no ConfigAuditReports here yet. It checks new workloads within minutes; check that it watches these namespaces</td></tr>
+<tr><td>You are not allowed to list configauditreports in namespace X</td><td>Ask for <code>list</code> on <code>configauditreports.aquasecurity.github.io</code>, or pick a namespace you may read</td></tr>
+</tbody>
+</table>
+</div>
+<h2 id="kubescape"><a class="header" href="#kubescape">Kubescape</a></h2>
+<p>If the cluster has no Trivy Operator but runs Kubescape with vulnerability
+scanning, nauvi reads Kubescape’s VulnerabilityManifestSummaries instead.
+When a cluster has both, nauvi shows the Trivy Operator’s reports.</p>
+<p>A Kubescape summary counts vulnerabilities by severity only. So a row says
+how many there are (“1 critical and 2 high. Open it to see which have a
+fix.”). Click it to see which have a fix: nauvi then reads the full
+VulnerabilityManifest of that image. Kubescape’s “Negligible” counts as low.</p>
+<p>Ignores and known exploited vulnerabilities apply to a Kubescape image once
+you open it, since its summary names no vulnerabilities.</p>
+<p>You need <code>list</code> on <code>vulnerabilitymanifestsummaries</code> and <code>get</code> on
+<code>vulnerabilitymanifests</code> (group <code>spdx.softwarecomposition.kubescape.io</code>).</p>
+<h2 id="scan-with-your-own-trivy-or-grype"><a class="header" href="#scan-with-your-own-trivy-or-grype">Scan with your own Trivy or Grype</a></h2>
+<p>If your cluster has no Trivy Operator, nauvi can use a
+<a href="https://trivy.dev/">Trivy</a> or <a href="https://github.com/anchore/grype">Grype</a>
+you installed on this computer. nauvi never downloads the scanner. The
+scanner downloads and updates its own vulnerability database when it scans,
+unless you turn on <strong>Do not let the scanner update its database</strong>.</p>
+<ol>
+<li>Install Trivy or Grype yourself. nauvi looks for <code>trivy</code> or <code>grype</code> on
+your <code>PATH</code>. Set <code>NAUVI_TRIVY</code> or <code>NAUVI_GRYPE</code> to the full path of a
+file to use another one.</li>
+<li>In <strong>Settings → Image security</strong>, set <strong>Source</strong> to <strong>A scanner on this
+computer</strong>, or to <strong>Cluster reports, then this computer for the rest</strong>.
+Then pick the <strong>Scanner</strong>.</li>
+<li>nauvi shows the file it found, its size and its SHA-256. Hover the size
+and SHA-256 for the full SHA-256, or click <strong>Copy SHA-256</strong> to compare it with the
+one your package manager or the release page lists.</li>
+<li>Click <strong>Approve</strong> (followed by the file’s path) to let nauvi run that file. nauvi runs nothing of it
+before you approve it, not even to read its version. If the file changes
+(an update, or another file first on your <code>PATH</code>), nauvi asks again.</li>
+<li>In the <strong>Image security</strong> view, click <strong>Scan N images with Trivy</strong> (or
+Grype) above the list, or open an image and click <strong>Scan with Trivy</strong>.
+One image is scanned at a time; <strong>Cancel</strong> stops it. A scan of all
+images goes on when you switch to the <strong>Configuration</strong> tab and back.</li>
+</ol>
+<p>The three <strong>Source</strong> choices:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Source</th><th>What the view lists</th></tr>
+</thead>
+<tbody>
+<tr><td>Trivy Operator reports in the cluster</td><td>The reports in the cluster (the default)</td></tr>
+<tr><td>A scanner on this computer</td><td>The images of the pods, scanned only on this computer</td></tr>
+<tr><td>Cluster reports, then this computer for the rest</td><td>The reports in the cluster; an image no report covers can be scanned on this computer. With no reports to read, the pods’ images</td></tr>
+</tbody>
+</table>
+</div>
+<p>An image not scanned yet says “Not scanned on this computer yet”. nauvi
+never scans on its own: a scan starts only when you click.</p>
+<p>How a scan works:</p>
+<ul>
+<li>The scanner runs on this computer. It pulls each image by its digest from
+the registry (Trivy reads the registry directly, not a local Docker), with
+your own <code>docker login</code>. nauvi does not use the cluster’s pull secrets. If
+the registry cannot be reached from this computer, the scan says so.</li>
+<li>An image whose pods do not report a digest yet cannot be scanned.</li>
+<li>nauvi refuses registries written as this computer (<code>localhost</code>,
+<code>127.0.0.1</code>, <code>127.1</code>), link-local addresses and cloud metadata addresses.
+Before a scan it also looks up the registry’s name, and does not scan when
+the name points to one of them. This is best effort: the scanner looks the
+name up again itself, and follows the registry’s own redirects, so a
+hostile registry can still send it to another address. It never sends
+your login for one registry to another host.</li>
+<li>nauvi turns off Trivy’s telemetry and version check, and Grype’s update
+check.</li>
+<li>Results are kept on this computer and reused until the scanner’s version,
+its database or the platform changes. If nauvi cannot tell when Grype’s
+database was built, a kept result is reused after a database update too:
+click <strong>Scan again</strong>.</li>
+</ul>
+<p>Options in <strong>Settings → Image security</strong>:</p>
+<ul>
+<li><strong>Database repository</strong> (Trivy): a mirror of the Trivy database;</li>
+<li><strong>Trivy server</strong> (Trivy): scan through a Trivy server;</li>
+<li><strong>Do not let the scanner update its database</strong>;</li>
+<li><strong>Forget approval</strong> and <strong>Check again</strong>.</li>
+</ul>
+<h3 id="which-trivy-nauvi-runs"><a class="header" href="#which-trivy-nauvi-runs">Which Trivy nauvi runs</a></h3>
+<p>Trivy 0.69.4 to 0.69.6 were malicious releases (CVE-2026-33634): they ran
+malicious code as soon as they started, even to print their version. So
+nauvi reads a Trivy’s version from its file before it ever runs it, and
+runs it only when it can tell the version that way:</p>
+<ul>
+<li>Trivy’s release builds record their version in the file. These are the
+builds from its GitHub releases, its apt or yum repository and the
+<code>aquasecurity/trivy</code> Homebrew tap.</li>
+<li>A Trivy installed with Homebrew (in a <code>Cellar/trivy/&lt;version&gt;</code> folder) or
+Nix (in <code>/nix/store/…-trivy-&lt;version&gt;</code>) does not record its version in the
+file. nauvi reads the version from the folder it was installed in, and
+Settings says so: “Version 0.58.1 from its Homebrew folder.”</li>
+<li>Any other Trivy that does not record its version is refused before it
+runs, approved or not: one built from a source tarball or checkout that
+records no version, a packed binary, a script around Trivy, or a
+distribution’s own build such as Arch’s. (<code>go install github.com/aquasecurity/trivy/cmd/trivy@&lt;version&gt;</code> records its version, so
+it is accepted.)</li>
+</ul>
+<p>Trivy 0.69.4 to 0.69.6 are refused either way, wherever the version comes
+from. A refused Trivy shows the reason in red in Settings, with no
+<strong>Approve</strong> button. To use Trivy, install a release build (from its GitHub
+releases, its apt or yum repository or the <code>aquasecurity/trivy</code> tap),
+install it with Homebrew or Nix, or set <code>NAUVI_TRIVY</code> to the full path of
+a release build. Then click <strong>Check again</strong>.</p>
+<p>nauvi also reads which program a scanner’s file is before running it. A
+file found as Grype that is really Trivy, or any other program, is refused
+(“This file is not Grype”), and so is a malicious Trivy whatever its name.
+Set <code>NAUVI_GRYPE</code> or <code>NAUVI_TRIVY</code> to the scanner you installed.</p>
+<h2 id="ignore-a-vulnerability"><a class="header" href="#ignore-a-vulnerability">Ignore a vulnerability</a></h2>
+<p>Some findings do not matter to you: the vulnerable code is never reached, or
+you accept the risk until the next rebuild. You can ignore them.</p>
+<ol>
+<li>Open the image’s panel and click <strong>Ignore a vulnerability…</strong>.</li>
+<li>Pick the <strong>Vulnerability</strong>.</li>
+<li>Pick where to ignore it (<strong>In</strong>): every image of that repository, any
+tag, in every cluster; that one workload; or that namespace. The last two apply to the
+current cluster only, and are offered when the image runs in only one
+workload or one namespace.</li>
+<li>Pick how long (<strong>Until</strong>): 30 days, 90 days, 1 year or never.</li>
+<li>Say why (<strong>Reason</strong>). A reason is required.</li>
+</ol>
+<p>An ignored vulnerability is not counted, but it is never hidden. The row
+says “2 ignored”, and the panel lists them under <strong>Ignored</strong>, with their
+reasons and end dates, and <strong>Stop ignoring</strong>. When an ignore ends, the
+vulnerability counts again. <strong>Settings → Image security</strong> lists your
+ignores, with <strong>Remove</strong>; an ended one is shown greyed out, “expired on …”.</p>
+<p>If you already keep a <code>.trivyignore</code>, set its full path as the <strong>Ignore
+file</strong> in <strong>Settings → Image security</strong>. Its vulnerabilities are ignored in
+every image. <code>exp:2026-12-31</code> after an ID ends it on that day. A <code># comment</code>
+on the line, or just above it, is its reason; without one the reason is
+“Listed in .trivyignore”. Settings says how many ignores it read, and the
+numbers of the lines it did not understand.</p>
+<h2 id="known-exploited-vulnerabilities"><a class="header" href="#known-exploited-vulnerabilities">Known exploited vulnerabilities</a></h2>
+<p>nauvi can mark the vulnerabilities that CISA lists as known to be exploited
+in the wild (the KEV catalogue). This is off unless you turn on <strong>Download
+CISA’s list of known exploited vulnerabilities</strong> in <strong>Settings → Image
+security</strong>.</p>
+<ul>
+<li>nauvi then downloads one file from <code>www.cisa.gov</code> over https, and again
+once a day while image security is shown. <strong>Download now</strong> downloads it at
+once; it waits a minute between two downloads.</li>
+<li>Nothing about your clusters or images is sent: it is a plain download of
+one public file.</li>
+<li>Settings shows the catalogue’s version, how many vulnerabilities it lists
+and when it was downloaded. Turning the setting off deletes the kept copy.</li>
+</ul>
+<p>A finding on the list comes first in the verdict (“1 known to be exploited
+in the wild”), the image is shown in red whatever its severity, and the
+Vulns column says <code>KEV</code>. Grype marks known exploited vulnerabilities itself,
+without the download.</p>
+<p>Where the scanner gives them (Grype), the panel also shows each
+vulnerability’s EPSS score: how likely it is to be exploited in the next 30
+days. nauvi downloads nothing for EPSS.</p>
+<h2 id="what-nauvi-reads-and-when"><a class="header" href="#what-nauvi-reads-and-when">What nauvi reads, and when</a></h2>
+<ul>
+<li>Nothing while image security is off, at start-up or later.</li>
+<li>While it is on for a cluster, nauvi lists the reports when the Image
+security view, the Overview, a pod or workload panel or the Vulns column
+is shown. It keeps only the counts of each report; it reads one full
+report when you open an image’s panel.</li>
+<li>One reading is shared by all of these and reused for the time set in
+<strong>Read the reports again after</strong>. <strong>Read again</strong> in the view reads them
+now. There is no watch and no polling.</li>
+<li>With a scanner on this computer, nauvi lists the pods to see which images
+run. It scans only when you click. With <strong>Source</strong> set to <strong>A scanner on
+this computer</strong>, it reads no reports from the cluster, not even for the
+<strong>Configuration</strong> tab.</li>
+</ul>
+<h2 id="from-the-cli"><a class="header" href="#from-the-cli">From the CLI</a></h2>
+<p><code>nauvi vulns</code> lists the same images, one row per image, with its counts by
+severity, how many have a fix, when it was scanned and the workloads that
+use it. The <strong>SCANNED</strong> column shows how old the data is. It reads the
+Trivy Operator’s reports, or Kubescape’s when there is no Trivy Operator.</p>
+<pre><code class="language-sh">nauvi vulns                          # every namespace you may read
+nauvi vulns -n shop                  # one namespace
+nauvi vulns --severity high --fixable  # what to upgrade first
+nauvi vulns nginx:1.27               # one image: its fixes by package
+</code></pre>
+<p>Without either of them, or without permission to list their reports,
+<code>nauvi vulns</code> says so and exits with 1. With no reports yet it says how many
+running images are not scanned. See
+<a href="../reference/cli/inspect.html#nauvi-vulns"><code>nauvi vulns</code></a> for every option.</p>
+<p><code>nauvi vulns</code> never runs a scanner, and it does not apply your ignores or
+the known exploited list.</p>
+<h2 id="from-an-ai-assistant"><a class="header" href="#from-an-ai-assistant">From an AI assistant</a></h2>
+<p><code>nauvi mcp</code> has a read-only <code>image_vulnerabilities</code> tool with the same data
+as <code>nauvi vulns</code> (<a href="../reference/mcp-tools.html">MCP tools</a>). Like the CLI, it
+does not see local scans and does not apply ignores or the known exploited
+list.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../how-to/limited-access.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../how-to/image-tags.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../how-to/limited-access.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../how-to/image-tags.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-09f2665d.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-609e4cb8.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../theme/version-386d9dff.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

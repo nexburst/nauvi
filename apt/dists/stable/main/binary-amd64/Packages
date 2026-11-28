@@ -1,0 +1,80 @@
+Package: nauvi
+Architecture: amd64
+Version: 0.3.0
+Priority: optional
+Maintainer: nauvi
+Installed-Size: 39832
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+Filename: pool/main/n/nauvi/nauvi_0.3.0_amd64.deb
+Size: 15042092
+MD5sum: 61d171d099f8fb0b53e0d93aedd02300
+SHA1: d57fc0a032dc6fb7e714fdc6d7d19535cea767bb
+SHA256: 354e7b215953d4d8992f7b5ecee56aed69fd086813ed3c14897f6578cf0c177c
+SHA512: f36bf52dcb742da4a8cc462d514b13ddf9822b0d358cae397e4d5a6cd712afde3c5a110b6de356128a465b9d5e562546018bbdeb48bb4dad63c0f971dcc75cf3
+Description: A Lens alternative written in Rust - a Kubernetes IDE
+ (none)
+
+Package: nauvi
+Architecture: amd64
+Version: 0.3.1
+Priority: optional
+Maintainer: nauvi
+Installed-Size: 39918
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+Filename: pool/main/n/nauvi/nauvi_0.3.1_amd64.deb
+Size: 15076474
+MD5sum: c29e5eee09565fde184ebea1e59f3c9a
+SHA1: ad2638db4d9b3f82ff5dcdc5e60215c0dec66738
+SHA256: 84e22c82b74e31b67354b3262273dde184b4b2fe1b5ca6fee4514b1e283c6476
+SHA512: 6fd6d3595dc1715c5c081f4dba8175e21f4b7ea9d9eaade3722cd9b2d9df364e7f0e39fa502095b0a2c6e91ad92e0118a5b24889773747b392e7a839fb5e0b38
+Description: A Lens alternative written in Rust - a Kubernetes IDE
+ (none)
+
+Package: nauvi
+Architecture: amd64
+Version: 0.4.0
+Priority: optional
+Maintainer: nauvi
+Installed-Size: 42487
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+Filename: pool/main/n/nauvi/nauvi_0.4.0_amd64.deb
+Size: 15998056
+MD5sum: a07f907925e5bab1946922fc333f5474
+SHA1: a5255ae627aac6f20931ebf98d726af03cc892ea
+SHA256: 8dbef25e78d1be57f6b148958d56e4d03659bbf23505f3124f67dff9a1d3bb07
+SHA512: 9860cb55441a6f639ee34071b82f091d0fd5a16e06460f48a78be6fa4802f8df19874b8d89ff3717dcc8a95078c4d1810a4e8c8d481be4109c27fdb19a06bb66
+Description: A Lens alternative written in Rust - a Kubernetes IDE
+ (none)
+
+Package: nauvi
+Architecture: amd64
+Version: 0.4.1
+Priority: optional
+Maintainer: nauvi
+Installed-Size: 42526
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+Filename: pool/main/n/nauvi/nauvi_0.4.1_amd64.deb
+Size: 16015308
+MD5sum: fa5716c410152cc12302e0cf8f33ca2b
+SHA1: e85e24ce852e1d609e675f114dab2bf03abfeb09
+SHA256: 17b086308a60bbd1de0c2e8692ce169601f41573958ba2f8143090dc44e38819
+SHA512: afddcb0067df09c0eac4ca62183b5e3fdd790d8cb8e187a7d95b45489b58c4af3639d9d4ce7c6a9bd180ce9cf0ed57af206d1b3a70a759b78879cecaaa8a15bc
+Description: A Lens alternative written in Rust - a Kubernetes IDE
+ (none)
+
+Package: nauvi
+Architecture: amd64
+Version: 0.4.2
+Priority: optional
+Maintainer: nauvi
+Installed-Size: 42516
+Depends: libwebkit2gtk-4.1-0, libgtk-3-0
+Filename: pool/main/n/nauvi/nauvi_0.4.2_amd64.deb
+Size: 16034768
+MD5sum: af4defaceeb6a5e90c74da10c6ee61e2
+SHA1: 9660a564f4cb03ac8b49cd9030f1a8b46d66c1fa
+SHA256: 3cd05b15a508b16e5d4d24140adf68da96b429f1b6335bc62c728d1bd69b1e14
+SHA512: 1c4b40917ddc554834dd0e3818be483c7a1cd45feaa52ce87e6e47b1d809874a126714075921ca865c229ea2d2a0758afd3b285681aabd4182e64a573faefd66
+Description: A Lens alternative written in Rust - a Kubernetes IDE
+ (none)
+

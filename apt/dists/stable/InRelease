@@ -1,0 +1,30 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Architectures: amd64
+Codename: stable
+Components: main
+Date: Sat, 28 Nov 2026 05:46:17 +0000
+Description: nauvi, a Kubernetes IDE (https://github.com/nexburst/nauvi)
+Label: nauvi
+Origin: nauvi
+Suite: stable
+MD5Sum:
+ c21d7848af0cfc3b385073bd4e13cf1d             2945 main/binary-amd64/Packages
+ 3465b57fddf522148a607bf2a589f9ae             1184 main/binary-amd64/Packages.gz
+SHA1:
+ f8cc1e24e1e8c372d740313b1165b15d0c4b9a97             2945 main/binary-amd64/Packages
+ 24416ac56e05da009916b71dcf232dbda207f0dd             1184 main/binary-amd64/Packages.gz
+SHA256:
+ 96a3e6ec9d6c607f3f6b89622086105b9bb548f56fda2f994ea1d92dc276a676             2945 main/binary-amd64/Packages
+ ba5aeeb78cc855d67bc2af82bda9e6264114e1d4265520780ea74e0d1e169e1d             1184 main/binary-amd64/Packages.gz
+SHA512:
+ 5444692b48d0c64df14c136362a13e02fc8746a207a31c20454541c95a5de98adb000197062d403aa745f3561a021389a12803755af37ada63f8f8745559773c             2945 main/binary-amd64/Packages
+ 05f6e7a3db94917668f3c30638cbe2329cd2c0ea461ea15b4cd7ce128844b3591daf27f68779befee979800ba4256fbc46039234f378ee209ad17050b5c53ef5             1184 main/binary-amd64/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iHUEARYKAB0WIQSytkTnmoXEOPw+uMVAimXHaTlfvwUCawpqqQAKCRBAimXHaTlf
+v3sRAP9ptluzEROBXpgNzA0Wt57vO412Zd0wcrK1WGeijqPHXgEA9Ln17Coee9FN
+xBcfYsNREGSUamMFK1p6B6OcVf6YVQI=
+=cAeN
+-----END PGP SIGNATURE-----

@@ -1,0 +1,76 @@
+/* nauvi's colours for the landing page and the docs (#468), from the app's
+   "Night Watch" (dark) and "chart paper" (light) themes in
+   desktop/ui-src/src/app.css. The one copy: scripts/site/build.py copies it
+   next to the landing page. Light by default; dark when the system prefers
+   it, or when the docs' theme picker chose a dark theme (navy, coal, ayu). */
+:root,
+html.light,
+html.rust {
+  color-scheme: light;
+  --n-bg: #f3f0e8;
+  --n-bg-sunken: #eae5da;
+  --n-bg-raised: #fffdf8;
+  --n-bg-hover: #e6e0d3;
+  --n-border: #d9d1c1;
+  --n-border-strong: #c3b9a5;
+  --n-text: #1b2130;
+  --n-muted: #596172;
+  --n-accent: #0e746b;
+  --n-accent-soft: rgba(14, 116, 107, 0.1);
+  --n-on-accent: #ffffff;
+  --n-brass: #8c6220;
+  --n-brass-soft: rgba(140, 98, 32, 0.12);
+  --n-red: #c2313a;
+  --n-code-bg: #fffdf8;
+  --n-code-text: #1b2130;
+  --n-term-bg: #0f131a;
+  --n-term-text: #e3e8f0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --n-bg: #0f131a;
+    --n-bg-sunken: #0b0e14;
+    --n-bg-raised: #151a23;
+    --n-bg-hover: #1d2430;
+    --n-border: #242c39;
+    --n-border-strong: #334055;
+    --n-text: #e3e8f0;
+    --n-muted: #8e99ab;
+    --n-accent: #5cd6c6;
+    --n-accent-soft: rgba(92, 214, 198, 0.12);
+    --n-on-accent: #062621;
+    --n-brass: #d8ab63;
+    --n-brass-soft: rgba(216, 171, 99, 0.14);
+    --n-red: #f0646c;
+    --n-code-bg: #0b0e14;
+    --n-code-text: #d6dce6;
+    --n-term-bg: #0b0e14;
+    --n-term-text: #e3e8f0;
+  }
+}
+
+html.navy,
+html.coal,
+html.ayu {
+  color-scheme: dark;
+  --n-bg: #0f131a;
+  --n-bg-sunken: #0b0e14;
+  --n-bg-raised: #151a23;
+  --n-bg-hover: #1d2430;
+  --n-border: #242c39;
+  --n-border-strong: #334055;
+  --n-text: #e3e8f0;
+  --n-muted: #8e99ab;
+  --n-accent: #5cd6c6;
+  --n-accent-soft: rgba(92, 214, 198, 0.12);
+  --n-on-accent: #062621;
+  --n-brass: #d8ab63;
+  --n-brass-soft: rgba(216, 171, 99, 0.14);
+  --n-red: #f0646c;
+  --n-code-bg: #0b0e14;
+  --n-code-text: #d6dce6;
+  --n-term-bg: #0b0e14;
+  --n-term-text: #e3e8f0;
+}
