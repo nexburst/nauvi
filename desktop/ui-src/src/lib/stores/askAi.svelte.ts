@@ -5,8 +5,9 @@
 import { commands } from "../bindings";
 import type { AskAiSetup } from "../bindings";
 import { askAiTitle } from "../askAi";
-import type { AskAiScope } from "../askAi";
+import type { AiObject, AskAiScope } from "../askAi";
 import { localShellNamespace } from "../dock";
+import { aiContextList, clearAiContext } from "./aiContext.svelte";
 import { app, currentContextName } from "./app.svelte";
 import { contextMode } from "./contextMode.svelte";
 import { openDockTab } from "./dock.svelte";
@@ -56,6 +57,22 @@ export function openAskAi(scope?: Omit<AskAiScope, "context">) {
   void loadAskAiSetup();
 }
 
+/** Open the dialog about several objects (#608): the rows selected in a
+ *  table, or (no `objects`) the context's AI context list, which starting
+ *  then empties. kubectl points at their namespace when they share one. */
+export function openAskAiAbout(objects?: readonly AiObject[]) {
+  const list = objects ?? aiContextList();
+  if (list.length === 0) return;
+  const spaces = new Set(list.map((o) => o.namespace).filter((n) => n !== ""));
+  openAskAi({
+    namespace: spaces.size === 1 ? [...spaces][0] : "",
+    kind: "",
+    name: "",
+    objects: [...list],
+    fromList: !objects,
+  });
+}
+
 export function closeAskAi() {
   askAi.scope = null;
 }
@@ -76,6 +93,8 @@ export function startAskAi(cli: string, prompt: string) {
     prompt,
     title: askAiTitle(scope),
   });
+  // The list went to this session; a cancelled dialog keeps it.
+  if (scope.fromList) clearAiContext(scope.context);
   askAi.scope = null;
 }
 

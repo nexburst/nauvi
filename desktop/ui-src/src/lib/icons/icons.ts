@@ -72,6 +72,8 @@ export const ICONS = {
   /** Opens in a new window. */
   external: ["M14 4h6v6", "M20 4l-8.5 8.5", "M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"],
   close: ["M6.5 6.5l11 11", "M17.5 6.5l-11 11"],
+  /** Add (to the Ask AI list, #608). */
+  plus: ["M12 5v14", "M5 12h14"],
 
   // Kubernetes objects.
   /** A pod (and the pod count). */

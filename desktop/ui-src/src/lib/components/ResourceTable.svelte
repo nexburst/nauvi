@@ -28,7 +28,11 @@
   import { dockMenuFor } from "../dock";
   import { openDockTab } from "../stores/dock.svelte";
   import { copyLink, prefetchLink } from "../stores/links.svelte";
-  import { askAiOffered, openAskAi } from "../stores/askAi.svelte";
+  import { askAiOffered, openAskAi, openAskAiAbout } from "../stores/askAi.svelte";
+  import { addToAiContext, aiContextRefused } from "../stores/aiContext.svelte";
+  import { AI_CONTEXT_MAX } from "../aiContext";
+  import type { AiObject } from "../askAi";
+  import { isMacPlatform } from "../keys";
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove, RowVerb } from "../stores/keyboard.svelte";
   import { askLogs } from "../stores/logAsk.svelte";
@@ -306,6 +310,31 @@
     if (deleteAction) requestAction(kind, targetsOf(selected), deleteAction);
   }
 
+  // The AI context list (#608): a row as a reference, with the problem its
+  // row shows; never its YAML or logs.
+  const aiObject = (row: Row): AiObject => ({
+    namespace: row.namespace,
+    kind: kind.resource.kind,
+    name: row.name,
+    issue: row.problem ? { type: "row", reason: row.problem } : undefined,
+  });
+  /** The selected rows the table still shows: what Ask AI names. */
+  const askRows = $derived(visible.filter((e) => selected.has(e.key)));
+  /** The bulk bar's Ask AI: refused past the list's size. */
+  const bulkAskRefused = $derived(
+    askRows.length > AI_CONTEXT_MAX ? `Ask AI takes at most ${AI_CONTEXT_MAX} objects. Select fewer.` : "",
+  );
+  function askAboutSelected() {
+    if (bulkAskRefused || !stillOwnCluster()) return;
+    openAskAiAbout(askRows.map((e) => aiObject(e.row)));
+  }
+  /** Alt+click (Option+click) on a name adds the row to the list. */
+  function addRow(row: Row) {
+    if (!stillOwnCluster() || !askAiOffered()) return;
+    const refused = addToAiContext(aiObject(row));
+    if (refused) setNotice(false, refused, { level: "warning" });
+  }
+
   // The cluster these rows are of. A link or menu acts only while it is still
   // the one on screen (#382): a click that lands during a cluster switch
   // must not open a namespace or object in the other cluster.
@@ -388,9 +417,30 @@
     let title: string;
     if (selected.has(row.key) && selected.size > 1) {
       title = `${selected.size} selected`;
-      items = deleteAction
-        ? [{ label: `Delete ${selected.size} selected…`, danger: true, reason: bulkDenied, run: deleteSelected }]
-        : [];
+      items = [
+        ...(askAiOffered()
+          ? [
+              {
+                label: `Ask AI about these ${askRows.length}…`,
+                icon: "sparkles" as const,
+                group: "ai",
+                reason: bulkAskRefused || undefined,
+                run: askAboutSelected,
+              },
+            ]
+          : []),
+        ...(deleteAction
+          ? [
+              {
+                label: `Delete ${selected.size} selected…`,
+                danger: true,
+                group: "danger",
+                reason: bulkDenied,
+                run: deleteSelected,
+              },
+            ]
+          : []),
+      ];
     } else {
       title = row.namespace ? `${row.namespace}/${row.name}` : row.name;
       const keys = kind.columns.map((c) => c.key);
@@ -428,6 +478,14 @@
                 icon: "sparkles" as const,
                 group: "ai",
                 run: () => openAskAi({ namespace: row.namespace, kind: kind.resource.kind, name: row.name }),
+              },
+              // Next to it (#608): collect it, to ask about several together.
+              {
+                label: "Add to Ask AI",
+                icon: "plus" as const,
+                group: "ai",
+                reason: aiContextRefused(aiObject(row)) || undefined,
+                run: () => addRow(row),
               },
             ]
           : []),
@@ -579,7 +637,10 @@
     if (dock.includes("Shell")) keys.push(["S", "shell"]);
     keys.push(["E", "yaml"]);
     if (kind.actions.some((a) => a.id === "restart")) keys.push(["⇧R", "restart"]);
-    keys.push(["A", "prompt"], ["Space", "select"], ["/", "filter"], ["?", "all keys"]);
+    keys.push(["A", "prompt"], ["Space", "select"], ["/", "filter"]);
+    // The only hint of the gesture (#608), while Ask AI is offered.
+    if (askAiOffered()) keys.push([isMacPlatform() ? "⌥+click" : "Alt+click", "add to Ask AI"]);
+    keys.push(["?", "all keys"]);
     return keys;
   });
   /** A prompt about the row for the user's own agent, on the clipboard. */
@@ -823,6 +884,18 @@
   {#if selected.size > 0}
     <div class="bulk" role="toolbar" aria-label="Selection">
       <span>{selected.size} selected</span>
+      {#if askAiOffered()}
+        <!-- One Ask AI about every selected row (#608). -->
+        <button
+          type="button"
+          class="btn bulk-ask ai-action"
+          class:denied={!!bulkAskRefused}
+          aria-disabled={bulkAskRefused ? "true" : undefined}
+          title={bulkAskRefused || `Ask your AI CLI about these ${askRows.length} together, with the nauvi skill`}
+          data-testid="bulk-ask-ai"
+          onclick={askAboutSelected}><Icon name="sparkles" size={14} />Ask AI about these {askRows.length}</button
+        >
+      {/if}
       {#if deleteAction}
         <button
           type="button"
@@ -933,8 +1006,15 @@
             aria-selected={selected.has(entry.key)}
             style:grid-template-columns={template}
             style:min-width="{minWidth}px"
-            onclick={() => {
+            onclick={(e) => {
               focusedKey = entry.key;
+              // Alt+click (Option+click) on the name: into the Ask AI list
+              // (#608), the panel stays as it is.
+              if (e.altKey && askAiOffered() && (e.target as HTMLElement).closest('[data-col="name"]')) {
+                gridEl?.focus({ preventScroll: true });
+                addRow(entry.row);
+                return;
+              }
               // E's flag is still set if its panel never opened (discard refused).
               detail.yaml = false;
               onselect?.(entry.row);
@@ -971,6 +1051,7 @@
               <!-- The whole value in the tooltip when the cell cuts it (#482). -->
               <div
                 class="td {cls}"
+                data-col={col.key}
                 class:cut={shown.cut}
                 class:hit
                 role="gridcell"
@@ -1261,6 +1342,11 @@
   .btn.denied {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  .bulk-ask {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
   }
   .bulk-reason {
     color: var(--text-muted);

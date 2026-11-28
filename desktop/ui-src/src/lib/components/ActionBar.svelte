@@ -12,6 +12,8 @@
   import { copyLink, prefetchLink } from "../stores/links.svelte";
   import { askAiOffered, openAskAi } from "../stores/askAi.svelte";
   import type { Target } from "../stores/detail.svelte";
+  import { addToAiContext, aiContextRefused } from "../stores/aiContext.svelte";
+  import type { AiObject } from "../askAi";
 
   /** The detail panel's header of action icons (#218): the row menu's Logs
    *  and Shell, every action the registry lists for the kind, Edit and Copy
@@ -40,11 +42,25 @@
     danger: false,
     run: "askAi",
   };
+  /** Next to it (#608): into the AI context list, to ask about several
+   *  objects together. Refused when it is there or the list is full. */
+  const ADD_TO_ASK_AI: PanelAction<DockTabSpec> = {
+    id: "addToAskAi",
+    label: "Add to Ask AI",
+    tip: "Add to the Ask AI list",
+    danger: false,
+    run: "addToAskAi",
+  };
+  const aiObject = $derived<AiObject>({
+    namespace: target.namespace,
+    kind: target.resource.kind,
+    name: target.name,
+  });
   const items = $derived.by(() => {
     const list = panelActions(dockMenuFor(target.resource, target.namespace, target.name), kind?.actions ?? []);
     if (!askAiOffered()) return list;
     const at = list.findIndex((a) => a.id === "edit") + 1;
-    return [...list.slice(0, at), ASK_AI, ...list.slice(at)];
+    return [...list.slice(0, at), ASK_AI, ADD_TO_ASK_AI, ...list.slice(at)];
   });
 
   /** Answers of the access check, by id. Until it answers, everything is offered. */
@@ -52,7 +68,7 @@
   onMount(() => {
     prefetchLink(target.resource, target.namespace, target.name);
     let live = true;
-    const ids = items.map((a) => a.id).filter((id) => id !== "link" && id !== "askAi");
+    const ids = items.map((a) => a.id).filter((id) => id !== "link" && id !== "askAi" && id !== "addToAskAi");
     api(visibleCluster())
       .cmdCheckActions(target.resource, target.namespace, ids)
       .then((list) => {
@@ -69,6 +85,7 @@
   const WORD: Partial<Record<string, string>> = { askAi: "Ask AI" };
 
   const denied = (a: PanelAction<DockTabSpec>) => {
+    if (a.id === "addToAskAi") return aiContextRefused(aiObject);
     const r = access.get(a.id);
     return r && !r.allowed ? r.reason : "";
   };
@@ -81,6 +98,7 @@
     else if (a.run === "link") void copyLink(target.resource, target.namespace, target.name);
     else if (a.run === "askAi")
       openAskAi({ namespace: target.namespace, kind: target.resource.kind, name: target.name });
+    else if (a.run === "addToAskAi") addToAiContext(aiObject);
     else if (kind) requestAction(kind, [{ namespace: target.namespace, name: target.name }], a.action);
   }
 

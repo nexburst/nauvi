@@ -144,7 +144,7 @@ export function sameResource(a: ResourceRef, b: ResourceRef): boolean {
 
 /** What a detail panel action is checked and drawn as: an ActionId, or
  *  one of the panel's own entries. */
-export type PanelActionId = ActionId | "logs" | "shell" | "edit" | "link" | "askAi";
+export type PanelActionId = ActionId | "logs" | "shell" | "edit" | "link" | "askAi" | "addToAskAi";
 
 /** One icon in the detail panel's action header (#218). */
 export type PanelAction<Spec> = {
@@ -159,6 +159,7 @@ export type PanelAction<Spec> = {
   | { run: "edit" }
   | { run: "link" }
   | { run: "askAi" }
+  | { run: "addToAskAi" }
   | { run: "action"; action: ActionDef }
 );
 
