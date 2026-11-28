@@ -365,3 +365,36 @@ test("a protected context still asks for its name when a Problem group's Ask AI 
   await confirm.getByTestId("protected-confirm-button").click();
   await expect.poll(() => fake.calls("cmdAskAiStart")).toHaveLength(1);
 });
+
+test("the Workloads overview's Problem workloads and Warning groups have Ask AI (#606)", async ({ page }) => {
+  const fake = await openApp(page, withClaude);
+  await page.getByRole("navigation").getByRole("button", { name: "Workloads overview" }).click();
+  const view = page.getByTestId("workloads-overview");
+  const problems = view.getByRole("region", { name: "Problem workloads" });
+  await expect(problems.locator(".problem")).toHaveCount(3);
+  await expect(problems.getByTestId("ask-ai-row")).toHaveCount(3);
+  await problems.getByRole("button", { name: "Ask AI about Deployment demo/api" }).click();
+  await expect(dialog(page)).toContainText("Ask AI about Deployment demo/api");
+  await expect(prompt(page)).toHaveValue(
+    /^Look at Deployment demo\/api in context kind-dev: it shows 1 of 3 ready\. Find out why/,
+  );
+  await page.keyboard.press("Escape");
+
+  const warnings = view.getByRole("region", { name: "Warning groups" });
+  await warnings.getByTestId("ask-ai-row").click();
+  await expect(prompt(page)).toHaveValue(
+    /^Look at \S+ demo\/\S+ in context kind-dev: it has warning events with reason \w+/,
+  );
+  expect(await prompt(page).inputValue()).not.toContain("Failed to create");
+  await page.keyboard.press("Escape");
+  await view.screenshot({ path: test.info().outputPath("workloads-overview.png") });
+  expect(fake.errors).toEqual([]);
+});
+
+test("a read-only context: the Workloads overview's rows offer no Ask AI", async ({ page }) => {
+  await openWithMode(page, "readOnly");
+  await page.getByRole("navigation").getByRole("button", { name: "Workloads overview" }).click();
+  const problems = page.getByTestId("workloads-overview").getByRole("region", { name: "Problem workloads" });
+  await expect(problems.locator(".problem")).toHaveCount(3);
+  await expect(page.getByTestId("ask-ai-row")).toHaveCount(0);
+});

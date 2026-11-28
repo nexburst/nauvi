@@ -8,7 +8,7 @@
  * CLI as one argument of its own or a file, never through a shell.
  */
 
-import type { AskAiCli, AskAiSetup, AskAiSkill, AskAiStarted, ContextMode, ProblemGroup } from "./bindings";
+import type { AskAiCli, AskAiSetup, AskAiSkill, AskAiStarted, ContextMode, ProblemGroup, ProblemWorkload } from "./bindings";
 import { kubectlIntro } from "./kubectlMatch";
 import type { WarningGroup } from "./warningGroups";
 
@@ -34,7 +34,9 @@ export type AskAiIssue =
   /** A Warning group: warning events with `reason`, `times` in all, about
    *  `objects` objects of kind `objectKind` (more than one: of the owner
    *  the scope names). */
-  | { type: "warning"; reason: string; times: number; objects: number; objectKind: string };
+  | { type: "warning"; reason: string; times: number; objects: number; objectKind: string }
+  /** A Problem workload of the Workloads overview (#606): its reason. */
+  | { type: "workload"; reason: string };
 
 /** At most this much of a name goes into a prompt or a title. */
 const NAME_MAX = 200;
@@ -76,6 +78,10 @@ export function askAiPrompt(s: AskAiScope, nauvi: boolean): string {
   const ask =
     s.kind && s.name && s.issue
       ? `Look at ${scopeSubject(s)} in context ${ctx}: ${issueText(s.issue)} Find out why: check its status, its pods, recent events and logs. Say what is wrong, what you would change, and why.`
+      : s.issue
+        ? // A group without a name to give (no owner, no pod listed): the
+          // namespace, still with the problem.
+          `Look at ${s.namespace ? `namespace ${oneLine(s.namespace)}` : "the cluster"} in context ${ctx}: ${issueText(s.issue, "a pod")} Find out why: check the failing pods, recent events and logs. Say what is wrong, what you would change, and why.`
       : s.kind && s.name
         ? `Look at ${scopeSubject(s)} in context ${ctx} and summarize its health: check its status, its pods, recent events and logs. Say what is wrong, what you would change, and why.`
         : s.namespace
@@ -92,19 +98,21 @@ export function askAiPrompt(s: AskAiScope, nauvi: boolean): string {
 /** The problem in one sentence: "18 of 20 pods are in CrashLoopBackOff
  *  (171 restarts)." or "it has warning events with reason BackOff, 212
  *  times." */
-export function issueText(i: AskAiIssue): string {
+export function issueText(i: AskAiIssue, it = "it"): string {
   const reason = promptReason(i.reason);
   if (i.type === "problem") {
     const restarts = i.restarts > 0 ? ` (${i.restarts} restart${i.restarts === 1 ? "" : "s"})` : "";
     // "Pending for 1h", "Not ready", "Failed" read as states; the rest
     // (CrashLoopBackOff, ImagePullBackOff…) as something a pod is in.
     const state = /^(Pending|Not ready|Failed|Unknown)\b/.test(reason) ? reason : `in ${reason}`;
+    const is = it === "it" ? "it is" : `${it} is`;
     const of = Math.max(i.of, i.count);
     if (of > 1) return `${i.count} of ${of} pods are ${state}${restarts}.`;
-    return `it is ${state}${restarts}.`;
+    return `${is} ${state}${restarts}.`;
   }
+  if (i.type === "workload") return `${it} shows ${reason}.`;
   const times = i.times > 1 ? `, ${i.times} times` : "";
-  const who = i.objects > 1 ? `${i.objects} of its ${oneLine(i.objectKind).toLowerCase()}s have` : "it has";
+  const who = i.objects > 1 ? `${i.objects} of its ${oneLine(i.objectKind).toLowerCase()}s have` : `${it} has`;
   return `${who} warning events with reason ${reason}${times}.`;
 }
 
@@ -139,15 +147,27 @@ export function warningScope(g: WarningGroup): Omit<AskAiScope, "context"> {
   };
 }
 
+/** What a Problem workload's Ask AI is about (#606): the workload and its
+ *  reason ("0 of 2 ready", "Suspended"). */
+export function workloadScope(p: ProblemWorkload): Omit<AskAiScope, "context"> {
+  return { namespace: p.namespace, kind: p.kind, name: p.name, issue: { type: "workload", reason: p.reason } };
+}
+
 /** At most this much of a reason goes into a prompt. */
 const REASON_MAX = 80;
 
-/** A reason from the cluster as it goes in a prompt: one line, capped; in
- *  quotes unless it is plain words ("CrashLoopBackOff", "Pending for 1h"),
- *  so it reads as data. */
-function promptReason(reason: string): string {
+/** The reasons nauvi writes itself (src/problems.rs), shown as they are:
+ *  "Pending for 8d 14h", "Not ready", "Not ready (unknown)", and a
+ *  workload's "0 of 2 ready" (src/overview/workloads.rs). */
+const OWN_STATE = /^(Pending for( \d{1,4}[ydhms]){1,2}|Not ready( \(unknown\))?|\d+ of \d+ ready)$/;
+
+/** A reason as it goes in a prompt: one line, capped. Anyone who can
+ *  create events writes reasons, so only a single word ("CrashLoopBackOff",
+ *  "BackOff") or one of nauvi's own states goes in bare; anything else, a
+ *  sentence above all, in quotes, so it reads as data (ADR 0010). */
+export function promptReason(reason: string): string {
   const r = oneLine(reason).slice(0, REASON_MAX);
-  return /^[A-Za-z][A-Za-z0-9 ]*$/.test(r) ? r : `"${r.replace(/"/g, "'")}"`;
+  return /^[A-Za-z][A-Za-z0-9]*$/.test(r) || OWN_STATE.test(r) ? r : `"${r.replace(/"/g, "'")}"`;
 }
 
 /** What a started session got, in words. */

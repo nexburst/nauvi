@@ -25,6 +25,9 @@
   import OutOfReach from "./OutOfReach.svelte";
   import ProblemWorkloads from "./ProblemWorkloads.svelte";
   import WarningGroups from "./WarningGroups.svelte";
+  import AskAiRowButton from "./AskAiRowButton.svelte";
+  import { warningScope, workloadScope } from "../askAi";
+  import { warningReason, warningSubject } from "../warningGroups";
 
   /** Workloads → Overview (#79): live status counts per workload kind in the
    *  selected namespaces, the problem workloads and the Warning groups. Like
@@ -217,11 +220,19 @@
           <h3>Problem workloads</h3>
           {#if overview.problems_total > 0}<span class="count" data-testid="problem-workloads-count">{overview.problems_total}</span>{/if}
         </div>
-        <ProblemWorkloads problems={overview.problems} total={overview.problems_total} counts={overview.kinds} />
+        <ProblemWorkloads problems={overview.problems} total={overview.problems_total} counts={overview.kinds}>
+          {#snippet actions(p)}
+            <AskAiRowButton scope={workloadScope(p)} about={`${p.kind} ${p.namespace}/${p.name}`} />
+          {/snippet}
+        </ProblemWorkloads>
       </section>
       <section aria-label="Warning groups">
         <div class="sec-head"><h3>Warning groups</h3></div>
-        <WarningGroups events={overview.events} {now} limit={WARNINGS_SHOWN} />
+        <WarningGroups events={overview.events} {now} limit={WARNINGS_SHOWN}>
+          {#snippet actions(g)}
+            <AskAiRowButton scope={warningScope(g)} about={`${warningReason(g)} on ${warningSubject(g)}`} />
+          {/snippet}
+        </WarningGroups>
       </section>
     </div>
   {:else if app.status.ok !== false}

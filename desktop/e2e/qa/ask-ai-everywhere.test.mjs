@@ -366,6 +366,21 @@ describe("Ask AI where problems are, with a fake claude on PATH (#607)", { timeo
     await app.driver.actions().sendKeys(Key.ESCAPE).perform();
   });
 
+  it("the Workloads overview's Problem workloads have Ask AI, naming the workload and its reason", T, async () => {
+    const { app } = s;
+    await (await app.find(By.css('nav button[aria-label="Workloads overview"]'))).click();
+    const row = await groupRow(app, '[data-testid="workloads-overview"]', '[data-testid="problem-workload"]', "crashy");
+    assert.deepEqual(row.actions, ["Ask AI"]);
+    await shotBoth(app, "workloads-overview");
+    await clickRowAskAi(app, "Problem workloads", "problem", "crashy");
+    await waitDialog(app);
+    const prompt = await promptValue(app);
+    assert.match(prompt, new RegExp(`^Look at Deployment ${ns}/crashy in context ${CONTEXT}: it shows (\\d of 3 ready|"[^"]*"|\\w+)\\. Find out why`));
+    assert.ok(!prompt.includes("LOG-LINE-NOT-IN-PROMPT"));
+    await closeDialog(app);
+    await app.nav("Pods");
+  });
+
   it("a read-only context offers no Ask AI on the rows, the menu or the panel", T, async () => {
     const { app } = s;
     await setMode(app, "Read-only");
