@@ -3,6 +3,8 @@
 // Tab skips buttons unless "Keyboard navigation" is on, so the dialog moves
 // the focus itself instead of leaving it to the engine.
 
+import { isTab } from "./keys";
+
 const FOCUSABLE = [
   "button:not(:disabled)",
   "input:not(:disabled)",
@@ -45,7 +47,7 @@ export function tabIndex(at: number, count: number, back: boolean): number {
 export function dialogKeydown(e: KeyboardEvent, dialog: HTMLElement): boolean {
   if (e.altKey || e.ctrlKey || e.metaKey) return false;
   const active = document.activeElement;
-  if (e.key === "Tab") {
+  if (isTab(e)) {
     const all = [...dialog.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.getClientRects().length > 0);
     e.preventDefault();
     const next = all[tabIndex(all.indexOf(active as HTMLElement), all.length, e.shiftKey)];

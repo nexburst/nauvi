@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bindingFor, formatBinding, KEYMAP, leftToTerminal, shortcutHint, SORT_KEYS } from "./keys";
+import { bindingFor, formatBinding, isTab, KEYMAP, leftToTerminal, shortcutHint, SORT_KEYS } from "./keys";
 import type { KeyEventLike } from "./keys";
 
 const press = (key: string, mods: Partial<KeyEventLike> = {}): KeyEventLike => ({
@@ -11,6 +11,19 @@ const press = (key: string, mods: Partial<KeyEventLike> = {}): KeyEventLike => (
   ...mods,
 });
 const command = (e: KeyEventLike, mac = false) => bindingFor(e, mac)?.binding.command ?? null;
+
+describe("isTab", () => {
+  it("takes Tab by its key or by its physical key (#598)", () => {
+    expect(isTab({ key: "Tab", code: "Tab" })).toBe(true);
+    // WebKitGTK's Shift+Tab (ISO_Left_Tab).
+    expect(isTab({ key: "Unidentified", code: "Tab" })).toBe(true);
+    expect(isTab({ key: "Tab", code: "" })).toBe(true);
+  });
+  it("ignores other keys", () => {
+    expect(isTab({ key: "Unidentified", code: "KeyA" })).toBe(false);
+    expect(isTab({ key: "Enter", code: "Enter" })).toBe(false);
+  });
+});
 
 describe("bindingFor", () => {
   it("uses Ctrl elsewhere and Cmd on macOS", () => {

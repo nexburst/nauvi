@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { keyboard } from "../stores/keyboard.svelte";
+  import { isTab } from "../keys";
 
   export interface MenuItem {
     label: string;
@@ -57,7 +58,7 @@
   }
 
   function onkeydown(e: KeyboardEvent) {
-    if (e.key === "Escape" || e.key === "Tab") {
+    if (e.key === "Escape" || isTab(e)) {
       e.preventDefault();
       onclose();
       return;

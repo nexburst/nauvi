@@ -441,6 +441,15 @@ export function shortcutHint(command: Command, mac: boolean, k9s = false): strin
   return b ? formatBinding(b, mac, k9s).join(" or ") : "";
 }
 
+/**
+ * Whether `e` is Tab or Shift+Tab (#598). WebKitGTK may name Shift+Tab by
+ * its keysym (ISO_Left_Tab), which arrives as `key: "Unidentified"` with
+ * `code: "Tab"`: the physical key decides.
+ */
+export function isTab(e: Pick<KeyboardEvent, "key" | "code">): boolean {
+  return e.key === "Tab" || e.code === "Tab";
+}
+
 /** Whether the key `hit` matched goes to the terminal instead of the app. */
 export function leftToTerminal(binding: Binding, index: number, mac: boolean): boolean {
   const terminal = binding.keys[index]?.terminal;
