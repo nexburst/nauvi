@@ -22,6 +22,20 @@ export interface AskAiScope {
   name: string;
   /** What is wrong with it, from a Problem group or a Warning group (#607). */
   issue?: AskAiIssue;
+  /** Several objects asked about together (#608): an AI context list, or
+   *  the rows selected in a table. Then `kind` and `name` are "". */
+  objects?: AiObject[];
+  /** `objects` is the context's AI context list: starting empties it. */
+  fromList?: boolean;
+}
+
+/** One object of an AI context list (#608): a reference, and the reason
+ *  nauvi showed for it. Never logs, YAML or event text (ADR 0010). */
+export interface AiObject {
+  namespace: string;
+  kind: string;
+  name: string;
+  issue?: AskAiIssue;
 }
 
 /**
@@ -36,7 +50,9 @@ export type AskAiIssue =
    *  the scope names). */
   | { type: "warning"; reason: string; times: number; objects: number; objectKind: string }
   /** A Problem workload of the Workloads overview (#606): its reason. */
-  | { type: "workload"; reason: string };
+  | { type: "workload"; reason: string }
+  /** A table row's problem, as its row shows it (#608). */
+  | { type: "row"; reason: string };
 
 /** At most this much of a name goes into a prompt or a title. */
 const NAME_MAX = 200;
@@ -60,11 +76,13 @@ export function scopeSubject(s: AskAiScope): string {
 /** The dialog's subject: as `scopeSubject`, but "the cluster" (its name
  *  shows under it). */
 export function dialogSubject(s: AskAiScope): string {
+  if (s.objects) return objectsText(s.objects.length);
   return s.namespace || (s.kind && s.name) ? scopeSubject(s) : "the cluster";
 }
 
 /** The dock tab's title. */
 export function askAiTitle(s: AskAiScope): string {
+  if (s.objects) return `AI: ${objectsText(s.objects.length)}`;
   const short = s.kind && s.name ? oneLine(s.name) : s.namespace ? oneLine(s.namespace) : oneLine(s.context);
   return `AI: ${short}`;
 }
@@ -75,8 +93,13 @@ export function askAiTitle(s: AskAiScope): string {
  */
 export function askAiPrompt(s: AskAiScope, nauvi: boolean): string {
   const ctx = oneLine(s.context);
-  const ask =
-    s.kind && s.name && s.issue
+  const ask = s.objects
+    ? [
+        `Look at these objects in context ${ctx} and tell me how they relate and what is wrong:`,
+        ...s.objects.map((o) => `- ${objectLine(o)}`),
+        "Find out why: check their status, their pods, recent events and logs. Say what you would change, and why.",
+      ].join("\n")
+    : s.kind && s.name && s.issue
       ? `Look at ${scopeSubject(s)} in context ${ctx}: ${issueText(s.issue)} Find out why: check its status, its pods, recent events and logs. Say what is wrong, what you would change, and why.`
       : s.issue
         ? // A group without a name to give (no owner, no pod listed): the
@@ -110,10 +133,43 @@ export function issueText(i: AskAiIssue, it = "it"): string {
     if (of > 1) return `${i.count} of ${of} pods are ${state}${restarts}.`;
     return `${is} ${state}${restarts}.`;
   }
-  if (i.type === "workload") return `${it} shows ${reason}.`;
+  if (i.type === "workload" || i.type === "row") return `${it} shows ${reason}.`;
   const times = i.times > 1 ? `, ${i.times} times` : "";
   const who = i.objects > 1 ? `${i.objects} of its ${oneLine(i.objectKind).toLowerCase()}s have` : `${it} has`;
   return `${who} warning events with reason ${reason}${times}.`;
+}
+
+/** "1 object", "3 objects". */
+export function objectsText(n: number): string {
+  return `${n} object${n === 1 ? "" : "s"}`;
+}
+
+/** At most this much of a list's line: 20 of them and the rules stay
+ *  under the backend's 4000 characters (`MAX_PROMPT`, src/ask_ai.rs). */
+const LINE_MAX = 160;
+
+/** An object of a list, as a line of the prompt: "Deployment demo/web
+ *  (CrashLoopBackOff, 18 of 20 pods)". Its reason goes through
+ *  `promptReason`, as for one object. */
+export function objectLine(o: AiObject): string {
+  const subject = `${oneLine(o.kind)} ${o.namespace ? `${oneLine(o.namespace)}/` : ""}${oneLine(o.name)}`;
+  const why = o.issue ? issueShort(o.issue) : "";
+  // The name gives way, so a quoted reason always keeps its quotes.
+  const cut = subject.slice(0, Math.max(40, LINE_MAX - (why ? why.length + 3 : 0)));
+  return why ? `${cut} (${why})` : cut;
+}
+
+/** The problem in a few words, for a line of a list: "CrashLoopBackOff, 18
+ *  of 20 pods", "FailedMount", "BackOff, 3 pods". */
+export function issueShort(i: AskAiIssue): string {
+  const reason = promptReason(i.reason);
+  if (i.type === "problem") {
+    const of = Math.max(i.of, i.count);
+    return of > 1 ? `${reason}, ${i.count} of ${of} pods` : reason;
+  }
+  if (i.type === "warning")
+    return i.objects > 1 ? `${reason}, ${i.objects} ${oneLine(i.objectKind).toLowerCase()}s` : reason;
+  return reason;
 }
 
 /** What a Problem group's Ask AI is about: its workload (or lone pod), the
