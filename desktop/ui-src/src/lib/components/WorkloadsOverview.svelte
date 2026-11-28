@@ -15,16 +15,21 @@
   import { onDestroy, untrack } from "svelte";
   import { Channel } from "@tauri-apps/api/core";
   import { api, visibleCluster } from "../cluster";
-  import type { EventInfo, KindCounts, ProblemWorkload, WatchState, WorkloadsMessage, WorkloadsOverview } from "../bindings";
-  import { app, kinds, openObject, openWithStatus, setStatus, setView, showError, stamp } from "../stores/app.svelte";
+  import type { KindCounts, WatchState, WorkloadsMessage, WorkloadsOverview } from "../bindings";
+  import { app, currentContextName, kinds, openWithStatus, setStatus, setView, showError, stamp } from "../stores/app.svelte";
   import { clusterError } from "../clusterError";
-  import { formatAge } from "../format";
-  import { eventKind } from "../overview";
-  import { joinNames } from "../namespaces";
-  import { needsAttention, segments, workloadKind } from "../workloads";
+  import { troubleTitle } from "../health";
+  import { WARNINGS_SHOWN } from "../overview";
+  import { needsAttention, segments, workloadKind, workloadsHeadline, workloadsKicker } from "../workloads";
+  import Deck from "./Deck.svelte";
+  import OutOfReach from "./OutOfReach.svelte";
+  import ProblemWorkloads from "./ProblemWorkloads.svelte";
+  import WarningGroups from "./WarningGroups.svelte";
 
   /** Workloads → Overview (#79): live status counts per workload kind in the
-   *  selected namespaces, the problem workloads and their warnings. */
+   *  selected namespaces, the problem workloads and the Warning groups. Like
+   *  the Overview (#606), it fits one screen: at most five of each, the rest
+   *  one link away. */
 
   /** Failed starts so far: the wait before the next one grows (lib/retry.ts). */
   let attempts = 0;
@@ -139,22 +144,12 @@
     stop();
   });
 
-  const scope = $derived(
-    app.selectedNamespaces.length === 0 ? "all namespaces" : `namespace${app.selectedNamespaces.length > 1 ? "s" : ""} ${joinNames(app.selectedNamespaces)}`,
-  );
+  const context = $derived(currentContextName());
+  const kicker = $derived(workloadsKicker(context, app.selectedNamespaces));
+  const head = $derived(workloadsHeadline(overview?.problems_total ?? 0, context));
 
   function kindOf(k: { group: string; kind: string }) {
     return workloadKind(kinds.all, k.group, k.kind);
-  }
-
-  function openProblem(p: ProblemWorkload) {
-    const kind = kindOf(p);
-    if (kind) openObject(kind, p.namespace, p.name);
-  }
-
-  function openEvent(e: EventInfo) {
-    const kind = eventKind(e, kinds.all);
-    if (kind) openObject(kind, kind.resource.namespaced ? e.object_namespace : "", e.object_name);
   }
 
   function title(k: KindCounts): string {
@@ -164,7 +159,7 @@
 
 <div class="workloads" data-testid="workloads-overview">
   {#if overview}
-    <p class="muted scope">Workloads in {scope}</p>
+    <Deck {kicker} headline={head.text} calm={head.calm} />
     {#if overview.notes.length > 0}
       <ul class="notes muted">
         {#each overview.notes as note (note)}
@@ -218,46 +213,22 @@
 
     <div class="sections">
       <section aria-label="Problem workloads">
-        <h3>
-          Problem workloads{overview.problems_total > overview.problems.length
-            ? ` (${overview.problems.length} of ${overview.problems_total})`
-            : ""}
-        </h3>
-        {#each overview.problems as p (p.kind + "/" + p.namespace + "/" + p.name)}
-          <div class="problem">
-            <span class="kind muted">{p.kind}</span>
-            {#if kindOf(p)}
-              <button type="button" class="link" onclick={() => openProblem(p)}>{p.namespace}/{p.name}</button>
-            {:else}
-              <span>{p.namespace}/{p.name}</span>
-            {/if}
-            <span class="reason" class:error={p.status === "Failed"}>{p.reason}</span>
-          </div>
-        {:else}
-          <p class="muted">None.</p>
-        {/each}
+        <div class="sec-head">
+          <h3>Problem workloads</h3>
+          {#if overview.problems_total > 0}<span class="count" data-testid="problem-workloads-count">{overview.problems_total}</span>{/if}
+        </div>
+        <ProblemWorkloads problems={overview.problems} total={overview.problems_total} counts={overview.kinds} />
       </section>
-      <section aria-label="Workload warnings">
-        <h3>Warnings</h3>
-        {#each overview.events as e (e.key)}
-          {@const linked = eventKind(e, kinds.all)}
-          <div class="event">
-            <span class="age">{formatAge(e.time, now, "")}</span>
-            <span class="reason">{e.reason}</span>
-            {#if linked}
-              <button type="button" class="link object" onclick={() => openEvent(e)}>{e.object}</button>
-            {:else}
-              <span class="object muted">{e.object}</span>
-            {/if}
-            <span class="message">{e.message}{e.count > 1 ? ` (x${e.count})` : ""}</span>
-          </div>
-        {:else}
-          <p class="muted">No warnings.</p>
-        {/each}
+      <section aria-label="Warning groups">
+        <div class="sec-head"><h3>Warning groups</h3></div>
+        <WarningGroups events={overview.events} {now} limit={WARNINGS_SHOWN} />
       </section>
     </div>
+  {:else if app.status.ok !== false}
+    <Deck {kicker} headline="Loading the first summary…" calm waiting />
   {:else}
-    <p class="muted loading">Loading…</p>
+    <!-- Not blank under the banner (#462). -->
+    <OutOfReach title={troubleTitle(app.status) ?? app.status.text} />
   {/if}
 </div>
 
@@ -265,14 +236,8 @@
   .workloads {
     flex: 1;
     overflow: auto;
-    padding: 16px;
-  }
-  .scope {
-    margin: 0 0 12px;
-    font-size: 12px;
-  }
-  .loading {
-    font-size: 13px;
+    padding: 20px 24px 28px;
+    container: workloads / inline-size;
   }
   .notes {
     margin: 0 0 16px;
@@ -354,14 +319,6 @@
   .status:disabled .dot {
     background: var(--text-muted);
   }
-  h3 {
-    font-family: var(--font-num);
-    font-size: 10.5px;
-    font-weight: 500;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--text-muted);
-  }
   .status {
     display: flex;
     align-items: center;
@@ -389,61 +346,21 @@
     border-radius: 50%;
     flex-shrink: 0;
   }
-  .count {
+  .legend .count {
     font-family: var(--font-num);
     font-variant-numeric: tabular-nums;
     font-weight: 600;
   }
+  /* What needs a look, side by side; stacked when narrow. */
   .sections {
     display: grid;
-    grid-template-columns: 1fr 2fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 24px;
   }
-  h3 {
-    margin: 0 0 10px;
-    font-size: 14px;
-  }
-  .problem {
-    display: flex;
-    gap: 10px;
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 13px;
-    align-items: baseline;
-  }
-  .problem .kind {
-    min-width: 80px;
-    font-size: 12px;
-  }
-  .problem .reason {
-    color: var(--amber);
-  }
-  .problem .reason.error {
-    color: var(--red);
-  }
-  .event {
-    display: flex;
-    gap: 12px;
-    padding: 8px 10px;
-    border-bottom: 1px solid var(--border);
-    border-left: 3px solid var(--amber);
-    font-size: 13px;
-    align-items: baseline;
-  }
-  .age {
-    color: var(--text-muted);
-    min-width: 32px;
-  }
-  .event .reason {
-    font-weight: 600;
-    min-width: 110px;
-  }
-  .object {
-    min-width: 180px;
-    text-align: left;
-  }
-  .message {
-    flex: 1;
+  @container workloads (min-width: 900px) {
+    .sections {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
   }
   .link {
     background: transparent;

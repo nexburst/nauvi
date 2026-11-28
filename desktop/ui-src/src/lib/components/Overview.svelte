@@ -40,6 +40,7 @@
   import { PROBLEMS_STATUS } from "../workloads";
   import { blips as toBlips, type Blip } from "../sonar";
   import { observeOverview, scope } from "../stores/watch.svelte";
+  import Deck from "./Deck.svelte";
   import OutOfReach from "./OutOfReach.svelte";
   import ProblemGroups from "./ProblemGroups.svelte";
   import WarningGroups from "./WarningGroups.svelte";
@@ -278,15 +279,7 @@
         {/each}
       </ul>
     {/if}
-    <div class="deck">
-      <span class="status-mark" class:calm={head.calm} aria-hidden="true">
-        <Icon name={head.calm ? "ok" : "warning"} size={22} />
-      </span>
-      <div class="summary">
-        <span class="kicker" data-testid="deck-kicker">{deckKicker(context, pods?.namespace ?? null)}</span>
-        <h2 class="headline" data-testid="deck-headline">{head.text}</h2>
-      </div>
-    </div>
+    <Deck kicker={deckKicker(context, pods?.namespace ?? null)} headline={head.text} calm={head.calm} />
     {@const cards = pods ? podCards(pods) : []}
     {@const quiet = cards.filter((c) => c.quiet)}
     <div class="cards">
@@ -468,13 +461,7 @@
     </div>
   {:else if app.status.ok !== false}
     <!-- The first summary: the mark breathes until it arrives. -->
-    <div class="deck waiting">
-      <span class="status-mark calm" aria-hidden="true"><Icon name="refresh" size={22} /></span>
-      <div class="summary">
-        <span class="kicker">{deckKicker(context, null)}</span>
-        <h2 class="headline">Loading the first summary…</h2>
-      </div>
-    </div>
+    <Deck kicker={deckKicker(context, null)} headline="Loading the first summary…" calm waiting />
   {:else}
     <!-- Not blank under the banner (#462). -->
     <OutOfReach title={troubleTitle(app.status) ?? app.status.text} />
@@ -495,55 +482,6 @@
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius-card);
-  }
-
-  /* The deck: one headline, how the cluster is. */
-  .deck {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin-bottom: 16px;
-  }
-  .status-mark {
-    --tone: var(--amber);
-    display: grid;
-    place-items: center;
-    flex-shrink: 0;
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    color: var(--tone);
-    background: color-mix(in srgb, var(--tone) 14%, transparent);
-    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 24%, transparent);
-  }
-  .status-mark.calm {
-    --tone: var(--accent);
-  }
-  .waiting .status-mark {
-    animation: breathe 1800ms ease-in-out infinite;
-  }
-  @keyframes breathe {
-    50% {
-      opacity: 0.45;
-    }
-  }
-  .summary {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-  .kicker {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    color: var(--text-muted);
-  }
-  .headline {
-    margin: 0;
-    font-size: var(--text-2xl);
-    font-weight: var(--weight-semibold);
-    letter-spacing: -0.022em;
-    line-height: 1.15;
   }
 
   /* Stat cards: what is there, at a glance; each opens its table. A colour
@@ -650,30 +588,6 @@
     gap: 24px;
     align-content: start;
     min-width: 0;
-  }
-  .sec-head {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-  h3 {
-    margin: 0;
-    font-size: var(--text-lg);
-    font-weight: var(--weight-semibold);
-    letter-spacing: -0.01em;
-    color: var(--text);
-  }
-  .count {
-    min-width: 22px;
-    padding: 1px 7px;
-    border-radius: 999px;
-    text-align: center;
-    font-size: var(--text-xs);
-    font-weight: var(--weight-semibold);
-    font-variant-numeric: tabular-nums;
-    color: var(--red);
-    background: color-mix(in srgb, var(--red) 14%, transparent);
   }
   .panel {
     overflow: hidden;

@@ -2348,6 +2348,8 @@ export type KindCounts = {
 	group: string,
 	kind: string,
 	total: number,
+	/**  How many of them are problem workloads, listed or not. */
+	problems: number,
 	/**
 	 *  Every status the kind uses, in card order, zeros included (except an
 	 *  `Unknown` with no pods).
@@ -4215,10 +4217,17 @@ export type WorkloadsOverview = {
 	 *  is left out, with a note.
 	 */
 	kinds: KindCounts[],
-	/**  Failed first, then the oldest; at most [`MAX_PROBLEMS`]. */
+	/**
+	 *  Errors first, then the most pods affected, then the oldest; at most
+	 *  [`MAX_PROBLEMS`].
+	 */
 	problems: ProblemWorkload[],
 	problems_total: number,
-	/**  Warning events about workload objects, newest first. */
+	/**
+	 *  Warning events about workload objects, newest first, without the
+	 *  events of the listed problems' pods ([`workload_warnings`]). An event
+	 *  about a pod names the pod's owning workload.
+	 */
 	events: EventInfo[],
 	/**  What is missing or narrowed, and why. */
 	notes: string[],

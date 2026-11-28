@@ -2,6 +2,7 @@
 // and what a click on a count opens.
 
 import type { KindCounts, ResourceKind, WorkloadStatus } from "./bindings";
+import { joinNames } from "./namespaces";
 
 /** `app.view` of the Workloads overview. */
 export const WORKLOADS_VIEW = "workloads";
@@ -64,4 +65,50 @@ export const PROBLEMS_STATUS = "needs attention";
 export function matchesStatus(row: { status: string; problem?: string }, status: string): boolean {
   if (status === PROBLEMS_STATUS) return !!row.problem;
   return !status || row.status === status;
+}
+
+/** Problem workloads the Workloads overview lists (#606); the rest are one link away. */
+export const PROBLEMS_SHOWN = 5;
+
+/** The deck's headline: "41 workloads need a look", or calm. */
+export function workloadsHeadline(problems: number, context: string): { text: string; calm: boolean } {
+  if (problems === 0) return { text: context ? `No workload problems in ${context}` : "No workload problems", calm: true };
+  return { text: `${problems} workload${problems === 1 ? " needs" : "s need"} a look`, calm: false };
+}
+
+/** The line above it: the context and the namespaces ("kind-dev · namespaces a and b"). */
+export function workloadsKicker(context: string, namespaces: readonly string[]): string {
+  const n = namespaces.length;
+  const scope = n === 0 ? "all namespaces" : `namespace${n > 1 ? "s" : ""} ${joinNames(namespaces)}`;
+  return [context, scope].filter(Boolean).join(" · ");
+}
+
+/** One "See all" link: a kind's table, filtered to its problems. */
+export interface SeeAllLink {
+  group: string;
+  kind: string;
+  count: number;
+  /** The status filter that shows them: a suspended CronJob is no row problem. */
+  status: string;
+}
+
+/**
+ * Where "See all N →" goes when there are more problems than are listed:
+ * one link per kind with problems, most first. Empty when all are listed.
+ */
+export function seeAllWorkloads(o: {
+  kinds: readonly KindCounts[];
+  problems: readonly unknown[];
+  problems_total: number;
+}): SeeAllLink[] {
+  if (o.problems_total <= Math.min(o.problems.length, PROBLEMS_SHOWN)) return [];
+  return o.kinds
+    .filter((k) => k.problems > 0)
+    .map((k) => ({
+      group: k.group,
+      kind: k.kind,
+      count: k.problems,
+      status: k.kind === "CronJob" ? "Suspended" : PROBLEMS_STATUS,
+    }))
+    .sort((a, b) => b.count - a.count);
 }
