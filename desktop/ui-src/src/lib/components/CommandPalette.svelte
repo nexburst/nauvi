@@ -6,6 +6,7 @@
   import { reloadNamespaces } from "../stores/app.svelte";
   import { activeTable, closePalette, keyboard } from "../stores/keyboard.svelte";
   import { paletteAccess, paletteItems, recentIds, rememberPick } from "../stores/palette.svelte";
+  import { isTab } from "../keys";
 
   /** Ctrl/Cmd+K: fuzzy search over kinds, namespaces, contexts, objects and actions. */
 
@@ -105,8 +106,7 @@
 
   function onkeydown(e: KeyboardEvent) {
     const n = results.length;
-    // WebKitGTK may name Shift+Tab by its keysym (ISO_Left_Tab): the physical key decides.
-    switch (e.code === "Tab" ? "Tab" : e.key) {
+    switch (isTab(e) ? "Tab" : e.key) {
       case "Tab":
         tab(e.shiftKey);
         break;
