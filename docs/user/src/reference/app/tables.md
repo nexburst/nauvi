@@ -24,8 +24,9 @@ in **Columns** to filter by it.
   attention.
 - When a name is cut in the middle and the filter matches only the hidden
   part, the cell is highlighted and its tooltip shows the whole name.
-- `Enter` remembers a search and **☆ Star** stars it. `ArrowDown` in the box
-  offers your starred and recent searches, in any table.
+- `Enter` remembers a search and **☆ Star** stars it. `↑` (or `Alt+↓`) in the box
+  offers your starred and recent searches, in any table. `Enter`, `Esc` or
+  `↓` take you back to the rows, with the filter kept.
 
 ## Columns
 

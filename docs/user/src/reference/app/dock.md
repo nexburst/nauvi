@@ -12,7 +12,8 @@ views.
 - Open tabs from a panel or the row menu (**Logs**, **Shell**), or with `L`
   and `S` on a row.
 - Drag the dock's top edge to resize it; double-click a tab to maximize it.
-- `` Ctrl+` `` or `Ctrl+J` (`⌘J` on macOS) hides or shows it. On Linux and
+- `` Ctrl+` `` (the same on macOS, with the Control key) or `Ctrl+J` (`⌘J` on
+  macOS) hides or shows it. On Linux and
   Windows, `Ctrl+J` inside a terminal goes to the shell; use `` Ctrl+` ``
   there.
 - Each tab has a context line that says what it is attached to (pod,
@@ -33,8 +34,9 @@ views.
 
 ## Local terminal
 
-`` Ctrl+Shift+` `` or `Ctrl+Shift+J` (`⇧⌘J` on macOS), the dock's **+**, or
-"New local terminal" in the palette opens your own shell (`$SHELL -l`; on
+**Terminal** in the top bar (next to Ask AI), `` Ctrl+Shift+` `` (the same on
+macOS) or `Ctrl+Shift+J` (`⇧⌘J` on macOS), the dock's **+**, or "New local
+terminal" in the palette opens your own shell (`$SHELL -l`; on
 Windows `pwsh`, `powershell` or `cmd`) in your home directory, with `kubectl`
 and `helm` already pointed at the app's context and namespace. The tab shows
 `<context> · <namespace>`; changing the app's namespace later does not change

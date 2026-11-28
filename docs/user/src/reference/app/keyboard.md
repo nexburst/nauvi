@@ -7,7 +7,7 @@ list. On macOS, `Ctrl` in the shortcuts below is `⌘` where marked.
 
 | Key | What it does |
 | --- | --- |
-| `Ctrl+K` / `Cmd+K`, or `Ctrl+P` / `Cmd+P` | Command palette (with [k9s keys](#k9s-keys) on, `Ctrl+K` kills a pod outside macOS) |
+| `Ctrl+K` / `Cmd+K`, or `Ctrl+P` / `Cmd+P` | Command palette (with [k9s keys](#k9s-keys) on, `Ctrl+K` kills a pod outside macOS). `Tab` completes the highlighted kind, namespace or context |
 | `G` | Filter the kinds in the sidebar, or open all kinds when it is collapsed |
 | `1`–`9` | Go to the Overview (`1`) or a pinned kind |
 | `P` | Pin the current view |
@@ -16,8 +16,8 @@ list. On macOS, `Ctrl` in the shortcuts below is `⌘` where marked.
 | `F5` or `Ctrl+R` (`⌘R`) | Refresh the current view (it never reloads the window) |
 | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` (`⌘` on macOS) | Zoom in, zoom out, reset the zoom |
 | `Alt+←` / `Alt+→` (`⌘[` / `⌘]`) | Back and forward |
-| `` Ctrl+` `` or `Ctrl+J` (`⌘J`) | Hide or show the dock |
-| ``Ctrl+Shift+` `` or `Ctrl+Shift+J` (`⇧⌘J`) | New local terminal |
+| `` Ctrl+` `` (on macOS too, with the Control key), or `Ctrl+J` (`⌘J`) | Hide or show the dock |
+| ``Ctrl+Shift+` `` (on macOS too), or `Ctrl+Shift+J` (`⇧⌘J`) | New local terminal (also **Terminal** in the top bar) |
 
 `` Ctrl+` `` is the key left of `1` (or next to the left Shift), so it also
 works on layouts where the backtick is a dead key.
@@ -106,8 +106,8 @@ other text field.
 
 | Key | What it does |
 | --- | --- |
-| `Enter` | Remember the search |
-| `ArrowDown` | Offer your starred and recent searches |
+| `Enter`, `Esc` or `↓` | Back to the rows, on the first match, with the filter kept (`Enter` also remembers the search) |
+| `↑` or `Alt+↓` | Offer your starred and recent searches; `Enter` uses the highlighted one |
 
 ## In a log tab
 

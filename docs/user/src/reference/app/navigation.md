@@ -63,6 +63,10 @@ a column again, and so does the expand button at the foot of the rail.
 when you start with `>`.
 
 - `ns ` narrows it to namespaces, `ctx ` to contexts.
+- `Tab` completes the highlighted kind, namespace or context (`:na`, then
+  `Tab`, gives `:namespaces`); on other entries `Tab` and `Shift+Tab` move
+  through the results like `↓` and `↑`.
+- A command that has a shortcut shows it on the right.
 - `win ` ("Open context in new window…") opens a context in a new window.
 - **Describe** opens the focused object's panel; **Copy kubectl describe**
   copies its describe text (the same as `nauvi describe`).
