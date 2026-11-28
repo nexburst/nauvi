@@ -483,13 +483,18 @@ describe("image security", { timeout: 15 * 60_000 }, () => {
     const { app } = s;
     await setTheme(app, "dark");
     await pickNamespaces(app, [clean]);
-    await app.waitFor(async () => /No known vulnerabilities/.test(await viewText(app)), {
-      timeout: 60_000,
-      message: "No known vulnerabilities",
-    });
-    const rows = await viewRows(app);
-    assert.equal(rows.length, 1);
+    // pickNamespaces goes through "All namespaces", whose listing also has
+    // clean busybox rows: wait for the one row of this namespace, not text.
+    const rows = await app.waitFor(
+      async () => {
+        const r = await viewRows(app);
+        return r.length === 1 && r[0].text.includes(clean) ? r : null;
+      },
+      { timeout: 60_000, message: `the one image of ${clean}` },
+    );
+    assert.equal(rows[0].image, "busybox:1.36");
     assert.equal(rows[0].tone, "neutral");
+    assert.match(await viewText(app), /No known vulnerabilities/);
   });
 
   it("the findings list in dark", T, async () => {

@@ -5,7 +5,8 @@
 // - A regex that backtracks without end, `^(a+)+$`, is stopped in the
 //   worker ("Regex too slow") and the page stays usable.
 // - Searches are remembered (Enter), can be starred, are offered in another
-//   list (ArrowDown), survive a restart, and settings.json holds only the
+//   list (Alt+ArrowDown or ArrowUp: ArrowDown with the list closed goes to
+//   the rows, #590), survive a restart, and settings.json holds only the
 //   typed strings and toggles.
 // Screenshots at 1280x800 in dark and light.
 
@@ -189,10 +190,15 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     await app.filter("db");
     await (await filterInput(app)).sendKeys(Key.ENTER);
 
-    // Another list: the box emptied, ArrowDown offers both, starred first.
+    // Another list: the box emptied, Alt+ArrowDown offers both, starred
+    // first and highlighted. Emptying the box (an input event) opens the
+    // list already; Esc closes it, so the key is what opens it here.
     await app.nav("Secrets");
     await app.filter("");
-    await (await filterInput(app)).sendKeys(Key.ARROW_DOWN);
+    await (await filterInput(app)).sendKeys(Key.ESCAPE);
+    await app.waitFor(async () => (await suggestionTexts(app)).length === 0, { message: "the suggestions closed" });
+    await (await filterInput(app)).click();
+    await (await filterInput(app)).sendKeys(Key.chord(Key.ALT, Key.ARROW_DOWN));
     const offered = await app.waitFor(async () => {
       const t = await suggestionTexts(app);
       return t.length >= 2 ? t : null;
@@ -224,7 +230,14 @@ describe("table filter (#219)", { timeout: 15 * 60_000 }, () => {
     await resizeWindow(app, 1280, 800);
     await app.nav("Pods");
     await (await filterInput(app)).click();
+    // ArrowDown with the list closed goes to the rows (#590): it stays shut.
     await (await filterInput(app)).sendKeys(Key.ARROW_DOWN);
+    await new Promise((r) => setTimeout(r, 300));
+    assert.deepEqual(await suggestionTexts(app), [], "ArrowDown does not open the saved searches");
+    assert.equal(await app.js(`return document.activeElement?.getAttribute("aria-label") === "Filter"`), false, "ArrowDown left the box");
+    // ArrowUp opens them.
+    await (await filterInput(app)).click();
+    await (await filterInput(app)).sendKeys(Key.ARROW_UP);
     const again = await app.waitFor(async () => {
       const t = await suggestionTexts(app);
       return t.length >= 2 ? t : null;
