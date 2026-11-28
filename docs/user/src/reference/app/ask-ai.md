@@ -8,11 +8,53 @@ how to look at a cluster.
 ## Starting it
 
 - The header's **Ask AI** button: the cluster, or the one selected namespace.
-- **Ask AI about this…** in the detail panel: the object.
+- **Ask AI** on a [Problem group or Warning group](overview.md#problem-groups)
+  row of the Overview, and on the Problem workloads and Warning groups of
+  **Workloads → Overview**: that workload or object, with its reason and
+  counts ("18 of 20 pods are in CrashLoopBackOff (171 restarts)").
+- **Ask AI about this…** in every table's row menu: the row's object.
+- **Ask AI** in the detail panel's action bar: the object.
+- **Ask AI about these N** on a table selection: the selected rows.
 - The palette: "Ask AI…", and "Ask AI about this…" for the focused row.
+- **Ask AI about these N** in the [Ask AI list](#the-ask-ai-list): every
+  object you collected.
 
 The dialog picks the CLI and prefills the prompt with the scope. Edit it: it
-is the CLI's first message.
+is the CLI's first message. Without an AI CLI, and on read-only contexts,
+only the header's button and the palette offer Ask AI (the dialog then says
+why it cannot start); the buttons on rows and panels are hidden.
+
+## The Ask AI list
+
+The Ask AI list (the AI context list) collects several objects, so one Ask
+AI looks at them together: say a crash-looping Deployment, the Service in
+front of it and a Pending pod.
+
+To add an object:
+
+- **+** on a Problem group or Warning group row, on the Overview and on
+  **Workloads → Overview**;
+- **Add to Ask AI** in a table's row menu, right after "Ask AI about this…";
+- **Add to Ask AI** in the detail panel's action bar;
+- `Alt`+click (`Option`+click on macOS) on a table row's name. Some Linux
+  window managers take `Alt`+click for themselves; use the row menu there.
+
+Once the list has objects, the header's button reads **Ask AI | 3**. Click
+the count to open the list: each object with the reason nauvi showed, a
+button to remove it, **Clear**, and **Ask AI about these 3**.
+
+- There is one list per context: switching contexts keeps each list.
+- It is kept in memory until the app closes.
+- It holds at most 20 objects. An object already in it, or a 21st, cannot
+  be added; the button says why.
+- Starting an Ask AI from the list empties it. **Cancel** in the dialog
+  keeps it.
+- **Ask AI about these N** on a table selection does not use or change the
+  list.
+- An object deleted from the cluster stays in the list until you remove it.
+
+The prompt names each object (kind, namespace/name) with a short reason
+("CrashLoopBackOff, 18 of 20 pods"), nothing more.
 
 ## What runs
 
@@ -96,7 +138,8 @@ it asks to run.
 ## What leaves your machine
 
 That is up to your CLI and its provider: nauvi sends nothing itself. The
-prompt holds only names, no cluster data.
+prompt holds only names, reasons and counts: no logs, no YAML and no event
+messages.
 
 ## Agents without skills
 

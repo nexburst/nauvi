@@ -87,7 +87,7 @@ While image security is on, the same findings show where you already look:
   **Details**;
 - an **Image fixes** card on the Overview: how many images have a fix
   waiting. A click opens the Image security view;
-- **Copy as prompt** (`A`) on a workload adds its worst images and their
+- **Copy prompt for your AI** (`A`) on a workload adds its worst images and their
   counts.
 
 A vulnerability is not an outage: it never counts as a problem pod or a

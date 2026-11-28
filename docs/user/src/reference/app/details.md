@@ -6,13 +6,15 @@ Every object has one.
 - The panel **leads with what is wrong**, in the words of the table
   ("CrashLoopBackOff · 12 restarts").
 - Its header has the object's actions. **Logs**, **Shell** (or **Node
-  shell**) and **Edit YAML** show their names; the others are icons with a
+  shell**), **Edit YAML** and, with an AI CLI installed, **Ask AI** (right
+  after Edit YAML, then **Add to Ask AI**; see [Ask AI](ask-ai.md)) show
+  their names; the others are icons with a
   tooltip, for example Scale and Restart on workloads, or Cordon and Drain on
   nodes. The destructive ones (Evict, Delete, Force delete) sit together on
   the right. **Copy link** copies a [`nauvi://` link](links.md) to the
   object.
 - **✕** or `Esc` closes the panel.
-- When a link opens an object (a problem pod on the Overview, a related
+- When a link opens an object (a pod in a Problem group on the Overview, a related
   object), its row in the table scrolls into view.
 - Drag its left edge to change its width; nauvi remembers it.
 - `W` gives the object the whole window and gives the table back. The YAML

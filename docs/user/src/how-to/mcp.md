@@ -20,7 +20,7 @@ Claude Desktop, Gemini CLI, Windsurf), pinned to the cluster on screen and
 ready to copy. It also has a short guide to paste into your agent's rules
 (AGENTS.md, CLAUDE.md or a skill).
 
-**Copy as prompt** (`A` on a row, or the row menu) puts a prompt about that
+**Copy prompt for your AI** (`A` on a row, or the row menu) puts a prompt about that
 object on the clipboard: its kind, name, cluster and what the table says is
 wrong, never its logs or manifest.
 
