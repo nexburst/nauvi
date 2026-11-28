@@ -77,6 +77,9 @@
   data-testid="cluster-band"
   data-band={mode === "protected" ? "protected" : mode === "readOnly" ? "read-only" : color ? "colour" : "none"}
 >
+  <!-- Three columns (#607): what this window shows, Go to, and the tools;
+       Go to keeps its place when a tool (Ask AI) comes or goes. -->
+  <div class="lead">
   <div class="brand">
     <!-- The mark: a sonar scope, its beam resting at the bearing of the
          last change. -->
@@ -203,6 +206,7 @@
       <Icon name="external" />
     </button>
   {/if}
+  </div>
   <button
     class="goto"
     type="button"
@@ -215,6 +219,7 @@
     <span class="hint">Go to a kind, an object, an action…</span>
     <kbd>{PALETTE_SHORTCUT.split(" or ")[0]}</kbd>
   </button>
+  <div class="tail">
   {#if current}
     <button
       type="button"
@@ -263,12 +268,14 @@
   <button class="gear" type="button" aria-label="Settings" title={`Settings (${SETTINGS_SHORTCUT})`} onclick={openSettings}>
     <Icon name="settings" size={18} />
   </button>
+  </div>
 </header>
 
 <style>
   header {
     position: relative;
-    display: flex;
+    display: grid;
+    grid-template-columns: auto minmax(280px, 1fr) auto;
     align-items: center;
     gap: 12px;
     padding: 0 12px;
@@ -470,11 +477,19 @@
     background: var(--bg-hover);
   }
   /* The way anywhere: the palette, as the rail's centre. */
+  .lead,
+  .tail {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+  }
+  /* At the start of its column, so the tools on the right never move it. */
   .goto {
-    flex: 1;
+    width: 100%;
     max-width: 420px;
-    min-width: 120px;
-    margin: 0 auto;
+    min-width: 0;
+    justify-self: start;
     display: flex;
     align-items: center;
     gap: 8px;

@@ -28,6 +28,7 @@
   import { dockMenuFor } from "../dock";
   import { openDockTab } from "../stores/dock.svelte";
   import { copyLink, prefetchLink } from "../stores/links.svelte";
+  import { askAiOffered, openAskAi } from "../stores/askAi.svelte";
   import { registerTable } from "../stores/keyboard.svelte";
   import type { RowMove, RowVerb } from "../stores/keyboard.svelte";
   import { askLogs } from "../stores/logAsk.svelte";
@@ -343,6 +344,8 @@
 
   /** The keys of registry actions that have one (keys.ts). */
   const ACTION_KEYS: Partial<Record<string, string>> = { restart: "⇧R", delete: "Del", portForward: "⇧F" };
+  /** Registry actions that open a terminal, with Logs and Shell in the menu. */
+  const OPENS = new Set(["nodeShell", "attach", "debug"]);
 
   // Right-click menu, built from the same registry as the detail panels.
   let menu = $state.raw<{ x: number; y: number; title: string; items: MenuItem[] } | null>(null);
@@ -392,29 +395,45 @@
       title = row.namespace ? `${row.namespace}/${row.name}` : row.name;
       const keys = kind.columns.map((c) => c.key);
       prefetchLink(kind.resource, row.namespace, row.name);
-      // Logs and Shell open dock tabs, then the YAML editor (#494); the
-      // rest come from the action registry. Each with its key, so the menu
-      // teaches the keys.
+      // Four groups (#607): what opens a tab (Logs, Shell, Attach, Debug),
+      // what changes it (the YAML editor, #494, and the registry's other
+      // actions), what goes to an AI, and the destructive ones last. Each
+      // with its key, so the menu teaches the keys.
+      const action = (a: (typeof kind.actions)[number], group: string) => ({
+        id: a.id,
+        label: a.label,
+        key: ACTION_KEYS[a.id],
+        danger: a.destructive,
+        group,
+        run: () => requestAction(kind, [{ namespace: row.namespace, name: row.name }], a, replicasFromRow(row, keys)),
+      });
+      const opens = (a: (typeof kind.actions)[number]) => OPENS.has(a.id) && !a.destructive;
       items = [
         ...dockMenuFor(kind.resource, row.namespace, row.name).map((d) => ({
           id: d.label === "Shell" ? "shell" : "logs",
           label: d.label,
           key: d.label === "Shell" ? "S" : "L",
+          group: "open",
           run: () => openDockTab(d.spec),
         })),
-        { id: "edit", label: "Edit YAML", key: "E", run: () => verbOn(row, "edit") },
-        // A nauvi:// link to the object (#299).
-        { label: "Copy link", run: () => void copyLink(kind.resource, row.namespace, row.name) },
-        // For the user's own agent (docs/ux-standard.md, section 10).
-        { label: "Copy as prompt", key: "A", run: () => void copyPrompt(row) },
-        ...kind.actions.map((a) => ({
-          id: a.id,
-          label: a.label,
-          key: ACTION_KEYS[a.id],
-          danger: a.destructive,
-          run: () =>
-            requestAction(kind, [{ namespace: row.namespace, name: row.name }], a, replicasFromRow(row, keys)),
-        })),
+        ...kind.actions.filter(opens).map((a) => action(a, "open")),
+        { id: "edit", label: "Edit YAML", key: "E", group: "change", run: () => verbOn(row, "edit") },
+        ...kind.actions.filter((a) => !opens(a) && !a.destructive).map((a) => action(a, "change")),
+        // The user's own AI: Ask AI (#376) when a CLI is found, the prompt
+        // to paste (docs/ux-standard.md, section 10), a nauvi:// link (#299).
+        ...(askAiOffered()
+          ? [
+              {
+                label: "Ask AI about this…",
+                icon: "sparkles" as const,
+                group: "ai",
+                run: () => openAskAi({ namespace: row.namespace, kind: kind.resource.kind, name: row.name }),
+              },
+            ]
+          : []),
+        { label: "Copy prompt for your AI", key: "A", group: "ai", run: () => void copyPrompt(row) },
+        { label: "Copy link", group: "ai", run: () => void copyLink(kind.resource, row.namespace, row.name) },
+        ...kind.actions.filter((a) => a.destructive).map((a) => action(a, "danger")),
       ];
       greyDenied(row.namespace, items);
     }

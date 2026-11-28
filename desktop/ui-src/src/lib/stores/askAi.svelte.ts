@@ -8,6 +8,7 @@ import { askAiTitle } from "../askAi";
 import type { AskAiScope } from "../askAi";
 import { localShellNamespace } from "../dock";
 import { app, currentContextName } from "./app.svelte";
+import { contextMode } from "./contextMode.svelte";
 import { openDockTab } from "./dock.svelte";
 import { settings, updateSettings } from "./settings.svelte";
 
@@ -32,6 +33,13 @@ export async function loadAskAiSetup(): Promise<void> {
 /** Whether Ask AI is offered: a CLI was found or a command is set. */
 export function askAiAvailable(): boolean {
   return (askAi.setup?.found.length ?? 0) > 0;
+}
+
+/** Whether the rows' Ask AI (Problem groups, Warning groups, the table's
+ *  menu, #607) is offered: a CLI was found and the context is not
+ *  read-only (nauvi opens no terminals there). */
+export function askAiOffered(context: string = currentContextName()): boolean {
+  return askAiAvailable() && contextMode(context) !== "readOnly";
 }
 
 /** Open the dialog about `scope` (default: the cluster or the one selected

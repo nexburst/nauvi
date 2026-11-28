@@ -20,6 +20,9 @@
   --accent: #5cd6c6;
   --accent-soft: rgba(92, 214, 198, 0.12);
   --on-accent: #062621;
+  /* The label of an Ask AI button on --accent-soft (#607): the accent where
+     it reads (8.4:1 here), --text in light, where the accent is 4.3:1. */
+  --ai-label: var(--accent);
   --green: #4cc690;
   --red: #f0646c;
   --amber: #efb550;
@@ -63,6 +66,7 @@
   --accent: #0e746b;
   --accent-soft: rgba(14, 116, 107, 0.1);
   --on-accent: #ffffff;
+  --ai-label: var(--text);
   --green: #1a7a4e;
   --red: #c2313a;
   --amber: #965f06;
@@ -98,6 +102,7 @@
     --accent: #0e746b;
     --accent-soft: rgba(14, 116, 107, 0.1);
     --on-accent: #ffffff;
+    --ai-label: var(--text);
     --green: #1a7a4e;
     --red: #c2313a;
     --amber: #965f06;
@@ -385,6 +390,27 @@ th {
   color: var(--accent);
   border-color: var(--border);
   background: var(--bg-hover);
+}
+/* Ask AI (#607): the one accented action, in the header and on the rows
+   where problems are. A tinted fill and an accent hairline, the icon in the
+   accent; the label is --ai-label (the accent in dark, --text in light). */
+.ai-action,
+.row-act.ai-action {
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  color: var(--ai-label);
+  transition: background-color 120ms ease;
+}
+.ai-action :is(svg) {
+  color: var(--accent);
+}
+.ai-action:hover,
+.ai-action:focus-visible,
+.row-act.ai-action:hover,
+.row-act.ai-action:focus-visible {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: var(--accent);
+  color: var(--ai-label);
 }
 /* The expand control of a row: a 16 px chevron that turns. */
 .row-chev {

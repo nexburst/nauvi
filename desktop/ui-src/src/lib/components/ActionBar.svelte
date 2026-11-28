@@ -10,7 +10,7 @@
   import { kindOfResource, requestAction } from "../stores/actions.svelte";
   import { openDockTab } from "../stores/dock.svelte";
   import { copyLink, prefetchLink } from "../stores/links.svelte";
-  import { askAiAvailable, openAskAi } from "../stores/askAi.svelte";
+  import { askAiOffered, openAskAi } from "../stores/askAi.svelte";
   import type { Target } from "../stores/detail.svelte";
 
   /** The detail panel's header of action icons (#218): the row menu's Logs
@@ -39,7 +39,7 @@
   };
   const items = $derived.by(() => {
     const list = panelActions(dockMenuFor(target.resource, target.namespace, target.name), kind?.actions ?? []);
-    if (!askAiAvailable()) return list;
+    if (!askAiOffered()) return list;
     const at = list.findIndex((a) => a.id === "link") + 1;
     return [...list.slice(0, at), ASK_AI, ...list.slice(at)];
   });
@@ -61,7 +61,9 @@
   });
 
   /** The everyday actions carry their name beside the icon (#483). */
-  const LABELLED = new Set(["logs", "shell", "nodeShell", "edit"]);
+  const LABELLED = new Set(["logs", "shell", "nodeShell", "edit", "askAi"]);
+  /** A shorter word on the button than its name, where the name is long. */
+  const WORD: Partial<Record<string, string>> = { askAi: "Ask AI" };
 
   const denied = (a: PanelAction<DockTabSpec>) => {
     const r = access.get(a.id);
@@ -116,6 +118,8 @@
     class:labelled={LABELLED.has(a.id)}
     class:danger={a.danger}
     class:denied={!!reason}
+    class:ai-action={a.id === "askAi"}
+    aria-label={WORD[a.id] ? a.label : undefined}
     data-tip={a.tip}
     data-action={a.id}
     {disabled}
@@ -128,7 +132,7 @@
     onblur={() => (tip = null)}
   >
     <ActionIcon id={a.id} />
-    <span class={LABELLED.has(a.id) ? "word" : "sr"}>{a.label}</span>
+    <span class={LABELLED.has(a.id) ? "word" : "sr"}>{WORD[a.id] ?? a.label}</span>
   </button>
   <!-- Outside the button, so its text stays the label. -->
   {#if reason}<span class="sr" id="deny-{a.id}">{reason}</span>{/if}
@@ -191,6 +195,20 @@
   }
   .icon.labelled:hover {
     border-color: var(--border-strong);
+  }
+  /* Ask AI: accented, as in the header (#607, `.ai-action` in app.css). */
+  .icon.labelled.ai-action {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--ai-label);
+  }
+  .icon.labelled.ai-action:hover,
+  .icon.labelled.ai-action:focus-visible {
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
+    color: var(--ai-label);
+  }
+  .icon.ai-action :global(svg) {
+    color: var(--accent);
   }
   /* Delete and the like, apart from the rest: on the right, after a rule
      (on a line of their own, still on the right, when the bar wraps). */

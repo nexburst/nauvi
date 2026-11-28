@@ -2,6 +2,8 @@
   import { onMount } from "svelte";
   import { keyboard } from "../stores/keyboard.svelte";
   import { isTab } from "../keys";
+  import Icon from "../icons/Icon.svelte";
+  import type { IconName } from "../icons/icons";
 
   export interface MenuItem {
     label: string;
@@ -12,6 +14,10 @@
     reason?: string;
     /** The key that does the same on a focused row (#494), shown at the end. */
     key?: string;
+    /** Items of one group sit together; a rule separates groups (#607). */
+    group?: string;
+    /** An icon before the label (Ask AI's, as on its button). */
+    icon?: IconName;
     run: () => void;
   }
 
@@ -87,9 +93,20 @@
 <!-- A click or right-click anywhere else dismisses the menu. -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="shield" onclick={onclose} oncontextmenu={(e) => (e.preventDefault(), onclose())}></div>
-<div class="menu" role="menu" data-testid="context-menu" bind:this={el} style:left="{left}px" style:top="{top}px">
+<div
+  class="menu"
+  role="menu"
+  data-testid="context-menu"
+  bind:this={el}
+  style:left="{left}px"
+  style:top="{top}px"
+  style:transform-origin="{x - left}px {y - top}px"
+>
   <div class="title" title={title}>{title}</div>
   {#each items as item, i (item.label)}
+    {#if i > 0 && item.group && items[i - 1].group && item.group !== items[i - 1].group}
+      <div class="sep" role="separator"></div>
+    {/if}
     <!-- The key sits over the item's end, outside it, so the item's text
          (and name) stays its label. -->
     <div class="item" role="none">
@@ -103,7 +120,8 @@
         disabled={off(item)}
         title={item.reason || undefined}
         aria-describedby={item.reason ? `menu-deny-${i}` : undefined}
-        onclick={() => pick(item)}>{item.label}</button
+        onclick={() => pick(item)}
+        >{#if item.icon}<span class="ic" aria-hidden="true"><Icon name={item.icon} size={14} /></span>{/if}{item.label}</button
       >
       {#if item.key}<kbd aria-hidden="true">{item.key}</kbd>{/if}
     </div>
@@ -131,6 +149,30 @@
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
     display: flex;
     flex-direction: column;
+    /* In from where it was opened (the origin is set at the pointer); no
+       exit, so a pick is never kept waiting. */
+    animation: menu-in 140ms var(--ease-out);
+  }
+  @keyframes menu-in {
+    from {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .menu {
+      animation: none;
+    }
+  }
+  .sep {
+    height: 1px;
+    margin: 4px 0;
+    background: var(--border);
+  }
+  .ic {
+    display: inline-flex;
+    margin-right: 7px;
+    color: var(--accent);
   }
   .title {
     padding: 4px 10px 6px;
@@ -148,9 +190,12 @@
     border: none;
     border-radius: 4px;
     color: var(--text);
-    padding: 6px 10px;
+    display: flex;
+    align-items: center;
+    min-height: 28px;
+    padding: 4px 10px;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--text-base);
     cursor: pointer;
   }
   button:hover:not(:disabled),
@@ -174,7 +219,7 @@
     transform: translateY(-50%);
     pointer-events: none;
     font-family: var(--font-num);
-    font-size: 10.5px;
+    font-size: var(--text-xs);
     line-height: 16px;
     color: var(--text-muted);
     padding: 0 4px;
