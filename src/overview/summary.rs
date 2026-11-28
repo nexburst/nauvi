@@ -3,18 +3,24 @@
 //! overview folds watch updates into maps of these and calls [`pod_counts`],
 //! [`capacity`] and [`newest_events`] when something changed.
 
-use super::{Capacity, EventInfo, NodeCounts, PodCounts, ProblemPod};
+use super::{Capacity, EventInfo, NodeCounts, PodCounts, ProblemGroup, ProblemPod};
 use crate::created_secs;
 use crate::resources::{not_ready_reason, pod_status_of, printed_pod_status, WorkloadStatus};
 use crate::{parse_cpu_quantity, parse_memory_quantity};
 use k8s_openapi::api::core::v1::{Container, Event, Node, Pod};
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
 use std::collections::{BTreeMap, HashMap};
+use std::hash::BuildHasher;
 
 /// A pod pending longer than this is listed as a problem.
 pub const PENDING_TOO_LONG_SECS: i64 = 5 * 60;
 /// At most this many problem pods are listed (all are counted).
 pub const MAX_PROBLEMS: usize = 50;
+/// At most this many Problem groups are sent (all are counted): the
+/// Overview's budget (#605).
+pub const MAX_GROUPS: usize = 5;
+/// At most this many pods are listed in one Problem group.
+pub const MAX_GROUP_PODS: usize = 50;
 
 /// How a pod counts in the overview.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +60,9 @@ pub struct PodSummary {
     /// App containers and native sidecars without a cpu / memory limit.
     pub cpu_unlimited: u64,
     pub memory_unlimited: u64,
+    /// The owning workload ([`crate::owner::pod_workload`]), empty for none.
+    pub owner_kind: String,
+    pub owner_name: String,
 }
 
 /// The part of a node the overview needs.
@@ -111,6 +120,7 @@ pub fn pod_summary(pod: &Pod) -> PodSummary {
     let (cpu, memory) = spec.map(|s| pod_resources(s, false)).unwrap_or_default();
     let (cpu_limit, memory_limit) = spec.map(|s| pod_resources(s, true)).unwrap_or_default();
     let (cpu_unlimited, memory_unlimited) = spec.map(unlimited_containers).unwrap_or_default();
+    let (owner_kind, owner_name) = crate::owner::pod_workload(pod).unwrap_or_default();
     PodSummary {
         namespace: pod.metadata.namespace.clone().unwrap_or_default(),
         name: pod.metadata.name.clone().unwrap_or_default(),
@@ -127,6 +137,8 @@ pub fn pod_summary(pod: &Pod) -> PodSummary {
         memory_limit_bytes: memory_limit,
         cpu_unlimited,
         memory_unlimited,
+        owner_kind,
+        owner_name,
     }
 }
 
@@ -261,6 +273,8 @@ pub fn event_info(e: &Event) -> EventInfo {
         object_name: name,
         time,
         count: e.count.unwrap_or(1),
+        owner_kind: String::new(),
+        owner_name: String::new(),
     }
 }
 
@@ -305,12 +319,21 @@ pub fn pod_counts<'a>(
         by_namespace: Vec::new(),
         problems: Vec::new(),
         problems_total: 0,
+        groups: Vec::new(),
+        groups_total: 0,
     };
     let mut by_namespace: HashMap<&str, usize> = HashMap::new();
+    // Pods per owning workload, for "18 of 20 pods".
+    let mut by_owner: HashMap<(&str, &str, &str), usize> = HashMap::new();
     let mut problems: Vec<(&PodSummary, String)> = Vec::new();
     for pod in pods {
         c.total += 1;
         *by_namespace.entry(&pod.namespace).or_insert(0) += 1;
+        if !pod.owner_kind.is_empty() && !pod.terminating {
+            *by_owner
+                .entry((&pod.namespace, &pod.owner_kind, &pod.owner_name))
+                .or_insert(0) += 1;
+        }
         match pod.state {
             PodState::Running => c.running += 1,
             PodState::Pending => c.pending += 1,
@@ -349,19 +372,132 @@ pub fn pod_counts<'a>(
             ))
     });
     c.problems_total = problems.len();
+    let (groups, groups_total) = problem_groups(&problems, &by_owner);
+    c.groups = groups;
+    c.groups_total = groups_total;
     c.problems = problems
-        .into_iter()
+        .iter()
         .take(MAX_PROBLEMS)
-        .map(|(p, reason)| ProblemPod {
-            namespace: p.namespace.clone(),
-            name: p.name.clone(),
-            status: p.status.clone(),
-            reason,
-            restarts: p.restarts,
-            created: p.created,
-        })
+        .map(|(p, reason)| problem_pod(p, reason))
         .collect();
     c
+}
+
+fn problem_pod(p: &PodSummary, reason: &str) -> ProblemPod {
+    ProblemPod {
+        namespace: p.namespace.clone(),
+        name: p.name.clone(),
+        status: p.status.clone(),
+        reason: reason.to_string(),
+        restarts: p.restarts,
+        created: p.created,
+        owner_kind: p.owner_kind.clone(),
+        owner_name: p.owner_name.clone(),
+    }
+}
+
+fn is_error(p: &PodSummary) -> bool {
+    matches!(p.state, PodState::WaitingError | PodState::Failed)
+}
+
+/// What the pods of one workload share to be one group: the reason, with
+/// "Pending for 1h" and "Pending for 2h" alike.
+fn group_reason(reason: &str) -> &str {
+    if reason.starts_with("Pending for ") {
+        "Pending"
+    } else {
+        reason
+    }
+}
+
+/// Pods per (namespace, owner kind, owner name).
+type OwnerPods<'a> = HashMap<(&'a str, &'a str, &'a str), usize>;
+
+/// The Problem groups of `problems` (sorted worst first), worst first: the
+/// pods of one workload with one reason are one group, a pod without an
+/// owner is its own. Errors come before the rest, then the groups with the
+/// most pods, the most restarts. The first [`MAX_GROUPS`], and how many
+/// there are.
+fn problem_groups(problems: &[(&PodSummary, String)], by_owner: &OwnerPods) -> (Vec<ProblemGroup>, usize) {
+    let mut groups: Vec<ProblemGroup> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
+    for (p, reason) in problems {
+        let alone = p.owner_kind.is_empty();
+        let (kind, name) = if alone {
+            ("Pod", p.name.as_str())
+        } else {
+            (p.owner_kind.as_str(), p.owner_name.as_str())
+        };
+        let key = format!("{}/{kind}/{name}/{}", p.namespace, group_reason(reason));
+        let i = *index.entry(key.clone()).or_insert_with(|| {
+            let owner_pods = if alone {
+                1
+            } else {
+                let owner = (p.namespace.as_str(), kind, name);
+                by_owner.get(&owner).copied().unwrap_or(1)
+            };
+            groups.push(ProblemGroup {
+                key,
+                namespace: p.namespace.clone(),
+                owner_kind: if alone { String::new() } else { kind.into() },
+                owner_name: if alone { String::new() } else { name.into() },
+                reason: reason.clone(),
+                error: is_error(p),
+                count: 0,
+                owner_pods,
+                restarts: 0,
+                pods: Vec::new(),
+            });
+            groups.len() - 1
+        });
+        let g = &mut groups[i];
+        g.count += 1;
+        g.restarts = g.restarts.saturating_add(p.restarts);
+        if g.pods.len() < MAX_GROUP_PODS {
+            g.pods.push(problem_pod(p, reason));
+        }
+    }
+    let rank = |g: &ProblemGroup| {
+        (
+            !g.error,
+            std::cmp::Reverse(g.count),
+            std::cmp::Reverse(g.restarts),
+            g.key.clone(),
+        )
+    };
+    groups.sort_by_cached_key(rank);
+    let total = groups.len();
+    groups.truncate(MAX_GROUPS);
+    (groups, total)
+}
+
+/// The `n` newest warning events, newest first, without the events of pods
+/// in a Problem group (they belong to that group, #605). An event about a
+/// pod in `pods` (by `namespace/name`) names the pod's owning workload.
+pub fn warning_events<'a, S: BuildHasher>(
+    events: impl IntoIterator<Item = &'a EventInfo>,
+    pods: &HashMap<String, PodSummary, S>,
+    now: i64,
+    n: usize,
+) -> Vec<EventInfo> {
+    let mut out = Vec::new();
+    for e in events {
+        let pod = if e.object_kind == "Pod" {
+            pods.get(&format!("{}/{}", e.object_namespace, e.object_name))
+        } else {
+            None
+        };
+        match pod {
+            Some(p) if !p.owner_kind.is_empty() && problem(p, now).is_some() => {}
+            Some(p) => out.push(EventInfo {
+                owner_kind: p.owner_kind.clone(),
+                owner_name: p.owner_name.clone(),
+                ..e.clone()
+            }),
+            None => out.push(e.clone()),
+        }
+    }
+    newest_events(&out, n)
 }
 
 pub fn node_counts<'a>(nodes: impl IntoIterator<Item = &'a NodeSummary>) -> NodeCounts {
@@ -571,6 +707,152 @@ mod tests {
         );
         assert_eq!(c.problems_total, 5);
         assert_eq!(c.problems[0].status, "CrashLoopBackOff");
+    }
+
+    /// `p`, owned by the ReplicaSet `web-5d8f` of the Deployment `web`.
+    fn of_web(mut p: Pod) -> Pod {
+        merge_pod(
+            &mut p,
+            json!({ "metadata": {
+                "labels": { "pod-template-hash": "5d8f" },
+                "ownerReferences": [{ "apiVersion": "apps/v1", "kind": "ReplicaSet", "name": "web-5d8f", "uid": "u", "controller": true }]
+            }}),
+        );
+        p
+    }
+
+    fn merge_pod(p: &mut Pod, extra: serde_json::Value) {
+        let mut v = serde_json::to_value(&*p).unwrap();
+        merge(&mut v, extra);
+        *p = serde_json::from_value(v).unwrap();
+    }
+
+    fn stuck(name: &str, ago: i64) -> Pod {
+        pod(
+            name,
+            "Pending",
+            json!({ "metadata": { "creationTimestamp": ts(NOW - ago) }, "spec": { "nodeName": null } }),
+        )
+    }
+
+    #[test]
+    fn problem_pods_of_one_workload_and_reason_are_one_group() {
+        let pods: Vec<PodSummary> = [
+            of_web(crash_looping("web-a")),
+            of_web(crash_looping("web-b")),
+            of_web(crash_looping("web-c")),
+            of_web(pod("web-ok", "Running", json!({}))),
+            // Pending for different times: still one group.
+            of_web(stuck("web-p1", 3600)),
+            of_web(stuck("web-p2", 7200)),
+            // A pod without an owner is a group of its own.
+            crash_looping("crashed"),
+            pod("evicted", "Failed", json!({ "status": { "reason": "Evicted" } })),
+        ]
+        .iter()
+        .map(pod_summary)
+        .collect();
+        assert_eq!(
+            (pods[0].owner_kind.as_str(), pods[0].owner_name.as_str()),
+            ("Deployment", "web")
+        );
+
+        let c = pod_counts(None, &pods, NOW);
+        assert_eq!(c.problems_total, 7);
+        assert_eq!((c.problems[0].name.as_str(), c.problems[0].owner_name.as_str()), ("crashed", ""));
+        assert_eq!(c.problems[1].owner_name, "web");
+        assert_eq!(c.groups_total, 4);
+        let groups: Vec<(&str, &str, &str, usize, usize, i32)> = c
+            .groups
+            .iter()
+            .map(|g| {
+                (
+                    g.owner_kind.as_str(),
+                    g.owner_name.as_str(),
+                    g.reason.as_str(),
+                    g.count,
+                    g.owner_pods,
+                    g.restarts,
+                )
+            })
+            .collect();
+        // Errors first, the most pods first; then the rest.
+        assert_eq!(
+            groups,
+            vec![
+                ("Deployment", "web", "CrashLoopBackOff", 3, 6, 21),
+                ("", "", "CrashLoopBackOff", 1, 1, 7),
+                ("", "", "Evicted", 1, 1, 0),
+                ("Deployment", "web", "Pending for 2h", 2, 6, 0),
+            ]
+        );
+        assert!(c.groups[0].error && !c.groups[3].error);
+        let names = |i: usize| -> Vec<&str> { c.groups[i].pods.iter().map(|p| p.name.as_str()).collect() };
+        assert_eq!(names(0), vec!["web-a", "web-b", "web-c"]);
+        assert_eq!(names(1), vec!["crashed"]);
+        assert_eq!(names(3), vec!["web-p2", "web-p1"]);
+    }
+
+    #[test]
+    fn at_most_five_groups_are_sent() {
+        let pods: Vec<PodSummary> = (0..8)
+            .map(|i| pod_summary(&crash_looping(&format!("lone-{i}"))))
+            .collect();
+        let c = pod_counts(None, &pods, NOW);
+        assert_eq!(c.groups.len(), MAX_GROUPS);
+        assert_eq!(c.groups_total, 8);
+    }
+
+    #[test]
+    fn events_of_pods_in_a_problem_group_are_left_out_of_warnings() {
+        let pods: HashMap<String, PodSummary> = [
+            of_web(crash_looping("web-a")),
+            of_web(pod("web-ok", "Running", json!({}))),
+            crash_looping("crashed"),
+        ]
+        .iter()
+        .map(|p| {
+            let s = pod_summary(p);
+            (format!("{}/{}", s.namespace, s.name), s)
+        })
+        .collect();
+        let event = |name: &str, kind: &str, object: &str| EventInfo {
+            key: format!("demo/{name}"),
+            kind: "Warning".into(),
+            reason: "BackOff".into(),
+            message: String::new(),
+            object: format!("{kind}/{object}"),
+            object_api_version: "v1".into(),
+            object_kind: kind.into(),
+            object_namespace: "demo".into(),
+            object_name: object.into(),
+            time: NOW,
+            count: 1,
+            owner_kind: String::new(),
+            owner_name: String::new(),
+        };
+        let events = [
+            event("1", "Pod", "web-a"),
+            event("2", "Pod", "web-ok"),
+            event("3", "Pod", "crashed"),
+            event("4", "Pod", "gone"),
+            event("5", "Deployment", "web"),
+        ];
+        let shown = warning_events(&events, &pods, NOW, 10);
+        let keys: Vec<(&str, &str)> = shown
+            .iter()
+            .map(|e| (e.key.as_str(), e.owner_name.as_str()))
+            .collect();
+        // web-a's BackOff belongs to its group; web-ok's names its owner.
+        assert_eq!(
+            keys,
+            vec![
+                ("demo/5", ""),
+                ("demo/4", ""),
+                ("demo/3", ""),
+                ("demo/2", "web")
+            ]
+        );
     }
 
     #[test]

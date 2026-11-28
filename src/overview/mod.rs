@@ -18,7 +18,7 @@ mod workloads_live;
 
 pub use applications_live::{watch_applications, ApplicationsUpdate};
 pub use live::{watch_overview, watch_overview_with, OverviewUpdate};
-pub use summary::{pod_problem, pod_status, PENDING_TOO_LONG_SECS};
+pub use summary::{pod_problem, pod_status, MAX_GROUPS, PENDING_TOO_LONG_SECS};
 pub use workloads::{KindCounts, ProblemWorkload, StatusCount, WorkloadsOverview};
 pub use workloads_live::{watch_workloads, WorkloadsUpdate};
 
@@ -47,6 +47,10 @@ pub struct EventInfo {
     /// When it last happened (unix seconds), so a UI can show its age.
     pub time: i64,
     pub count: i32,
+    /// For an event about a pod the overview knows: the workload that owns
+    /// the pod (a ReplicaSet's pod is its Deployment's). Empty otherwise.
+    pub owner_kind: String,
+    pub owner_name: String,
 }
 
 /// A pod worth looking at: a waiting error (CrashLoopBackOff, ...), failed,
@@ -63,6 +67,35 @@ pub struct ProblemPod {
     pub restarts: i32,
     /// Unix seconds.
     pub created: i64,
+    /// The workload that owns it (a ReplicaSet's pod is its Deployment's);
+    /// empty for a pod without an owner.
+    pub owner_kind: String,
+    pub owner_name: String,
+}
+
+/// The Problem pods of one owning workload that share one reason, shown as
+/// one row (#605). A Problem pod without an owner is a group of its own,
+/// with empty `owner_kind` and `owner_name`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[cfg_attr(feature = "specta", derive(specta::Type))]
+pub struct ProblemGroup {
+    /// Unique among the groups: namespace, owner (or pod) and reason.
+    pub key: String,
+    pub namespace: String,
+    pub owner_kind: String,
+    pub owner_name: String,
+    /// The reason of its worst pod: "CrashLoopBackOff", "Pending for 1h".
+    pub reason: String,
+    /// A waiting error or failed pods, not pending or not ready ones.
+    pub error: bool,
+    /// How many Problem pods it holds.
+    pub count: usize,
+    /// How many pods the owning workload has in all (1 for a lone pod).
+    pub owner_pods: usize,
+    /// Restarts of its pods, summed.
+    pub restarts: i32,
+    /// Its Problem pods, worst first, at most 50.
+    pub pods: Vec<ProblemPod>,
 }
 
 /// Pod counts, across the cluster or in one namespace. A pod counts once:
@@ -86,6 +119,11 @@ pub struct PodCounts {
     pub problems: Vec<ProblemPod>,
     /// How many problem pods there are in all.
     pub problems_total: usize,
+    /// The worst Problem groups: errors before the rest, then the most
+    /// pods; at most 5 (the Overview's budget).
+    pub groups: Vec<ProblemGroup>,
+    /// How many Problem groups there are in all.
+    pub groups_total: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -129,7 +167,8 @@ pub struct Capacity {
 pub struct RecentEvents {
     /// As in [`PodCounts::namespace`].
     pub namespace: Option<String>,
-    /// Newest first.
+    /// Newest first, at most 100. Events of pods in a Problem group are
+    /// left out: they belong to that group.
     pub items: Vec<EventInfo>,
 }
 

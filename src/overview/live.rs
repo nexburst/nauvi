@@ -29,8 +29,9 @@ const RECHECK_TICKS: u32 = 30;
 const USAGE_INTERVAL: Duration = Duration::from_secs(30);
 /// Warning events kept in memory; older ones are dropped.
 const MAX_EVENTS_KEPT: usize = 500;
-/// Warning events in a summary.
-const EVENTS_SHOWN: usize = 20;
+/// Warning events in a summary: enough for the UI to group them into
+/// Warning groups (#605).
+const EVENTS_SHOWN: usize = 100;
 
 /// What [`watch_overview`] yields.
 #[derive(Debug, Clone, PartialEq)]
@@ -469,7 +470,12 @@ impl Live {
         });
         let events = self.events.visible().then(|| RecentEvents {
             namespace: self.events.scope.clone(),
-            items: summary::newest_events(self.events.items.values(), EVENTS_SHOWN),
+            items: summary::warning_events(
+                self.events.items.values(),
+                &self.pods.items,
+                now,
+                EVENTS_SHOWN,
+            ),
         });
         let notes = [
             self.pods.note(&self.fallback),
@@ -515,6 +521,8 @@ mod tests {
             memory_limit_bytes: 0,
             cpu_unlimited: 0,
             memory_unlimited: 0,
+            owner_kind: String::new(),
+            owner_name: String::new(),
         };
         (format!("demo/{name}"), s)
     }
@@ -576,6 +584,8 @@ mod tests {
                 object_name: String::new(),
                 time: i,
                 count: 1,
+                owner_kind: String::new(),
+                owner_name: String::new(),
             };
             events.insert(key, e);
         }

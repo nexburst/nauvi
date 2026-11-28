@@ -3,6 +3,7 @@
 
 use super::config_audit::{owners_of, Owners};
 use super::Workload;
+use crate::owner::{pod_owner, pod_workload};
 use crate::registry_tags::ImageRef;
 use crate::text::single_line;
 use k8s_openapi::api::batch::v1::Job;
@@ -65,14 +66,6 @@ pub fn short_reference(reference: &str) -> String {
         .map_or(n.clone(), str::to_string)
 }
 
-/// The controller owner of a pod, else its first owner.
-fn pod_owner(pod: &Pod) -> Option<&k8s_openapi::apimachinery::pkg::apis::meta::v1::OwnerReference> {
-    let refs = pod.metadata.owner_references.iter().flatten();
-    refs.clone()
-        .find(|o| o.controller == Some(true))
-        .or_else(|| refs.clone().next())
-}
-
 /// The CronJobs of the Jobs whose pods are in `pods` (#559), from each
 /// Job's controller owner reference: one metadata list of the Jobs of
 /// `namespace` (`None`: all), and only when a pod belongs to a Job. A list
@@ -89,37 +82,16 @@ pub async fn job_owners(client: &Client, namespace: Option<&str>, pods: &[Pod]) 
     owners
 }
 
-/// The workload a pod belongs to, from its controller owner: a ReplicaSet
-/// with the pod's `pod-template-hash` is its Deployment's, so the
+/// The workload a pod belongs to ([`crate::owner::pod_workload`]): a
+/// ReplicaSet with the pod's `pod-template-hash` is its Deployment's, so the
 /// Deployment is shown. Returns (owner kind, owner name, workload kind,
 /// workload name); a pod without an owner is its own.
 fn owner_of(pod: &Pod) -> (String, String, String, String) {
     let name = pod.metadata.name.clone().unwrap_or_default();
-    let owner = pod_owner(pod);
-    let Some(o) = owner else {
+    let (Some(o), Some((kind, workload))) = (pod_owner(pod), pod_workload(pod)) else {
         return ("Pod".into(), name.clone(), "Pod".into(), name);
     };
-    let hash = pod
-        .metadata
-        .labels
-        .as_ref()
-        .and_then(|l| l.get("pod-template-hash"));
-    if o.kind == "ReplicaSet" {
-        if let Some(deploy) = hash.and_then(|h| o.name.strip_suffix(&format!("-{h}"))) {
-            return (
-                o.kind.clone(),
-                o.name.clone(),
-                "Deployment".into(),
-                deploy.to_string(),
-            );
-        }
-    }
-    (
-        o.kind.clone(),
-        o.name.clone(),
-        o.kind.clone(),
-        o.name.clone(),
-    )
+    (o.kind.clone(), o.name.clone(), kind, workload)
 }
 
 /// The distinct images of `pods`, in the order first seen: the same image

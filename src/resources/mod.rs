@@ -256,7 +256,7 @@ pub struct ResourceRow {
     pub cells: Vec<String>,
     /// The workload status the Workloads overview counts this object under
     /// ([`WorkloadStatus::as_str`]), so a click on a count can filter the
-    /// table; "" for kinds that are not workloads.
+    /// table; an event's type (`Warning`, `Normal`); "" for other kinds.
     pub status: String,
     /// Why the object needs attention (`CrashLoopBackOff`, `1 of 3 ready`);
     /// empty if it is fine ([`problems::row_problem`]).

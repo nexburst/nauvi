@@ -1126,9 +1126,23 @@ pub fn make_row(r: &ResourceRef, columns: &[ColumnDef], obj: &DynamicObject) -> 
         cells,
         status: super::classify(&r.group, &r.kind, &value)
             .map(|s| s.as_str().to_string())
-            .unwrap_or_default(),
+            .unwrap_or_else(|| event_type(r, &value)),
     }
 }
+
+/// An event's type (`Warning`, `Normal`) as its row's status, so the
+/// Overview's "See all warnings" opens Events filtered to warnings (#605);
+/// "" for other kinds.
+fn event_type(r: &ResourceRef, v: &Value) -> String {
+    if r.kind != "Event" || !(r.group.is_empty() || r.group == "events.k8s.io") {
+        return String::new();
+    }
+    v.get("type")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::test_support::*;
@@ -1386,6 +1400,21 @@ mod tests {
             assert!(seen.insert((k.group, k.kind)), "duplicate {}", k.kind);
         }
         assert_eq!(KINDS.len(), 45);
+    }
+
+    #[test]
+    fn an_events_status_is_its_type() {
+        let status = |group: &str, kind: &str| {
+            let r = rref(group, kind, "x", true);
+            let obj: DynamicObject = serde_json::from_value(json!({
+                "metadata": { "name": "e", "namespace": "demo" }, "type": "Warning"
+            }))
+            .unwrap();
+            make_row(&r, &columns_for(&r, &[]), &obj).status
+        };
+        assert_eq!(status("", "Event"), "Warning");
+        assert_eq!(status("events.k8s.io", "Event"), "Warning");
+        assert_eq!(status("", "ConfigMap"), "");
     }
 
     /// The cells of `obj` (an object of `group`/`kind`) by column key.
