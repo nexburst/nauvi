@@ -75,7 +75,7 @@ describe("area 3: detail panels as the namespace-scoped user", { timeout: 10 * 6
       { timeout: 30_000, message: "workload counts" },
     );
     console.log(`limited workloads overview:\n${text}`);
-    assert.match(text, /Workloads in namespace team-a/);
+    assert.match(text, /namespace team-a/);
     const card = await app.js(
       `return document.querySelector('[data-testid="workloads-overview"] section.card[data-kind="Deployment"] .total')?.textContent.trim()`,
     );

@@ -6,7 +6,12 @@
 //   the counts and empty the problem list, without a Refresh;
 // - switching to an empty namespace starts a new feed: every count 0, and
 //   nothing from the old feed shows up afterwards;
-// - leaving the view and coming back starts over and is Live again.
+// - leaving the view and coming back starts over and is Live again;
+// - with many broken Deployments (#606) it fits one screen like the
+//   Overview: the deck says how many need a look, five Problem workloads
+//   rows of 32 px, "See all N →" opens Deployments filtered to problems,
+//   and the Warning groups leave out the listed problems' pods;
+// - calm (nothing broken) and empty (an empty namespace) say so.
 // Screenshots at 1280x800 in light and dark theme.
 
 import assert from "node:assert/strict";
@@ -53,6 +58,10 @@ const counts = (app) =>
     return out;`);
 const problems = (app) =>
   app.js(`return Array.from(document.querySelectorAll('[data-testid="workloads-overview"] .problem'), (p) => p.textContent.replace(/\\s+/g, ' ').trim());`);
+const headline = (app) =>
+  app.js(`return document.querySelector('[data-testid="workloads-overview"] [data-testid="deck-headline"]')?.textContent.trim() ?? ""`);
+/** The extra broken Deployments of the many-problems step. */
+const EXTRA = Array.from({ length: 7 }, (_, i) => `broken-${i + 1}`);
 
 /** Light, then dark, then back to the system theme. */
 async function shots(app, label) {
@@ -109,6 +118,61 @@ describe("workloads overview", { timeout: 15 * 60_000 }, () => {
     await shots(app, "counts");
   });
 
+  it("many broken Deployments: five rows, See all, one screen (#606)", T, async () => {
+    const { app } = s;
+    kubectl(["-n", ns, "apply", "-f", "-"], EXTRA.map((n) => deployment(n, "nauvi.invalid/nope:1")).join("\n---\n"));
+    await app.waitFor(async () => ((await headline(app)) === "8 workloads need a look" ? true : null), {
+      timeout: 90_000,
+      message: "8 workloads need a look",
+    });
+    // Give the image pulls time to fail, so the warnings are there too.
+    await app
+      .waitFor(
+        async () =>
+          (await app.js(`return document.querySelectorAll('[data-testid="workloads-overview"] [data-testid="warning-group"]').length`)) > 0 || null,
+        { timeout: 60_000, message: "a warning group" },
+      )
+      .catch((e) => console.log(`no warning group yet: ${e.message}`));
+    const m = await app.js(`
+      const el = document.querySelector('[data-testid="workloads-overview"]');
+      const all = (s) => Array.from(el.querySelectorAll(s));
+      const h3 = el.querySelector('.sec-head h3');
+      return {
+        scroll: el.scrollHeight,
+        client: el.clientHeight,
+        rows: all('[data-testid="problem-workload"]').map((r) => Math.round(r.getBoundingClientRect().height)),
+        names: all('[data-testid="problem-workload"] .name').map((n) => n.textContent.trim()),
+        warnings: all('[data-testid="warning-group"]').map((w) => w.textContent.replace(/\\s+/g, ' ').trim()),
+        seeAll: el.querySelector('[data-testid="see-all-workloads"]')?.textContent.trim() ?? "",
+        h3: [getComputedStyle(h3).textTransform, getComputedStyle(h3).fontSize],
+        headline: getComputedStyle(el.querySelector('[data-testid="deck-headline"]')).fontSize,
+      };`);
+    console.log(`#606 many problems: ${JSON.stringify(m)}`);
+    console.log(`#606 Workloads overview scrollHeight with 8 broken Deployments at 1280x800: ${m.scroll}px (client ${m.client}px)`);
+    assert.ok(m.scroll <= m.client, `fits one screen: ${m.scroll} > ${m.client}`);
+    assert.equal(m.rows.length, 5);
+    for (const r of m.rows) assert.ok(r >= 31 && r <= 33, `row ${r}px`);
+    assert.equal(m.seeAll, "See all 8 →");
+    assert.deepEqual(m.h3, ["none", "15px"]);
+    assert.equal(m.headline, "26px");
+    assert.ok(m.warnings.length <= 5, `${m.warnings.length} warning groups`);
+    // No warning about a listed problem's pods (`<deployment>-<hash>-<id>`).
+    for (const name of m.names.map((n) => n.split("/")[1])) {
+      const pod = new RegExp(`\\b${name}-[a-z0-9]{6,10}-[a-z0-9]{5}\\b`);
+      assert.ok(!m.warnings.some((w) => pod.test(w)), `a warning about a pod of ${name}: ${m.warnings.join(" | ")}`);
+    }
+    await waitLive(app);
+    await shots(app, "many");
+
+    // See all opens Deployments filtered to the problems.
+    await (await app.find(byTestId("see-all-workloads"))).click();
+    const filter = await app.find(byTestId("status-filter"));
+    assert.match(await filter.getText(), /needs attention/);
+    await app.shot("see-all");
+    kubectl(["-n", ns, "delete", "deployment", ...EXTRA, "--wait=false"]);
+    await openOverview(app);
+  });
+
   it("follows the cluster live: a new Deployment and a deleted one", T, async () => {
     const { app } = s;
     kubectl(["-n", ns, "apply", "-f", "-"], deployment("extra", "busybox:1.36", 2));
@@ -126,6 +190,8 @@ describe("workloads overview", { timeout: 15 * 60_000 }, () => {
     );
     console.log(JSON.stringify(c));
     assert.ok(c.Pod.total >= 3, `the pods of ok and extra (${c.Pod.total})`);
+    // Calm: nothing needs a look in the namespace.
+    assert.match(await headline(app), /^No workload problems/);
     await shots(app, "live");
   });
 
@@ -144,6 +210,7 @@ describe("workloads overview", { timeout: 15 * 60_000 }, () => {
     await sleep(3000);
     const c = await counts(app);
     assert.ok(Object.values(c).every((k) => k.total === 0), `still empty: ${JSON.stringify(c)}`);
+    assert.match(await headline(app), /^No workload problems/);
     await waitLive(app);
     await shots(app, "empty");
   });

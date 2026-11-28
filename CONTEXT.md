@@ -39,6 +39,7 @@ _Avoid_: basket, cart, prompt builder
 - A **Problem pod** without an owning workload is shown alone, not in a **Problem group**
 - A crash loop's `Error` and `CrashLoopBackOff` count as one reason for a **Problem group** (the pod flips between them)
 - The **Overview** shows at most 5 **Problem groups** and 5 **Warning groups**; the rest is one link away, never below the fold
+- The Workloads overview does the same with its problem workloads (5 rows) and **Warning groups**; events of a listed problem workload's pods are left out of its **Warning groups**
 - **Ask AI** runs in a **Local terminal**
 - An **Ask AI** started with an **AI context list** names every object in it
 

@@ -24,7 +24,7 @@ const KINDS: { id: string; group: string; kind: string; statuses: WorkloadStatus
 export function workloadsOverview(cluster: FakeCluster, namespaces: readonly string[]): WorkloadsOverview {
   const shown = (ns: string) => namespaces.length === 0 || namespaces.includes(ns);
   const kinds: KindCounts[] = [];
-  const problems: ProblemWorkload[] = [];
+  const problems: (ProblemWorkload & { affected: number })[] = [];
   const notes: string[] = [];
   for (const k of KINDS) {
     const kind = cluster.kinds.find((d) => d.id === k.id);
@@ -34,31 +34,46 @@ export function workloadsOverview(cluster: FakeCluster, namespaces: readonly str
       continue;
     }
     const rows = (cluster.rows[k.id] ?? []).filter((r) => shown(r.namespace));
-    kinds.push({
-      group: k.group,
-      kind: k.kind,
-      total: rows.length,
-      statuses: k.statuses.map((status) => ({ status, count: rows.filter((r) => r.status === status).length })),
-    });
-    if (k.kind === "Pod") continue;
-    for (const r of rows) {
+    const before = problems.length;
+    for (const r of k.kind === "Pod" ? [] : rows) {
       const status = r.status as WorkloadStatus;
       if (!["Pending", "Failed", "Suspended"].includes(status)) continue;
-      const ready = kind.columns.findIndex((c) => c.key === "ready");
+      const readyCell = r.cells[kind.columns.findIndex((c) => c.key === "ready")] ?? "";
+      const [ready, desired] = readyCell.split("/").map(Number);
       const reason =
         status === "Suspended"
           ? "Suspended"
           : status === "Failed"
             ? "Failed (BackoffLimitExceeded)"
-            : `${r.cells[ready].replace("/", " of ")} ready`;
-      problems.push({ group: k.group, kind: k.kind, namespace: r.namespace, name: r.name, status, reason, created: r.created });
+            : `${readyCell.replace("/", " of ")} ready`;
+      const affected = Math.max(0, (desired || 0) - (ready || 0));
+      const created = r.created;
+      problems.push({ group: k.group, kind: k.kind, namespace: r.namespace, name: r.name, status, reason, created, affected });
     }
+    kinds.push({
+      group: k.group,
+      kind: k.kind,
+      total: rows.length,
+      problems: problems.length - before,
+      statuses: k.statuses.map((status) => ({ status, count: rows.filter((r) => r.status === status).length })),
+    });
   }
-  problems.sort((a, b) => Number(a.status !== "Failed") - Number(b.status !== "Failed"));
+  // Errors first, then the most pods affected, then the oldest; the first five.
+  const fine = (p: ProblemWorkload) => Number(p.status !== "Failed");
+  problems.sort((a, b) => fine(a) - fine(b) || b.affected - a.affected || a.created - b.created);
+  const listed = problems.slice(0, MAX_PROBLEMS).map(({ affected: _, ...p }) => p);
+  const owners = new Set(listed.map((p) => `${p.namespace}/${p.kind}/${p.name}`));
   const workload = new Set(KINDS.map((k) => `${k.group}|${k.kind}`));
   const events = (cluster.overview.events?.items ?? []).filter((e) => {
     const group = e.object_api_version.includes("/") ? e.object_api_version.split("/")[0] : "";
+    // A listed problem's pods: its row says it already.
+    if (e.object_kind === "Pod" && owners.has(`${e.object_namespace}/${e.owner_kind}/${e.owner_name}`)) return false;
     return workload.has(`${group}|${e.object_kind}`) && shown(e.object_namespace);
   });
-  return { kinds, problems, problems_total: problems.length, events, notes };
+  // The newest 20, like the backend's EVENTS_SHOWN.
+  events.sort((a, b) => b.time - a.time);
+  return { kinds, problems: listed, problems_total: problems.length, events: events.slice(0, 20), notes };
 }
+
+/** `MAX_PROBLEMS` in `src/overview/workloads.rs`. */
+const MAX_PROBLEMS = 5;
