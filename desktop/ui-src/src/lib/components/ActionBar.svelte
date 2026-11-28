@@ -29,7 +29,10 @@
   let { target, disabled = false, onEdit, dockSpec = (s) => s }: Props = $props();
 
   const kind = $derived(kindOfResource(target.resource));
-  /** Ask AI about this object (#376), after Copy link, when an AI CLI is found. */
+  /** Ask AI about this object (#376), when an AI CLI is found and the
+   *  context is not read-only: labelled, after the other labelled buttons
+   *  (Edit YAML), so it stays on the bar's first row when the icons wrap
+   *  (#607). */
   const ASK_AI: PanelAction<DockTabSpec> = {
     id: "askAi",
     label: "Ask AI about this…",
@@ -40,7 +43,7 @@
   const items = $derived.by(() => {
     const list = panelActions(dockMenuFor(target.resource, target.namespace, target.name), kind?.actions ?? []);
     if (!askAiOffered()) return list;
-    const at = list.findIndex((a) => a.id === "link") + 1;
+    const at = list.findIndex((a) => a.id === "edit") + 1;
     return [...list.slice(0, at), ASK_AI, ...list.slice(at)];
   });
 

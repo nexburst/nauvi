@@ -293,13 +293,19 @@ test("the dialog: a prompt of 8 lines or more, one line of caveats with Details,
   }
 });
 
-test("the detail panel's Ask AI is a labelled button", async ({ page }) => {
+test("the detail panel's Ask AI is a labelled button, on the bar's first row", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
   await openApp(page, withClaude);
   await openKind(page, "Pods");
   await row(page, "web-1").click();
-  const ask = page.getByTestId("detail-panel").getByRole("button", { name: "Ask AI about this…" });
+  const panel = page.getByTestId("detail-panel");
+  const ask = panel.getByRole("button", { name: "Ask AI about this…" });
   await expect(ask).toHaveText("Ask AI");
   await expect(ask).toHaveCSS("border-top-color", await cssVar(page, "--accent"));
+  const top = (name: string) =>
+    panel.getByRole("button", { name, exact: true }).evaluate((el) => Math.round(el.getBoundingClientRect().top));
+  expect(await top("Ask AI about this…")).toBe(await top("Logs"));
+  await panel.getByRole("toolbar", { name: "Actions" }).screenshot({ path: test.info().outputPath("action-bar.png") });
 });
 
 test("without an AI CLI and on a read-only context the rows offer no Ask AI", async ({ page }) => {

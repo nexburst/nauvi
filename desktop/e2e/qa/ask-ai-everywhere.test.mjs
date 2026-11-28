@@ -291,7 +291,10 @@ describe("Ask AI where problems are, with a fake claude on PATH (#607)", { timeo
     await term.waitFor("FAKE-AI started", { timeout: 90_000 });
     assert.deepEqual((await dockTabs(app)).map((t) => t.title), ["AI: crashy"]);
     const args = readFileSync(record, "utf8").split("\n--ARG--\n").filter(Boolean);
-    assert.equal(args.at(-1), prompt, "the CLI got the prompt as one argument");
+    // One argument: the prompt, then (without the nauvi CLI on PATH) the
+    // guidance the backend adds.
+    assert.ok(args.at(-1).startsWith(prompt), `the CLI got the prompt as one argument: ${args.at(-1)}`);
+    assert.ok(!args.at(-1).includes("LOG-LINE-NOT-IN-PROMPT"));
     await closeTab(app, "AI: crashy");
   });
 
