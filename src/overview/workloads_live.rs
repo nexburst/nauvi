@@ -338,14 +338,29 @@ impl Live {
         let events: Vec<&Part<EventInfo>> = self.events.iter().collect();
         notes.extend(self.note("Events", &events));
         debug_assert_eq!(LABELS.len(), WORKLOAD_KINDS.len());
+        // The pods (kind 0), to name the workload an event's pod belongs to.
+        let pods: Vec<&Part<WorkloadSummary>> = self
+            .parts
+            .iter()
+            .zip(&self.kind_of)
+            .filter(|(_, &k)| k == 0)
+            .map(|(p, _)| p)
+            .collect();
+        let pod = |ns: &str, name: &str| {
+            let key = format!("{ns}/{name}");
+            pods.iter().find_map(|p| p.items.get(&key))
+        };
+        let events = workloads::workload_warnings(
+            self.events.iter().flat_map(|p| p.items.values()),
+            pod,
+            &problems,
+            EVENTS_SHOWN,
+        );
         WorkloadsOverview {
             kinds,
             problems,
             problems_total,
-            events: summary::newest_events(
-                self.events.iter().flat_map(|p| p.items.values()),
-                EVENTS_SHOWN,
-            ),
+            events,
             notes,
         }
     }
