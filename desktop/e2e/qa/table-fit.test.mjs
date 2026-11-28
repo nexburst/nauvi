@@ -82,6 +82,27 @@ const layout = (app) =>
     const s = table.querySelector(".scroller");
     return { rows, widths, sideways: s.scrollWidth - s.clientWidth };`);
 
+/**
+ * The layout once the columns have fitted the rows shown: the table measures
+ * new rows (a filter, a namespace) at most every 300 ms (FIT_MS in
+ * tableFit.svelte.ts), so a read right after the rows change can still have
+ * the widths of the rows before (#603). Waits until the widths stay the same
+ * for longer than that, at most 10 s.
+ */
+async function fitted(app) {
+  let last = null;
+  let since = 0;
+  return app.waitFor(
+    async () => {
+      const l = await layout(app);
+      const w = JSON.stringify(l.widths);
+      if (w !== last) [last, since] = [w, Date.now()];
+      return Date.now() - since >= 800 ? l : null;
+    },
+    { timeout: 10_000, interval: 200, message: "the columns to fit the rows" },
+  );
+}
+
 const payments = (l) => l.rows.filter((r) => (r.Name?.name || r.Name?.text || "").startsWith("payments-worker"));
 const SHORT = ["Ready", "Status", "Restarts", "Age"];
 
@@ -150,7 +171,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
       if ((await app.driver.findElements(byTestId("detail-panel"))).length) await closePanel(app);
       await setTheme(app, theme);
       await showPods(app, ns);
-      const l = await layout(app);
+      const l = await fitted(app);
       assertNamesWhole(`pods ${theme}`, l);
       for (const r of payments(l)) assert.equal(r.Status.icon, "ok", `status icon of ${r.Name.text}`);
     });
@@ -160,16 +181,16 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
       const [first] = payments(await layout(app));
       await app.clickRow(first.Name.name || first.Name.text);
       await waitPanelTitle(app, `${ns}/`);
-      assertCutWell(`pods + panel ${theme}`, await layout(app));
+      assertCutWell(`pods + panel ${theme}`, await fitted(app));
     });
 
     it(`Pods in a narrow window, without and with the panel (${theme})`, T, async () => {
       const { app } = s;
       await resizeWindow(app, 1024, 768);
-      assertCutWell(`narrow + panel ${theme}`, await layout(app));
+      assertCutWell(`narrow + panel ${theme}`, await fitted(app));
       await app.shot(`narrow-panel-${theme}`);
       await closePanel(app);
-      assertCutWell(`narrow ${theme}`, await layout(app));
+      assertCutWell(`narrow ${theme}`, await fitted(app));
       await resizeWindow(app, 1280, 800);
     });
   }
@@ -181,7 +202,7 @@ describe("tables: fitted columns, row actions, Edit YAML (#482, #494)", { timeou
     await pickNamespaces(app, []);
     await app.filter("payments");
     await app.waitFor(async () => payments(await layout(app)).length === 2, { message: "both payments pods" });
-    const l = await layout(app);
+    const l = await fitted(app);
     assertNamesWhole("all namespaces", l);
   });
 
