@@ -6,12 +6,15 @@ use super::EventInfo;
 use crate::resources::{
     classify, row_problem, statuses_of, ResourceRef, WorkloadStatus, WORKLOAD_KINDS,
 };
-use serde::Serialize;
+use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::apimachinery::pkg::apis::meta::v1::ObjectMeta;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
-/// At most this many problem workloads are listed (all are counted).
-pub const MAX_PROBLEMS: usize = 50;
+/// At most this many problem workloads are listed (all are counted): the
+/// ones the Workloads overview shows (#606).
+pub const MAX_PROBLEMS: usize = 5;
 
 /// The kinds of [`WORKLOAD_KINDS`], with their plural for notes.
 pub(super) const LABELS: [&str; 7] = [
@@ -40,6 +43,8 @@ pub struct KindCounts {
     pub group: String,
     pub kind: String,
     pub total: usize,
+    /// How many of them are problem workloads, listed or not.
+    pub problems: usize,
     /// Every status the kind uses, in card order, zeros included (except an
     /// `Unknown` with no pods).
     pub statuses: Vec<StatusCount>,
@@ -68,10 +73,13 @@ pub struct WorkloadsOverview {
     /// In sidebar order. A kind the user may not list anywhere in the scope
     /// is left out, with a note.
     pub kinds: Vec<KindCounts>,
-    /// Failed first, then the oldest; at most [`MAX_PROBLEMS`].
+    /// Errors first, then the most pods affected, then the oldest; at most
+    /// [`MAX_PROBLEMS`].
     pub problems: Vec<ProblemWorkload>,
     pub problems_total: usize,
-    /// Warning events about workload objects, newest first.
+    /// Warning events about workload objects, newest first, without the
+    /// events of the listed problems' pods ([`workload_warnings`]). An event
+    /// about a pod names the pod's owning workload.
     pub events: Vec<EventInfo>,
     /// What is missing or narrowed, and why.
     pub notes: Vec<String>,
@@ -86,6 +94,53 @@ pub struct WorkloadSummary {
     /// Why it is a problem, if it is one worth listing.
     pub problem: Option<String>,
     pub created: i64,
+    /// How many of its pods are not ready (failed, for a Job): problems
+    /// with more come first.
+    pub affected: i64,
+    /// A pod's owning workload (`Deployment`, `web`), else "".
+    pub owner_kind: String,
+    pub owner_name: String,
+}
+
+/// Desired minus ready, never below 0.
+fn missing(v: &Value, desired: &str, ready: &str, default: i64) -> i64 {
+    let int = |p: &str| v.pointer(p).and_then(Value::as_i64);
+    (int(desired).unwrap_or(default) - int(ready).unwrap_or(0)).max(0)
+}
+
+/// How many of the object's pods are not ready (failed, for a Job).
+fn affected(kind: &str, v: &Value) -> i64 {
+    match kind {
+        "Deployment" | "StatefulSet" | "ReplicaSet" => {
+            missing(v, "/spec/replicas", "/status/readyReplicas", 1)
+        }
+        "DaemonSet" => missing(
+            v,
+            "/status/desiredNumberScheduled",
+            "/status/numberReady",
+            0,
+        ),
+        "Job" => v
+            .pointer("/status/failed")
+            .and_then(Value::as_i64)
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
+
+/// The workload a pod (as JSON) belongs to ([`crate::owner::pod_workload`]).
+fn pod_owner(v: &Value) -> (String, String) {
+    let Some(metadata) = v
+        .get("metadata")
+        .and_then(|m| ObjectMeta::deserialize(m).ok())
+    else {
+        return Default::default();
+    };
+    let pod = Pod {
+        metadata,
+        ..Default::default()
+    };
+    crate::owner::pod_workload(&pod).unwrap_or_default()
 }
 
 /// Whether the object's controller is a Deployment: its ReplicaSets'
@@ -131,12 +186,20 @@ pub fn workload_summary(kind: usize, v: &Value) -> WorkloadSummary {
         .and_then(|t| t.parse::<jiff::Timestamp>().ok())
         .map(|t| t.as_second())
         .unwrap_or_default();
+    let (owner_kind, owner_name) = if k == "Pod" {
+        pod_owner(v)
+    } else {
+        Default::default()
+    };
     WorkloadSummary {
         namespace: meta("namespace"),
         name: meta("name"),
         status,
         problem,
         created,
+        affected: affected(k, v),
+        owner_kind,
+        owner_name,
     }
 }
 
@@ -148,14 +211,17 @@ pub fn kind_counts<'a>(
     let (group, k) = WORKLOAD_KINDS[kind];
     let mut by: BTreeMap<WorkloadStatus, usize> = BTreeMap::new();
     let mut total = 0;
+    let mut problems = 0;
     for w in items {
         total += 1;
+        problems += usize::from(w.problem.is_some());
         *by.entry(w.status).or_insert(0) += 1;
     }
     KindCounts {
         group: group.into(),
         kind: k.into(),
         total,
+        problems,
         statuses: statuses_of(group, k)
             .iter()
             .map(|&status| StatusCount {
@@ -167,8 +233,9 @@ pub fn kind_counts<'a>(
     }
 }
 
-/// The problem workloads among `items` (kind index, summary), failed first,
-/// then the oldest; at most [`MAX_PROBLEMS`], with how many there are.
+/// The problem workloads among `items` (kind index, summary): errors
+/// (failed) first, then the most pods affected, then the oldest; at most
+/// [`MAX_PROBLEMS`], with how many there are.
 pub fn problems<'a>(
     items: impl IntoIterator<Item = (usize, &'a WorkloadSummary)>,
 ) -> (Vec<ProblemWorkload>, usize) {
@@ -177,9 +244,12 @@ pub fn problems<'a>(
         .filter_map(|(k, w)| Some((k, w, w.problem.as_deref()?)))
         .collect();
     all.sort_by(|(ka, a, _), (kb, b, _)| {
-        let failed = |w: &WorkloadSummary| w.status != WorkloadStatus::Failed;
-        (failed(a), a.created, ka, &a.namespace, &a.name).cmp(&(
-            failed(b),
+        let fine = |w: &WorkloadSummary| {
+            !matches!(w.status, WorkloadStatus::Failed | WorkloadStatus::Error)
+        };
+        (fine(a), -a.affected, a.created, ka, &a.namespace, &a.name).cmp(&(
+            fine(b),
+            -b.affected,
             b.created,
             kb,
             &b.namespace,
@@ -204,6 +274,45 @@ pub fn problems<'a>(
         })
         .collect();
     (list, total)
+}
+
+/// The `n` newest of `events`, without the events of the pods of a listed
+/// problem workload (`problems`, as sent): its row already says that it
+/// needs a look, and the Warnings keep room for the rest (#606). An event
+/// about a pod that `pod(namespace, name)` knows names the pod's owning
+/// workload, so the Warning groups group its pods as on the Overview.
+pub fn workload_warnings<'a>(
+    events: impl IntoIterator<Item = &'a EventInfo>,
+    pod: impl Fn(&str, &str) -> Option<&'a WorkloadSummary>,
+    problems: &[ProblemWorkload],
+    n: usize,
+) -> Vec<EventInfo> {
+    let listed: HashSet<(&str, &str, &str)> = problems
+        .iter()
+        .map(|p| (p.namespace.as_str(), p.kind.as_str(), p.name.as_str()))
+        .collect();
+    let mut out = Vec::new();
+    for e in events {
+        let owner = (e.object_kind == "Pod")
+            .then(|| pod(&e.object_namespace, &e.object_name))
+            .flatten()
+            .filter(|p| !p.owner_kind.is_empty());
+        match owner {
+            Some(p)
+                if listed.contains(&(
+                    e.object_namespace.as_str(),
+                    p.owner_kind.as_str(),
+                    p.owner_name.as_str(),
+                )) => {}
+            Some(p) => out.push(EventInfo {
+                owner_kind: p.owner_kind.clone(),
+                owner_name: p.owner_name.clone(),
+                ..e.clone()
+            }),
+            None => out.push(e.clone()),
+        }
+    }
+    super::summary::newest_events(&out, n)
 }
 
 /// Whether an event is about a workload object.
@@ -309,16 +418,86 @@ mod tests {
             .iter()
             .map(|p| (p.kind.as_str(), p.name.as_str(), p.reason.as_str()))
             .collect();
+        // The failed Job, then the Deployment with 2 pods not ready, then
+        // the suspended CronJob (no pods affected).
         assert_eq!(
             got,
             vec![
                 ("Job", "migrate", "Failed (BackoffLimitExceeded)"),
-                ("CronJob", "nightly", "Suspended"),
                 ("Deployment", "stuck", "0 of 2 ready"),
+                ("CronJob", "nightly", "Suspended"),
             ]
         );
         assert_eq!(list[0].group, "batch");
-        assert_eq!(list[2].created, 1_704_153_600);
+        assert_eq!(list[1].created, 1_704_153_600);
+    }
+
+    #[test]
+    fn the_five_with_the_most_pods_affected_are_listed_all_are_counted() {
+        let items: Vec<WorkloadSummary> = (0..8)
+            .map(|i| deploy(&format!("d{i}"), 0, i + 1, "2024-01-01T00:00:00Z"))
+            .collect();
+        let (list, total) = problems(items.iter().map(|w| (DEPLOY, w)));
+        assert_eq!(total, 8);
+        let names: Vec<&str> = list.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(names, ["d7", "d6", "d5", "d4", "d3"]);
+        let c = kind_counts(DEPLOY, &items);
+        assert_eq!((c.total, c.problems), (8, 8));
+    }
+
+    fn warning(name: &str, time: i64) -> EventInfo {
+        EventInfo {
+            key: name.into(),
+            kind: "Warning".into(),
+            reason: "BackOff".into(),
+            message: String::new(),
+            object: format!("Pod {name}"),
+            object_api_version: "v1".into(),
+            object_kind: "Pod".into(),
+            object_namespace: "demo".into(),
+            object_name: name.into(),
+            time,
+            count: 1,
+            owner_kind: String::new(),
+            owner_name: String::new(),
+        }
+    }
+
+    #[test]
+    fn warnings_leave_out_the_listed_problems_pods_and_name_the_owner() {
+        let pod = |name: &str, rs: &str| {
+            workload_summary(
+                POD,
+                &json!({
+                    "metadata": { "name": name, "namespace": "demo",
+                        "labels": { "pod-template-hash": "5d8f" },
+                        "ownerReferences": [{ "apiVersion": "apps/v1", "kind": "ReplicaSet",
+                            "name": rs, "uid": "u", "controller": true }] },
+                    "status": { "phase": "Running" }
+                }),
+            )
+        };
+        let pods = [pod("web-5d8f-a", "web-5d8f"), pod("api-5d8f-b", "api-5d8f")];
+        assert_eq!(
+            (pods[0].owner_kind.as_str(), pods[0].owner_name.as_str()),
+            ("Deployment", "web")
+        );
+        let stuck = deploy("web", 0, 2, "2024-01-01T00:00:00Z");
+        let (listed, _) = problems([(DEPLOY, &stuck)]);
+        let events = [
+            warning("web-5d8f-a", 3),
+            warning("api-5d8f-b", 2),
+            warning("lone", 1),
+        ];
+        let find = |ns: &str, name: &str| pods.iter().find(|p| p.namespace == ns && p.name == name);
+        let got = workload_warnings(&events, find, &listed, 10);
+        let got: Vec<(&str, &str)> = got
+            .iter()
+            .map(|e| (e.object_name.as_str(), e.owner_name.as_str()))
+            .collect();
+        // web's pod is in a listed row; api's names its Deployment; a pod
+        // the watch does not know stays as it is.
+        assert_eq!(got, [("api-5d8f-b", "api"), ("lone", "")]);
     }
 
     #[test]

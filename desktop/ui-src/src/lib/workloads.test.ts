@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import type { KindCounts, ResourceKind } from "./bindings";
-import { PROBLEMS_STATUS, matchesStatus, needsAttention, segments, toneOf, workloadKind } from "./workloads";
+import {
+  PROBLEMS_STATUS,
+  matchesStatus,
+  needsAttention,
+  seeAllWorkloads,
+  segments,
+  toneOf,
+  workloadKind,
+  workloadsHeadline,
+  workloadsKicker,
+} from "./workloads";
 
 const DEPLOYMENTS: KindCounts = {
   group: "apps",
   kind: "Deployment",
   total: 3,
+  problems: 1,
   statuses: [
     { status: "Running", count: 2 },
     { status: "Pending", count: 1 },
@@ -47,5 +58,33 @@ describe("workload cards", () => {
     expect(matchesStatus({ status: "Running", problem: "" }, PROBLEMS_STATUS)).toBe(false);
     expect(matchesStatus({ status: "Running" }, "Pending")).toBe(false);
     expect(matchesStatus({ status: "" }, "")).toBe(true);
+  });
+});
+
+describe("the deck and its budgets (#606)", () => {
+  it("says how many workloads need a look, or that none do", () => {
+    expect(workloadsHeadline(41, "kind-dev")).toEqual({ text: "41 workloads need a look", calm: false });
+    expect(workloadsHeadline(1, "kind-dev").text).toBe("1 workload needs a look");
+    expect(workloadsHeadline(0, "kind-dev")).toEqual({ text: "No workload problems in kind-dev", calm: true });
+    expect(workloadsHeadline(0, "").text).toBe("No workload problems");
+    expect(workloadsKicker("kind-dev", [])).toBe("kind-dev · all namespaces");
+    expect(workloadsKicker("kind-dev", ["a"])).toBe("kind-dev · namespace a");
+    expect(workloadsKicker("", ["a", "b"])).toBe("namespaces a and b");
+  });
+
+  it("links to every kind with problems when not all are listed, most first", () => {
+    const kinds: KindCounts[] = [
+      { ...DEPLOYMENTS, problems: 38 },
+      { ...DEPLOYMENTS, group: "batch", kind: "Job", problems: 0 },
+      { ...DEPLOYMENTS, group: "batch", kind: "CronJob", problems: 3 },
+    ];
+    const five = [1, 2, 3, 4, 5];
+    expect(seeAllWorkloads({ kinds, problems: five, problems_total: 41 })).toEqual([
+      { group: "apps", kind: "Deployment", count: 38, status: PROBLEMS_STATUS },
+      { group: "batch", kind: "CronJob", count: 3, status: "Suspended" },
+    ]);
+    // All five listed: no link.
+    expect(seeAllWorkloads({ kinds, problems: five, problems_total: 5 })).toEqual([]);
+    expect(seeAllWorkloads({ kinds, problems: [], problems_total: 0 })).toEqual([]);
   });
 });
