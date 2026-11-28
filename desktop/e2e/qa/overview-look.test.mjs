@@ -36,7 +36,7 @@ describe("Overview look (#480)", { timeout: 10 * 60_000 }, () => {
     await waitLive(app);
     await app.nav("Overview");
     await app.waitFor(
-      () => app.js(`return document.querySelectorAll('.overview section[aria-label="Problem pods"] .problem').length > 0`),
+      () => app.js(`return document.querySelectorAll('.overview section[aria-label="Problem groups"] .problem').length > 0`),
       { timeout: 90_000, message: "a problem pod on the Overview" },
     );
   });
@@ -62,7 +62,7 @@ describe("Overview look (#480)", { timeout: 10 * 60_000 }, () => {
     // Real sizes: the headline is the biggest text, section headings above body.
     const sizes = await app.js(`
       const px = (s) => parseFloat(getComputedStyle(document.querySelector(s)).fontSize);
-      return { headline: px(".overview .headline"), h3: px(".overview h3"), body: px(".overview .problem .meta") };`);
+      return { headline: px(".overview .headline"), h3: px(".overview h3"), body: px(".overview .problem .counts") };`);
     console.log(JSON.stringify(sizes));
     assert.ok(sizes.headline > sizes.h3 && sizes.h3 > sizes.body, JSON.stringify(sizes));
   });
@@ -114,8 +114,8 @@ describe("Overview look (#480)", { timeout: 10 * 60_000 }, () => {
     await app.waitFor(
       () =>
         app.js(`
-          const card = Array.from(document.querySelectorAll('.overview section[aria-label="Problem pods"] .problem'))
-            .find((p) => p.querySelector(".name")?.textContent.trim() === "demo/crashed");
+          const card = Array.from(document.querySelectorAll('.overview section[aria-label="Problem groups"] .problem'))
+            .find((p) => p.querySelector(".name")?.getAttribute("aria-label") === "demo/crashed");
           const logs = card && Array.from(card.querySelectorAll(".actions button")).find((b) => b.textContent.trim() === "Logs");
           logs?.click();
           return !!logs;`),

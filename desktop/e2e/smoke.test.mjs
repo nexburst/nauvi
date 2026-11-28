@@ -54,8 +54,8 @@ describe("nauvi on WebKitGTK against kind", { timeout: 15 * 60_000 }, () => {
     await app.waitFor(
       async () =>
         (await app.js(
-          `return Array.from(document.querySelectorAll('[aria-label="Problem pods"] .problem'), (p) => p.textContent)
-             .some((t) => t.includes("demo/crashed"));`,
+          `return Array.from(document.querySelectorAll('[aria-label="Problem groups"] .problem .name'), (b) => b.getAttribute("aria-label"))
+             .some((t) => t === "demo/crashed");`,
         )) || null,
       // It is only a problem between two runs of its container, and on a
       // fresh cluster it may not have crashed yet.

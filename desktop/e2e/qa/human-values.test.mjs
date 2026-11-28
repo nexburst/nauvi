@@ -21,7 +21,7 @@ import { resizeWindow } from "../lib/window.mjs";
 import { cell, openKind } from "./area-2-helpers.mjs";
 
 const T = { timeout: 480_000 };
-const PROBLEMS = '.overview section[aria-label="Problem pods"]';
+const PROBLEMS = '.overview section[aria-label="Problem groups"]';
 /** "45s", "3m 5s", "3h 5m", "8d 14h", "1y 20d". */
 const DURATION = /^\d+[smhdy]( \d+[smhdy])?$/;
 
@@ -54,7 +54,7 @@ describe("human-readable values (#484)", { timeout: 15 * 60_000 }, () => {
       () =>
         app.js(
           `const p = Array.from(document.querySelectorAll('${PROBLEMS} .problem'))
-             .find((el) => el.querySelector("button, span")?.textContent.trim() === "default/hungry");
+             .find((el) => el.querySelector(".name")?.getAttribute("aria-label") === "default/hungry");
            return p?.querySelector(".reason")?.textContent.trim() ?? null;`,
         ),
       { timeout: 420_000, interval: 2000, message: "default/hungry in the problem pods" },
@@ -73,16 +73,22 @@ describe("human-readable values (#484)", { timeout: 15 * 60_000 }, () => {
     const card = await app.waitFor(
       () =>
         app.js(`
-          const c = Array.from(document.querySelectorAll('.overview section[aria-label="Warnings"] .event'))
+          const c = Array.from(document.querySelectorAll('.overview section[aria-label="Warning groups"] .event'))
             .find((el) => el.querySelector(".object")?.textContent.trim() === "Pod/hungry");
           if (!c) return null;
           c.scrollIntoView({ block: "center" });
+          // One line; the message shows expanded (#605).
+          const chev = c.querySelector(".row-chev");
+          if (chev?.getAttribute("aria-expanded") !== "true") chev?.click();
+          const full = c.querySelector(".message")?.textContent.trim();
+          if (!full) return null;
           return {
             reason: c.querySelector(".reason")?.textContent.trim(),
             raw: c.querySelector(".reason")?.getAttribute("title"),
-            when: c.querySelector(".age")?.textContent.trim(),
-            headline: c.querySelector(".message")?.textContent.trim(),
-            full: c.querySelector(".full")?.textContent.trim() ?? "",
+            when: c.querySelector(".when")?.textContent.trim(),
+            headline: c.querySelector(".summary")?.textContent.trim(),
+            title: c.getAttribute("title") ?? "",
+            full,
             text: c.innerText,
           };`),
       { timeout: 60_000, interval: 2000, message: "the Pod/hungry warning on the Overview" },
@@ -91,8 +97,9 @@ describe("human-readable values (#484)", { timeout: 15 * 60_000 }, () => {
     assert.equal(card.raw, "FailedScheduling");
     assert.equal(card.reason, "Failed scheduling");
     assert.match(card.headline, /^No node (has enough CPU and memory|fits: .*short of CPU and memory)/);
+    assert.equal(card.title, card.headline, "the summary is the row's tooltip");
     assert.match(card.full, /^0\/\d+ nodes are available/);
-    assert.match(card.when, /^(\d+ times, last )?\d+[smhdy]( \d+[smhdy])? ago$/);
+    assert.match(card.when, /^(\d+× · )?\d+[smhdy]( \d+[smhdy])? ago$/);
     assert.doesNotMatch(card.text, /\(x\d+\)/);
     await shotBoth(app, "overview-warnings");
   });
@@ -100,8 +107,8 @@ describe("human-readable values (#484)", { timeout: 15 * 60_000 }, () => {
   it("the pod's events say the reason in words, a summary, how often and when", T, async () => {
     const { app } = s;
     await app.js(
-      `Array.from(document.querySelectorAll('${PROBLEMS} .problem button'))
-         .find((b) => b.textContent.trim() === "default/hungry")?.click()`,
+      `Array.from(document.querySelectorAll('${PROBLEMS} .problem button.name'))
+         .find((b) => b.getAttribute("aria-label") === "default/hungry")?.click()`,
     );
     await waitPanelTitle(app, "hungry");
     const events = await app.waitFor(

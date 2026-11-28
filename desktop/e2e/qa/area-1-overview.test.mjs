@@ -95,10 +95,10 @@ describe("area 1: status, Overview, Refresh, sidebar", { timeout: 10 * 60_000 },
     console.log(JSON.stringify(last.got.cards));
     // The warnings list has entries or says so.
     const warnings = await app.js(
-      `return document.querySelector('.overview section[aria-label="Warnings"]')?.innerText ?? ""`,
+      `return document.querySelector('.overview section[aria-label="Warning groups"]')?.innerText ?? ""`,
     );
     // The section heading (sentence case since #480).
-    assert.match(warnings, /Warnings/i);
+    assert.match(warnings, /Warning groups/);
   });
 
   // Running (one container still sleeps), not ready, STATUS "Error".
@@ -132,10 +132,10 @@ spec:
     await app.nav("Overview");
     const entry = () =>
       app.js(
-        `const p = Array.from(document.querySelectorAll('.overview section[aria-label="Problem pods"] .problem'))
-           .find((el) => el.querySelector("button, span")?.textContent.trim() === arguments[0]);
+        `const p = Array.from(document.querySelectorAll('.overview section[aria-label="Problem groups"] .problem'))
+           .find((el) => el.querySelector(".name")?.getAttribute("aria-label") === arguments[0]);
          const r = p?.querySelector(".reason");
-         return r ? { reason: r.textContent.trim(), error: r.classList.contains("error") } : null;`,
+         return r ? { reason: r.textContent.trim(), error: p.classList.contains("error") } : null;`,
         `${ns}/half-failed`,
       );
     const got = await app.waitFor(entry, { timeout: 60_000, message: `${ns}/half-failed in the problem pods` });
@@ -143,7 +143,7 @@ spec:
     assert.equal(got.reason, "Error", "the problem text is the pod's STATUS");
     assert.ok(got.error, "shown as an error, like other STATUS problems");
     await app.js(
-      `document.querySelector('.overview section[aria-label="Problem pods"]')?.scrollIntoView({ block: "start" })`,
+      `document.querySelector('.overview section[aria-label="Problem groups"]')?.scrollIntoView({ block: "start" })`,
     );
     for (const theme of ["dark", "light"]) {
       await setTheme(app, theme);
@@ -165,8 +165,8 @@ spec:
 
     // The same text in the Pods table, where the problem pod opens.
     await app.js(
-      `Array.from(document.querySelectorAll('.overview section[aria-label="Problem pods"] .problem button'))
-         .find((b) => b.textContent.trim() === arguments[0])?.click()`,
+      `Array.from(document.querySelectorAll('.overview section[aria-label="Problem groups"] .problem button.name'))
+         .find((b) => b.getAttribute("aria-label") === arguments[0])?.click()`,
       `${ns}/half-failed`,
     );
     const row = await app.waitFor(
