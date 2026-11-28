@@ -64,6 +64,7 @@ export function paletteItems(): PaletteItem[] {
         label: label(c.name),
         detail: c.current ? "current" : c.server || undefined,
         terms: [c.name, c.context],
+        complete: label(c.name),
         run: () => whenDiscarded(() => void switchContext(c.name)),
       }),
     ),
@@ -258,6 +259,7 @@ export function paletteItems(): PaletteItem[] {
       label: k.label,
       detail: k.resource.group || undefined,
       terms: [k.resource.plural, k.resource.kind, ...k.short_names],
+      complete: k.resource.plural,
       run: () => setView(k.id),
     });
   }
@@ -277,6 +279,7 @@ export function paletteItems(): PaletteItem[] {
       group: "Namespace",
       label: ns,
       detail: app.selectedNamespaces.includes(ns) ? "current" : undefined,
+      complete: ns,
       run: () => switchNamespace(ns),
     });
   }
@@ -289,6 +292,7 @@ export function paletteItems(): PaletteItem[] {
       label: name,
       detail: c.current ? "current" : undefined,
       terms: [c.name, c.context, c.server],
+      complete: name,
       run: () => whenDiscarded(() => void switchContext(c.name)),
     });
     items.push({
@@ -296,6 +300,7 @@ export function paletteItems(): PaletteItem[] {
       group: "Window",
       label: `Open ${name} in new window`,
       terms: [name, c.name],
+      complete: name,
       run: () => void openContextWindow(c.name),
     });
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_RESULTS, parseQuery, pushRecent, rankItems, reasonsByItem, withReasons } from "./palette";
+import { MAX_RESULTS, completeQuery, parseQuery, pushRecent, rankItems, reasonsByItem, withReasons } from "./palette";
 import type { PaletteItem } from "./palette";
 
 describe("parseQuery", () => {
@@ -114,5 +114,27 @@ describe("access reasons (#349)", () => {
     const out = withReasons(items, new Map([["action:delete", no]]));
     expect(out.map((i) => i.reason)).toEqual([undefined, no, undefined, undefined]);
     expect(withReasons(items, new Map())).toBe(items);
+  });
+});
+
+describe("completeQuery", () => {
+  const kind: PaletteItem = { id: "kind:v1/namespaces", group: "Kind", label: "Namespaces", complete: "namespaces", run: () => {} };
+  const ns: PaletteItem = { id: "ns:kube-system", group: "Namespace", label: "kube-system", complete: "kube-system", run: () => {} };
+  const cmd: PaletteItem = { id: "cmd:refresh", group: "Command", label: "Refresh", run: () => {} };
+
+  it("keeps the prefix the user typed (#591)", () => {
+    expect(completeQuery(":na", kind)).toBe(":namespaces");
+    expect(completeQuery("  :na", kind)).toBe(":namespaces");
+    expect(completeQuery("na", kind)).toBe("namespaces");
+    expect(completeQuery("ns kube", ns)).toBe("ns kube-system");
+    expect(completeQuery("NS  ku", ns)).toBe("NS kube-system");
+    expect(completeQuery("ctx dev", { ...ns, complete: "kind-dev" })).toBe("ctx kind-dev");
+    expect(completeQuery("win dev", { ...ns, complete: "kind-dev" })).toBe("win kind-dev");
+  });
+
+  it("has nothing for an item without a completion, or an already complete query", () => {
+    expect(completeQuery("> ref", cmd)).toBeNull();
+    expect(completeQuery(":namespaces", kind)).toBeNull();
+    expect(completeQuery(":namespaces ", kind)).toBeNull();
   });
 });

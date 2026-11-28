@@ -29,6 +29,9 @@ export interface PaletteItem {
   access?: string;
   /** Not offered: why (the access check's "Not allowed: …"). */
   reason?: string;
+  /** What Tab completes the query to, after its prefix (`:` + a kind's
+   *  plural, `ns ` + a namespace, #591). None: Tab moves to the next result. */
+  complete?: string;
   run: () => void;
 }
 
@@ -54,6 +57,26 @@ export function parseQuery(raw: string): { scope: Scope; text: string } {
   // "ns" alone is also the Namespaces kind's alias: only a space makes it a prefix.
   if (m && m[2]) return { scope: PREFIXES[m[1].toLowerCase()], text: m[3].trim() };
   return { scope: "all", text: q.trim() };
+}
+
+/**
+ * The query Tab turns `raw` into for `item` (#591): its completion after
+ * the prefix the user typed (`:na` -> `:namespaces`, `ns kube` ->
+ * `ns kube-system`), or null when it has none or the query already is it
+ * (Tab then moves to the next result, as shells cycle).
+ */
+export function completeQuery(raw: string, item: PaletteItem): string | null {
+  if (!item.complete) return null;
+  const q = raw.trimStart();
+  let prefix = "";
+  if (q.startsWith(">")) prefix = ">";
+  else if (q.startsWith(KIND_PREFIX)) prefix = KIND_PREFIX;
+  else {
+    const m = /^(ns|ctx|win)(\s+)/i.exec(q);
+    if (m) prefix = `${m[1]} `;
+  }
+  const out = prefix + item.complete;
+  return out === raw.trim() ? null : out;
 }
 
 const IN_SCOPE: Record<Scope, PaletteItem["group"][] | null> = {

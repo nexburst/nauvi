@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { rankItems, withReasons } from "../palette";
+  import { onMount, untrack } from "svelte";
+  import { completeQuery, rankItems, withReasons } from "../palette";
   import { visibleCluster } from "../cluster";
   import type { Ranked } from "../palette";
   import { reloadNamespaces } from "../stores/app.svelte";
@@ -24,12 +24,17 @@
   let active = $state(0);
   let input = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement | null>(null);
+  let box = $state<HTMLDivElement | null>(null);
+  // The item Tab completed to: it stays highlighted in the new results.
+  let keep: string | null = null;
 
   const results: Ranked[] = $derived(rankItems(withReasons(items, reasons), query, recentIds()));
 
   $effect(() => {
     void query;
-    active = 0;
+    const id = keep;
+    keep = null;
+    active = id ? Math.max(0, untrack(() => results.findIndex((r) => r.item.id === id))) : 0;
   });
 
   // Keep the active option in view.
@@ -76,9 +81,35 @@
     r.item.run();
   }
 
+  /** Tab: complete to the highlighted result, else move like the arrows (#591). */
+  function tab(back: boolean) {
+    const n = results.length;
+    if (!n) return;
+    const r = results[active];
+    const done = back || !r ? null : completeQuery(query, r.item);
+    if (done !== null) {
+      keep = r.item.id;
+      query = done;
+    } else active = (active + (back ? n - 1 : 1)) % n;
+  }
+
+  // The focus stays in the palette (an aria-modal dialog): should it leave
+  // the input (a click on the palette's padding), it comes back (#591).
+  function onblur(e: FocusEvent) {
+    const to = e.relatedTarget;
+    if (to instanceof Node && box?.contains(to)) return;
+    setTimeout(() => {
+      if (keyboard.palette && input?.isConnected && document.activeElement !== input) input.focus();
+    });
+  }
+
   function onkeydown(e: KeyboardEvent) {
     const n = results.length;
-    switch (e.key) {
+    // WebKitGTK may name Shift+Tab by its keysym (ISO_Left_Tab): the physical key decides.
+    switch (e.code === "Tab" ? "Tab" : e.key) {
+      case "Tab":
+        tab(e.shiftKey);
+        break;
       case "Escape":
         closePalette();
         break;
@@ -107,7 +138,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 <div class="backdrop" onclick={(e) => e.target === e.currentTarget && closePalette()}>
-  <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" data-testid="command-palette">
+  <div bind:this={box} class="palette" role="dialog" aria-modal="true" aria-label="Command palette" data-testid="command-palette">
     <input
       bind:this={input}
       bind:value={query}
@@ -123,6 +154,7 @@
       spellcheck="false"
       autocomplete="off"
       {onkeydown}
+      {onblur}
     />
     <ul id="palette-list" role="listbox" aria-label="Results" bind:this={listEl}>
       {#each results as r, i (r.item.id)}
