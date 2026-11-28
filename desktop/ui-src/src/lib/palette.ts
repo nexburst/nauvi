@@ -32,6 +32,8 @@ export interface PaletteItem {
   /** What Tab completes the query to, after its prefix (`:` + a kind's
    *  plural, `ns ` + a namespace, #591). None: Tab moves to the next result. */
   complete?: string;
+  /** Its keyboard shortcut, shown on the right ("Ctrl+`", #592). */
+  keys?: string;
   run: () => void;
 }
 

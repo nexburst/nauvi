@@ -183,10 +183,11 @@ describe("formatBinding", () => {
     expect(formatBinding(of("deleteRows"), true)).toEqual(["Delete", "⌘Backspace", "⌃D"]);
     expect(formatBinding(of("toggleRow"), false)).toEqual(["Space"]);
     expect(formatBinding(of("toggleDock"), false)).toEqual(["Ctrl+`", "Ctrl+J"]);
-    expect(formatBinding(of("toggleDock"), true)).toEqual(["⌘J", "⌃`"]);
+    // The VS Code keys first on macOS too (#592).
+    expect(formatBinding(of("toggleDock"), true)).toEqual(["⌃`", "⌘J"]);
     expect(formatBinding(of("newLocalShell"), false)).toEqual(["Ctrl+Shift+`", "Ctrl+Shift+J"]);
-    expect(formatBinding(of("newLocalShell"), true)).toEqual(["⇧⌘J", "⌃⇧`"]);
-    expect(shortcutHint("toggleDock", true)).toBe("⌘J or ⌃`");
+    expect(formatBinding(of("newLocalShell"), true)).toEqual(["⌃⇧`", "⇧⌘J"]);
+    expect(shortcutHint("toggleDock", true)).toBe("⌃` or ⌘J");
     expect(formatBinding(of("refresh"), false)).toEqual(["F5", "Ctrl+R"]);
     expect(shortcutHint("refresh", true)).toBe("F5 or ⌘R");
     expect(shortcutHint("back", false)).toBe("Alt+←");

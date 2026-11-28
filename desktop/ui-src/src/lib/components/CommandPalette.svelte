@@ -177,7 +177,12 @@
         >
           <span class="label">{r.item.label}</span>
           {#if r.item.detail}<span class="detail">{r.item.detail}</span>{/if}
-          {#if r.group === "Recent"}<span class="tag">{r.item.group}</span>{/if}
+          {#if r.group === "Recent" || r.item.keys}
+            <span class="end">
+              {#if r.group === "Recent"}<span class="tag">{r.item.group}</span>{/if}
+              {#if r.item.keys}<kbd data-testid="palette-keys">{r.item.keys}</kbd>{/if}
+            </span>
+          {/if}
           {#if r.item.reason}
             <span class="reason" id="palette-deny-{i}" data-testid="palette-reason">{r.item.reason}</span>
           {/if}
@@ -264,8 +269,21 @@
     font-size: 12px;
     white-space: nowrap;
   }
-  .tag {
+  .end {
     margin-left: auto;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  kbd {
+    font-family: var(--font-num);
+    font-size: 10.5px;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    white-space: nowrap;
   }
   .none {
     padding: 10px;

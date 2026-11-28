@@ -427,10 +427,8 @@ export function formatBinding(b: Binding, mac: boolean, k9s = false): string[] {
     return b.display.map((d) => d.replace("Mod+", mac ? "⌘" : "Ctrl+").replace("Shift+", mac ? "⇧" : "Shift+"));
   }
   // `?` is typed with Shift anyway; lower-case letters read better as typed.
-  // On macOS ⌘J comes first: which key ⌃` names depends on the keyboard
-  // (left of 1, or next to the left Shift on ISO keyboards).
-  const keys = mac ? [...b.keys].sort((x, y) => Number(!!x.ctrl) - Number(!!y.ctrl)) : b.keys;
-  return keys
+  // In KEYMAP's order on every platform: ⌃` before ⌘J, as in VS Code (#592).
+  return b.keys
     .filter((k) => keyLive(k, mac, k9s))
     .map((k) =>
       !k.mod && !k.ctrl && !k.shift && k.key.length === 1 && k.key !== " " ? k.key : formatKey(k, mac),
