@@ -37,6 +37,8 @@ import { CATALOG_VIEW, displayName, orderContexts } from "../catalog";
 import { shownContexts } from "../hidden";
 import { openClusterSettings } from "./catalog.svelte";
 import { contextSettings, settings } from "./settings.svelte";
+import { isMacPlatform, shortcutHint } from "../keys";
+import type { Command } from "../keys";
 
 /** Ids of recently run entries, newest first (this session). */
 let recent: string[] = [];
@@ -47,6 +49,11 @@ export function recentIds(): string[] {
 
 export function rememberPick(id: string) {
   recent = pushRecent(recent, id);
+}
+
+/** A command's first key, for the palette's hint (#592). */
+function keyOf(command: Command): string {
+  return shortcutHint(command, isMacPlatform(), settings.current.k9s_keys).split(" or ")[0];
 }
 
 export function paletteItems(): PaletteItem[] {
@@ -76,7 +83,7 @@ export function paletteItems(): PaletteItem[] {
       run: () => setView(CATALOG_VIEW),
     },
     { id: "cmd:create", group: "Command", label: "Create resource…", terms: ["new", "apply", "yaml"], run: openCreate },
-    { id: "cmd:overview", group: "Command", label: "Go to Overview", run: () => setView("overview") },
+    { id: "cmd:overview", group: "Command", label: "Go to Overview", keys: "1", run: () => setView("overview") },
     {
       id: "cmd:workloads",
       group: "Command",
@@ -113,13 +120,21 @@ export function paletteItems(): PaletteItem[] {
       terms: ["vulnerabilities", "cve", "trivy", "scan"],
       run: () => setView(IMAGE_SECURITY_VIEW),
     },
-    { id: "cmd:refresh", group: "Command", label: "Refresh", terms: ["reload"], run: refresh },
-    { id: "cmd:help", group: "Command", label: "Keyboard shortcuts", terms: ["help", "keys"], run: openHelp },
+    { id: "cmd:refresh", group: "Command", label: "Refresh", terms: ["reload"], keys: keyOf("refresh"), run: refresh },
+    {
+      id: "cmd:help",
+      group: "Command",
+      label: "Keyboard shortcuts",
+      terms: ["help", "keys"],
+      keys: keyOf("help"),
+      run: openHelp,
+    },
     {
       id: "cmd:settings",
       group: "Command",
       label: "Settings…",
       terms: ["preferences", "theme", "options"],
+      keys: keyOf("settings"),
       run: openSettings,
     },
     {
@@ -135,6 +150,7 @@ export function paletteItems(): PaletteItem[] {
       label: "New local terminal",
       detail: "kubectl at this context and namespace",
       terms: ["shell", "terminal", "kubectl", "console", "local"],
+      keys: keyOf("newLocalShell"),
       run: openLocalShell,
     },
     // Ask AI (#376): always listed, so it can say what to install.
@@ -173,6 +189,7 @@ export function paletteItems(): PaletteItem[] {
       group: "Command",
       label: dock.expanded ? "Hide the dock" : "Show the dock",
       terms: ["dock", "logs", "terminal", "panel"],
+      keys: keyOf("toggleDock"),
       run: toggleDock,
     });
   }

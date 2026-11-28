@@ -21,6 +21,7 @@
   import { isMacPlatform, shortcutHint } from "../keys";
   import HelpMenu from "./HelpMenu.svelte";
   import AskAiButton from "./AskAiButton.svelte";
+  import TerminalButton from "./TerminalButton.svelte";
   import NotificationBell from "./NotificationBell.svelte";
   import ModeBadge from "./ModeBadge.svelte";
   import { contextMode, contextNameOf } from "../stores/contextMode.svelte";
@@ -255,6 +256,7 @@
     {/key}
     <span class="sr">Refresh</span>
   </button>
+  <TerminalButton />
   <AskAiButton />
   <NotificationBell />
   <HelpMenu />
