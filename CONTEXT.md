@@ -37,6 +37,7 @@ _Avoid_: basket, cart, prompt builder
 
 - A **Problem group** holds one or more **Problem pods** of the same workload and reason
 - A **Problem pod** without an owning workload is shown alone, not in a **Problem group**
+- A crash loop's `Error` and `CrashLoopBackOff` count as one reason for a **Problem group** (the pod flips between them)
 - The **Overview** shows at most 5 **Problem groups** and 5 **Warning groups**; the rest is one link away, never below the fold
 - **Ask AI** runs in a **Local terminal**
 - An **Ask AI** started with an **AI context list** names every object in it
