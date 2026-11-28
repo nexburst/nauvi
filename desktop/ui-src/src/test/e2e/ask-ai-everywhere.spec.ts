@@ -120,6 +120,27 @@ test("the header's Ask AI is accented and readable in both themes; Go to keeps i
   await other.close();
 });
 
+for (const withAi of [false, true]) {
+  test(`at 1024 px the header keeps every button reachable (${withAi ? "with" : "without"} Ask AI)`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1024, height: 700 });
+    await openApp(page, withAi ? withClaude : undefined);
+    await expect(page.getByTestId("ask-ai-header")).toHaveCount(withAi ? 1 : 0);
+    const header = page.getByTestId("cluster-band");
+    expect(await header.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+    // Nothing overlaps them: the button itself is under its centre.
+    for (const name of ["Open in new window", "Cluster catalog", "Settings"]) {
+      const free = await page.getByRole("button", { name, exact: true }).evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return r.right <= window.innerWidth && !!hit && el.contains(hit);
+      });
+      expect(free, name).toBe(true);
+    }
+  });
+}
+
 test("a Problem group's Ask AI asks about the workload, its reason and its pods, nothing from logs", async ({
   page,
 }) => {

@@ -477,12 +477,19 @@
     background: var(--bg-hover);
   }
   /* The way anywhere: the palette, as the rail's centre. */
+  /* Never narrower than their buttons: Go to gives way, not them. */
   .lead,
   .tail {
     display: flex;
     align-items: center;
     gap: 12px;
-    min-width: 0;
+  }
+  /* A narrow window (1024 px): Go to may shrink to 120 px, as before the
+     grid, so nothing is pushed out of the header. */
+  @media (max-width: 1180px) {
+    header {
+      grid-template-columns: auto minmax(120px, 1fr) auto;
+    }
   }
   /* At the start of its column, so the tools on the right never move it. */
   .goto {
