@@ -133,7 +133,12 @@ test("one list per context; entries removable; the 21st refused with the reason"
 
   // Fill it to 20 from the store, then the 21st.
   await page.evaluate(async () => {
-    const m = await import("/src/lib/stores/aiContext.svelte.ts");
+    // The app's own module (Vite serves it once), by a path the type check
+    // does not resolve.
+    const path = "/src/lib/stores/aiContext.svelte.ts";
+    const m = (await import(/* @vite-ignore */ path)) as {
+      addToAiContext: (o: { namespace: string; kind: string; name: string }) => string;
+    };
     for (let i = 0; i < 20; i++) m.addToAiContext({ namespace: "", kind: "Node", name: `n-${i}` });
   });
   await expect(count(page)).toHaveText("20");
