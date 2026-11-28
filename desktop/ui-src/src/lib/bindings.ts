@@ -1755,6 +1755,12 @@ export type EventInfo = {
 	/**  When it last happened (unix seconds), so a UI can show its age. */
 	time: number,
 	count: number,
+	/**
+	 *  For an event about a pod the overview knows: the workload that owns
+	 *  the pod (a ReplicaSet's pod is its Deployment's). Empty otherwise.
+	 */
+	owner_kind: string,
+	owner_name: string,
 };
 
 /**  The user's answer for one command of one source. */
@@ -2852,6 +2858,13 @@ export type PodCounts_Deserialize = {
 	problems: ProblemPod[],
 	/**  How many problem pods there are in all. */
 	problems_total: number,
+	/**
+	 *  The worst Problem groups: errors before the rest, then the most
+	 *  pods; at most 5 (the Overview's budget).
+	 */
+	groups: ProblemGroup[],
+	/**  How many Problem groups there are in all. */
+	groups_total: number,
 };
 
 /**
@@ -2879,6 +2892,13 @@ export type PodCounts_Serialize = {
 	problems: ProblemPod[],
 	/**  How many problem pods there are in all. */
 	problems_total: number,
+	/**
+	 *  The worst Problem groups: errors before the rest, then the most
+	 *  pods; at most 5 (the Overview's budget).
+	 */
+	groups: ProblemGroup[],
+	/**  How many Problem groups there are in all. */
+	groups_total: number,
 };
 
 /**  Pod-only part of a [`super::ResourceDetail`]. */
@@ -2922,6 +2942,36 @@ export type ProbeInfo = {
 };
 
 /**
+ *  The Problem pods of one owning workload that share one reason, shown as
+ *  one row (#605). A Problem pod without an owner is a group of its own,
+ *  with empty `owner_kind` and `owner_name`.
+ */
+export type ProblemGroup = {
+	/**  Unique among the groups: namespace, owner (or pod) and reason. */
+	key: string,
+	namespace: string,
+	owner_kind: string,
+	owner_name: string,
+	/**  The reason of its worst pod: "CrashLoopBackOff", "Pending for 1h". */
+	reason: string,
+	/**  A waiting error or failed pods, not pending or not ready ones. */
+	error: boolean,
+	/**  How many Problem pods it holds. */
+	count: number,
+	/**  How many pods the owning workload has in all (1 for a lone pod). */
+	owner_pods: number,
+	/**  Restarts of its pods, summed. */
+	restarts: number,
+	/**  Its Problem pods, worst first, at most 50. */
+	pods: ProblemPod[],
+	/**
+	 *  The newest warning events of those pods, at most 5; they are not in
+	 *  the Warnings. Empty for a pod without an owner (its events are).
+	 */
+	events: EventInfo[],
+};
+
+/**
  *  A pod worth looking at: a waiting error (CrashLoopBackOff, ...), failed,
  *  running but not ready, or pending for more than five minutes.
  */
@@ -2935,6 +2985,12 @@ export type ProblemPod = {
 	restarts: number,
 	/**  Unix seconds. */
 	created: number,
+	/**
+	 *  The workload that owns it (a ReplicaSet's pod is its Deployment's);
+	 *  empty for a pod without an owner.
+	 */
+	owner_kind: string,
+	owner_name: string,
 };
 
 /**
@@ -2970,7 +3026,10 @@ export type RecentEvents = RecentEvents_Serialize | RecentEvents_Deserialize;
 export type RecentEvents_Deserialize = {
 	/**  As in [`PodCounts::namespace`]. */
 	namespace?: string | null,
-	/**  Newest first. */
+	/**
+	 *  Newest first, at most 100. Events of pods in a Problem group are
+	 *  left out: they belong to that group.
+	 */
 	items: EventInfo[],
 };
 
@@ -2978,7 +3037,10 @@ export type RecentEvents_Deserialize = {
 export type RecentEvents_Serialize = {
 	/**  As in [`PodCounts::namespace`]. */
 	namespace: string | null,
-	/**  Newest first. */
+	/**
+	 *  Newest first, at most 100. Events of pods in a Problem group are
+	 *  left out: they belong to that group.
+	 */
 	items: EventInfo[],
 };
 
@@ -3101,7 +3163,7 @@ export type ResourceRow = {
 	/**
 	 *  The workload status the Workloads overview counts this object under
 	 *  ([`WorkloadStatus::as_str`]), so a click on a count can filter the
-	 *  table; "" for kinds that are not workloads.
+	 *  table; an event's type (`Warning`, `Normal`); "" for other kinds.
 	 */
 	status: string,
 	/**

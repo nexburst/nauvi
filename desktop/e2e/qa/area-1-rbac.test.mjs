@@ -90,7 +90,7 @@ describe("area 1: namespace-scoped user", { timeout: 15 * 60_000, skip }, () => 
           const cards = Array.from(document.querySelectorAll(".overview .card .label"), (l) => l.textContent.trim());
           if (!cards.length) return null;
           return { cards, notes: document.querySelector(".overview .notes")?.innerText ?? "",
-                   warnings: document.querySelector('.overview section[aria-label="Warnings"] h3')?.textContent.trim() ?? "",
+                   warnings: document.querySelector('.overview section[aria-label="Warning groups"] h3')?.textContent.trim() ?? "",
                    text: document.querySelector(".overview").innerText };`),
       { message: "the Overview" },
     );
@@ -99,7 +99,7 @@ describe("area 1: namespace-scoped user", { timeout: 15 * 60_000, skip }, () => 
     assert.ok(!o.cards.includes("Namespaces"), "no Namespaces card");
     assert.ok(!o.cards.includes("Nodes ready"), "no Nodes card");
     assert.ok(o.notes.length > 0, "notes say what is not shown");
-    assert.equal(o.warnings, "Warnings in team-a");
+    assert.equal(o.warnings, "Warning groups in team-a");
   });
 
   it("Nodes and the other cluster-scoped kinds are greyed out with a reason", T, async () => {

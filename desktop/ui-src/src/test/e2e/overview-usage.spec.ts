@@ -56,20 +56,26 @@ test("without Prometheus, the chart samples metrics-server while the window is o
   );
   await expect(usage(page).getByTestId("overview-usage-note")).toHaveCount(0);
   const cpu = usage(page).getByTestId("usage-chart-cpu");
-  // One sample so far: a dot.
-  await expect(cpu.locator('circle[data-series="used"]')).toHaveCount(1);
-  await expect(cpu).toContainText("used 900m");
+  // One sample so far: no chart yet, it says when (#605).
+  await expect(usage(page).getByTestId("overview-usage-collecting")).toHaveText(
+    "Collecting usage, first points in about a minute.",
+  );
+  await expect(cpu).toHaveCount(0);
+
+  // Each usage poll adds a sample; from the third on, the chart shows.
+  const c = (await page.evaluate(() => window.__fake.cluster.overview.capacity))!;
+  await page.clock.fastForward(20_000);
+  await fake.emitOverview({ capacity: { ...c, cpu_usage_millicores: 1000 } });
+  await expect(cpu).toHaveCount(0);
+  await page.clock.fastForward(20_000);
+  await fake.emitOverview({ capacity: { ...c, cpu_usage_millicores: 1100 } });
+  await expect(usage(page).getByTestId("overview-usage-collecting")).toHaveCount(0);
+  await expect(cpu.locator('polyline[data-series="used"]')).toHaveAttribute("points", /^\S+ \S+ \S+$/);
+  await expect(cpu).toContainText("used 1.1");
   // The dashed lines: requests, limits and allocatable.
   await expect(cpu.getByTestId("ref-request")).toHaveText("request 1.2");
   await expect(cpu.getByTestId("ref-limit")).toHaveText("limit 2.5");
   await expect(cpu.getByTestId("ref-allocatable")).toHaveCount(0);
-
-  // The next usage poll adds a sample.
-  await page.clock.fastForward(30_000);
-  const c = (await page.evaluate(() => window.__fake.cluster.overview.capacity))!;
-  await fake.emitOverview({ capacity: { ...c, cpu_usage_millicores: 1100 } });
-  await expect(cpu.locator('polyline[data-series="used"]')).toHaveAttribute("points", /^\S+ \S+$/);
-  await expect(cpu).toContainText("used 1.1");
   expect(await fake.calls("cmdOverviewUsage")).toHaveLength(1);
   expect(fake.errors).toEqual([]);
 });

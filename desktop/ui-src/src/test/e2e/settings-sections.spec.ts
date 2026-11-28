@@ -40,7 +40,7 @@ test("Settings shows one section at a time; the search finds a setting in any of
 
 test("on a wide window the Overview puts the namespaces beside the problems", async ({ page }) => {
   await openApp(page, undefined, { waitForKinds: false });
-  const problems = page.getByRole("region", { name: "Problem pods" });
+  const problems = page.getByRole("region", { name: "Problem groups" });
   const namespaces = page.getByRole("region", { name: "Pods by namespace" });
   await expect(namespaces.getByRole("table")).toBeVisible();
   const [a, b] = [await problems.boundingBox(), await namespaces.boundingBox()];

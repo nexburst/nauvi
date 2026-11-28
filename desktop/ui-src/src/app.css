@@ -348,6 +348,82 @@ th {
   flex: 1;
 }
 
+/* The Overview's lists (#605): one card holding one-line rows split by
+   hairlines (Problem groups, Warning groups), shared with the Workloads
+   overview. */
+.row-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.row-list > li + li {
+  border-top: 1px solid var(--border);
+}
+/* A ghost button: icon 14 and a label, 26 px high. */
+.row-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.row-act:hover,
+.row-act:focus-visible {
+  color: var(--accent);
+  border-color: var(--border);
+  background: var(--bg-hover);
+}
+/* The expand control of a row: a 16 px chevron that turns. */
+.row-chev {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.row-chev:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+.row-chev :is(svg) {
+  transition: transform 140ms var(--ease-out);
+}
+.row-chev[aria-expanded="true"] :is(svg) {
+  transform: rotate(90deg);
+}
+.see-all {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.see-all:hover {
+  text-decoration: underline;
+}
+
 /* A small label above panels and groups: muted, sentence case, in the UI
    font. It names a group; it does not shout. */
 .eyebrow {

@@ -48,6 +48,7 @@ pub mod liveness;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod node_shell;
+pub mod owner;
 pub mod poll;
 pub mod problems;
 pub mod proxy;

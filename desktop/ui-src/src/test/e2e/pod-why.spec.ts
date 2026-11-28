@@ -146,7 +146,7 @@ test("a problem pod from the Overview is scrolled into view in a long table", as
       });
     }
   });
-  await page.getByRole("region", { name: "Problem pods" }).getByRole("button", { name: "demo/crashed", exact: true }).click();
+  await page.getByRole("region", { name: "Problem groups" }).getByRole("button", { name: "demo/crashed", exact: true }).click();
   await expect(panel(page).locator(".title")).toHaveText("demo/crashed");
   // Wholly inside the table's scroller, not under its edge.
   const scroller = page.getByRole("grid").locator(".scroller");

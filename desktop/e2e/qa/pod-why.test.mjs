@@ -22,7 +22,7 @@ import { resizeWindow } from "../lib/window.mjs";
 
 const T = { timeout: 300_000 };
 const WHY = '[data-testid="detail-panel"] [data-testid="pod-why"]';
-const PROBLEMS = '.overview section[aria-label="Problem pods"]';
+const PROBLEMS = '.overview section[aria-label="Problem groups"]';
 
 const YAML = `
 apiVersion: apps/v1
@@ -108,7 +108,7 @@ async function openProblem(app, ns, name) {
   await app.waitFor(
     () =>
       app.js(
-        `const b = Array.from(document.querySelectorAll('${PROBLEMS} .problem button')).find((b) => b.textContent.trim() === arguments[0]);
+        `const b = Array.from(document.querySelectorAll('${PROBLEMS} .problem button.name')).find((b) => b.getAttribute("aria-label") === arguments[0]);
          if (b) b.click();
          return !!b;`,
         label,

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import { openApp, row } from "./helpers";
+import { problemGroups } from "../fixtures/overview";
 
 // The app's default shell: no sidebar. Kinds open in a drawer (G), and the
 // places kept at hand are berths the user pins and removes. The other specs
@@ -114,6 +115,16 @@ test("the kinds can be kept open as a column, and floated again", async ({ page 
 test("the problem pill opens the problem pods and the watch log; a cleared problem ties a knot on the wake line", async ({ page }) => {
   const fake = await openFloating(page);
   await expect(page.getByTestId("deck-headline")).toHaveText("2 pods need a look");
+  const crashed = {
+    namespace: "demo",
+    name: "crashed",
+    status: "CrashLoopBackOff",
+    reason: "CrashLoopBackOff",
+    restarts: 12,
+    created: 0,
+    owner_kind: "",
+    owner_name: "",
+  };
   await fake.emitOverview({
     pods: {
       namespace: null,
@@ -124,10 +135,9 @@ test("the problem pill opens the problem pods and the watch log; a cleared probl
       failed: 0,
       waiting_errors: 1,
       by_namespace: [["demo", 5]],
-      problems: [
-        { namespace: "demo", name: "crashed", status: "CrashLoopBackOff", reason: "CrashLoopBackOff", restarts: 12, created: 0 },
-      ],
+      problems: [crashed],
       problems_total: 1,
+      ...problemGroups([crashed]),
     },
   });
   await expect(page.getByTestId("deck-headline")).toHaveText("1 pod needs a look");

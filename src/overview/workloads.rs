@@ -335,6 +335,8 @@ mod tests {
             object_name: String::new(),
             time: 0,
             count: 1,
+            owner_kind: String::new(),
+            owner_name: String::new(),
         };
         assert!(about_a_workload(&e("apps/v1", "Deployment")));
         assert!(about_a_workload(&e("v1", "Pod")));

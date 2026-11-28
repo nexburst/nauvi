@@ -16,6 +16,7 @@ import type {
   Overview_Serialize,
   ContainerDetail,
   PodExtras,
+  ProblemPod,
   Related,
   ResourceDetail,
   ResourceKind,
@@ -37,6 +38,7 @@ import { NO_PROMETHEUS, sparkFixtures, usageFixtures } from "./usage";
 import type { FakePrometheus, UsageFixture } from "./usage";
 import { upToDate } from "./updates";
 import { defaultCatalog } from "./catalog";
+import { problemGroups } from "./overview";
 import type { FakeCatalog, FakeContext } from "./catalog";
 import type { FakeUpdate } from "./updates";
 
@@ -196,6 +198,30 @@ export interface FakeKubectl {
 /** Unix seconds, a fixed distance in the past so ages are stable. */
 const ago = (secs: number) => Math.floor(Date.now() / 1000) - secs;
 
+/** The demo's Problem pods: crash-looping, pending for an hour. */
+const DEMO_PROBLEMS = (): ProblemPod[] => [
+  {
+    namespace: "demo",
+    name: "crashed",
+    status: "CrashLoopBackOff",
+    reason: "CrashLoopBackOff",
+    restarts: 12,
+    created: ago(3600),
+    owner_kind: "",
+    owner_name: "",
+  },
+  {
+    namespace: "demo",
+    name: "db-0",
+    status: "Pending",
+    reason: "Pending for 1h",
+    restarts: 0,
+    created: ago(3600),
+    owner_kind: "",
+    owner_name: "",
+  },
+];
+
 /** The `pod` section of a detail that is not a pod. */
 export const NO_POD: PodExtras = {
   phase: "",
@@ -325,6 +351,9 @@ export function fakeStatus(kindId: string, cells: Record<string, string>): strin
     }
     case "batch/v1/cronjobs":
       return cells.suspend === "true" ? "Suspended" : Number(cells.active ?? 0) > 0 ? "Running" : "Scheduled";
+    // An event's type (`columns.rs`, #605).
+    case "v1/events":
+      return cells.type ?? "";
     default:
       return "";
   }
@@ -568,18 +597,10 @@ export function defaultCluster(): FakeCluster {
           ["demo", 4],
           ["kube-system", 1],
         ],
-        problems: [
-          {
-            namespace: "demo",
-            name: "crashed",
-            status: "CrashLoopBackOff",
-            reason: "CrashLoopBackOff",
-            restarts: 12,
-            created: ago(3600),
-          },
-          { namespace: "demo", name: "db-0", status: "Pending", reason: "Pending for 1h", restarts: 0, created: ago(3600) },
-        ],
+        problems: DEMO_PROBLEMS(),
         problems_total: 2,
+        // Neither has an owner: each is a Problem group of its own.
+        ...problemGroups(DEMO_PROBLEMS()),
       },
       capacity: {
         cpu_requests_millicores: 1200,
@@ -611,6 +632,8 @@ export function defaultCluster(): FakeCluster {
             object_name: "api",
             time: ago(120),
             count: 4,
+            owner_kind: "",
+            owner_name: "",
           },
           {
             key: "demo/thing.1",
@@ -624,6 +647,8 @@ export function defaultCluster(): FakeCluster {
             object_name: "thing",
             time: ago(600),
             count: 1,
+            owner_kind: "",
+            owner_name: "",
           },
         ],
       },
